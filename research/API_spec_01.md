@@ -44,6 +44,9 @@
 - data_loader.prefetch(steps, batch)
 
     data_loader asynchronously makes 'batch' count of training data pairs (X, Y) available, where Y has 'steps' snapshot groups. The pair is pushed into the FIFO queue that is maintained internally. The batch should have batch_x of dimensions (batch, T1*SG, C, H, W), and batch_y of dimentions (batch, T2*SG, C, H, W), where T2 == steps.
+
+    for any 0 <= n <= batch, (batch_x[n], batch_y[n]) should be a **trainig data pair**.
+
     <br>
 
 - data_loader.get()
