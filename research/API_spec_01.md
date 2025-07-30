@@ -5,13 +5,25 @@
 - data source <br>
   "gs://gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3" 
   <br>
+
+- Normalized virtual dataset, mean, and std <br>
+    Virtual dataset is a dataset kept in yoru mind and not on a physical memory or drive.
+    The virtual dataset is a continuously and choronologically increasingly arranged sequence of snapshots, with the shape of (T = nTotalHours, C, H, W), where nTotalHours is the number of **hourly grids** that are available in our dataset.  Virtual dataset is normalized as follows:
+        $$\bar{x_{c}} = \frac{1}{T*H*W} \sum_{t=0}^{T-1}\sum_{h=0}^{H-1}\sum_{w=0}^{W-1}x[t,c,h,w]$$        $$\sigma_{c} = \sqrt{\frac{1}{T*H*W} \sum_{t=0}^{T-1}\sum_{h=0}^{H-1}\sum_{w=0}^{W-1}(x[t,c,h,w] - \bar{x_{c}})^2}$$
+        
+        Virtual dataset x is normalized as follows:
+            x = (x - x.mean(axis=(0,2,3), keepdims=True)) / x.std(axis=(0,2,3), keepdims=True)
+
+        The following value should be kept for later use:
+            mean = x.mean(axis=(0,2,3), keepdims=False)
+            std = x.std(axis=(0,2,3), keepdims=False)   
     
 - Snapshot <br>
-  A snapshot of data has the following dimensions: <br>
+  A snapshot is a slice of normalized virtual dataset and has the following shape: <br>
     (C, H, W) = (6, 720, 1440)
     , where
     - C: the number of variables <br>
-        We have currently 6 variables to predict. We restrict the varibles in our ground truth to the same variables that we predict. Currently **C == 6**.<br>
+        We have currently 6 variables to predict. We restrict our ground truth to the same variables that we predict **for bravity**. Currently **C == 6**.<br>
         - 2m_temperature,
         - 10m_u_component_of_wind 
         - 10m_v_component_of_wind 
@@ -26,36 +38,42 @@
     - W: the number of longitudal grids <br>
         - The data source has W = 1440, which comes from [-180, 180) / 0.25
         - We accept **W == 1440**.
-        <br>
-
-- Virtual dataset <br>
-    The virtual dataset is a continuous, choronologically increasingly ordered, sequence of snapshots, with the dimension of (nTimeGrids, C, H, W), where nTimeGrids is the number of time grids that are available in our trainig dataset.
+        <br>  
 
 - Snapshot Group, SG <br>
-    A snapshot group is a continuous, choronologically increasingly ordered, sequence of snapshots, with the dimension of (SG, C, H, W), where SG is the pre-defined number of time grids. The start time of a snapshot group must be aligned with 0 o'clock of a day. Currently **SG == 24**.
+    A snapshot group is a continuously and choronologically increasingly arranged sequence of **snapshots**, with the shape of (SG, C, H, W), where SG is the pre-defined number of hourly grids. The starting snapshot of a snapshot group must be aligned with **0 o'clock** of a day. Currently **SG == 24**.
 
-- Training data pair (X, Y), T1 <br>
-    For a training data pair (X, Y), X has continuous T1 snapshot groups, packed in the form of (T1 * SG, C, H, W), while Y has continuous **varying** number of snapshot groups, packed in the form of (T2 * SG, C, H, W). Y should immadiately follow X chronologically.
-    Currently **T1 == 1**.
+- Training data pair (X, Y) <br>
+    For a training data pair (X, Y), X has continuously arranged T1 **snapshot groups**, packed in the shape of (T1 * SG, C, H, W), while Y has continuously arranged **varying** number of snapshot groups, packed in the shape of (T2 * SG, C, H, W). Y should immadiately follow X chronologically. Currently **T1 == 1**. It will increase in the future as we have more resources.
 
+- Training data batch (batch_x, batch_y) of batch size B <br>
+    - batch_x.shape = (B, T1 * SG, C, H, W) 
+    - batch_y.shape = (B, T2 * SG, C, H, W)
+    - (batch_x[n], batch_y[n]) constitutes a **training data pair**, for any applicable n.
 
-2. data_loader API
+- Trainig set, validation set, and test set <br>
+    - The normalized virtual dataset has a total of around nTotalHours/SG snapshot groups.
+    - We have a similar count of training data pairs.
+    - A uniformly distributed 60% of the data pairs forms the trainig set
+    - A uniformly distributed other 20% of the data pairs forms the validation set
+    - A uniformly distributed remaing 20% of the data pairs forms the test set.
 
-- data_loader.prefetch(steps, batch)
+2. data_loader API <br>
 
-    data_loader asynchronously makes 'batch' count of training data pairs (X, Y) available, where Y has 'steps' snapshot groups. The pair is pushed into the FIFO queue that is maintained internally. The batch should have batch_x of dimensions (batch, T1*SG, C, H, W), and batch_y of dimentions (batch, T2*SG, C, H, W), where T2 == steps.
+- data_loader.prefetch(steps, batch, set) <br>
 
-    For any 0 <= n <= batch, (batch_x[n], batch_y[n]) should be a **trainig data pair**.
-
-- data_loader.get()
+    data_loader asynchronously makes available a **training data batch** of size 'batch', where T2 = 'steps'. The data should sampled from training set, validation set, or test set, according to the value of 'set', which is one of 'trainig', 'validation', and 'test'. The available batches should put in to a FIFO queue maintained internally.
+    
+- data_loader.get() <br>
 
     data_loader waits until a batch of data pair is available in the internal FIFO queue, pops a pair from the queue, and returns it to the caller when called in the form of:
 
-    `for batch_x, batch_y in train_pbar:`
+- data_loader.empty() <br>
+    
+    data_loader empties the FIFO queue.
 
 
-
-3. tqdm prograss bar
+3. tqdm prograss bar <br>
 
     data_loader should be able to work with tqdm as below:
 
