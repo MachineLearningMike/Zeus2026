@@ -8,7 +8,7 @@
 
 - Normalized virtual dataset, mean, and std <br>
     Virtual dataset is a dataset kept in yoru mind and not on a physical memory or drive.
-    The virtual dataset is a continuously and choronologically increasingly arranged sequence of snapshots, with the shape of (T = nTotalHours, C, H, W), where nTotalHours is the number of **hourly grids** that are available in our dataset.  Virtual dataset is normalized as follows:
+    The virtual dataset is a continuously and choronologically increasingly arranged sequence of frames, with the shape of (T = nTotalHours, C, H, W), where nTotalHours is the number of **hourly grids** that are available in our dataset.  Virtual dataset is normalized as follows:
         $$\bar{x_{c}} = \frac{1}{T*H*W} \sum_{t=0}^{T-1}\sum_{h=0}^{H-1}\sum_{w=0}^{W-1}x[t,c,h,w]$$        $$\sigma_{c} = \sqrt{\frac{1}{T*H*W} \sum_{t=0}^{T-1}\sum_{h=0}^{H-1}\sum_{w=0}^{W-1}(x[t,c,h,w] - \bar{x_{c}})^2}$$
         
         Virtual dataset x is normalized as follows:
@@ -18,8 +18,8 @@
             mean = x.mean(axis=(0,2,3), keepdims=False)
             std = x.std(axis=(0,2,3), keepdims=False)   
     
-- Snapshot <br>
-  A snapshot is a slice of normalized virtual dataset and has the following shape: <br>
+- Frame <br>
+  A frame is a slice of normalized virtual dataset and has the following shape: <br>
     (C, H, W) = (6, 720, 1440)
     , where
     - C: the number of variables <br>
@@ -40,19 +40,19 @@
         - We accept **W == 1440**.
         <br>  
 
-- Snapshot Group, SG <br>
-    A snapshot group is a continuously and choronologically increasingly arranged sequence of **snapshots**, with the shape of (SG, C, H, W), where SG is the pre-defined number of hourly grids. The starting snapshot of a snapshot group must be aligned with **0 o'clock** of a day. Currently **SG == 24**.
+- Frame Group, FG <br>
+    A frame group is a continuously and choronologically increasingly arranged sequence of **frames**, with the shape of (FG, C, H, W), where FG is the pre-defined number of hourly grids. The starting frame of a frame group must be aligned with **0 o'clock** of a day. Currently **FG == 24**.
 
 - Training data pair (X, Y) <br>
-    For a training data pair (X, Y), X has continuously arranged T1 **snapshot groups**, packed in the shape of (T1 * SG, C, H, W), while Y has continuously arranged **varying** number of snapshot groups, packed in the shape of (T2 * SG, C, H, W). Y should immadiately follow X chronologically. Currently **T1 == 1**. It will increase in the future as we have more resources.
+    For a training data pair (X, Y), X has continuously arranged T1 **frame groups**, packed in the shape of (T1 * FG, C, H, W), while Y has continuously arranged **varying** number of frame groups, packed in the shape of (T2 * FG, C, H, W). Y should immadiately follow X chronologically. Currently **T1 == 1**. It will increase in the future as we have more resources.
 
 - Training data batch (batch_x, batch_y) of batch size B <br>
-    - batch_x.shape = (B, T1 * SG, C, H, W) 
-    - batch_y.shape = (B, T2 * SG, C, H, W)
+    - batch_x.shape = (B, T1 * FG, C, H, W) 
+    - batch_y.shape = (B, T2 * FG, C, H, W)
     - (batch_x[n], batch_y[n]) constitutes a **training data pair**, for any applicable n.
 
 - Trainig set, validation set, and test set <br>
-    - The normalized virtual dataset has a total of around nTotalHours/SG snapshot groups.
+    - The normalized virtual dataset has a total of around nTotalHours/FG frame groups.
     - We have a similar count of training data pairs.
     - A uniformly distributed 60% of the data pairs forms the trainig set
     - A uniformly distributed other 20% of the data pairs forms the validation set
