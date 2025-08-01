@@ -254,10 +254,10 @@ class Zeus(nn.Module):
         
         # MLP head        
         x = self.mlp_head(x.reshape(-1, self.dim))
-        x = x.view(B, T1FG, self.nPatches_h, self.nPatches_w, C, self.patch_size, self.patch_size)
-        x = x.permute(0, 1, 4, 2, 5, 3, 6).reshape(B, T1FG, C, H, W)
+        x = x.view(B, self.nFramesOut, self.nPatches_h, self.nPatches_w, C, self.patch_size, self.patch_size)
+        x = x.permute(0, 1, 4, 2, 5, 3, 6).reshape(B, self.nFramesOut, C, H, W)
 
-        return x
+        return x    # (B,FG,C,H,W)
 
 if __name__ == "__main__":
     from fvcore.nn import FlopCountAnalysis, flop_count_table

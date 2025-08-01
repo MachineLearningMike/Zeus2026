@@ -44,26 +44,37 @@ class Trainer():
     def validate(self, data_loader, steps):
         self.model.eval()
         preds_lst, trues_lst, total_loss = [], [], []
-        vali_pbar = tqdm(data_loader)
-        data_loader.prefetch(steps)     # Fetch one batch asynchronously
-        
-        for batch_x, batch_y in vali_pbar:  # Wait for the asynchronous .prefetch
-            assert tuple(batch_y.shape)[1] == steps * self.config('FG')    # (B,steps*SG,C,H,W)
-            data_loader.prefetch(steps)     # Fetch one batch asynchronously
+        T1 = self.config('T1'); FG = self.config('FG')
 
+        #======================================= Standard ===============================
+        pbar = tqdm(env.train_loader)
+
+        new_T2 = env.get_next_steps()
+        data_loader.prefetch(new_T2)        # Fetch one batch asynchronously
+
+        for batch_x, batch_y in pbar:         # Wait for the asynchronous .prefetch
+            T2 = tuple(batch_y.shape)[1] // FG
+            new_T2 = env.get_next_steps()
+            data_loader.prefetch(new_T2)    # Fetch one batch asynchronously
+
+            torch.cuda.synchronize()
             batch_x, batch_y = batch_x.to(env.device), batch_y.to(env.device)
-            pred_list = []
+            
+            B, T1FG, C, H, W = batch_x.shape
+            pred_y = torch.zeros(size=(B,0,C,H,W))
+            for step in range(T2):
+                base_x = torch.concat((batch_x[:, step*FG:, :,:,:], pred_y[:, max(step-T1,0)*FG:, :,:,:]), dim=1)  #(B,T1FG,C,H,W)
+                pred_y = self.model(base_x)     # (B,FG,C,H,W)
+                pred_y = torch.concat((pred_y, pred_y), dim=1)
+                target = batch_y[:, step*FG:(step+1)*FG, :, :, :]
+                loss = env.criterion(pred_y, target)
+                loss.append(loss.item())
+                pbar.set_description('train loss: {:.4f}'.format(loss.item()))
+            # pred_y: (B,T2FG,C,H,W)
+            #===============================================================================
 
-            for step in range(steps):
-                pred_y = self.model(batch_x, pred_list)   # (B,SG,C,H,W). t is implicit.
-                pred_list.append(pred_y)
-
-            pred_y = torch.cat(pred_list, dim=1)   # (B,steps*SG,C,H,W)
-            list(map(lambda data, lst: lst.append(data.detach().cpu().numpy()), [
-                    pred_y, batch_y], [preds_lst, trues_lst]))      # lst = [ (B,steps*SG,C,H,W) ] * n
-
-            loss = env.criterion(pred_y, batch_y)
-            vali_pbar.set_description('vali loss: {:.4f}'.format(loss.mean().item()))
+            loss = env.criterion(preds, batch_y)
+            pbar.set_description('vali loss: {:.4f}'.format(loss.mean().item()))
             total_loss.append(loss.mean().item())
 
         total_loss = np.average(total_loss)
@@ -93,35 +104,43 @@ def _conclude_epoch(self, tape_recorder, epoch, train_loss, args):
 def train(self, data_loader, args):
     config = args.__dict__
     tape_recorder = recorder.Recorder(verbose=True)
+    T1 = self.config('T1'); FG = self.config('FG')
 
     for epoch in range(config['epochs']):
         self.model.train()
         train_loss = []
+
+        #======================================= Standard ===============================
         pbar = tqdm(env.train_loader)
 
         new_T2 = env.get_next_steps()
         data_loader.prefetch(new_T2)        # Fetch one batch asynchronously
 
         for batch_x, batch_y in pbar:         # Wait for the asynchronous .prefetch
-            torch.cuda.synchronize()
-            # batch_x: (B,T1*SG,C,H,W), batch_y: (B,T2*SG,C,H,W), T2 = new_steps
-            T2 = new_T2; assert tuple(batch_y.shape)[1] == T2 * self.config('FG')
-            new_T2 = env.get_next_steps(); data_loader.prefetch(new_T2)    # Fetch one batch asynchronously
+            T2 = tuple(batch_y.shape)[1] // FG
+            new_T2 = env.get_next_steps()
+            data_loader.prefetch(new_T2)    # Fetch one batch asynchronously
 
+            torch.cuda.synchronize()
             batch_x, batch_y = batch_x.to(env.device), batch_y.to(env.device)
+            
+            B, T1FG, C, H, W = batch_x.shape
+            pred_y = torch.zeros(size=(B,0,C,H,W))
             for step in range(T2):
-                pred_y = self.model(batch_x)     # (B,SG,C,H,W). t is implicit.
-                target = batch_y[:, step*self.config('FG') : (step+1)*self.config('FG'), :, :, :]
+                base_x = torch.concat((batch_x[:, step*FG:, :,:,:], pred_y[:, max(step-T1,0)*FG:, :,:,:]), dim=1)  #(B,T1FG,C,H,W)
+                pred = self.model(base_x)     # (B,FG,C,H,W)
+                pred_y = torch.concat((pred_y, pred), dim=1)
+                target = batch_y[:, step*FG:(step+1)*FG, :, :, :]
                 loss = env.criterion(pred_y, target)
                 loss.append(loss.item())
                 pbar.set_description('train loss: {:.4f}'.format(loss.item()))
-
+            # pred_y: (B,T2FG,C,H,W)
+        #===============================================================================
                 env.optimizer.zero_grad()
                 loss.backward()             
                 env.optimizer.step()
 
             env.scheduler.step()
-
             if env.step % env.update_ema_every == 0: env.step_ema()
             env.step += 1
 
@@ -130,7 +149,7 @@ def train(self, data_loader, args):
 
     best_model_path = env.path + '/' + 'checkpoint.pth'
     self.model.load_state_dict(torch.load(best_model_path))
-    return self.model
+    return # - latest ma loss, bayesian optimization.
 
 def test(self, model, data_loader):
     model.eval()
