@@ -41,19 +41,19 @@ class Trainer():
 
         self.model = Zeus(config)
 
-    def validate(self, data_loader, steps):
-        self.model.eval()
-        preds_lst, trues_lst, total_loss = [], [], []
+
+    def _run_epoch(self, data_loader, train=False):
         T1 = self.config('T1'); FG = self.config('FG')
 
-        #======================================= Standard ===============================
+        #================================== epoch main ===============================
+        epoch_loss = []
         pbar = tqdm(env.train_loader)
 
         new_T2 = env.get_next_steps()
         data_loader.prefetch(new_T2)        # Fetch one batch asynchronously
 
         for batch_x, batch_y in pbar:         # Wait for the asynchronous .prefetch
-            T2 = tuple(batch_y.shape)[1] // FG
+            T2 = (batch_y.shape)[1] // FG
             new_T2 = env.get_next_steps()
             data_loader.prefetch(new_T2)    # Fetch one batch asynchronously
 
@@ -62,131 +62,78 @@ class Trainer():
             
             B, T1FG, C, H, W = batch_x.shape
             pred_y = torch.zeros(size=(B,0,C,H,W))
-            for step in range(T2):
-                base_x = torch.concat((batch_x[:, step*FG:, :,:,:], pred_y[:, max(step-T1,0)*FG:, :,:,:]), dim=1)  #(B,T1FG,C,H,W)
-                pred_y = self.model(base_x)     # (B,FG,C,H,W)
-                pred_y = torch.concat((pred_y, pred_y), dim=1)
-                target = batch_y[:, step*FG:(step+1)*FG, :, :, :]
-                loss = env.criterion(pred_y, target)
-                loss.append(loss.item())
-                pbar.set_description('train loss: {:.4f}'.format(loss.item()))
-            # pred_y: (B,T2FG,C,H,W)
-            #===============================================================================
+            step_loss = []
 
-            loss = env.criterion(preds, batch_y)
-            pbar.set_description('vali loss: {:.4f}'.format(loss.mean().item()))
-            total_loss.append(loss.mean().item())
+            for substep in range(T2):
+                if train: env.optimizer.zero_grad()                       # train
 
-        total_loss = np.average(total_loss)
-        preds = np.concatenate(preds_lst, axis=0)   # (T,B,C,H,W)
-        trues = np.concatenate(trues_lst, axis=0)   # (T,B,C,H,W)
-        mse, mae, t_mae, ssim, psnr = metrics.metric(preds, trues, data_loader.dataset.mean, data_loader.dataset.std, True)
-        #self.t_sample = t_mae/np.sum(t_mae) <- only need for long epoch
-
-        env.print_log('vali mse:{:.4f}, mae:{:.4f}, ssim:{:.4f}, psnr:{:.4f}'.format(mse, mae, ssim, psnr))
-        
-        return total_loss
-
-def _conclude_epoch(self, tape_recorder, epoch, train_loss, args):
-    train_loss = np.average(train_loss)
-
-    with torch.no_grad():
-        vali_loss = self.validate(self.model, env.vali_loader)
-        if epoch % (args.log_step * 100) == 0: env._save(name=str(epoch))
-        
-    env.print_log("Epoch: {0} | Train Loss: {1:.4f} Vali Loss: {2:.4f}\n".format(
-        epoch + 1, train_loss, vali_loss))
-    tape_recorder(vali_loss, self.model, env.path)
-    go_next_epoch = True
-    
-    return go_next_epoch
-
-def train(self, data_loader, args):
-    config = args.__dict__
-    tape_recorder = recorder.Recorder(verbose=True)
-    T1 = self.config('T1'); FG = self.config('FG')
-
-    for epoch in range(config['epochs']):
-        self.model.train()
-        train_loss = []
-
-        #======================================= Standard ===============================
-        pbar = tqdm(env.train_loader)
-
-        new_T2 = env.get_next_steps()
-        data_loader.prefetch(new_T2)        # Fetch one batch asynchronously
-
-        for batch_x, batch_y in pbar:         # Wait for the asynchronous .prefetch
-            T2 = tuple(batch_y.shape)[1] // FG
-            new_T2 = env.get_next_steps()
-            data_loader.prefetch(new_T2)    # Fetch one batch asynchronously
-
-            torch.cuda.synchronize()
-            batch_x, batch_y = batch_x.to(env.device), batch_y.to(env.device)
-            
-            B, T1FG, C, H, W = batch_x.shape
-            pred_y = torch.zeros(size=(B,0,C,H,W))
-            for step in range(T2):
-                base_x = torch.concat((batch_x[:, step*FG:, :,:,:], pred_y[:, max(step-T1,0)*FG:, :,:,:]), dim=1)  #(B,T1FG,C,H,W)
+                base_x = torch.concat((batch_x[:, substep*FG:, :,:,:], pred_y[:, max(substep-T1,0)*FG:, :,:,:]), dim=1)  #(B,T1FG,C,H,W)
                 pred = self.model(base_x)     # (B,FG,C,H,W)
                 pred_y = torch.concat((pred_y, pred), dim=1)
-                target = batch_y[:, step*FG:(step+1)*FG, :, :, :]
-                loss = env.criterion(pred_y, target)
-                loss.append(loss.item())
-                pbar.set_description('train loss: {:.4f}'.format(loss.item()))
+
+                target = batch_y[:, substep*FG:(substep+1)*FG, :,:]
+                substep_loss = env.difficulty_rmse(pred, target)
+                step_loss.append(substep_loss)
+                if train: substep_loss.backward()                         # train
+                if train: env.optimizer.step()                            # train
+          
             # pred_y: (B,T2FG,C,H,W)
-        #===============================================================================
-                env.optimizer.zero_grad()
-                loss.backward()             
-                env.optimizer.step()
+            step_loss = sum(step_loss)/len(step_loss)   # tensor
+            epoch_loss.append(step_loss)
+            pbar.set_description('train loss: {:.4f}'.format(step_loss.item()))
 
-            env.scheduler.step()
-            if env.step % env.update_ema_every == 0: env.step_ema()
-            env.step += 1
+            if train: env.scheduler.step()                                # train
+            if train and env.step % env.update_ema_every == 0: env.step_ema()     # train
+            if train: env.step += 1                                               # train
+        
+        epoch_loss = sum(epoch_loss)/len(epoch_loss)    # tensor
+        #--------------------------------------------------------------------------------
 
-        go_next_epoch = _conclude_epoch(tape_recorder, epoch, train_loss, args)
-        if not go_next_epoch: break
+    def _validate(self, tape_recorder, epoch, train_loss, args):
 
-    best_model_path = env.path + '/' + 'checkpoint.pth'
-    self.model.load_state_dict(torch.load(best_model_path))
-    return # - latest ma loss, bayesian optimization.
+        self.model.eval()
+        with torch.no_grad():
+            vali_loss = self._run_epoch(self, env.vali_loader, train=False)
 
-def test(self, model, data_loader):
-    model.eval()
-    preds_lst, trues_lst, total_loss = [], [], []
-    vali_pbar = tqdm(data_loader)
+        if epoch % (args.log_step * 100) == 0: env._save(name=str(epoch))
+            
+        env.print_log("Epoch: {0} | Train Loss: {1:.4f} Vali Loss: {2:.4f}\n".format(
+            epoch + 1, train_loss.item(), vali_loss.item()))
+        tape_recorder(vali_loss.item(), self.model, env.path)
+        go_next_epoch = True
+        
+        return go_next_epoch
 
-    new_steps = env.get_next_steps()
-    data_loader.prefetch(new_steps)        # Fetch one batch asynchronously
-    
-    for batch_x, batch_y in vali_pbar:         # Wait for the asynchronous .prefetch
-        curr_steps = new_steps
-        assert tuple(batch_y.shape)[1] == curr_steps * self.config('FG')   # (B,T2,C,H,W), T2 = curr_steps 
-        new_steps = env.get_next_steps()
-        data_loader.prefetch(new_steps)    # Fetch one batch asynchronously
 
-        pred_list = []
-        for step in range(curr_steps):
-            pred_y = model(batch_x.to(env.device), pred_list)    # (B,SG,C,H,W). t is implicit.
-            pred_list.append(pred_y)
+    def train(self, data_loader, args):
+        config = args.__dict__
+        tape_recorder = recorder.Recorder(verbose=True)
+        
+        T1 = self.config('T1'); FG = self.config('FG')
 
-        pred_y = torch.cat(pred_list, dim=1).unsqueeze(2)
-        list(map(lambda data, lst: lst.append(data.detach().cpu().numpy()), [
-                pred_y, batch_y], [preds_lst, trues_lst]))  # lst = [ (B,steps*SG,C,H,W) ] * n
+        for epoch in range(config['epochs']):
+            self.model.train()
 
-        loss = env.criterion(pred_y, batch_y)
-        vali_pbar.set_description('test loss: {:.4f}'.format(loss.mean().item()))
-        total_loss.append(loss.mean().item())
+            epoch_loss = self.run_epoch(self, data_loader, train=True)
 
-    total_loss = np.average(total_loss)
-    preds = np.concatenate(preds_lst, axis=0)
-    trues = np.concatenate(trues_lst, axis=0)
-    mse, mae, t_mae, ssim, psnr = metrics.metric(preds, trues, data_loader.dataset.mean, data_loader.dataset.std, True)
-    #self.t_sample = t_mae/np.sum(t_mae) <- only need for long epoch
+            go_next_epoch = self._validate(tape_recorder, epoch, epoch_loss, args)
+            if not go_next_epoch: break
 
-    env.print_log('test mse:{:.4f}, mae:{:.4f}, ssim:{:.4f}, psnr:{:.4f}'.format(mse, mae, ssim, psnr))
-    
-    return total_loss
+        best_model_path = env.path + '/' + 'checkpoint.pth'
+        self.model.load_state_dict(torch.load(best_model_path))
+        return # - latest ma loss, bayesian optimization.
+
+
+    def test(self, data_loader):
+        self.model.eval()
+        T1 = self.config('T1'); FG = self.config('FG')
+
+        epoch_loss = self._run_epoch(self, env.test_loader, train=False)
+
+        env.print_log('vali rmse:{:.4f}'.format(epoch_loss.item()))
+        
+        return epoch_loss
+
 
 # def inference(model, lat, lon, start_hour, hours):
 #     # sketch only

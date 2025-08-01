@@ -83,8 +83,12 @@ class env:
             self.optimizer, max_lr=self.args.lr, steps_per_epoch=len(self.train_loader), pct_start=0.0, epochs=self.args.epochs)
         return self.optimizer
 
+    def difficulty_rmse(self, x, y):
+        # improve to employ difficulty.
+        return torch.sqrt(torch.nn.MSELoss(x, y))
+
     def _select_criterion(self):
-        self.criterion = torch.nn.MSELoss()
+        self.criterion = self.difficulty_rmse
 
     def _save(self, name=''):
         torch.save(self.model.state_dict(), os.path.join(
