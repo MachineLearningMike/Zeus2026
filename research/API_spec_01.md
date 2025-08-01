@@ -16,7 +16,28 @@
 
         The following value should be kept for later use:
             mean = x.mean(axis=(0,2,3), keepdims=False)
-            std = x.std(axis=(0,2,3), keepdims=False)   
+            std = x.std(axis=(0,2,3), keepdims=False)
+
+- data presentation from data_loader
+        
+        `
+        D = [...]   # total days
+        V = [...]   # total variables
+        def data(d, v):  # is the numpy array for day d and variable v
+            return the numpy array of the data for v and d.
+
+        # This line will take a long time, reading thousands files.
+        mean_std = [ [ (x := data(d, v), np.mean(x), np.std(x))[1:] for v in V ] for d in D ]
+        mean_std = np.array(mean_std)               # shape: (D, V, 2)
+        mean_std = np.mean(mean_std, axis=0)    # shape: (V, 2)
+        mean = mean_std[:, 0]                   # shape: (V,)
+        std = mean_std[:, 1]                    # shape: (V,)
+        
+        # For a given batch batch_x, of shape (B, T1, C, H, W), data_loader presents:
+            mean = mean[np.newaxis, np.newaxis, :, np.newaxis, np.newaxis]
+            std = std[np.newaxis, np.newaxis, :, np.newaxis, np.newaxis]
+            batch_x = (batch_x - mean) / std        # this is presented by the data_loader.
+        `
     
 - Frame <br>
   A frame is a slice of normalized virtual dataset and has the following shape: <br>
