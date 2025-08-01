@@ -75,8 +75,24 @@
 
 3. tqdm prograss bar <br>
 
-    data_loader should be able to work with tqdm as below:
+    data_loader should be able to work with tqdm as below: <br>
 
-    `train_pbar = tqdm(env.train_loader)`
-    `for batch_x, batch_y in train_pbar:`
+
+        pbar = zeus_tqdm(train_loader)
+
+        new_T2 = env.get_next_steps()
+        zeus_tqdm.prefetch(new_T2)        # Fetch one batch asynchronously`
+
+        for batch_x, batch_y in pbar:         # Wait for the asynchronous .prefetch
+            T2 = batch_y.shape[1] // self.config('FG')
+            new_T2 = env.get_next_steps(); 
+            zeus_tqdm.prefetch(new_T2)    # Fetch one batch asynchronously
+
+            #... ... ...
+
+            for step in range(T2):
+                #... ... ...
+                pbar.set_description('train loss: {:.4f}'.format(loss.item()))
+
+
 
