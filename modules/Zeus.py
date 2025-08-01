@@ -243,7 +243,7 @@ class Zeus(nn.Module):
         
         # Add a mask?
 
-        # PredFormer Encoder
+        # Encoders
         for blk in self.blocks:
             x = blk(x)          # (B, T1FG, H/p * W/p, dim)
 
