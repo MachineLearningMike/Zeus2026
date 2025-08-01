@@ -40,8 +40,8 @@
         std = np.power(var, 0.5)                  # shape: (V,)
         
         # For a given batch batch_x, of shape (B, T1, C, H, W), data_loader presents:
-            mean = mean[np.newaxis, np.newaxis, :, np.newaxis, np.newaxis]
-            std = std[np.newaxis, np.newaxis, :, np.newaxis, np.newaxis]
+            mean = mean[:, np.newaxis, np.newaxis]
+            std = std[:, np.newaxis, np.newaxis]
             batch_x = (batch_x - mean) / std        # this is presented by the data_loader.
         `
     
