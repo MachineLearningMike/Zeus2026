@@ -23,17 +23,21 @@
         `
         D = [...]   # total days
         V = [...]   # total variables
-        def data(d, v):  # is the numpy array for day d and variable v
+        def data(d, v):         # return shape: (24, H, W)
             return the numpy array of the data for v and d.
-        def var(d, v):
-            return np.mean( np.power(data(d,v) - np.mean(data(d,v), 2) ) )
+        def var(d, v, mean):    # return shape (24, H, W)
+            return np.mean( np.power(data(d,v) - mean, 2), axis=(0,1,2) )
 
         # This line will take a long time, reading thousands files.
-        mean_var = [ [ [np.mean(x), var(x)] for v in V ] for d in D ]
-        mean_var = np.array(mean_var)               # shape: (D, V, 2)
-        mean_std = np.mean(mean_var, axis=0)        # shape: (V, 2)
-        mean = mean_var[:, 0]                       # shape: (V,)
-        std = np.power(mean_var[:, 1], 0.5)                    # shape: (V,)
+        mean = [ [ np.mean(data(d,v), axis=(0,1,2)) for v in V ] for d in D ]
+        mean = np.array(mean)               # shape: (D, V)
+        mean = np.mean(mean_var, axis=0)        # shape: (V,)
+
+        # This line will take a long time, reading thousands files.
+        var = [ [ var(d, v, mean[v]) for v in V] for d in D ]
+        var = np.array(var)                       # shape: (D, V)
+        var = np.mean(var, axis=0)                # shape: (V,)
+        std = np.power(var, 0.5)                  # shape: (V,)
         
         # For a given batch batch_x, of shape (B, T1, C, H, W), data_loader presents:
             mean = mean[np.newaxis, np.newaxis, :, np.newaxis, np.newaxis]
