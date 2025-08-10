@@ -11,6 +11,11 @@ from timm.models.layers import trunc_normal_
 
 from timm.models.layers import to_2tuple
 
+import os, sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from modules.params import Params
+
+
 class SwiGLU(nn.Module):
     def __init__(
             self,
@@ -73,7 +78,7 @@ class FeedForward(nn.Module):
     def forward(self, x):   # shape -> shape
         return self.net(x)
      
-class Attention(nn.Module):
+class Attention(nn.Module):     # (b, n, dim)  -> (b, n, dim)
     def __init__(self, dim, heads=8, dim_head=64, dropout=0.):
         super().__init__()
         inner_dim = dim_head * heads
@@ -91,32 +96,93 @@ class Attention(nn.Module):
 
     def forward(self, x):                   # (b, n, dim)  -> (b, n, dim)
         b, n, dim, h = *x.shape, self.heads
-        qkv = self.to_qkv(x).chunk(3, dim=-1)                                   # (b, n, dim_head * heads * 3)
-        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=h), qkv) # (b, heads, n, dim_head *3)
+        qkv = self.to_qkv(x).chunk(3, dim=-1)                                   # (b, n, dim_head * heads) x 3
+        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=h), qkv) # (b, heads, n, dim_head) x 3
         dots = einsum('b h i d, b h j d -> b h i j', q, k) * self.scale         # (b, heads, n, n)
 
         attn = dots.softmax(dim=-1)                                             # (b, heads, n, n)
 
-        out = einsum('b h i j, b h j d -> b h i d', attn, v)                    # (b, heads, n, dim_head * 3)
-        out = rearrange(out, 'b h n d -> b n (h d)')                            # (b, n, dim_head * heads * 3)
+        out = einsum('b h i j, b h j d -> b h i d', attn, v)                    # (b, heads, n, dim_head)
+        out = rearrange(out, 'b h n d -> b n (h d)')                            # (b, n, dim_head * heads)
         out = self.to_out(out)                                                  # (b, n, dim)
-        return out
+        return out                                                              # (b, n, dim)
     
-def sinusoidal_embedding(n_channels, dim):
+def sinusoidal_embedding_1d(n_channels, dim):
     pe = torch.FloatTensor([[p / (10000 ** (2 * (i // 2) / dim)) for i in range(dim)]
                             for p in range(n_channels)])
     pe[:, 0::2] = torch.sin(pe[:, 0::2])
     pe[:, 1::2] = torch.cos(pe[:, 1::2])
-    return rearrange(pe, '... -> 1 ...')    # (1, n_channels, dim)
+    return pe # rearrange(pe, '... -> 1 ...')    # (1, n_channels, dim)
 
-class GatedAttention(nn.Module):      # (b, n, dim) -> (b, n, dim)
-    def __init__(self, dim, layers, heads, dim_head, mlp_dim, dropout=0., attn_dropout=0., drop_path=0.1):
+def sinusoidal_embedding_3d(sPos, dim):    # shape of positions, dim. -> (1,) + sPos + (dim,)
+    assert len(sPos) == 3
+    assert dim % 3 == 0
+    pe0 = sinusoidal_embedding_1d(sPos[0], dim//3)[:, None, None, :].expand(-1, sPos[1], sPos[2], -1)
+    pe1 = sinusoidal_embedding_1d(sPos[1], dim//3)[None, :, None, :].expand(sPos[0], -1, sPos[2], -1)
+    pe2 = sinusoidal_embedding_1d(sPos[2], dim//3)[None, None, :, :].expand(sPos[0], sPos[1], -1, -1)
+    pe = torch.concat((pe0, pe1, pe2), dim=-1)  # sPos + (dim,)
+    return pe # (s0, s1, s2, d)
+
+class GatedTemporalAttention(nn.Module):      # ((b n), t, dim) -> ((b n), t, dim) 
+    def __init__(self, model_dict, dim, layers, heads, dim_head, mlp_dim, dropout=0., attn_dropout=0., drop_path=0.1):
         super().__init__()
+        self.model_dict = model_dict
+        self.convolve = nn.ModuleList([
+            Rearrange('(b n) t d -> (b d) t n', n=self.model_dict['nPatches_h']*self.model_dict['nPatches_w']),
+            Rearrange('B t (h w) -> B t h w', h=self.nPatches_h),
+            nn.Conv2d(model_dict['nFramesIn'], model_dict['nFramesIn'], 5, 1, 2),  # preserve shape
+            Rearrange('(b d) t h w -> (b w h) t d', d=self.model_dict['dim'])
+        ])
         self.norm = nn.LayerNorm(dim)
         self.layers = nn.ModuleList([])
+
         for _ in range(layers):
             self.layers.append(nn.ModuleList([
                 PreNorm(dim, Attention(dim, heads=heads, dim_head=dim_head, dropout=attn_dropout)),
+                PreNorm(dim, SwiGLU(dim, mlp_dim, drop=dropout)),
+                DropPath(drop_path) if drop_path > 0. else nn.Identity(),
+                DropPath(drop_path) if drop_path > 0. else nn.Identity()
+            ]))
+
+        self.apply(self._init_weights)  # recursive to the whole tree of children.
+
+    def _init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            trunc_normal_(m.weight, std=.02)    # defaults: mean=0, std=0, a=-2, b=2
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.LayerNorm):
+            nn.init.constant_(m.bias, 0)
+            nn.init.constant_(m.weight, 1.0)       
+            
+    def forward(self, x):   # x: ((b n), t, d)
+        x = self.convolve(x)    # ((b n), t, d) -> ((b n), t, d)
+
+        for attn, ff, drop_path1, drop_path2 in self.layers:
+            x = x + drop_path1(attn(x))
+            x = x + drop_path2(ff(x))
+        return self.norm(x)
+
+
+class GatedAttention(nn.Module):      # (b, n, dim) -> (b, n, dim)
+    def __init__(self, pm):
+        super().__init__()
+
+        dim = pm.dim
+        layers = pm.attLayers
+        nHeads = pm.nHeads
+        dim_head = pm.dim_head
+        mlp_dim = pm.mlp_dim
+        dropout = pm.dropout
+        attn_dropout = pm.attn_dropout
+        drop_path = pm.drop_path
+
+        self.norm = nn.LayerNorm(dim)
+        self.layers = nn.ModuleList([])          
+
+        for _ in range(layers):
+            self.layers.append(nn.ModuleList([
+                PreNorm(dim, Attention(dim, heads=nHeads, dim_head=dim_head, dropout=attn_dropout)),
                 PreNorm(dim, SwiGLU(dim, mlp_dim, drop=dropout)),
                 DropPath(drop_path) if drop_path > 0. else nn.Identity(),
                 DropPath(drop_path) if drop_path > 0. else nn.Identity()
@@ -139,49 +205,58 @@ class GatedAttention(nn.Module):      # (b, n, dim) -> (b, n, dim)
             x = x + drop_path2(ff(x))
         return self.norm(x)
     
+class SpatialConvolution(nn.Module):
+    def __init__(self, pm):
+        self.pm = pm
+        super(SpatialConvolution, self).__init__()
+        self.convolve = nn.Conv2d(pm.nFramesIn, pm.nFramesIn, 3, 1, 1)  # preserve shape
+
+    def forward(self, x):   # (B, T1FG, H/p * W/p, dim) -> preserve shape
+        x = rearrange(x, 'b t n d -> (b d) t n')
+        x = rearrange(x, 'B t (h w) -> B t h w', h=self.pm.nPatches_h)
+        x = self.convolve(x)    # preserves shape
+        x = rearrange(x, '(b d) t h w -> b t (h w) d', d=self.pm.dim)
+
+        return x
 
 class ZeusLayer(nn.Module):
-    def __init__(self, dim, attLayers, heads, dim_head, mlp_dim, dropout=0., attn_dropout=0., drop_path=0.1):
+    def __init__(self, pm):
         super(ZeusLayer, self).__init__()
+        self.pm = pm
 
-        self.ts_temporal_transformer = GatedAttention(dim, attLayers, heads, dim_head, 
-                                                   mlp_dim, dropout, attn_dropout, drop_path)
-        self.ts_space_transformer = GatedAttention(dim, attLayers, heads, dim_head, 
-                                                mlp_dim, dropout, attn_dropout, drop_path)
-        self.st_space_transformer = GatedAttention(dim, attLayers, heads, dim_head, 
-                                                mlp_dim, dropout, attn_dropout, drop_path)
-        self.st_temporal_transformer = GatedAttention(dim, attLayers, heads, dim_head, 
-                                                   mlp_dim, dropout, attn_dropout, drop_path)
+        self.spatial_colvolution_1 = SpatialConvolution(pm)
+        self.temporal_transformer_1 = GatedAttention(pm)
 
-    def forward(self, x):   # (B, T, N, dim) -> (B, T, N, dim)
-        b, t, n, dim = x.shape
-        x_ts, x_ori = x, x      # (B, T, N, dim)
+        self.space_transformer_1 = GatedAttention(pm)
+        self.space_transformer_2 = GatedAttention(pm)
         
-        # temporal attention
-        x_ts = rearrange(x_ts, 'b t n d -> (b n) t d')  # (B*N, T, dim)
-        x_ts = self.ts_temporal_transformer(x_ts)       # (B*N, T, dim)
-        
-        # spatial attention
-        x_ts = rearrange(x_ts, '(b n) t d -> (b t) n d', b=b)       # (B*T, N, dim)
-        x_ts = self.ts_space_transformer(x_ts)                      # (B*T, N, dim)
+        self.spacial_colvolution_2 = SpatialConvolution(pm)
+        self.temporal_transformer_2 = GatedAttention(pm)
 
-        # spatial attention
-        x_st = self.st_space_transformer(x_ts)                      # (B*T, N, dim)
+    def forward(self, x):   # (B, T, N, dim) -> (B, T, N, dim)      # (B, T1FG, H/p * W/p, dim)
+        b, t, n, dim = x.shape                  # (B, T, N, dim), or (B, T1FG, H/p * W/p, dim)
         
-        # tenporal attention
-        x_st = rearrange(x_st, '(b t) n d -> (b n) t d', b=b)       # (B*N, T, dim)
-        x_st = self.st_temporal_transformer(x_st)                   # (B*N, T, dim)
+        x = self.spatial_colvolution_1(x)   # (B, T, N, dim) -> (B, T, N, dim)
+        x = rearrange(x, 'b t n d -> (b n) t d')  # (B*N, T, dim)
+        x = self.temporal_transformer_1(x)       # (B*N, T, dim)
+        
+        x = rearrange(x, '(b n) t d -> (b t) n d', b=b)       # (B*T, N, dim)
+        x = self.space_transformer_1(x)                      # (B*T, N, dim)
+        x = self.space_transformer_2(x)                      # (B*T, N, dim)
+        
+        x = rearrange(x, '(b t) n d -> b t n d', b=b)       # (B, T, N, dim)
+        x = self.spacial_colvolution_2(x)                   # (B, T, N, dim)
+        x = rearrange(x, 'b t n d -> (b n) t d')        # (B*N, T, dim)
+        x = self.temporal_transformer_2(x)                   # (B*N, T, dim)
 
         # output
-        x_st = rearrange(x_st, '(b n) t d -> b t n d', b=b)         # (B, T, N, dim)
+        x = rearrange(x, '(b n) t d -> b t n d', b=b)         # (B, T, N, dim)
         
-        return x_st
+        return x
     
 
-class Zeus(nn.Module):
+class Params:
     def __init__(self, config):
-        super().__init__()
-
         self.image_height = config['height']                        # 720
         self.image_width = config['width']                          # 1,440
         self.nFramesIn = config['T1'] * config['FG']                # 2 * 24 = 48           # temporal seq_len
@@ -195,7 +270,7 @@ class Zeus(nn.Module):
 
         self.nChannels = config['channels']                         # 5
         self.patch_dim = self.nChannels * self.patch_size ** 2      # 16 * 16 * 5 = 1,280
-        self.dim = self.patch_dim
+        self.dim = ((self.patch_dim * config['patch_dim_to_dim'] + 2) // 3) * 3
         
         self.nClasses = self.nChannels
         self.nHeads = config['heads']
@@ -203,32 +278,52 @@ class Zeus(nn.Module):
         self.dropout = config['dropout']
         self.attn_dropout = config['attn_dropout']
         self.drop_path = config['drop_path']
-        self.scale_dim = config['scale_dim']
         
         self.attLayers = config['attLayers']
         self.zeusLayers = config['zeusLayers']
+        self.mlp_dim = self.dim * config['dim_to_mlp_dim']
         
         assert self.image_height % self.patch_size == 0, 'Image height must be divisible by the patch size.'
         assert self.image_width % self.patch_size == 0, 'Image width must be divisible by the patch size.'
 
+class Zeus(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+
+        self.pm = Params(config)
+
+        # We need to enable more complex non-linearity here.
         self.to_patch_embedding = nn.Sequential(
-            Rearrange('b t c (h p1) (w p2) -> b t (h w) (p1 p2 c)', p1=self.patch_size, p2=self.patch_size),
-            nn.Linear(self.patch_dim, self.dim),
+            Rearrange('b t c (h p1) (w p2) -> b t (h w) (p1 p2 c)', p1=self.pm.patch_size, p2=self.pm.patch_size),
+            nn.Linear(self.pm.patch_dim, 2 * self.pm.dim),
+            nn.Tanh(),
+            nn.Linear(2 * self.pm.dim, self.pm.dim),
             )
         
-        self.pos_embedding = nn.Parameter(sinusoidal_embedding(self.nSequences, self.dim),
-                                               requires_grad=False).view(1, self.nFramesIn, self.nPatches, self.dim)
+        # pe: (self.pm.nFramesId, self.pm.nPatches_h, self.pm.nPatches_w, self.pm.dim)
+        pe = sinusoidal_embedding_3d((self.pm.nFramesIn, self.pm.nPatches_h, self.pm.nPatches_w), self.pm.dim)
+        self.pos_embedding = nn.Parameter(rearrange(pe, 't h w dim -> 1 t (h w) dim'))
 
-        self.blocks = nn.ModuleList([
-            ZeusLayer(self.dim, self.attLayers, self.nHeads, self.dim_head, self.dim * self.scale_dim, self.dropout, self.attn_dropout, self.drop_path)
-            for i in range(self.zeusLayers)
+        self.blocks = nn.ModuleList([       # (B, T, N, dim) -> (B, T, N, dim)
+            ZeusLayer(self.pm)
+            for i in range(self.pm.zeusLayers)
         ])
 
-        self.reduce_frames = nn.Linear(self.nFramesIn, self.nFramesOut)
+        # self.reduce_frames = nn.Sequential(
+        #     Rearrange('b t p d -> b p d t'),
+        #     nn.Linear(self.pm.nFramesIn, self.pm.nFramesOut),       # (B, H/p * W/p, dim, FG)
+        #     Rearrange('b p d t -> b t p d')
+        # )
+
+        self.reduce_frames = nn.Sequential(
+            Rearrange('b t (h w) d -> (b d) t h w', h=self.pm.nPatches_h),
+            nn.Conv2d(self.pm.nFramesIn, self.pm.nFramesOut, 3, 1, 1),       # (B, H/p * W/p, dim, 1FG)
+            Rearrange('(b d) t h w -> b t (h w) d', d=self.pm.dim)
+        )
 
         self.mlp_head = nn.Sequential(
-            nn.LayerNorm(self.dim),
-            nn.Linear(self.dim, self.nChannels * self.patch_size ** 2)  # just restore.
+            nn.LayerNorm(self.pm.dim),
+            nn.Linear(self.pm.dim, self.pm.nChannels * self.pm.patch_size ** 2)  # just restore.
         )
 
 
@@ -248,14 +343,12 @@ class Zeus(nn.Module):
             x = blk(x)          # (B, T1FG, H/p * W/p, dim)
 
         # Reduce frames
-        x = rearrange(x, 'b t p d -> b p d t')              # (B, H/p * W/p, dim, T1FG)
-        x = self.reduce_frames(x)                           # (B, H/p * W/p, dim, FG)
-        x = rearrange(x, 'b p d t -> b t p d')              # (B, H/p * W/p, dim, FG)
+        x = self.reduce_frames(x)   # (B, FG, H/p * W/p, dim)
         
         # MLP head        
-        x = self.mlp_head(x.reshape(-1, self.dim))
-        x = x.view(B, self.nFramesOut, self.nPatches_h, self.nPatches_w, C, self.patch_size, self.patch_size)
-        x = x.permute(0, 1, 4, 2, 5, 3, 6).reshape(B, self.nFramesOut, C, H, W)
+        x = self.mlp_head(x.reshape(-1, self.pm.dim))
+        x = x.view(B, self.pm.nFramesOut, self.pm.nPatches_h, self.pm.nPatches_w, C, self.pm.patch_size, self.pm.patch_size)
+        x = x.permute(0, 1, 4, 2, 5, 3, 6).reshape(B, self.pm.nFramesOut, C, H, W)
 
         return x    # (B,FG,C,H,W)
 
@@ -266,9 +359,9 @@ if __name__ == "__main__":
         # image h w c
         'height': 72,
         'width': 144,
-        'channels': 2,
+        'channels': 4,
         # video length in and out
-        'T1': 1,    # 5 later.
+        'T1': 5,    # 5 later.
         'MaxT2': 5,
         'FG': 24,   # frames in a frame group
         # patch size
@@ -279,7 +372,8 @@ if __name__ == "__main__":
         'dropout': 0.0,
         'attn_dropout': 0.0,
         'drop_path': 0.0,
-        'scale_dim': 4,
+        'patch_dim_to_dim' : 1,
+        'dim_to_mlp_dim': 2,
         # layers
         'attLayers' : 1,
         'zeusLayers': 6,
@@ -287,9 +381,10 @@ if __name__ == "__main__":
 
     model = Zeus(config)
 
-    x = torch.rand(1, 24, 2, 72, 144)
+    x = torch.rand(1, config['T1'] * config['FG'], config['channels'], config['height'], config['width'])
+    print("input", x.shape)  # [B, T, C, H, W]
     output = model(x)
-    print(output.shape)  # [B, T, C, H, W]
+    print("output", output.shape)  # [B, T, C, H, W]
     # # Calculate FLOPs
     flops = FlopCountAnalysis(model, x)
     print(f'Number of flops: {flop_count_table(flops)}')

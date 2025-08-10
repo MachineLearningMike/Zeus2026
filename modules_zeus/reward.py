@@ -19,8 +19,8 @@
 from typing import List, Optional
 import numpy as np
 import torch
-from miner_data import MinerData
-from constants import (
+from zeus.validator.miner_data import MinerData
+from zeus.validator.constants import (
     REWARD_DIFFICULTY_SCALER,  
     REWARD_IMPROVEMENT_WEIGHT,
 )
@@ -43,11 +43,6 @@ def help_format_miner_output(
         return response
     
     try:
-        if response.shape[0] + 1 == correct.shape[0]:
-            # NOTE: temporary v0.1.1 -> v0.2.0 since end_timestamp is now included
-            # so repeat last hour if miner is still running old code
-            response = torch.cat((response, response[-1:]))
-
         if response.ndim - 1 == correct.ndim and response.shape[-1] == 1:
             # miner forgot to squeeze.
             response = response.squeeze(-1)
@@ -132,6 +127,7 @@ def get_curved_scores(raw_scores: List[float], gamma: float) -> List[float]:
             result.append(np.power(norm_rmse, gamma)) # apply gamma correction
     
     return result
+    
 
 def set_rewards(
     output_data: torch.Tensor,
@@ -143,7 +139,7 @@ def set_rewards(
     """
     Calculates rewards for miner predictions based on RMSE and relative difficulty.
     NOTE: it is assumed penalties have already been scored and filtered out, 
-      if not will do so without scoring those
+      if not will remove them without scoring
 
     Args:
         output_data (torch.Tensor): The ground truth data.

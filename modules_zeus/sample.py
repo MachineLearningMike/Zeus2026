@@ -2,6 +2,10 @@ from typing import Optional, Tuple, Union, List
 import torch
 import time
 
+import os
+import sys
+sys.path.append(os.path.abspath(os.path.dirname(__file__)))
+
 from coordinates import get_grid
 # from protocol import TimePredictionSynapse    # Mike
 # from zeus_modules import __version__ as zeus_version  # Mike

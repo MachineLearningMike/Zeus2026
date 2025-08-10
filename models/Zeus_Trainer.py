@@ -7,39 +7,35 @@ from tqdm import tqdm
 from einops.layers.torch import Rearrange
 from einops import rearrange, repeat
 from fvcore.nn import FlopCountAnalysis, flop_count_table
+from pathlib import Path
 
-import env
-import recorder
-import metrics
-from Zeus import Zeus
+import os, sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from modules.env import env
+from modules.recorder import Recorder
+import modules.metrics
+from modules.zeus_dataset import Zeus_Dataset
+# from modules_zeus.era5_cds import Era5CDSLoader
+from Zeus import Params, Zeus
+
 
 class Trainer():
 
-    def __init__(self, config):
-        self.image_height = config['height']                        # 720
-        self.image_width = config['width']                          # 1,440
-        self.nFramesIn = config['T1'] * config['FG']                # 2 * 24 = 48           # temporal seq_len
-        self.nFramesOut = 1 * config['FG']                          # 24
-
-        self.patch_size = config['patch_size']                      # 16
-        self.nPatches_h = self.image_height // self.patch_size      # 720 / 16 = 45
-        self.nPatches_w = self.image_width // self.patch_size       # 1,440 / 16 = 90
-        self.nPatches = self.nPatches_h * self.nPatches_w           # 45 * 90 = 4,050       # spatial seq_len
-        self.nSequences = self.nFramesIn * self.nPatches            # 48 * 4,050 = 194,400
-
-        self.nChannels = config['channels']                         # 5
-        self.patch_dim = self.nChannels * self.patch_size ** 2      # 16 * 16 * 5 = 1,280
-        self.dim = self.patch_dim
-        
-        self.nClasses = self.nChannels
-        self.nHeads = config['heads']
-        self.dim_head = config['dim_head']
-        self.dropout = config['dropout']
-        self.attn_dropout = config['attn_dropout']
-        self.drop_path = config['drop_path']
-        self.scale_dim = config['scale_dim']
+    def __init__(self, config, root_dir, param_path, split_dates_path, variables):
+        self.pm = Params(config)
 
         self.model = Zeus(config)
+        self.dataset = Zeus_Dataset(config, root_dir, param_path, split_dates_path, variables)
+
+        self.dataset.load_dataset_params()
+        self.dataset.split_data_dates(train_pct=0.5, vali_pct=0.3, seed=523)
+        self.dataset.generate_x_sets(seed=523)       
+        # batch = self.dataset.take_batch('vali_set', batch_size=3)
+
+        self.train_loss_ema = 0.0
+        self.vali_loss_ema = 0.0
+        self.ema_alpha = 2 / (10 + 1)   # We want EMA similar to 1 10-day simple moving average (SME).
 
 
     def _run_epoch(self, data_loader, train=False):
@@ -53,6 +49,9 @@ class Trainer():
         data_loader.prefetch(new_T2)        # Fetch one batch asynchronously
 
         for batch_x, batch_y in pbar:         # Wait for the asynchronous .prefetch
+            batch_x = batch_x[:, :, :, :-1, :]      # 721 -> 720
+            batch_y = batch_y[:, :, :, :-1, :]      # 721 -> 720
+
             T2 = (batch_y.shape)[1] // FG
             new_T2 = env.get_next_steps()
             data_loader.prefetch(new_T2)    # Fetch one batch asynchronously
@@ -90,16 +89,22 @@ class Trainer():
         #--------------------------------------------------------------------------------
 
     def _validate(self, tape_recorder, epoch, train_loss, args):
-
         self.model.eval()
         with torch.no_grad():
             vali_loss = self._run_epoch(self, env.vali_loader, train=False)
 
         if epoch % (args.log_step * 100) == 0: env._save(name=str(epoch))
-            
+        
+        train_loss = train_loss.item()
+        vali_loss = vali_loss.item()
+
         env.print_log("Epoch: {0} | Train Loss: {1:.4f} Vali Loss: {2:.4f}\n".format(
             epoch + 1, train_loss.item(), vali_loss.item()))
         tape_recorder(vali_loss.item(), self.model, env.path)
+
+        self.train_loss_ema = self.ema_alpha * train_loss + (1-self.ema_alpha) * self.train_loss_ema
+        self.vali_loss_ema = self.ema_alpha * vali_loss + (1-self.ema_alpha) * self.vali_loss_ema
+
         go_next_epoch = True
         
         return go_next_epoch
@@ -107,7 +112,7 @@ class Trainer():
 
     def train(self, data_loader, args):
         config = args.__dict__
-        tape_recorder = recorder.Recorder(verbose=True)
+        tape_recorder = Recorder(verbose=True)
         
         T1 = self.config('T1'); FG = self.config('FG')
 
@@ -153,27 +158,39 @@ class Trainer():
 #     return response
 
 if __name__ == "__main__":
+
+    root_dir = Path("D:\Download\CDS")
+    param_path = Path("D:\Download\dataset_params.json")
+    split_dates_path = Path("D:\Download\split_dates.json")
+    variables = ["2m_temperature", 'total_precipitation', "100m_u_component_of_wind", '100m_v_component_of_wind']   # order matters.
+
     config = {
         # image h w c
-        'height': 720,
-        'width': 1440,
-        'channels': 5,
+        'height': 72,
+        'width': 144,
+        'channels': 4,
         # video length in and out
-        'T1': 2,    # 5 later.
+        'T1': 5,    # 5 later.
         'MaxT2': 5,
         'FG': 24,   # frames in a frame group
         # patch size
-        'patch_size': 16,
+        'patch_size': 8,
         # transformer
         'heads': 8,
         'dim_head': 32,
         'dropout': 0.0,
         'attn_dropout': 0.0,
         'drop_path': 0.0,
-        'scale_dim': 4,
+        'patch_dim_to_dim' : 1,
+        'dim_to_mlp_dim': 2,
         # layers
         'attLayers' : 1,
         'zeusLayers': 6,
     }
 
-    model = Zeus(config)
+    trainer = Trainer(config, root_dir, param_path, split_dates_path, variables)
+
+    x = torch.rand(1, config['T1'] * config['FG'], config['channels'], config['height'], config['width'])
+    print(x.shape)
+    pred = trainer.model(x)
+    print(pred.shape)

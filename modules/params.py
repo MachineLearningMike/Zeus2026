@@ -1,0 +1,33 @@
+
+class Params:
+    def __init__(self, config):
+        self.image_height = config['height']                        # 720
+        self.image_width = config['width']                          # 1,440
+        self.T1 = config['T1']
+        self.nFramesIn = config['T1'] * config['FG']                # 2 * 24 = 48           # temporal seq_len
+        self.FG = config['FG']
+        self.nFramesOut = 1 * config['FG']                          # 24
+
+        self.patch_size = config['patch_size']                      # 16
+        self.nPatches_h = self.image_height // self.patch_size      # 720 / 16 = 45
+        self.nPatches_w = self.image_width // self.patch_size       # 1,440 / 16 = 90
+        self.nPatches = self.nPatches_h * self.nPatches_w           # 45 * 90 = 4,050       # spatial seq_len
+        self.nSequences = self.nFramesIn * self.nPatches            # 48 * 4,050 = 194,400
+
+        self.nChannels = config['channels']                         # 5
+        self.patch_dim = self.nChannels * self.patch_size ** 2      # 16 * 16 * 5 = 1,280
+        self.dim = ((self.patch_dim * config['patch_dim_to_dim'] + 2) // 3) * 3
+        
+        self.nClasses = self.nChannels
+        self.nHeads = config['heads']
+        self.dim_head = config['dim_head']
+        self.dropout = config['dropout']
+        self.attn_dropout = config['attn_dropout']
+        self.drop_path = config['drop_path']
+        
+        self.attLayers = config['attLayers']
+        self.zeusLayers = config['zeusLayers']
+        self.mlp_dim = self.dim * config['dim_to_mlp_dim']
+        
+        assert self.image_height % self.patch_size == 0, 'Image height must be divisible by the patch size.'
+        assert self.image_width % self.patch_size == 0, 'Image width must be divisible by the patch size.'

@@ -203,7 +203,7 @@ class Era5CDSLoader(Era5BaseLoader):
                 # bt.logging.error(f"Failed to download {variable} ERA5 data for {timestamp.strftime('%Y-%m-%d')}: {e}")  # Mike
                 print(f"Failed to download {variable} ERA5 data for {timestamp.strftime('%Y-%m-%d')}: {e}")
 
-    # Mike, mask this for allow the above get_sample()
+    # Mike, mask this to allow the above get_sample()
     # async def get_sample(self):
     #     current_day = get_today("D")
     #     tasks = []
