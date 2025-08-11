@@ -11,6 +11,9 @@ from torch.utils.data import Dataset
 from dateutil.relativedelta import relativedelta
 from pathlib import Path
 
+from einops.layers.torch import Rearrange
+from einops import rearrange
+
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
@@ -19,6 +22,7 @@ import os, sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from modules.params import Params
+from modules_zeus.constants import ERA5_DATA_VARS
 from modules_zeus.sample import Era5Sample
 from modules_zeus.coordinates import get_bbox, slice_bbox
 from modules_zeus.era5_cds import Era5CDSLoader, get_today
@@ -33,12 +37,13 @@ class Zeus_Dataset(Dataset):
         self.split_dates_path = split_dates_path
         self.variables = variables
         self.difficulties = None
+        self.era5_data_vars = None
 
         self.loader = Era5CDSLoader()
         self.train_dates, self.vali_dates, self.test_dates = None, None, None
         self.train_set, self.vali_set, self.test_set = None, None, None
 
-        self.total_batches = 10
+        self.total_batches = 5
         self._fetched_batches = 0
 
         self._lock = threading.Lock()
@@ -236,7 +241,7 @@ class Zeus_Dataset(Dataset):
         with open(self.param_path, "w") as f:
             json.dump(data, f)
 
-        return self.mean, self.std
+        return self.mean, self.std  # (C,), (C,)
 
 
     def load_dataset_params(self):
@@ -246,7 +251,12 @@ class Zeus_Dataset(Dataset):
         if mean is not None and std is not None:
             self.mean, self.std = mean, std
 
-        return self.mean, self.std
+        return self.mean, self.std    # (C,), (C,)
+    
+    def load_era5_data_vars(self):
+        vars = [ERA5_DATA_VARS[k] for k in self.variables if k in ERA5_DATA_VARS.keys()]
+        self.era5_data_vars = torch.tensor(vars)
+        return self.era5_data_vars
    
     #----------------------------------- Difficulty ------------------------------
 
@@ -309,7 +319,7 @@ class Zeus_Dataset(Dataset):
                 difficulties.append((var_per_loc, year, month))
             
             for var_per_loc, year, month in difficulties:
-                rel_var_per_loc = var_per_loc / maxDeffVar
+                rel_var_per_loc = var_per_loc / maxDeffVar      # (721, 1440)
                 current_folder = os.path.dirname(os.path.abspath(__file__))
                 os.makedirs(os.path.join(current_folder,"weights", variable), exist_ok=True)
                 np.save(os.path.join(current_folder, "weights", variable, str(year) + '-' + str(month).zfill(2) + ".npy"), rel_var_per_loc)
@@ -333,7 +343,7 @@ class Zeus_Dataset(Dataset):
                 os.makedirs(os.path.join(current_folder,"weights", variable), exist_ok=True)
                 data = np.load(os.path.join(current_folder, "weights", variable, str(year) + '-' + str(month).zfill(2) + ".npy"))
                 # print('load', variable, month, data.shape)
-                _difficulties.update({month: data})
+                _difficulties.update({month: data})     # data: (721, 1440)
             
             difficulties.update({variable: _difficulties})
 
@@ -469,12 +479,14 @@ class Zeus_Dataset(Dataset):
         self.train_set, self.vali_set, self.test_set = train_set, vali_set, test_set
 
         return train_set, vali_set, test_set
+    
 
     def take_batch(self, x_label, batch_size):
         x_set = self.train_set if x_label=='train_set' \
             else self.vali_set if x_label=='vali_set' \
             else self.test_set if x_label=='test_set' else None
-        if x_set is None or len(x_set) <= 0: return None
+        if x_set is None: return None
+        if len(x_set) <= 0: return None
 
         _, T2 = x_set[0]
         print("T2: ", T2)
@@ -503,8 +515,10 @@ class Zeus_Dataset(Dataset):
         # batch_x: (B, T1*FG, C, H, W), batch_y: (B, T2*FG, C, H, W). batch_y[i] immediately follows batch_x[i]
         batch_x, batch_y = [], []  #torch.empty((B, 0, C, H, W)), torch.empty((B, 0, C, H, W))
 
+        months = []
         for b in range(B):
             start_date = taken[b][0]
+            months.append(start_date.month)
 
             print("x...")
             days_data_x = []
@@ -524,13 +538,30 @@ class Zeus_Dataset(Dataset):
             days_data_y = torch.concat(days_data_y, dim=0)      # (T2*24, C, H, W)
             batch_y.append(days_data_y)
 
-        batch_x = torch.stack(batch_x, dim=0)
-        batch_y = torch.stack(batch_y, dim=0)
+        batch_x = torch.stack(batch_x, dim=0)       # (B, T1FG, C, H, W)
+        batch_y = torch.stack(batch_y, dim=0)       # (B, T2FG, C, H, W)
+        mean = rearrange(torch.tensor(self.mean), 'c -> c 1 1')
+        std = rearrange(torch.tensor(self.std), 'c -> c 1 1')
+        batch_x = (batch_x - mean) / std        # (B, T1FG, C, H, W)
+        batch_y = (batch_y - mean) / std        # (B, T2FG, C, H, W)
 
-        print("batch_x, y shape: ", batch_x.shape, batch_y.shape)
+        batch_diff = []
+        for b in range(B):
+            variable_diff = []
+            for vaiable in self.variables:
+                diff = self.difficulties[vaiable][months[b]][:-1, :]    # (720, 1440)
+                variable_diff.append(torch.tensor(diff))
+            variable_diff = torch.stack(variable_diff, dim=0)           # (C, 720, 1440)
+            batch_diff.append(variable_diff)
+        batch_diff = torch.stack(batch_diff, dim=0)                     # (B, C, 720, 1440)
+        batch_diff = rearrange(batch_diff, 'b c h w -> b 1 c h w')      # (B, 1, C, H, W)
+        # print('batch_diff', batch_diff.shape)
+
+        # print("batch_x, y shape: ", batch_x.shape, batch_y.shape)
+        # print(batch_x, batch_y)
+
+        return batch_x, batch_y, batch_diff, self.era5_data_vars     # (B, T1FG, C, H, W), (B, T2FG, C, H, W), (B, 1, C, H, W), (C,)
         
-        return batch_x, batch_y
-
     #---------------------------------- Prefetch -------------------------------------
 
     def _prefetch_loop(self):
@@ -543,15 +574,11 @@ class Zeus_Dataset(Dataset):
             with self._lock:
                 param = self._param
 
-            # Simulate data loading
-            # time.sleep(random.uniform(0.000002, 0.000005))
-            batch_x = torch.rand((3,4))
-            batch_y = torch.rand(3,4)
-            batch = (batch_x, batch_y)
-
+            # (B, T1FG, C, H, W), (B, T2FG, C, H, W), (B, 1, C, H, W), (C,)
+            batch_x, batch_y, batch_diff, era5_data_vars = self.take_batch(param, batch_size=2)
 
             with self._lock:
-                self._batch = batch
+                self._batch = (batch_x, batch_y, batch_diff, era5_data_vars)
                 self._ready_event.set()
 
     def __prefetch__(self, param):
@@ -596,11 +623,11 @@ if __name__ == "__main__":
 
     config = {
         # image h w c
-        'height': 72,
-        'width': 144,
+        'height': 720,
+        'width': 1440,
         'channels': 4,
         # video length in and out
-        'T1': 5,    # 5 later.
+        'T1': 2,    # 5 later.
         'MaxT2': 5,
         'FG': 24,   # frames in a frame group
         # patch size
@@ -639,15 +666,16 @@ if __name__ == "__main__":
     train_set, vali_set, test_set = dataset.generate_x_sets(seed=523)
     print("train_set, vali_set, test_set lengths:", len(train_set), len(vali_set), len(test_set))
     print("train_set[:3]", train_set[:3])
-    
-    batch = dataset.take_batch('vali_set', batch_size=2)
-    # print("batch: ", batch)
-    
+
     # dataset.create_difficulties(end_day, WRITE_FILES=True)
-
     dataset.load_difficulties()
-
     # dataset.show_difficulty("100m_u_component_of_wind")
+  
+    vars = dataset.load_era5_data_vars()
+    print('vars ', vars)
+
+    batch = dataset.take_batch('vali_set', batch_size=1)
+    # print("batch: ", batch)
 
     # cds_loader = Era5CDSLoader()
     # sample = cds_loader.get_sample()        # get random sample

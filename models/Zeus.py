@@ -379,6 +379,8 @@ if __name__ == "__main__":
         'zeusLayers': 6,
     }
 
+
+
     model = Zeus(config)
 
     x = torch.rand(1, config['T1'] * config['FG'], config['channels'], config['height'], config['width'])

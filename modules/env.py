@@ -40,8 +40,6 @@ class env:
 
         # self._get_data() ======================
         config = self.args.__dict__
-        self.train_loader, self.vali_loader, self.test_loader, self.data_mean, self.data_std = load_data(**config)
-        self.vali_loader = self.test_loader if self.vali_loader is None else self.vali_loader
 
         # self.model = self._build_model() =====================
         args = self.args
@@ -67,13 +65,14 @@ class env:
         self.ema.update_model_average(self.ema_model, self.model)
 
     def _acquire_device(self):
-        if self.args.use_gpu:
-            os.environ["CUDA_VISIBLE_DEVICES"] = str(self.args.gpu)
-            device = torch.device('cuda:{}'.format(0))
-            utils.print_log('Use GPU: {}'.format(self.args.gpu))
-        else:
-            device = torch.device('cpu')
-            utils.print_log('Use CPU')
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # if self.args.use_gpu:
+        #     os.environ["CUDA_VISIBLE_DEVICES"] = str(self.args.gpu)
+        #     device = torch.device('cuda:{}'.format(0))
+        #     utils.print_log('Use GPU: {}'.format(self.args.gpu))
+        # else:
+        #     device = torch.device('cpu')
+        #     utils.print_log('Use CPU')
         return device
 
     def _select_optimizer(self):

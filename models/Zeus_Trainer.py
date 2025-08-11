@@ -27,34 +27,39 @@ class Trainer():
 
         self.model = Zeus(config)
         self.dataset = Zeus_Dataset(config, root_dir, param_path, split_dates_path, variables)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.dataset.load_dataset_params()
         self.dataset.split_data_dates(train_pct=0.5, vali_pct=0.3, seed=523)
         self.dataset.generate_x_sets(seed=523)       
         # batch = self.dataset.take_batch('vali_set', batch_size=3)
+        self.dataset.load_difficulties()
+        self.dataset.load_era5_data_vars()
 
         self.train_loss_ema = 0.0
         self.vali_loss_ema = 0.0
         self.ema_alpha = 2 / (10 + 1)   # We want EMA similar to 1 10-day simple moving average (SME).
 
 
-    def _run_epoch(self, data_loader, train=False):
+    def _run_epoch(self, x_set_label, train=False):
         T1 = self.config('T1'); FG = self.config('FG')
 
         #================================== epoch main ===============================
         epoch_loss = []
-        pbar = tqdm(env.train_loader)
+        pbar = tqdm(self.dataset)
 
-        new_T2 = env.get_next_steps()
-        data_loader.prefetch(new_T2)        # Fetch one batch asynchronously
+        pbar.prefetch(x_set_label)        # Fetch one batch asynchronously
 
-        for batch_x, batch_y in pbar:         # Wait for the asynchronous .prefetch
-            batch_x = batch_x[:, :, :, :-1, :]      # 721 -> 720
-            batch_y = batch_y[:, :, :, :-1, :]      # 721 -> 720
+        # batch_x, batch_y, batch_diff, self.era5_data_vars     # (B, T1FG, C, H, W), (B, T2FG, C, H, W), (B, 1, C, H, W), (C,)
+        for batch_x, batch_y, batch_diff, era5_data_vars in pbar:         # Wait for the asynchronous .prefetch
+
+            # THIS BLOCK is for scale-down test only, where self.pm.image_height, width are smaller than 720 and 1440.
+            batch_x = batch_x[:, :, :, :self.pm.image_height, :self.pm.image_width]
+            batch_y = batch_y[:, :, :, :self.pm.image_height, :self.pm.image_width]
+            batch_diff = batch_diff[:, :, :, :self.pm.image_height, :self.pm.image_width]
 
             T2 = (batch_y.shape)[1] // FG
-            new_T2 = env.get_next_steps()
-            data_loader.prefetch(new_T2)    # Fetch one batch asynchronously
+            pbar.prefetch(x_set_label)    # Fetch one batch asynchronously
 
             torch.cuda.synchronize()
             batch_x, batch_y = batch_x.to(env.device), batch_y.to(env.device)
@@ -91,7 +96,7 @@ class Trainer():
     def _validate(self, tape_recorder, epoch, train_loss, args):
         self.model.eval()
         with torch.no_grad():
-            vali_loss = self._run_epoch(self, env.vali_loader, train=False)
+            vali_loss = self._run_epoch(self, "vali_set", train=False)
 
         if epoch % (args.log_step * 100) == 0: env._save(name=str(epoch))
         
@@ -110,7 +115,7 @@ class Trainer():
         return go_next_epoch
 
 
-    def train(self, data_loader, args):
+    def train(self, args):
         config = args.__dict__
         tape_recorder = Recorder(verbose=True)
         
@@ -119,7 +124,7 @@ class Trainer():
         for epoch in range(config['epochs']):
             self.model.train()
 
-            epoch_loss = self.run_epoch(self, data_loader, train=True)
+            epoch_loss = self.run_epoch(self, "train_set", train=True)
 
             go_next_epoch = self._validate(tape_recorder, epoch, epoch_loss, args)
             if not go_next_epoch: break
@@ -129,11 +134,11 @@ class Trainer():
         return # - latest ma loss, bayesian optimization.
 
 
-    def test(self, data_loader):
+    def test(self):
         self.model.eval()
         T1 = self.config('T1'); FG = self.config('FG')
 
-        epoch_loss = self._run_epoch(self, env.test_loader, train=False)
+        epoch_loss = self._run_epoch(self, "test_set", train=False)
 
         env.print_log('vali rmse:{:.4f}'.format(epoch_loss.item()))
         
@@ -174,9 +179,9 @@ if __name__ == "__main__":
         'MaxT2': 5,
         'FG': 24,   # frames in a frame group
         # patch size
-        'patch_size': 8,
+        'patch_size': 8, # 8
         # transformer
-        'heads': 8,
+        'heads': 8,     # 8
         'dim_head': 32,
         'dropout': 0.0,
         'attn_dropout': 0.0,
@@ -187,6 +192,7 @@ if __name__ == "__main__":
         'attLayers' : 1,
         'zeusLayers': 6,
     }
+
 
     trainer = Trainer(config, root_dir, param_path, split_dates_path, variables)
 
