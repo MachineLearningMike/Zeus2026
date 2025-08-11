@@ -21,13 +21,13 @@ config = {
     'width': 1440,
     'channels': 4,
     # video length in and out
-    'T1': 2,    # 5 later.
+    'T1': 3,    # 5 later.
     'MaxT2': 5,
     'FG': 24,   # frames in a frame group
     # patch size
-    'patch_size': 8,
+    'patch_size': 8, # 8
     # transformer
-    'heads': 8,
+    'heads': 8,     # 8
     'dim_head': 32,
     'dropout': 0.0,
     'attn_dropout': 0.0,
@@ -37,6 +37,20 @@ config = {
     # layers
     'attLayers' : 1,
     'zeusLayers': 6,
+    # training
+    'seed' : 523,
+    'epochs': 2,
+    'log_step': 10,
+    'optimizer': 'adam',
+    'lr' : 1e-5,
+    'max_lr' : 1e-3,
+    'weight_decay': 0.01,
+    'pct_start' : 0.3,
+    'anneal_strategy' : 'linear',   # 'cos'
+    'div_factor' : 25.0,
+    'final_div_factor' : 1e4,
+    'ex_folder' : 'D:/Download/experiments',
+    'ex_name' : '1st',
 }
 
 dataset = Zeus_Dataset(config, root_dir, param_path, split_dates_path, variables)
@@ -66,6 +80,8 @@ dataset.load_difficulties()
 vars = dataset.load_era5_data_vars()
 print('vars ', vars)
 
+dataset.initialize_x_set('train_set', seed=523)
+
 # batch = dataset.take_batch('vali_set', batch_size=2)
 # print("batch: ", batch)
 
@@ -90,4 +106,4 @@ for batch_x, batch_y, batch_diff, era5_data_vars in pbar: # (B, T1FG, C, H, W), 
 
     cnt += 1
     pbar.set_description('loss: {:.5f}'.format(loss.item()))
-    time.sleep(0.5)
+    # time.sleep(0.5)

@@ -253,38 +253,6 @@ class ZeusLayer(nn.Module):
         x = rearrange(x, '(b n) t d -> b t n d', b=b)         # (B, T, N, dim)
         
         return x
-    
-
-class Params:
-    def __init__(self, config):
-        self.image_height = config['height']                        # 720
-        self.image_width = config['width']                          # 1,440
-        self.nFramesIn = config['T1'] * config['FG']                # 2 * 24 = 48           # temporal seq_len
-        self.nFramesOut = 1 * config['FG']                          # 24
-
-        self.patch_size = config['patch_size']                      # 16
-        self.nPatches_h = self.image_height // self.patch_size      # 720 / 16 = 45
-        self.nPatches_w = self.image_width // self.patch_size       # 1,440 / 16 = 90
-        self.nPatches = self.nPatches_h * self.nPatches_w           # 45 * 90 = 4,050       # spatial seq_len
-        self.nSequences = self.nFramesIn * self.nPatches            # 48 * 4,050 = 194,400
-
-        self.nChannels = config['channels']                         # 5
-        self.patch_dim = self.nChannels * self.patch_size ** 2      # 16 * 16 * 5 = 1,280
-        self.dim = ((self.patch_dim * config['patch_dim_to_dim'] + 2) // 3) * 3
-        
-        self.nClasses = self.nChannels
-        self.nHeads = config['heads']
-        self.dim_head = config['dim_head']
-        self.dropout = config['dropout']
-        self.attn_dropout = config['attn_dropout']
-        self.drop_path = config['drop_path']
-        
-        self.attLayers = config['attLayers']
-        self.zeusLayers = config['zeusLayers']
-        self.mlp_dim = self.dim * config['dim_to_mlp_dim']
-        
-        assert self.image_height % self.patch_size == 0, 'Image height must be divisible by the patch size.'
-        assert self.image_width % self.patch_size == 0, 'Image width must be divisible by the patch size.'
 
 class Zeus(nn.Module):
     def __init__(self, config):
@@ -331,7 +299,7 @@ class Zeus(nn.Module):
         B, T1FG, C, H, W = x.shape
         
         # Patch Embedding
-        x = self.to_patch_embedding(x)  # (B, T1FG, H/p * W/p, self.patch_dim = p * p * C) -> (B, T1FG, H/p * W/p, dim)
+        x = self.to_patch_embedding(x)  # (B, T1FG, H/p * W/p, self.patch_dim = p * p * C) -> (B, T1FG, H/p * W/p, dim)   
         
         # Posion Embedding
         x += self.pos_embedding.to(x.device)    # pos_embedding: (1, T1FG * Hp * W/p, dim) -> (1, T1FG, H/p * W/p, dim) 
@@ -361,13 +329,13 @@ if __name__ == "__main__":
         'width': 144,
         'channels': 4,
         # video length in and out
-        'T1': 5,    # 5 later.
+        'T1': 2,    # 5 later.
         'MaxT2': 5,
         'FG': 24,   # frames in a frame group
         # patch size
-        'patch_size': 8,
+        'patch_size': 8, # 8
         # transformer
-        'heads': 8,
+        'heads': 8,     # 8
         'dim_head': 32,
         'dropout': 0.0,
         'attn_dropout': 0.0,
@@ -377,9 +345,21 @@ if __name__ == "__main__":
         # layers
         'attLayers' : 1,
         'zeusLayers': 6,
+        # training
+        'seed' : 523,
+        'epochs': 2,
+        'log_step': 10,
+        'optimizer': 'adam',
+        'lr' : 1e-5,
+        'max_lr' : 1e-3,
+        'weight_decay': 0.01,
+        'pct_start' : 0.3,
+        'anneal_strategy' : 'linear',   # 'cos'
+        'div_factor' : 25.0,
+        'final_div_factor' : 1e4,
+        'ex_folder' : 'D:/Download/experiments',
+        'ex_name' : '1st',
     }
-
-
 
     model = Zeus(config)
 

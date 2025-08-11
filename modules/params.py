@@ -28,6 +28,22 @@ class Params:
         self.attLayers = config['attLayers']
         self.zeusLayers = config['zeusLayers']
         self.mlp_dim = self.dim * config['dim_to_mlp_dim']
+
+        #----------------- Training ---------------
+        self.epochs = config['epochs']
+        self.log_step = config['log_step']
+        self.seed = config['seed']
+        self.log_step = config['log_step']
+        self.optimizer = config['optimizer']
+        self.lr = config['lr']
+        self.max_lr = config['max_lr']
+        self.weight_decay = config['weight_decay']
+        self.pct_start = config['pct_start']
+        self.anneal_strategy = config['anneal_strategy']
+        self.div_factor = config['div_factor']
+        self.final_div_factor = config['final_div_factor']
+        self.ex_folder = config['ex_folder']
+        self.ex_name = config['ex_name']
         
         assert self.image_height % self.patch_size == 0, 'Image height must be divisible by the patch size.'
         assert self.image_width % self.patch_size == 0, 'Image width must be divisible by the patch size.'

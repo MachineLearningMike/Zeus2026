@@ -5,6 +5,7 @@ import threading
 import calendar
 import json
 import math
+import copy
 from datetime import datetime, date, timedelta
 import random
 from torch.utils.data import Dataset
@@ -42,9 +43,21 @@ class Zeus_Dataset(Dataset):
         self.loader = Era5CDSLoader()
         self.train_dates, self.vali_dates, self.test_dates = None, None, None
         self.train_set, self.vali_set, self.test_set = None, None, None
+        self.x_set, self.x_set_len = None, 0
 
-        self.total_batches = 5
-        self._fetched_batches = 0
+    #------------------------------------- Download dataset -----------------------
+
+    def initialize(self):
+        self.load_dataset_params()
+        self.load_difficulties()
+        self.load_era5_data_vars()
+        self.split_data_dates(train_pct=0.5, vali_pct=0.3, seed=523)
+        train_set, _, _ = self.generate_x_sets(seed=523)       
+        return len(train_set)
+    
+    def start_prefetch_thread(self):
+        self.total_batches = None
+        self._fetched_batches = None
 
         self._lock = threading.Lock()
         self._batch = None
@@ -56,8 +69,7 @@ class Zeus_Dataset(Dataset):
 
         self._worker_thread = threading.Thread(target=self._prefetch_loop, daemon=True)
         self._worker_thread.start()
-
-    #------------------------------------- Download dataset -----------------------
+        return
 
     def get_normalized_dataset(self):
         dataset = xr.open_zarr("gs://gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3", chunks=None)
@@ -467,10 +479,8 @@ class Zeus_Dataset(Dataset):
             print("Call split_data_dates first")
             return None, None, None
 
-        N = 3
-        train_dates = self.train_dates * N
+        train_dates = self.train_dates * 1
         random.shuffle(train_dates)
-        print(len(self.train_dates), len(train_dates))
         train_set = [(day, self.get_T2()) for day in train_dates]
 
         vali_set = [(day, self.get_T2()) for day in self.vali_dates]
@@ -481,21 +491,30 @@ class Zeus_Dataset(Dataset):
         return train_set, vali_set, test_set
     
 
-    def take_batch(self, x_label, batch_size):
-        x_set = self.train_set if x_label=='train_set' \
-            else self.vali_set if x_label=='vali_set' \
-            else self.test_set if x_label=='test_set' else None
-        if x_set is None: return None
-        if len(x_set) <= 0: return None
+    def initialize_x_set(self, x_label, seed=None):
+        self.start_prefetch_thread()
+        self.generate_x_sets(seed=seed)
 
-        _, T2 = x_set[0]
-        print("T2: ", T2)
+        # Mike!!! remove [:2]
+        self.x_set = copy.copy(self.train_set[:2]) if x_label=='train_set' \
+            else copy.copy(self.vali_set[:2]) if x_label=='vali_set' \
+            else copy.copy(self.test_set[:2]) if x_label=='test_set' else None
+        self._fetched_batches = 0
+        self.total_batches = len(self.x_set)
+
+    def no_more_data(self):
+        print('no_data ', self._fetched_batches, self.total_batches)
+        return self._fetched_batches >= self.total_batches
+
+    def take_batch(self, batch_size):
+        if len(self.x_set) <= 0: return None
+        _, T2 = self.x_set[0]
 
         taken = []
-        i = len(x_set) - 1
+        i = len(self.x_set) - 1
         while i >= 0 and len(taken) < batch_size:
-            if x_set[i][1] == T2:                   # x_set[0][1] == T2, at least.
-                taken.append(x_set.pop(i))          # This way, self.train_set, self.vali_set, and self.test_set diminish.
+            if self.x_set[i][1] == T2:                   # x_set[0][1] == T2, at least.
+                taken.append(self.x_set.pop(i))          # This way, self.train_set, self.vali_set, and self.test_set diminish.
             i -= 1
 
         def get_day_data(day):
@@ -507,7 +526,6 @@ class Zeus_Dataset(Dataset):
                 variable_data = torch.tensor(load[load.files[0]])[:, :-1, :]    # (24, H, W)
                 day_data.append(variable_data)
             day_data = torch.stack(day_data, dim=1)     # (24, C, H, W)
-            print("day_data: ", day_data.shape)
             return day_data
 
         B, C, T1, FG, H, W = len(taken), len(self.variables), self.pm.T1, self.pm.FG, self.pm.image_height, self.pm.image_width
@@ -520,7 +538,6 @@ class Zeus_Dataset(Dataset):
             start_date = taken[b][0]
             months.append(start_date.month)
 
-            print("x...")
             days_data_x = []
             for t1 in range(T1):
                 day = start_date + timedelta(days=t1)
@@ -529,7 +546,6 @@ class Zeus_Dataset(Dataset):
             days_data_x = torch.concat(days_data_x, dim=0)      # (T1*24, C, H, W)
             batch_x.append(days_data_x)
 
-            print("y...")
             days_data_y = []
             for t2 in range(T2):
                 day = start_date + timedelta(days=T1+t2) 
@@ -566,6 +582,7 @@ class Zeus_Dataset(Dataset):
 
     def _prefetch_loop(self):
         while not self._stop_event.is_set():
+            print('prefetch loop...')
             self._request_event.wait()
             self._request_event.clear()
             if self._stop_event.is_set():
@@ -575,11 +592,13 @@ class Zeus_Dataset(Dataset):
                 param = self._param
 
             # (B, T1FG, C, H, W), (B, T2FG, C, H, W), (B, 1, C, H, W), (C,)
-            batch_x, batch_y, batch_diff, era5_data_vars = self.take_batch(param, batch_size=2)
+            # batch_x, batch_y, batch_diff, era5_data_vars
+            batch = self.take_batch(batch_size=1)
 
             with self._lock:
-                self._batch = (batch_x, batch_y, batch_diff, era5_data_vars)
+                self._batch = batch
                 self._ready_event.set()
+            print("...prefetch loop")
 
     def __prefetch__(self, param):
         with self._lock:
@@ -596,21 +615,21 @@ class Zeus_Dataset(Dataset):
         if idx >= self.total_batches:
             raise IndexError("Index exceeds dataset length.")
 
+        print('get_batch...')
         batch = self.get_batch()
-
+        print('...get_batch: ')
         self._fetched_batches += 1
-        if self._fetched_batches >= self.total_batches:
-            self.shutdown()
-
         return batch
 
     def __len__(self):
         return self.total_batches
 
     def shutdown(self):
+        print('shutdown...')
         self._stop_event.set()
         self._request_event.set()
         self._worker_thread.join()
+        print('...shutdown')
 
 
 #-------------------------------------- test ----------------------------------------
@@ -627,13 +646,13 @@ if __name__ == "__main__":
         'width': 1440,
         'channels': 4,
         # video length in and out
-        'T1': 2,    # 5 later.
+        'T1': 3,    # 5 later.
         'MaxT2': 5,
         'FG': 24,   # frames in a frame group
         # patch size
-        'patch_size': 8,
+        'patch_size': 8, # 8
         # transformer
-        'heads': 8,
+        'heads': 8,     # 8
         'dim_head': 32,
         'dropout': 0.0,
         'attn_dropout': 0.0,
@@ -643,6 +662,20 @@ if __name__ == "__main__":
         # layers
         'attLayers' : 1,
         'zeusLayers': 6,
+        # training
+        'seed' : 523,
+        'epochs': 2,
+        'log_step': 10,
+        'optimizer': 'adam',
+        'lr' : 1e-5,
+        'max_lr' : 1e-3,
+        'weight_decay': 0.01,
+        'pct_start' : 0.3,
+        'anneal_strategy' : 'linear',   # 'cos'
+        'div_factor' : 25.0,
+        'final_div_factor' : 1e4,
+        'ex_folder' : 'D:/Download/experiments',
+        'ex_name' : '1st',
     }
 
     dataset = Zeus_Dataset(config, root_dir, param_path, split_dates_path, variables)
@@ -674,7 +707,9 @@ if __name__ == "__main__":
     vars = dataset.load_era5_data_vars()
     print('vars ', vars)
 
-    batch = dataset.take_batch('vali_set', batch_size=1)
+    dataset.initialize_x_set('train_set', seed=523)
+
+    batch = dataset.take_batch(batch_size=1)
     # print("batch: ", batch)
 
     # cds_loader = Era5CDSLoader()
