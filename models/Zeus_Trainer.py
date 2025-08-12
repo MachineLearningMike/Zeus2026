@@ -45,7 +45,9 @@ class Trainer():
 
         if not pbar.no_more_data():  pbar.prefetch(x_set_label)        # Fetch one batch asynchronously
         # batch_x, batch_y, batch_diff, self.era5_data_vars     # (B, T1FG, C, H, W), (B, T2FG, C, H, W), (B, 1, C, H, W), (C,)
-        for batch_x, batch_y, batch_diff, era5_data_vars in pbar:         # Wait for the asynchronous .prefetch
+        for batch in pbar:         # Wait for the asynchronous .prefetch
+            if batch is None: break
+            batch_x, batch_y, batch_diff, era5_data_vars = batch
             if not pbar.no_more_data():  pbar.prefetch(x_set_label)    # Fetch one batch asynchronously
 
             # THIS BLOCK is for scale-down test only, where self.pm.image_height, width are smaller than 720 and 1440.
@@ -184,6 +186,7 @@ if __name__ == "__main__":
         # training
         'seed' : 523,
         'epochs': 20,
+        'batch_size' : 2,
         'log_step': 10,
         'optimizer': 'adam',
         'lr' : 1e-5,

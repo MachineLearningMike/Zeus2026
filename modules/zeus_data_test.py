@@ -39,7 +39,8 @@ config = {
     'zeusLayers': 6,
     # training
     'seed' : 523,
-    'epochs': 2,
+    'epochs': 20,
+    'batch_size' : 2,
     'log_step': 10,
     'optimizer': 'adam',
     'lr' : 1e-5,
@@ -49,7 +50,7 @@ config = {
     'anneal_strategy' : 'linear',   # 'cos'
     'div_factor' : 25.0,
     'final_div_factor' : 1e4,
-    'ex_folder' : 'D:/Download/experiments',
+    'ex_folder' : 'D:\Download\experiments',
     'ex_name' : '1st',
 }
 
@@ -82,16 +83,14 @@ print('vars ', vars)
 
 dataset.initialize_x_set('train_set', seed=523)
 
-# batch = dataset.take_batch('vali_set', batch_size=2)
-# print("batch: ", batch)
-
-
 pbar = zeus_tqdm(dataset, desc="Training Batches")
 
 pbar.prefetch('train_set')
 
 cnt = 1
-for batch_x, batch_y, batch_diff, era5_data_vars in pbar: # (B, T1FG, C, H, W), (B, T2FG, C, H, W), (B, 1, C, H, W), (C,)
+for  batch in pbar: # (B, T1FG, C, H, W), (B, T2FG, C, H, W), (B, 1, C, H, W), (C,)
+    if batch is None: break
+    batch_x, batch_y, batch_diff, era5_data_vars = batch
     pbar.prefetch('train_set')
 
     print("trainer ", batch_x.shape, batch_y.shape, batch_diff.shape, era5_data_vars.shape)
@@ -107,3 +106,5 @@ for batch_x, batch_y, batch_diff, era5_data_vars in pbar: # (B, T1FG, C, H, W), 
     cnt += 1
     pbar.set_description('loss: {:.5f}'.format(loss.item()))
     # time.sleep(0.5)
+
+pbar.shutdown()

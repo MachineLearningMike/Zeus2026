@@ -329,7 +329,7 @@ if __name__ == "__main__":
         'width': 144,
         'channels': 4,
         # video length in and out
-        'T1': 2,    # 5 later.
+        'T1': 3,    # 5 later.
         'MaxT2': 5,
         'FG': 24,   # frames in a frame group
         # patch size
@@ -347,7 +347,8 @@ if __name__ == "__main__":
         'zeusLayers': 6,
         # training
         'seed' : 523,
-        'epochs': 2,
+        'epochs': 20,
+        'batch_size' : 2,
         'log_step': 10,
         'optimizer': 'adam',
         'lr' : 1e-5,
@@ -357,7 +358,7 @@ if __name__ == "__main__":
         'anneal_strategy' : 'linear',   # 'cos'
         'div_factor' : 25.0,
         'final_div_factor' : 1e4,
-        'ex_folder' : 'D:/Download/experiments',
+        'ex_folder' : 'D:\Download\experiments',
         'ex_name' : '1st',
     }
 

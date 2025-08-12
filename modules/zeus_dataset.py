@@ -496,23 +496,23 @@ class Zeus_Dataset(Dataset):
         self.generate_x_sets(seed=seed)
 
         # Mike!!! remove [:2]
-        self.x_set = copy.copy(self.train_set[:2]) if x_label=='train_set' \
-            else copy.copy(self.vali_set[:2]) if x_label=='vali_set' \
-            else copy.copy(self.test_set[:2]) if x_label=='test_set' else None
+        self.x_set = copy.copy(self.train_set[:4]) if x_label=='train_set' \
+            else copy.copy(self.vali_set[:4]) if x_label=='vali_set' \
+            else copy.copy(self.test_set[:4]) if x_label=='test_set' else None
         self._fetched_batches = 0
-        self.total_batches = len(self.x_set)
+        self.total_batches = math.ceil(len(self.x_set) / self.pm.batch_size)
 
     def no_more_data(self):
         print('no_data ', self._fetched_batches, self.total_batches)
         return self._fetched_batches >= self.total_batches
 
-    def take_batch(self, batch_size):
+    def take_batch(self):
         if len(self.x_set) <= 0: return None
         _, T2 = self.x_set[0]
 
         taken = []
         i = len(self.x_set) - 1
-        while i >= 0 and len(taken) < batch_size:
+        while i >= 0 and len(taken) < self.pm.batch_size:
             if self.x_set[i][1] == T2:                   # x_set[0][1] == T2, at least.
                 taken.append(self.x_set.pop(i))          # This way, self.train_set, self.vali_set, and self.test_set diminish.
             i -= 1
@@ -582,7 +582,7 @@ class Zeus_Dataset(Dataset):
 
     def _prefetch_loop(self):
         while not self._stop_event.is_set():
-            print('prefetch loop...')
+            print('prefetch loop...', end='')
             self._request_event.wait()
             self._request_event.clear()
             if self._stop_event.is_set():
@@ -593,7 +593,7 @@ class Zeus_Dataset(Dataset):
 
             # (B, T1FG, C, H, W), (B, T2FG, C, H, W), (B, 1, C, H, W), (C,)
             # batch_x, batch_y, batch_diff, era5_data_vars
-            batch = self.take_batch(batch_size=1)
+            batch = self.take_batch()
 
             with self._lock:
                 self._batch = batch
@@ -615,7 +615,7 @@ class Zeus_Dataset(Dataset):
         if idx >= self.total_batches:
             raise IndexError("Index exceeds dataset length.")
 
-        print('get_batch...')
+        print('get_batch...', end='')
         batch = self.get_batch()
         print('...get_batch: ')
         self._fetched_batches += 1
@@ -625,7 +625,7 @@ class Zeus_Dataset(Dataset):
         return self.total_batches
 
     def shutdown(self):
-        print('shutdown...')
+        print('shutdown...', end='')
         self._stop_event.set()
         self._request_event.set()
         self._worker_thread.join()
@@ -664,7 +664,8 @@ if __name__ == "__main__":
         'zeusLayers': 6,
         # training
         'seed' : 523,
-        'epochs': 2,
+        'epochs': 20,
+        'batch_size' : 2,
         'log_step': 10,
         'optimizer': 'adam',
         'lr' : 1e-5,
@@ -674,7 +675,7 @@ if __name__ == "__main__":
         'anneal_strategy' : 'linear',   # 'cos'
         'div_factor' : 25.0,
         'final_div_factor' : 1e4,
-        'ex_folder' : 'D:/Download/experiments',
+        'ex_folder' : 'D:\Download\experiments',
         'ex_name' : '1st',
     }
 
@@ -709,7 +710,7 @@ if __name__ == "__main__":
 
     dataset.initialize_x_set('train_set', seed=523)
 
-    batch = dataset.take_batch(batch_size=1)
+    batch = dataset.take_batch()
     # print("batch: ", batch)
 
     # cds_loader = Era5CDSLoader()

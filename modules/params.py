@@ -31,6 +31,7 @@ class Params:
 
         #----------------- Training ---------------
         self.epochs = config['epochs']
+        self.batch_size = config['batch_size']
         self.log_step = config['log_step']
         self.seed = config['seed']
         self.log_step = config['log_step']
