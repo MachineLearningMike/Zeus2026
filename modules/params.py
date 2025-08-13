@@ -7,6 +7,7 @@ class Params:
         self.nFramesIn = config['T1'] * config['FG']                # 2 * 24 = 48           # temporal seq_len
         self.FG = config['FG']
         self.nFramesOut = 1 * config['FG']                          # 24
+        self.maxT2 = config['maxT2']
 
         self.patch_size = config['patch_size']                      # 16
         self.nPatches_h = self.image_height // self.patch_size      # 720 / 16 = 45

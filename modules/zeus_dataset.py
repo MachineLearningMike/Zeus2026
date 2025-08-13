@@ -156,7 +156,7 @@ class Zeus_Dataset(Dataset):
 
     def count_data_days(self):
         start, end = None, None
-        missing = []
+        missing = False
         total_days = 0
         for year_dir in sorted(self.root_dir.iterdir()):
             if not year_dir.is_dir():
@@ -170,7 +170,7 @@ class Zeus_Dataset(Dataset):
 
                     files = {f.stem for f in day_dir.glob("*.npz")}
                     missing_vars = [var for var in self.variables if var not in files]
-                    if missing_vars:  missing.append((year_dir, month_dir, day_dir, missing_vars))
+                    if len(missing_vars) > 0: missing = True
 
                     total_days += 1
                     if start is None:
@@ -178,7 +178,7 @@ class Zeus_Dataset(Dataset):
                     end = day_dir
                     end_day = date(year=int(end.parts[-3]), month=int(end.parts[-2]), day=int(end.parts[-1]))
 
-        complete = missing == []
+        complete = not missing
         start_day = date(year=int(start.parts[-3]), month=int(start.parts[-2]), day=int(start.parts[-1]))
         end_day = date(year=int(end.parts[-3]), month=int(end.parts[-2]), day=int(end.parts[-1]))
         
@@ -264,6 +264,9 @@ class Zeus_Dataset(Dataset):
             self.mean, self.std = mean, std
 
         return self.mean, self.std    # (C,), (C,)
+    
+    def unnormalize(self, data):
+        return data * rearrange(self.std, 'c -> c 1 1') + rearrange(self.mean, 'c -> c 1 1')
     
     def load_era5_data_vars(self):
         vars = [ERA5_DATA_VARS[k] for k in self.variables if k in ERA5_DATA_VARS.keys()]
@@ -479,12 +482,24 @@ class Zeus_Dataset(Dataset):
             print("Call split_data_dates first")
             return None, None, None
 
-        train_dates = self.train_dates * 1
-        random.shuffle(train_dates)
-        train_set = [(day, self.get_T2()) for day in train_dates]
+        random.shuffle(self.train_dates)
+        random.shuffle(self.vali_dates)
+        random.shuffle(self.test_dates)
 
-        vali_set = [(day, self.get_T2()) for day in self.vali_dates]
-        test_set = [(day, self.get_T2()) for day in self.test_dates]
+        def get_t2s(n):
+            t2s = []
+            while True:
+                t2 = self.get_T2()
+                if t2 <= self.pm.maxT2: t2s.append(t2)
+                if len(t2s) >= n: break
+            return t2s
+
+        t2s = get_t2s(len(self.train_dates))
+        train_set = [(day, t2) for (day, t2) in zip(self.train_dates, t2s)]
+        t2s = get_t2s(len(self.vali_dates))
+        vali_set = [(day, t2) for (day, t2) in zip(self.vali_dates, t2s)]
+        t2s = get_t2s(len(self.test_dates))
+        test_set = [(day, t2) for (day, t2) in zip(self.test_dates, t2s)]
 
         self.train_set, self.vali_set, self.test_set = train_set, vali_set, test_set
 
@@ -496,18 +511,73 @@ class Zeus_Dataset(Dataset):
         self.generate_x_sets(seed=seed)
 
         # Mike!!! remove [:2]
-        self.x_set = copy.copy(self.train_set[:4]) if x_label=='train_set' \
-            else copy.copy(self.vali_set[:4]) if x_label=='vali_set' \
-            else copy.copy(self.test_set[:4]) if x_label=='test_set' else None
+        self.x_set = copy.copy(self.train_set[:80]) if x_label=='train_set' \
+            else copy.copy(self.vali_set[:40]) if x_label=='vali_set' \
+            else copy.copy(self.test_set[:40]) if x_label=='test_set' else None
         self._fetched_batches = 0
         self.total_batches = math.ceil(len(self.x_set) / self.pm.batch_size)
 
     def no_more_data(self):
-        print('no_data ', self._fetched_batches, self.total_batches)
-        return self._fetched_batches >= self.total_batches
+        return len(self.x_set) <= 0
+
+    def load_day_vdata(self, day):
+        day_data = []
+        for variable in self.variables:
+            file_path = self.get_file_path(day.year, day.month, day.day, variable)
+            if os.path.exists(file_path):
+                load = np.load(file_path)
+                variable_data = torch.tensor(load[load.files[0]])[:, :-1, :]    # (24, H, W)
+                day_data.append(variable_data)
+        if len(day_data) == len(self.variables):
+            day_data = torch.stack(day_data, dim=1)     # (24, C, H, W)
+        else:
+            day_data = None
+        return day_data
+    
+    def load_day_all_data(self, day):
+        all_path = self.get_file_path(day.year, day.month, day.day, 'all')
+        if os.path.exists(all_path):
+            load = np.load(all_path)
+            data = torch.tensor(load[load.files[0]])[:, :, :-1, :]    # (24, C, H, W)
+            return data
+        else:
+            return None
+
+    def remove_day_vdata(self, day):
+        day_data = []
+        all_path = self.get_file_path(day.year, day.month, day.day, 'all')
+        if os.path.exists(all_path):
+            for variable in self.variables:
+                v_path = self.get_file_path(day.year, day.month, day.day, variable)
+                if os.path.exists(v_path): os.remove(v_path)
+        return
+    
+    def remove_variable_data(self):
+        total_days, start_day, end_day, complete, data_dates = dataset.count_data_days()
+        day = start_day
+        while day <= end_day:
+            self.remove_day_vdata(day)
+            day = day + timedelta(days=1)
+
+    def integrate_variable_data(self):
+        total_days, start_day, end_day, complete, data_dates = dataset.count_data_days()
+        day = start_day
+        while day <= end_day:
+            print('int', day)
+            file_path = self.get_file_path(day.year, day.month, day.day, 'all')
+            if not os.path.exists(file_path):
+                array = self.load_day_vdata(day).numpy()
+                if array is not None:
+                    np.savez_compressed(file_path, array)
+                    self.remove_day_vdata(day)
+            else:
+                self.remove_day_vdata(day)
+            day = day + timedelta(days=1)
+        return
 
     def take_batch(self):
-        if len(self.x_set) <= 0: return None
+        if self.no_more_data(): return None
+
         _, T2 = self.x_set[0]
 
         taken = []
@@ -516,17 +586,6 @@ class Zeus_Dataset(Dataset):
             if self.x_set[i][1] == T2:                   # x_set[0][1] == T2, at least.
                 taken.append(self.x_set.pop(i))          # This way, self.train_set, self.vali_set, and self.test_set diminish.
             i -= 1
-
-        def get_day_data(day):
-            day_data = []
-            for c in range(C):
-                variable = self.variables[c]
-                file_path = self.get_file_path(day.year, day.month, day.day, variable)
-                load = np.load(file_path)
-                variable_data = torch.tensor(load[load.files[0]])[:, :-1, :]    # (24, H, W)
-                day_data.append(variable_data)
-            day_data = torch.stack(day_data, dim=1)     # (24, C, H, W)
-            return day_data
 
         B, C, T1, FG, H, W = len(taken), len(self.variables), self.pm.T1, self.pm.FG, self.pm.image_height, self.pm.image_width
 
@@ -541,7 +600,7 @@ class Zeus_Dataset(Dataset):
             days_data_x = []
             for t1 in range(T1):
                 day = start_date + timedelta(days=t1)
-                day_data = get_day_data(day)                    # (24, C, H, W)
+                day_data = self.load_day_all_data(day)                    # (24, C, H, W)
                 days_data_x.append(day_data)
             days_data_x = torch.concat(days_data_x, dim=0)      # (T1*24, C, H, W)
             batch_x.append(days_data_x)
@@ -549,7 +608,7 @@ class Zeus_Dataset(Dataset):
             days_data_y = []
             for t2 in range(T2):
                 day = start_date + timedelta(days=T1+t2) 
-                day_data = get_day_data(day)                    # (24, C, H, W)
+                day_data = self.load_day_all_data(day)                    # (24, C, H, W)
                 days_data_y.append(day_data)
             days_data_y = torch.concat(days_data_y, dim=0)      # (T2*24, C, H, W)
             batch_y.append(days_data_y)
@@ -570,7 +629,6 @@ class Zeus_Dataset(Dataset):
             variable_diff = torch.stack(variable_diff, dim=0)           # (C, 720, 1440)
             batch_diff.append(variable_diff)
         batch_diff = torch.stack(batch_diff, dim=0)                     # (B, C, 720, 1440)
-        batch_diff = rearrange(batch_diff, 'b c h w -> b 1 c h w')      # (B, 1, C, H, W)
         # print('batch_diff', batch_diff.shape)
 
         # print("batch_x, y shape: ", batch_x.shape, batch_y.shape)
@@ -582,7 +640,7 @@ class Zeus_Dataset(Dataset):
 
     def _prefetch_loop(self):
         while not self._stop_event.is_set():
-            print('prefetch loop...', end='')
+            # print('prefetch loop... ')
             self._request_event.wait()
             self._request_event.clear()
             if self._stop_event.is_set():
@@ -598,7 +656,7 @@ class Zeus_Dataset(Dataset):
             with self._lock:
                 self._batch = batch
                 self._ready_event.set()
-            print("...prefetch loop")
+            # print(" ...prefetch loop", batch is not None)
 
     def __prefetch__(self, param):
         with self._lock:
@@ -615,21 +673,21 @@ class Zeus_Dataset(Dataset):
         if idx >= self.total_batches:
             raise IndexError("Index exceeds dataset length.")
 
-        print('get_batch...', end='')
+        # print('get_batch... ')
         batch = self.get_batch()
-        print('...get_batch: ')
-        self._fetched_batches += 1
+        # print(' ...get_batch: ', batch is not None)
+        if batch is not None: self._fetched_batches += 1
         return batch
 
     def __len__(self):
         return self.total_batches
 
     def shutdown(self):
-        print('shutdown...', end='')
+        # print('shutdown... ')
         self._stop_event.set()
         self._request_event.set()
         self._worker_thread.join()
-        print('...shutdown')
+        # print(' ...shutdown')
 
 
 #-------------------------------------- test ----------------------------------------
@@ -642,18 +700,18 @@ if __name__ == "__main__":
 
     config = {
         # image h w c
-        'height': 720,
-        'width': 1440,
+        'height': 72,
+        'width': 144,
         'channels': 4,
         # video length in and out
         'T1': 3,    # 5 later.
-        'MaxT2': 5,
+        'maxT2': 5,
         'FG': 24,   # frames in a frame group
         # patch size
         'patch_size': 8, # 8
         # transformer
         'heads': 8,     # 8
-        'dim_head': 32,
+        'dim_head': 16,
         'dropout': 0.0,
         'attn_dropout': 0.0,
         'drop_path': 0.0,
@@ -661,10 +719,10 @@ if __name__ == "__main__":
         'dim_to_mlp_dim': 2,
         # layers
         'attLayers' : 1,
-        'zeusLayers': 6,
+        'zeusLayers': 2,
         # training
         'seed' : 523,
-        'epochs': 20,
+        'epochs': 1000,
         'batch_size' : 2,
         'log_step': 10,
         'optimizer': 'adam',
@@ -717,3 +775,6 @@ if __name__ == "__main__":
     # sample = cds_loader.get_sample()        # get random sample
     # difficult_grid = dataset.get_difficulty_grid("100m_u_component_of_wind", sample)
     # print(difficult_grid)
+
+    # dataset.integrate_variable_data()
+
