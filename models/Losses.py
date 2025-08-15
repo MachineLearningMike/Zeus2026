@@ -33,6 +33,7 @@ class Losses():
 
         return torch.pow(norm, gamma)  # gamma.shape = (B, C, H, W)
     
+    # def loss(self, target, pred, batch_diff, era5_data_vars):
     def loss(self, target, pred, batch_diff, era5_data_vars):
         # (B,FG,C,H,W), (B,FG,C,H,W), (B, C, H, W), (C,)
 
@@ -42,17 +43,18 @@ class Losses():
         # improvement = baseline_rmse - rmse  - self.min_sota_delta   # (B, C, H, W)  the-higher-the-better
         # baseline_improvement = torch.maximum(torch.tensor(0.0), improvement)    # 0.0, (B, C, H, W)  the-higher-the-better
 
-        gamma = torch.pow(REWARD_DIFFICULTY_SCALER, batch_diff * 2 - 1)  # (B, C, H, W)  the-higher-the-more-difficult
+        # gamma = torch.pow(REWARD_DIFFICULTY_SCALER, batch_diff * 2 - 1)  # (B, C, H, W)  the-higher-the-more-difficult
 
         # qualty_score is exacerbated in propotion to difficulty
-        quality_score = self.get_curved_scores(rmse, gamma)       # (B, C, H, W) the-higher-the-worse
+        # quality_score = self.get_curved_scores(rmse, gamma)       # (B, C, H, W) the-higher-the-worse
         # baseline_improvement = rearrange(baseline_improvement, 'b c -> b c 1 1')                # 0.0, (B, C, 1, 1)
         # improvement_score = self.get_curved_scores(-baseline_improvement, gamma) # (B, C, H, W) the-higher-the-worse
 
         # reward = (1 - REWARD_IMPROVEMENT_WEIGHT) * quality_score + REWARD_IMPROVEMENT_WEIGHT * improvement_score    # (B, C, H, W)
 
         # reward is weighted.
-        reward = quality_score * rearrange(era5_data_vars, 'c -> c 1 1')   # (B, C, H, W) the-higher-the-worse
+        # reward = quality_score * rearrange(era5_data_vars, 'c -> c 1 1')   # (B, C, H, W) the-higher-the-worse
+        reward = rmse * rearrange(era5_data_vars, 'c -> c 1 1')   # (B, C, H, W) the-higher-the-worse
         reward = reward.mean()
         rmse = rmse.mean(dim=(0,2,3))   # (C,)
 

@@ -1,60 +1,16 @@
 import torch
-from torch.utils.data import DataLoader, Dataset, TensorDataset
-from tqdm import tqdm
-import time
-import xarray as xr
-import numpy as np
-
-from zeus_dataset import Zeus_Dataset
-from zeus_tqdm import zeus_tqdm
-
 from pathlib import Path
 
-root_dir = Path("D:\Download\CDS")
-param_path = Path("D:\Download\dataset_params.json")
-split_dates_path = Path("D:\Download\split_dates.json")
-variables = ["2m_temperature", 'total_precipitation', "100m_u_component_of_wind", '100m_v_component_of_wind']   # order matters.
+from zeus_tqdm import zeus_tqdm
+from zeus_dataset import Zeus_Dataset
 
-config = {
-    # image h w c
-    'height': 720,
-    'width': 1440,
-    'channels': 4,
-    # video length in and out
-    'T1': 3,    # 5 later.
-    'MaxT2': 5,
-    'FG': 24,   # frames in a frame group
-    # patch size
-    'patch_size': 8, # 8
-    # transformer
-    'heads': 8,     # 8
-    'dim_head': 32,
-    'dropout': 0.0,
-    'attn_dropout': 0.0,
-    'drop_path': 0.0,
-    'patch_dim_to_dim' : 1,
-    'dim_to_mlp_dim': 2,
-    # layers
-    'attLayers' : 1,
-    'zeusLayers': 6,
-    # training
-    'seed' : 523,
-    'epochs': 20,
-    'batch_size' : 2,
-    'log_step': 10,
-    'optimizer': 'adam',
-    'lr' : 1e-5,
-    'max_lr' : 1e-3,
-    'weight_decay': 0.01,
-    'pct_start' : 0.3,
-    'anneal_strategy' : 'linear',   # 'cos'
-    'div_factor' : 25.0,
-    'final_div_factor' : 1e4,
-    'ex_folder' : 'D:\Download\experiments',
-    'ex_name' : '1st',
-}
+from models.config import config
 
-dataset = Zeus_Dataset(config, root_dir, param_path, split_dates_path, variables)
+import platform
+if platform.system() == "Windows":  root_path = Path("D:/Zeus_Data")
+else:   root_path = Path("/mnt/Data/Zeus_Data")
+
+dataset = Zeus_Dataset(config, root_path)
 
 total_days, start_day, end_day, complete, data_dates = dataset.count_data_days()
 print(start_day, end_day)
@@ -81,7 +37,7 @@ dataset.load_difficulties()
 vars = dataset.load_era5_data_vars()
 print('vars ', vars)
 
-dataset.initialize_x_set('train_set', seed=523)
+dataset.select_x_set('train_set', seed=523)
 
 pbar = zeus_tqdm(dataset, desc="Training Batches")
 

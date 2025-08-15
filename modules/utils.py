@@ -2,6 +2,7 @@ import os
 import torch
 import random
 import numpy as np
+from pathlib import Path
 import torch.backends.cudnn as cudnn
 
 
@@ -34,6 +35,7 @@ def output_namespace(namespace):
     return message
 
 def check_dir(path):
-    if not os.path.exists(path):
-        os.makedirs(path)
+    path = Path(path)
+    if not path.exists():
+        path.mkdir(parents=True)
 

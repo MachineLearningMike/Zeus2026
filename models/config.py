@@ -1,0 +1,39 @@
+variables = ["2m_temperature", 'total_precipitation', "100m_u_component_of_wind", '100m_v_component_of_wind']   # order matters.
+
+config = {
+    # image h w c
+    'height': 72,
+    'width': 144,
+    # video length in and out
+    'variables': variables,
+    'T1': 2,    # 5 later.
+    'maxT2': 6,
+    'FG': 24,   # frames in a frame group
+    # patch size
+    'patch_size': 8, # 8
+    # transformer
+    'heads': 8,     # 8
+    'dropout': 0.0,
+    'attn_dropout': 0.0,
+    'drop_path': 0.0,
+    'dim_to_mlp_dim': 2,
+    # layers:   max (2, 3) on laptop
+    'attLayers' : 2,
+    'zeusLayers': 3,
+    # training
+    'seed' : 523,
+    'include_difficulty' : True,
+    'epochs': 1000,
+    'batch_size' : 2,
+    'log_step': 10,
+    'optimizer': 'adam',
+    'lr' : 1e-5,
+    'max_lr' : 1e-3,
+    'weight_decay': 0.01,
+    'pct_start' : 0.3,
+    'anneal_strategy' : 'linear',   # 'cos'
+    'div_factor' : 25.0,
+    'final_div_factor' : 1e4,
+
+    'bayesProject' : 'testBayesProject',    # Represents an instance of a whole bayesian miximization.
+}

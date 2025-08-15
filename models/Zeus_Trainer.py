@@ -10,10 +10,10 @@ from pathlib import Path
 import logging
 
 import os, sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from models.Losses import Losses
-from modules.environment import Environment
+from modules.environment import TrainEnvironment
 from modules.zeus_tqdm import zeus_tqdm
 import modules.metrics
 from modules.zeus_dataset import Zeus_Dataset
@@ -24,30 +24,41 @@ from Zeus import Zeus
 
 class Trainer():
 
-    def __init__(self, config, root_dir, param_path, split_dates_path, variables):
+    def __init__(self, config, root_path, bayes=None):
+        self.bayes = bayes
+        self.config = config
+        self.root_path = root_path
+
+        self.dataset = Zeus_Dataset(config, root_path)
+        # self._initialize(config, self.root_path)
+        return
+
+    def _initialize_train(self, config):
         self.pm = Params(config)
+        print("-------- patch_dim: {}, dim: {}, dim_head: {}, nHeads: {}".format(self.pm.patch_dim, self.pm.dim, self.pm.dim_head, self.pm.nHeads))
 
         self.model = Zeus(config).float()
-        self.dataset = Zeus_Dataset(config, root_dir, param_path, split_dates_path, variables)
-        train_steps = self.dataset.initialize()
-        self.env = Environment(config, self.model, train_steps)
-        self.losses = Losses(self.env, variables)
+        train_set, _, _ = self.dataset.generate_x_sets(seed=523)  
+        self.env = TrainEnvironment(config, self.root_path, self.model, len(train_set))
+        self.losses = Losses(self.env, self.pm.variables)
 
         self.train_loss_ema = 0.0
         self.vali_loss_ema = 0.0
         self.ema_alpha = 2 / (10 + 1)   # We want EMA similar to 1 10-day simple moving average (SME).
+        return
 
-
-    def _run_epoch(self, x_set_label, train=False):  
+    def _run_epoch(self, epoch, x_set_label, train=False):  
         self.model.to(self.env.device)
-        self.dataset.initialize_x_set(x_set_label, seed=523)
+
         mean = rearrange(torch.tensor(self.dataset.mean), 'c -> c 1 1').to(self.env.device)
         std = rearrange(torch.tensor(self.dataset.std), 'c -> c 1 1').to(self.env.device)
-        # print('2', mean.shape, std.shape)
 
+        self.dataset.select_x_set(x_set_label, seed=523)
         pbar = zeus_tqdm(self.dataset)
+        pbar.start_prefetch_thread()
+        
         FG = self.pm.FG; T1 = self.pm.nFramesIn // FG
-        epoch_loss = []
+        epoch_loss = []; epoch_rmses = []
 
         if not pbar.no_more_data():  pbar.prefetch(x_set_label)        # Fetch one batch asynchronously
         for batch in pbar:              # Wait for the asynchronous .prefetch
@@ -61,7 +72,8 @@ class Trainer():
             # Mike!!! Remove this block in production version.
             batch_x = batch_x[:, :, :, :self.pm.image_height, :self.pm.image_width]
             batch_y = batch_y[:, :, :, :self.pm.image_height, :self.pm.image_width]
-            batch_diff = batch_diff[:, :, :self.pm.image_height, :self.pm.image_width]
+            if self.pm.include_difficulty:
+                batch_diff = batch_diff[:, :, :self.pm.image_height, :self.pm.image_width]
 
             T2 = (batch_y.shape)[1] // FG
             batch_x, batch_y = batch_x.float().to(self.env.device), batch_y.float().to(self.env.device)
@@ -83,7 +95,8 @@ class Trainer():
                 pred = pred * std + mean
                 target = target * std + mean
                 # loss = torch.sqrt(torch.mean((pred - target) ** 2))
-                loss, rmse = self.losses.loss(target, pred, batch_diff.to(self.env.device), era5_data_vars.to(self.env.device))
+                # loss, rmse = self.losses.loss(target, pred, batch_diff.to(self.env.device), era5_data_vars.to(self.env.device))
+                loss, rmse = self.losses.loss(target, pred, batch_diff, era5_data_vars.to(self.env.device))
 
                 step_loss.append(loss); rmses.append(rmse)
                 if train: loss.backward()                         # train
@@ -92,31 +105,39 @@ class Trainer():
             if train: self.env.scheduler.step()
             step_loss = torch.tensor(step_loss).mean()   # tensor
             epoch_loss.append(step_loss)
-            rmses = torch.stack(rmses, dim=0).mean(dim=0).tolist()
-            rmses = ", ".join(f"{x:.2f}" for x in rmses)
+            rmses = torch.stack(rmses, dim=0).mean(dim=0)   # (C,)
+            epoch_rmses.append(rmses)
+            rmses = ", ".join(f"{x:.2f}" for x in rmses.tolist())
             pbar.set_description('Loss: {:.3f}, rmses: {}'.format(step_loss.item(), rmses))
             if no_more_data: break
             # print('waiting for data...')
 
-        epoch_loss = sum(epoch_loss)/len(epoch_loss)    # tensor
+        epoch_loss = torch.stack(epoch_loss, dim=0).mean()
         pbar.shutdown()
         # print(' ...epoch finished')
-        return epoch_loss
+        return epoch_loss, epoch_rmses
         #--------------------------------------------------------------------------------
 
-    def _validate(self, epoch, train_loss):
+    def _validate(self, epoch, train_loss, train_rmses):
         self.model.eval()
         with torch.no_grad():
-            vali_loss = self._run_epoch("vali_set", train=False)
+            vali_loss, vali_rmses = self._run_epoch(epoch, "vali_set", train=False)
 
         # if epoch % (self.pm.log_step * 100) == 0: self.env._save(name=str(epoch))
         
         train_loss = train_loss.item()
         vali_loss = vali_loss.item()
 
-        logging.info("Epoch: {0} | Train Loss: {1:.4f} Vali Loss: {2:.4f}\n".format(
-            epoch + 1, train_loss, vali_loss))
-        self.env.save_best(vali_loss)
+        train_rmses = torch.stack(train_rmses, dim=0).mean(dim=0)   # (C,)
+        train_rmses = ", ".join(f"{x:.2f}" for x in train_rmses.tolist())
+
+        vali_rmses = torch.stack(vali_rmses, dim=0).mean(dim=0)   # (C,)
+        vali_rmses = ", ".join(f"{x:.2f}" for x in vali_rmses.tolist())
+
+        logging.info("Epoch: {} | Train Loss: {:.4f} Vali Loss: {:.4f} train RMSE: {} vali RMSE: {}\n".format(
+            epoch, train_loss, vali_loss, train_rmses, vali_rmses))
+        
+        self.env.save_best()
 
         self.train_loss_ema = self.ema_alpha * train_loss + (1-self.ema_alpha) * self.train_loss_ema
         self.vali_loss_ema = self.ema_alpha * vali_loss + (1-self.ema_alpha) * self.vali_loss_ema
@@ -126,30 +147,67 @@ class Trainer():
         return go_next_epoch
 
 
-    def train(self):
-        for epoch in range(self.pm.epochs):
+    def train(self, start_epoch=0):
+        broken = False
+        for epoch in range(start_epoch, self.pm.epochs):
             print("---------- epoch {} ------------".format(epoch))
             self.model.train()
-            epoch_loss = self._run_epoch("train_set", train=True)
+            train_loss, train_rmses = self._run_epoch(epoch, "train_set", train=True)
+
             go_next_epoch = True
             if epoch >= 0:
-                go_next_epoch = self._validate(epoch, epoch_loss)
-            if not go_next_epoch: break
+                go_next_epoch = self._validate(epoch, train_loss, train_rmses)
+            if not go_next_epoch:
+                broken = True; break
 
-        # best_model_path = os.path.join(self.env.checkpoints_path, 'checkpoint.pth')
-        # self.model.load_state_dict(torch.load(best_model_path))
+            self.env._save_train_state(epoch=epoch)
+            if self.bayes is not None:  self.bayes.on_epoch_end()
+
+        if broken:
+            if self.bayes is not None:  self.bayes.on_epoch_end()
+
         return # - latest ma loss, bayesian optimization.
-
 
     def test(self):
         self.model.eval()
         T1 = self.config('T1'); FG = self.config('FG')
 
-        epoch_loss = self._run_epoch("test_set", train=False)
+        epoch = 0
+        epoch_loss = self._run_epoch(epoch, "test_set", train=False)
 
         self.env.print_log('vali rmse:{:.4f}'.format(epoch_loss.item()))
         
         return epoch_loss
+    
+    # def bayesian_target(self, attLayers, zeusLayers):
+    #     import time
+    #     time.sleep(3)
+    #     print('1')
+    #     time.sleep(3)
+    #     print('2')
+    #     self.bayes.on_epoch_end()
+    #     time.sleep(3)
+    #     print('3')
+    #     return attLayers + zeusLayers
+
+    def bayesian_target(self, heads, attLayers, zeusLayers):
+        # Update with new hyper-parameters
+        self.config['heads'] = heads
+        self.config['attLayers'] = attLayers
+        self.config['zeusLayers'] = zeusLayers
+    
+        # Initialize: self.pm, self.model, self.env, self.loss, and state variables
+        self._initialize_train(self.config)
+
+        # Load: epoch, self.model state, env.optimizer, env.scheduler
+        # If epoch == -1, they've not been loaded/updated.
+        epoch = self.env._load_train_state()
+
+        profit = self.train(start_epoch=epoch+1)
+
+        return profit
+
+        
 
 
 # def inference(model, lat, lon, start_hour, hours):
@@ -171,56 +229,18 @@ class Trainer():
 
 if __name__ == "__main__":
 
-    root_dir = Path("D:\Download\CDS")
-    param_path = Path("D:\Download\dataset_params.json")
-    split_dates_path = Path("D:\Download\split_dates.json")
-    variables = ["2m_temperature", 'total_precipitation', "100m_u_component_of_wind", '100m_v_component_of_wind']   # order matters.
+    from models.config import config
 
-    config = {
-        # image h w c
-        'height': 72,
-        'width': 144,
-        'channels': 4,
-        # video length in and out
-        'T1': 3,    # 5 later.
-        'maxT2': 5,
-        'FG': 24,   # frames in a frame group
-        # patch size
-        'patch_size': 8, # 8
-        # transformer
-        'heads': 8,     # 8
-        'dim_head': 16,
-        'dropout': 0.0,
-        'attn_dropout': 0.0,
-        'drop_path': 0.0,
-        'patch_dim_to_dim' : 1,
-        'dim_to_mlp_dim': 2,
-        # layers
-        'attLayers' : 1,
-        'zeusLayers': 2,
-        # training
-        'seed' : 523,
-        'epochs': 1000,
-        'batch_size' : 2,
-        'log_step': 10,
-        'optimizer': 'adam',
-        'lr' : 1e-5,
-        'max_lr' : 1e-3,
-        'weight_decay': 0.01,
-        'pct_start' : 0.3,
-        'anneal_strategy' : 'linear',   # 'cos'
-        'div_factor' : 25.0,
-        'final_div_factor' : 1e4,
-        'ex_folder' : 'D:\Download\experiments',
-        'ex_name' : '1st',
-    }
+    import platform
+    if platform.system() == "Windows":  root_path = Path("D:/Zeus_Data")
+    else:   root_path = Path("/mnt/Data/Zeus_Data")
 
+    trainer = Trainer(config, root_path, bayes=None)
 
-    trainer = Trainer(config, root_dir, param_path, split_dates_path, variables)
+    # x = torch.rand(1, config['T1'] * config['FG'], config['channels'], config['height'], config['width'])
+    # print(x.shape)
+    # pred = trainer.model(x)
+    # print(pred.shape)
 
-    x = torch.rand(1, config['T1'] * config['FG'], config['channels'], config['height'], config['width'])
-    print(x.shape)
-    pred = trainer.model(x)
-    print(pred.shape)
-
-    trainer.train()
+    heads = config['heads'], attLayers, zeusLayers = config['attLayers'], config['zeusLayers']
+    profit = trainer.bayesian_target(attLayers, zeusLayers)

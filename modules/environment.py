@@ -4,35 +4,34 @@ import math
 import pickle
 import logging
 
-import numpy as np
 import torch
-from tqdm import tqdm
+from datetime import datetime
+import pytz, tzlocal
+from pathlib import Path
 
 import os, sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 import modules.utils as utils
 from modules.params import Params
 
-class Environment:
-    def __init__(self, config, model, train_steps):
-        super(Environment, self).__init__()
+class TrainEnvironment:
+    def __init__(self, config, root_path, model, train_steps):
+        super(TrainEnvironment, self).__init__()
 
         self.pm = Params(config)
         self.model = model
         self.train_steps = train_steps
 
-        self.ex_path = os.path.join(self.pm.ex_folder, self.pm.ex_name)
-        utils.check_dir(self.ex_path)
+        self.bayes_path = root_path / 'bayes' / self.pm.bayesProject
+        # utils.check_dir(self.bayes_path)  not yet
 
-        configPath = os.path.join(self.ex_path, 'config.json')
+        configPath =  self.bayes_path / 'config.json'
+        utils.check_dir(configPath.parent)
         with open(configPath, 'w') as f:
             json.dump(config, f, indent=4)
 
-        self.checkpoints_path = os.path.join(self.ex_path, 'checkpoints')
-        utils.check_dir(self.checkpoints_path)
-
-        self.setup_logging(self.ex_path)
+        self.setup_logging(self.bayes_path)
 
         utils.set_seed(self.pm.seed)
         self.device = self._acquire_device()
@@ -41,6 +40,12 @@ class Environment:
         self.best_score, self.delta_score = None, 0.001
 
         return
+    
+    def get_minute_stamp(self):
+        local_tz = tzlocal.get_localzone()
+        now = datetime.now(local_tz)
+        stamp = now.strftime("%Y%m%d_%H%M")
+        return stamp
 
     def setup_logging(self, log_dir):
         """
@@ -141,40 +146,45 @@ class Environment:
 
         return optimizer, scheduler
 
-    def save_best(self, vali_loss):
-        score = -vali_loss
-        if self.best_score is None:
-            self.best_score = score
-            self._save(name=self.pm.ex_name)
-        elif score >= self.best_score + self.delta_score:
-            self.best_score = score
-            self._save(name=self.pm.ex_name)
+    def save_best(self):
+        self._save_train_state(name='best_state')
 
-    def _save(self, name=''):
+    def _save_train_state(self, epoch=0, name='train_state'):  # called at the end of epoch
         checkpoint = {
+            'epoch': epoch,
             'model': self.model.state_dict(),
             'optimizer': self.optimizer.state_dict(),
             'scheduler': self.scheduler.state_dict()
         }
-        torch.save(checkpoint, os.path.join(self.checkpoints_path, name + '.pth'))
+        utils.check_dir(self.bayes_path)
+        torch.save(checkpoint, self.bayes_path / (name + '.pth'))
         return
 
 
-    def _load(self, name=''):
-        checkpoint_path = os.path.join(self.checkpoints_path, name + '.pth')
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        checkpoint = torch.load(checkpoint_path, map_location=device)
+    def _load_train_state(self, name='train_state'):   # get ready to run the next epoch
+        try:
+            checkpoint_path = self.bayes_path / (name + '.pth')
+            # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            checkpoint = torch.load(checkpoint_path, map_location=self.device)
 
-        # Load model parameters
-        self.model.load_state_dict(checkpoint['model'])
+            # Load model parameters
+            epoch = checkpoint['epoch']
+            self.model.load_state_dict(checkpoint['model'])
 
-        # Ensure optimizer & scheduler exist before loading states
-        if not hasattr(self, 'optimizer') or not hasattr(self, 'scheduler'):
-            self._select_optimizer()
+            # Ensure optimizer & scheduler exist before loading states
+            if not hasattr(self, 'optimizer') or not hasattr(self, 'scheduler'):
+                self._select_optimizer()
 
-        self.optimizer.load_state_dict(checkpoint['optimizer'])
-        self.scheduler.load_state_dict(checkpoint['scheduler'])
+            self.optimizer.load_state_dict(checkpoint['optimizer'])
+            for state in self.optimizer.state.values():
+                for k, v in state.items():
+                    if isinstance(v, torch.Tensor):
+                        state[k] = v.to(self.device)
 
-        print(f"Checkpoint '{name}' loaded to {device}")
-        return
+            self.scheduler.load_state_dict(checkpoint['scheduler'])
+            print(f"Checkpoint '{name}' loaded to {self.device}")
+        except:
+            epoch = -1
+
+        return epoch
 

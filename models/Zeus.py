@@ -11,8 +11,9 @@ from timm.models.layers import trunc_normal_
 
 from timm.models.layers import to_2tuple
 
+from pathlib import Path
 import os, sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 from modules.params import Params
 
 
@@ -325,44 +326,7 @@ class Zeus(nn.Module):
 if __name__ == "__main__":
     from fvcore.nn import FlopCountAnalysis, flop_count_table
 
-    config = {
-        # image h w c
-        'height': 72,
-        'width': 144,
-        'channels': 4,
-        # video length in and out
-        'T1': 3,    # 5 later.
-        'MaxT2': 5,
-        'FG': 24,   # frames in a frame group
-        # patch size
-        'patch_size': 8, # 8
-        # transformer
-        'heads': 8,     # 8
-        'dim_head': 32,
-        'dropout': 0.0,
-        'attn_dropout': 0.0,
-        'drop_path': 0.0,
-        'patch_dim_to_dim' : 1,
-        'dim_to_mlp_dim': 2,
-        # layers
-        'attLayers' : 1,
-        'zeusLayers': 6,
-        # training
-        'seed' : 523,
-        'epochs': 20,
-        'batch_size' : 2,
-        'log_step': 10,
-        'optimizer': 'adam',
-        'lr' : 1e-5,
-        'max_lr' : 1e-3,
-        'weight_decay': 0.01,
-        'pct_start' : 0.3,
-        'anneal_strategy' : 'linear',   # 'cos'
-        'div_factor' : 25.0,
-        'final_div_factor' : 1e4,
-        'ex_folder' : 'D:\Download\experiments',
-        'ex_name' : '1st',
-    }
+    from models.config import config
 
     model = Zeus(config)
 
