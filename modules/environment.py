@@ -1,13 +1,11 @@
 import os, sys
 import json
-import math
-import pickle
-import logging
 
 import torch
 from datetime import datetime
 import pytz, tzlocal
 from pathlib import Path
+import logging
 
 import os, sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
@@ -17,14 +15,14 @@ from modules.params import Params
 from modules_zeus.constants import ERA5_DATA_VARS
 
 class TrainEnvironment:
-    def __init__(self, config, root_path, model, train_steps):
+    def __init__(self, config, bayes_path, model, train_steps):
         super(TrainEnvironment, self).__init__()
 
         self.pm = Params(config)
         self.model = model
         self.train_steps = train_steps
 
-        self.bayes_path = root_path / 'bayes' / self.pm.bayesProject
+        self.bayes_path = bayes_path
         # utils.check_dir(self.bayes_path)  not yet
 
         configPath =  self.bayes_path / 'config.json'
@@ -32,14 +30,13 @@ class TrainEnvironment:
         with open(configPath, 'w') as f:
             json.dump(config, f, indent=4)
 
-        self.setup_logging(self.bayes_path)
-
         utils.set_seed(self.pm.seed)
         self.device = self._acquire_device()
         self.optimizer, self.scheduler = self._select_optimizer()
 
         self.era5_data_vars = self.load_era5_data_vars()
         self.rmses_old = torch.ones_like(self.era5_data_vars) * 1e9
+        self.nWasNotBestEpoch = 0
 
         return
     
@@ -53,35 +50,6 @@ class TrainEnvironment:
         vars = [ERA5_DATA_VARS[k] for k in self.pm.variables if k in ERA5_DATA_VARS.keys()]
         self.era5_data_vars = torch.tensor(vars)
         return self.era5_data_vars
-
-    def setup_logging(self, log_dir):
-        """
-        logging.info("This is an info message")
-        logging.warning("Watch out! This is a warning")
-        logging.error("An error happened")
-        logging.debug("Debug details here (won't show unless level is DEBUG)")
-        """
-        # Remove all handlers associated with the root logger
-        for handler in logging.root.handlers[:]:
-            logging.root.removeHandler(handler)
-
-        log_path = os.path.join(log_dir, 'log.log')
-
-        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-
-        # File handler (append mode)
-        file_handler = logging.FileHandler(log_path, mode='a')
-        file_handler.setFormatter(formatter)
-
-        # Console handler (stdout)
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setFormatter(formatter)
-
-        logging.root.setLevel(logging.INFO)
-        logging.root.addHandler(file_handler)
-        logging.root.addHandler(console_handler)
-
-        logging.info(f"Logging started. Outputting to console and {log_path}")
 
     def _acquire_device(self):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -152,20 +120,34 @@ class TrainEnvironment:
 
         return optimizer, scheduler
 
-    def save_best(self, train_rmses, vali_rmses):   # (C,), (C,)
+    def save_best_epoch(self, train_rmses, vali_rmses):   # (C,), (C,)
+        wasBestEpoch = False
+
         rmses = 0.3 * train_rmses + 0.7 * vali_rmses
+        rmses = rmses * self.era5_data_vars.to(self.device)
+
         if torch.mean(rmses) < torch.mean(self.rmses_old):
-            logging.info(f"saving best model... score: {torch.mean(rmses).item()}")
+            wasBestEpoch = True
+            logging.info("saving best model... avg rmse: {:.3f}".format(torch.mean(rmses).item()))
             self.rmses_old = rmses
             self._save_train_state(name='best_state')
 
-    def _save_train_state(self, epoch=0, name='train_state'):  # called at the end of epoch
+        self.nWasNotBestEpoch = self.nWasNotBestEpoch + 1 if not wasBestEpoch else 0
+        
+        keep_go_next_epoch = self.nWasNotBestEpoch < self.pm.epoch_patience
+        best_rmse_yet = torch.mean(self.rmses_old).item()
+
+        return keep_go_next_epoch, best_rmse_yet
+
+    def _save_train_state(self, epoch=0, name='train_state', train_finished=False):  # called at the end of epoch
         checkpoint = {
             'epoch': epoch,
             'model': self.model.state_dict(),
             'optimizer': self.optimizer.state_dict(),
             'scheduler': self.scheduler.state_dict(),
             'rmses_old': self.rmses_old,
+            'nWasNotBestEpoch': self.nWasNotBestEpoch,
+            'train_finished' : train_finished,
         }
         utils.check_dir(self.bayes_path)
         torch.save(checkpoint, self.bayes_path / (name + '.pth'))
@@ -177,6 +159,8 @@ class TrainEnvironment:
             checkpoint_path = self.bayes_path / (name + '.pth')
             # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             checkpoint = torch.load(checkpoint_path, map_location=self.device)
+
+            assert checkpoint['train_finished'] == False    # It raise an deliberate exception if True.
 
             # Load model parameters
             epoch = checkpoint['epoch']
@@ -195,10 +179,11 @@ class TrainEnvironment:
             self.scheduler.load_state_dict(checkpoint['scheduler'])
 
             self.rmses_old = checkpoint['rmses_old']
-            print('rmses restored: ', self.rmses_old)
+            self.nWasNotBestEpoch = checkpoint['nWasNotBestEpoch']
 
             print(f"Checkpoint '{name}' loaded to {self.device}")
         except:
+            # Everything else has its default value.
             epoch = -1
 
         return epoch

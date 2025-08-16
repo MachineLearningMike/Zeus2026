@@ -26,7 +26,7 @@ config = {
     # training
     'seed' : 523,
     'include_difficulty' : True,
-    'epochs': 1000,
+    'epochs': 50,
     'batch_size' : 2,
     'log_step': 10,
     'optimizer': 'adam',
@@ -37,6 +37,7 @@ config = {
     'anneal_strategy' : 'linear',   # 'cos'
     'div_factor' : 25.0,
     'final_div_factor' : 1e4,
+    'epoch_patience' : 5,
 
     'seed': 523,
     'bayesProject' : 'testBayesProject',    # Represents an instance of a whole bayesian miximization.

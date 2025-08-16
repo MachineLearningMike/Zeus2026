@@ -537,10 +537,11 @@ class Zeus_Dataset(Dataset):
         return train_set, vali_set, test_set
     
 
-    def select_x_set(self, x_label, seed=None):
+    def refresh_x_set(self, x_label, seed=None):
         self.generate_x_sets(seed=seed)
 
         # Mike!!! remove [:2]
+        # No need to copy.copy(), as self.x_sets are re-generated above.
         self.x_set = self.train_set[:5] if x_label=='train_set' \
             else self.vali_set[:5] if x_label=='vali_set' \
             else self.test_set[:5] if x_label=='test_set' else None
@@ -802,7 +803,7 @@ if __name__ == "__main__":
     # vars = dataset.load_era5_data_vars()
     # print('vars ', vars)
 
-    # dataset.select_x_set('train_set', seed=523)
+    # dataset.refresh_x_set('train_set', seed=523)
 
     # batch = dataset.take_batch()
     # print("batch: ", batch)

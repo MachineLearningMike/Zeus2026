@@ -63,6 +63,7 @@ class Params:
         self.anneal_strategy = config['anneal_strategy']
         self.div_factor = config['div_factor']
         self.final_div_factor = config['final_div_factor']
+        self.epoch_patience = config['epoch_patience']
 
         self.seed = config['seed']
         self.bayesProject = config['bayesProject']

@@ -26,9 +26,9 @@ class MLBayesianOptimizer:
         log_path   : Path to CSV log file
         """
         self.pm = Params(config)
-        self.trainer = Trainer(config, root_path, bayes=self)
-        self.pbounds = pbounds
         self.bayes_path = root_path / 'bayes' / self.pm.bayesProject
+        self.trainer = Trainer(config, root_path, self.bayes_path, bayes=self)
+        self.pbounds = pbounds
         self.save_path = self.bayes_path / 'bayes_res.json'
         self.log_path = self.bayes_path / 'bayes_log.csv'
         self.random_state = random_state
@@ -138,7 +138,7 @@ if __name__ == "__main__":
     pbounds = {     # Mike!!!
         "patch_size": (8, 8, int),
         "heads": (8, 8, int),
-        "attLayers": (2, 2, int),   # 6
+        "attLayers": (1, 2, int),   # 6
         "zeusLayers": (2, 3, int),  # 6
     }
     

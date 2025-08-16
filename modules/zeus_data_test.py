@@ -37,7 +37,7 @@ dataset.load_difficulties()
 vars = dataset.load_era5_data_vars()
 print('vars ', vars)
 
-dataset.select_x_set('train_set', seed=523)
+dataset.refresh_x_set('train_set', seed=523)
 
 pbar = zeus_tqdm(dataset, desc="Training Batches")
 

@@ -12,6 +12,7 @@ import logging
 import os, sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+from modules.utils import check_dir
 from models.Losses import Losses
 from modules.environment import TrainEnvironment
 from modules.zeus_tqdm import zeus_tqdm
@@ -23,27 +24,55 @@ from Zeus import Zeus
 
 class Trainer():
 
-    def __init__(self, config, root_path, bayes=None):
-        self.bayes = bayes
+    def __init__(self, config, root_path, bayes_path, bayes=None):
         self.config = config
-        self.root_path = root_path
+        self.bayes = bayes
+
+        self.bayes_path = bayes_path
+        self.setup_logging(self.bayes_path)
 
         self.dataset = Zeus_Dataset(config, root_path)
-        # self._initialize(config, self.root_path)
+        logging.info("dataset is created.")
         return
+    
+    def setup_logging(self, log_dir):
+        """
+        logging.info("This is an info message")
+        logging.warning("Watch out! This is a warning")
+        logging.error("An error happened")
+        logging.debug("Debug details here (won't show unless level is DEBUG)")
+        """
+        # Remove all handlers associated with the root logger
+        for handler in logging.root.handlers[:]:
+            logging.root.removeHandler(handler)
+
+        log_path = log_dir / 'log.log'
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+
+        # File handler (append mode)
+        check_dir(log_path.parent)
+        file_handler = logging.FileHandler(log_path, mode='a')
+        file_handler.setFormatter(formatter)
+
+        # Console handler (stdout)
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setFormatter(formatter)
+
+        logging.root.setLevel(logging.INFO)
+        logging.root.addHandler(file_handler)
+        logging.root.addHandler(console_handler)
+
 
     def _initialize_train(self, config):
         self.pm = Params(config)
-        print("-------- patch_dim: {}, dim: {}, dim_head: {}, nHeads: {}".format(self.pm.patch_dim, self.pm.dim, self.pm.dim_head, self.pm.nHeads))
+        logging.info("patch_dim: {}, dim: {}, dim_head: {}, nHeads: {}".format(self.pm.patch_dim, self.pm.dim, self.pm.dim_head, self.pm.nHeads))
 
         self.model = Zeus(config).float()
-        train_set, _, _ = self.dataset.generate_x_sets(seed=self.pm.seed)  
-        self.env = TrainEnvironment(config, self.root_path, self.model, len(train_set))
+        logging.info("Zeus model is created.")
+        train_set, _, _ = self.dataset.generate_x_sets(seed=self.pm.seed)
+        logging.info("x_sets are generated.")
+        self.env = TrainEnvironment(config, self.bayes_path, self.model, len(train_set))
         self.losses = Losses(self.env, self.pm.variables)
-
-        self.train_loss_ema = 0.0
-        self.vali_loss_ema = 0.0
-        self.ema_alpha = 2 / (10 + 1)   # We want EMA similar to 1 10-day simple moving average (SME).
         return
     
     def _run_epoch(self, epoch, x_set_label, train=False):  
@@ -52,7 +81,8 @@ class Trainer():
         mean = rearrange(torch.tensor(self.dataset.mean), 'c -> c 1 1').to(self.env.device)
         std = rearrange(torch.tensor(self.dataset.std), 'c -> c 1 1').to(self.env.device)
 
-        self.dataset.select_x_set(x_set_label, seed=self.pm.seed)
+        self.dataset.refresh_x_set(x_set_label, seed=self.pm.seed)
+        # logging.info("{} is refreshed.".format(x_set_label))
         pbar = zeus_tqdm(self.dataset)
         pbar.start_prefetch_thread()
         
@@ -128,13 +158,10 @@ class Trainer():
         with torch.no_grad():
             vali_loss, vali_rmses = self._run_epoch(epoch, "vali_set", train=False)     # (,), (C,)
 
-        # if epoch % (self.pm.log_step * 100) == 0: self.env._save(name=str(epoch))
-
-
         train_loss = train_loss.item()
         vali_loss = vali_loss.item()
 
-        self.env.save_best(train_rmses, vali_rmses) # (C,), (C,)
+        keep_go_next_epoch, best_rmse_yet = self.env.save_best_epoch(train_rmses, vali_rmses) # (C,), (C,)
 
         train_rmses = ", ".join(f"{x:.2f}" for x in train_rmses.ravel().tolist())
         vali_rmses = ", ".join(f"{x:.2f}" for x in vali_rmses.ravel().tolist())
@@ -142,34 +169,29 @@ class Trainer():
         logging.info("Epoch: {} | Train Loss: {:.4f} Vali Loss: {:.4f} train RMSE: {} vali RMSE: {}\n".format(
             epoch, train_loss, vali_loss, train_rmses, vali_rmses))
         
-        self.train_loss_ema = self.ema_alpha * train_loss + (1-self.ema_alpha) * self.train_loss_ema
-        self.vali_loss_ema = self.ema_alpha * vali_loss + (1-self.ema_alpha) * self.vali_loss_ema
-
-        go_next_epoch = True
-        
-        return go_next_epoch
+        return keep_go_next_epoch, best_rmse_yet
 
 
     def train(self, start_epoch=0):
-        broken = False
+        keep_go_next_epoch = True
+        best_rmse_yet = 1e10
+
         for epoch in range(start_epoch, self.pm.epochs):
             print("---------- epoch {} ------------".format(epoch))
             self.model.train()
             train_loss, train_rmses = self._run_epoch(epoch, "train_set", train=True)   # (,), (C,)
 
-            go_next_epoch = True
             if epoch >= 1:              # Mike!!!
-                go_next_epoch = self._validate(epoch, train_loss, train_rmses)
-            if not go_next_epoch:
-                broken = True; break
-
+                keep_go_next_epoch, best_rmse_yet = self._validate(epoch, train_loss, train_rmses)
             self.env._save_train_state(epoch=epoch)
             if self.bayes is not None:  self.bayes.on_epoch_end()
 
-        if broken:
-            if self.bayes is not None:  self.bayes.on_epoch_end()
+            if not keep_go_next_epoch: break
 
-        return # - latest ma loss, bayesian optimization.
+        logging.info("Train finishes or breaks after epoch: {}".format(epoch))
+        self.env._save_train_state(epoch=epoch, train_finished=True)
+
+        return - best_rmse_yet
 
     def test(self):
         self.model.eval()
@@ -182,14 +204,14 @@ class Trainer():
         
         return epoch_loss
     
-    # def bayesian_target(self, attLayers, zeusLayers):
+    # def bayesian_target(self, patch_size, heads, attLayers, zeusLayers):
     #     import time
-    #     time.sleep(3)
+    #     time.sleep(2)
     #     print('1')
-    #     time.sleep(3)
+    #     time.sleep(2)
     #     print('2')
     #     self.bayes.on_epoch_end()
-    #     time.sleep(3)
+    #     time.sleep(2)
     #     print('3')
     #     return attLayers + zeusLayers
 
@@ -199,12 +221,15 @@ class Trainer():
         self.config['heads'] = heads
         self.config['attLayers'] = attLayers
         self.config['zeusLayers'] = zeusLayers
-    
+        logging.info("Trainer is configured with new hyper-parameters. patch_size {}, heads {}, attLayers {}, zeusLayers {}" \
+                    .format(patch_size, heads, attLayers, zeusLayers))
+
         # Initialize: self.pm, self.model, self.env, self.loss, and state variables
         self._initialize_train(self.config)
 
         # Load: epoch, self.model state, env.optimizer, env.scheduler
         # If epoch == -1, they've not been loaded/updated.
+        # If the previous train has finished, epoch == -1
         epoch = self.env._load_train_state()
 
         profit = self.train(start_epoch=epoch+1)
@@ -239,7 +264,8 @@ if __name__ == "__main__":
     if platform.system() == "Windows":  root_path = Path("D:/Zeus_Data")
     else:   root_path = Path("/mnt/Data/Zeus_Data")
 
-    trainer = Trainer(config, root_path, bayes=None)
+    bases_path = root_path / 'bayes' / 'test'
+    trainer = Trainer(config, root_path, bases_path, bayes=None)
 
     # x = torch.rand(1, config['T1'] * config['FG'], config['channels'], config['height'], config['width'])
     # print(x.shape)
