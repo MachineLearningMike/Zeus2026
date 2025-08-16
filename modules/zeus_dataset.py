@@ -55,7 +55,7 @@ class Zeus_Dataset(Dataset):
         self.load_dataset_params()
         self.load_difficulties()
         self.load_era5_data_vars()
-        self.split_data_dates(train_pct=0.5, vali_pct=0.3, seed=523)
+        self.split_data_dates(train_pct=self.pm.train_pct, vali_pct=self.pm.vali_pct, seed=self.pm.seed)
         return
     
     def start_prefetch_thread(self):
@@ -541,9 +541,9 @@ class Zeus_Dataset(Dataset):
         self.generate_x_sets(seed=seed)
 
         # Mike!!! remove [:2]
-        self.x_set = self.train_set[:] if x_label=='train_set' \
-            else self.vali_set[:] if x_label=='vali_set' \
-            else self.test_set[:] if x_label=='test_set' else None
+        self.x_set = self.train_set[:5] if x_label=='train_set' \
+            else self.vali_set[:5] if x_label=='vali_set' \
+            else self.test_set[:5] if x_label=='test_set' else None
         
         random.shuffle(self.x_set)
 

@@ -17,7 +17,6 @@ from modules.environment import TrainEnvironment
 from modules.zeus_tqdm import zeus_tqdm
 import modules.metrics
 from modules.zeus_dataset import Zeus_Dataset
-# from modules_zeus.era5_cds import Era5CDSLoader
 from modules.params import Params
 from Zeus import Zeus
 
@@ -38,7 +37,7 @@ class Trainer():
         print("-------- patch_dim: {}, dim: {}, dim_head: {}, nHeads: {}".format(self.pm.patch_dim, self.pm.dim, self.pm.dim_head, self.pm.nHeads))
 
         self.model = Zeus(config).float()
-        train_set, _, _ = self.dataset.generate_x_sets(seed=523)  
+        train_set, _, _ = self.dataset.generate_x_sets(seed=self.pm.seed)  
         self.env = TrainEnvironment(config, self.root_path, self.model, len(train_set))
         self.losses = Losses(self.env, self.pm.variables)
 
@@ -46,14 +45,14 @@ class Trainer():
         self.vali_loss_ema = 0.0
         self.ema_alpha = 2 / (10 + 1)   # We want EMA similar to 1 10-day simple moving average (SME).
         return
-
+    
     def _run_epoch(self, epoch, x_set_label, train=False):  
         self.model.to(self.env.device)
 
         mean = rearrange(torch.tensor(self.dataset.mean), 'c -> c 1 1').to(self.env.device)
         std = rearrange(torch.tensor(self.dataset.std), 'c -> c 1 1').to(self.env.device)
 
-        self.dataset.select_x_set(x_set_label, seed=523)
+        self.dataset.select_x_set(x_set_label, seed=self.pm.seed)
         pbar = zeus_tqdm(self.dataset)
         pbar.start_prefetch_thread()
         
@@ -80,7 +79,7 @@ class Trainer():
 
             (B, T1FG, C, H, W) = batch_x.shape
             pred_y = torch.zeros(size=(B,0,C,H,W)).to(self.env.device)
-            step_loss = []; rmses = []
+            step_loss = []; step_rmses = []
 
             for t2 in range(T2):
                 if train: self.env.optimizer.zero_grad()                       # train
@@ -96,49 +95,53 @@ class Trainer():
                 target = target * std + mean
                 # loss = torch.sqrt(torch.mean((pred - target) ** 2))
                 # loss, rmse = self.losses.loss(target, pred, batch_diff.to(self.env.device), era5_data_vars.to(self.env.device))
-                loss, rmse = self.losses.loss(target, pred, batch_diff, era5_data_vars.to(self.env.device))
+                loss, rmse = self.losses.loss(target, pred, batch_diff, era5_data_vars.to(self.env.device)) # (,), (C,)
 
-                step_loss.append(loss); rmses.append(rmse)
+                step_loss.append(loss)  # (,) - list
+                step_rmses.append(rmse)      # (C,) - list
                 if train: loss.backward()                         # train
                 if train: self.env.optimizer.step()               # train
           
+            # Conclude a step
             if train: self.env.scheduler.step()
-            step_loss = torch.tensor(step_loss).mean()   # tensor
-            epoch_loss.append(step_loss)
-            rmses = torch.stack(rmses, dim=0).mean(dim=0)   # (C,)
-            epoch_rmses.append(rmses)
-            rmses = ", ".join(f"{x:.2f}" for x in rmses.tolist())
-            pbar.set_description('Loss: {:.3f}, rmses: {}'.format(step_loss.item(), rmses))
+            step_loss = torch.tensor(step_loss).mean()   # (,)
+            step_rmses = torch.stack(step_rmses, dim=0).mean(dim=0)   # (C,)
+            strC = ", ".join(f"{x:.2f}" for x in step_rmses.ravel().tolist())
+            pbar.set_description('Loss: {:.3f}, rmses: {}'.format(step_loss.item(), strC))
+
+            epoch_loss.append(step_loss)    # (,) - list
+            epoch_rmses.append(step_rmses)   # (C,) - list
             if no_more_data: break
             # print('waiting for data...')
 
-        epoch_loss = torch.stack(epoch_loss, dim=0).mean()
+        epoch_loss = torch.stack(epoch_loss, dim=0).mean(dim=0)  # (,)
+        epoch_rmses = torch.stack(epoch_rmses, dim=0).mean(dim=0)       # (C,)
+        strC = ", ".join(f"{x:.2f}" for x in epoch_rmses.ravel().tolist())
+        pbar.set_description('Loss: {:.3f}, rmses: {}'.format(epoch_loss.item(), strC))
         pbar.shutdown()
-        # print(' ...epoch finished')
-        return epoch_loss, epoch_rmses
+
+        return epoch_loss, epoch_rmses  # (,), (C,)
         #--------------------------------------------------------------------------------
 
-    def _validate(self, epoch, train_loss, train_rmses):
+    def _validate(self, epoch, train_loss, train_rmses):    # (,), (C,)
         self.model.eval()
         with torch.no_grad():
-            vali_loss, vali_rmses = self._run_epoch(epoch, "vali_set", train=False)
+            vali_loss, vali_rmses = self._run_epoch(epoch, "vali_set", train=False)     # (,), (C,)
 
         # if epoch % (self.pm.log_step * 100) == 0: self.env._save(name=str(epoch))
-        
+
+
         train_loss = train_loss.item()
         vali_loss = vali_loss.item()
 
-        train_rmses = torch.stack(train_rmses, dim=0).mean(dim=0)   # (C,)
-        train_rmses = ", ".join(f"{x:.2f}" for x in train_rmses.tolist())
+        self.env.save_best(train_rmses, vali_rmses) # (C,), (C,)
 
-        vali_rmses = torch.stack(vali_rmses, dim=0).mean(dim=0)   # (C,)
-        vali_rmses = ", ".join(f"{x:.2f}" for x in vali_rmses.tolist())
+        train_rmses = ", ".join(f"{x:.2f}" for x in train_rmses.ravel().tolist())
+        vali_rmses = ", ".join(f"{x:.2f}" for x in vali_rmses.ravel().tolist())
 
         logging.info("Epoch: {} | Train Loss: {:.4f} Vali Loss: {:.4f} train RMSE: {} vali RMSE: {}\n".format(
             epoch, train_loss, vali_loss, train_rmses, vali_rmses))
         
-        self.env.save_best()
-
         self.train_loss_ema = self.ema_alpha * train_loss + (1-self.ema_alpha) * self.train_loss_ema
         self.vali_loss_ema = self.ema_alpha * vali_loss + (1-self.ema_alpha) * self.vali_loss_ema
 
@@ -152,10 +155,10 @@ class Trainer():
         for epoch in range(start_epoch, self.pm.epochs):
             print("---------- epoch {} ------------".format(epoch))
             self.model.train()
-            train_loss, train_rmses = self._run_epoch(epoch, "train_set", train=True)
+            train_loss, train_rmses = self._run_epoch(epoch, "train_set", train=True)   # (,), (C,)
 
             go_next_epoch = True
-            if epoch >= 0:
+            if epoch >= 1:              # Mike!!!
                 go_next_epoch = self._validate(epoch, train_loss, train_rmses)
             if not go_next_epoch:
                 broken = True; break
@@ -190,8 +193,9 @@ class Trainer():
     #     print('3')
     #     return attLayers + zeusLayers
 
-    def bayesian_target(self, heads, attLayers, zeusLayers):
+    def bayesian_target(self, patch_size, heads, attLayers, zeusLayers):
         # Update with new hyper-parameters
+        self.config['patch_size'] = patch_size
         self.config['heads'] = heads
         self.config['attLayers'] = attLayers
         self.config['zeusLayers'] = zeusLayers

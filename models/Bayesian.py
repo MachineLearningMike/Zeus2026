@@ -136,6 +136,7 @@ if __name__ == "__main__":
     else:   root_path = Path("/mnt/Data/Zeus_Data")
 
     pbounds = {     # Mike!!!
+        "patch_size": (8, 8, int),
         "heads": (8, 8, int),
         "attLayers": (2, 2, int),   # 6
         "zeusLayers": (2, 3, int),  # 6

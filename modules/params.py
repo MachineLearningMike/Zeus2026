@@ -20,6 +20,9 @@ class Params:
         self.nFramesOut = 1 * config['FG']                          # 24
         self.maxT2 = config['maxT2']
 
+        self.train_pct = config['train_pct']
+        self.vali_pct = config['vali_pct']
+
         self.patch_size = config['patch_size']                      # 16
         self.nPatches_h = self.image_height // self.patch_size      # 720 / 16 = 45
         self.nPatches_w = self.image_width // self.patch_size       # 1,440 / 16 = 90
@@ -61,6 +64,7 @@ class Params:
         self.div_factor = config['div_factor']
         self.final_div_factor = config['final_div_factor']
 
+        self.seed = config['seed']
         self.bayesProject = config['bayesProject']
         
         assert self.image_height % self.patch_size == 0, 'Image height must be divisible by the patch size.'

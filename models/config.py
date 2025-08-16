@@ -9,6 +9,9 @@ config = {
     'T1': 2,    # 5 later.
     'maxT2': 6,
     'FG': 24,   # frames in a frame group
+    # data split
+    'train_pct': 70,
+    'vali_pct': 30,
     # patch size
     'patch_size': 8, # 8
     # transformer
@@ -35,5 +38,6 @@ config = {
     'div_factor' : 25.0,
     'final_div_factor' : 1e4,
 
+    'seed': 523,
     'bayesProject' : 'testBayesProject',    # Represents an instance of a whole bayesian miximization.
 }

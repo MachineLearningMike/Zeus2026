@@ -14,6 +14,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 import modules.utils as utils
 from modules.params import Params
+from modules_zeus.constants import ERA5_DATA_VARS
 
 class TrainEnvironment:
     def __init__(self, config, root_path, model, train_steps):
@@ -37,7 +38,8 @@ class TrainEnvironment:
         self.device = self._acquire_device()
         self.optimizer, self.scheduler = self._select_optimizer()
 
-        self.best_score, self.delta_score = None, 0.001
+        self.era5_data_vars = self.load_era5_data_vars()
+        self.rmses_old = torch.ones_like(self.era5_data_vars) * 1e9
 
         return
     
@@ -46,6 +48,11 @@ class TrainEnvironment:
         now = datetime.now(local_tz)
         stamp = now.strftime("%Y%m%d_%H%M")
         return stamp
+
+    def load_era5_data_vars(self):
+        vars = [ERA5_DATA_VARS[k] for k in self.pm.variables if k in ERA5_DATA_VARS.keys()]
+        self.era5_data_vars = torch.tensor(vars)
+        return self.era5_data_vars
 
     def setup_logging(self, log_dir):
         """
@@ -75,7 +82,6 @@ class TrainEnvironment:
         logging.root.addHandler(console_handler)
 
         logging.info(f"Logging started. Outputting to console and {log_path}")
-
 
     def _acquire_device(self):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -146,15 +152,20 @@ class TrainEnvironment:
 
         return optimizer, scheduler
 
-    def save_best(self):
-        self._save_train_state(name='best_state')
+    def save_best(self, train_rmses, vali_rmses):   # (C,), (C,)
+        rmses = 0.3 * train_rmses + 0.7 * vali_rmses
+        if torch.mean(rmses) < torch.mean(self.rmses_old):
+            logging.info(f"saving best model... score: {torch.mean(rmses).item()}")
+            self.rmses_old = rmses
+            self._save_train_state(name='best_state')
 
     def _save_train_state(self, epoch=0, name='train_state'):  # called at the end of epoch
         checkpoint = {
             'epoch': epoch,
             'model': self.model.state_dict(),
             'optimizer': self.optimizer.state_dict(),
-            'scheduler': self.scheduler.state_dict()
+            'scheduler': self.scheduler.state_dict(),
+            'rmses_old': self.rmses_old,
         }
         utils.check_dir(self.bayes_path)
         torch.save(checkpoint, self.bayes_path / (name + '.pth'))
@@ -182,6 +193,10 @@ class TrainEnvironment:
                         state[k] = v.to(self.device)
 
             self.scheduler.load_state_dict(checkpoint['scheduler'])
+
+            self.rmses_old = checkpoint['rmses_old']
+            print('rmses restored: ', self.rmses_old)
+
             print(f"Checkpoint '{name}' loaded to {self.device}")
         except:
             epoch = -1

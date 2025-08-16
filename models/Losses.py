@@ -55,7 +55,7 @@ class Losses():
         # reward is weighted.
         # reward = quality_score * rearrange(era5_data_vars, 'c -> c 1 1')   # (B, C, H, W) the-higher-the-worse
         reward = rmse * rearrange(era5_data_vars, 'c -> c 1 1')   # (B, C, H, W) the-higher-the-worse
-        reward = reward.mean()
+        reward = reward.mean()  # (,)
         rmse = rmse.mean(dim=(0,2,3))   # (C,)
 
-        return reward, rmse
+        return reward, rmse # (,), (C,)
