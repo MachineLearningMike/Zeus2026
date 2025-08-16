@@ -542,9 +542,9 @@ class Zeus_Dataset(Dataset):
 
         # Mike!!! remove [:2]
         # No need to copy.copy(), as self.x_sets are re-generated above.
-        self.x_set = self.train_set[:5] if x_label=='train_set' \
-            else self.vali_set[:5] if x_label=='vali_set' \
-            else self.test_set[:5] if x_label=='test_set' else None
+        self.x_set = self.train_set[:] if x_label=='train_set' \
+            else self.vali_set[:] if x_label=='vali_set' \
+            else self.test_set[:] if x_label=='test_set' else None
         
         random.shuffle(self.x_set)
 
@@ -684,10 +684,10 @@ class Zeus_Dataset(Dataset):
             days_data_y = torch.concat(days_data_y, dim=0)      # (T2*24, C, H, W)
             batch_y.append(days_data_y)
 
-        batch_x = torch.stack(batch_x, dim=0)       # (B, T1FG, C, H, W)
-        batch_y = torch.stack(batch_y, dim=0)       # (B, T2FG, C, H, W)
-        mean = rearrange(torch.tensor(self.mean), 'c -> c 1 1')
-        std = rearrange(torch.tensor(self.std), 'c -> c 1 1')
+        batch_x = torch.stack(batch_x, dim=0).cpu()       # (B, T1FG, C, H, W)
+        batch_y = torch.stack(batch_y, dim=0).cpu()       # (B, T2FG, C, H, W)
+        mean = rearrange(torch.tensor(self.mean).cpu(), 'c -> c 1 1')
+        std = rearrange(torch.tensor(self.std).cpu(), 'c -> c 1 1')
         batch_x = (batch_x - mean) / std        # (B, T1FG, C, H, W)
         batch_y = (batch_y - mean) / std        # (B, T2FG, C, H, W)
 
@@ -767,11 +767,7 @@ class Zeus_Dataset(Dataset):
 #-------------------------------------- test ----------------------------------------
 if __name__ == "__main__":
 
-    from models.config import config
-
-    import platform
-    if platform.system() == "Windows":  root_path = Path("D:/Zeus_Data")
-    else:   root_path = Path("/mnt/Data/Zeus_Data")
+    from models.config import config, root_path
 
     dataset = Zeus_Dataset(config, root_path)
 

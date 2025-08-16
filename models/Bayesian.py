@@ -129,11 +129,7 @@ class MLBayesianOptimizer:
 
 if __name__ == "__main__":
 
-    from models.config import config
-
-    import platform
-    if platform.system() == "Windows":  root_path = Path("D:/Zeus_Data")
-    else:   root_path = Path("/mnt/Data/Zeus_Data")
+    from models.config import config, root_path
 
     pbounds = {     # Mike!!!
         "patch_size": (8, 8, int),

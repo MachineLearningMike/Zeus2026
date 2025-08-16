@@ -40,5 +40,16 @@ config = {
     'epoch_patience' : 5,
 
     'seed': 523,
-    'bayesProject' : 'testBayesProject',    # Represents an instance of a whole bayesian miximization.
+    'bayesProject' : '0816-1',    # Represents an instance of a whole bayesian miximization.
 }
+
+from pathlib import Path
+import platform
+if platform.system() == "Windows":  
+    root_path = Path("D:/Zeus_Data")
+    config['weight'] = 72
+    config['width'] = 144
+else:   
+    root_path = Path("/mnt/Data/Zeus_Data")
+    config['weight'] = 720
+    config['width'] = 1440

@@ -4,11 +4,7 @@ from pathlib import Path
 from zeus_tqdm import zeus_tqdm
 from zeus_dataset import Zeus_Dataset
 
-from models.config import config
-
-import platform
-if platform.system() == "Windows":  root_path = Path("D:/Zeus_Data")
-else:   root_path = Path("/mnt/Data/Zeus_Data")
+from models.config import config, root_path
 
 dataset = Zeus_Dataset(config, root_path)
 

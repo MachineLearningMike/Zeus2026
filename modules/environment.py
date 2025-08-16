@@ -104,7 +104,7 @@ class TrainEnvironment:
         div_factor = getattr(self.pm, 'div_factor', 25.0)
         final_div_factor = getattr(self.pm, 'final_div_factor', 1e4)
 
-        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(    # Mike!!! This is a per-batch scheduler.
             optimizer,
             max_lr=max_lr,
             steps_per_epoch=steps_per_epoch,

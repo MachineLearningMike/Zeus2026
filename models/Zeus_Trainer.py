@@ -112,7 +112,6 @@ class Trainer():
             step_loss = []; step_rmses = []
 
             for t2 in range(T2):
-                if train: self.env.optimizer.zero_grad()                       # train
                 base_x = torch.concat([batch_x, pred_y], dim=1)
                 base_x = base_x[:, -T1*FG:, :, :, :]     #(B, T1FG, C, H, W)
                 pred = self.model(base_x)     # (B,FG,C,H,W)
@@ -129,11 +128,12 @@ class Trainer():
 
                 step_loss.append(loss)  # (,) - list
                 step_rmses.append(rmse)      # (C,) - list
+                if train: self.env.optimizer.zero_grad()                       # train
                 if train: loss.backward()                         # train
                 if train: self.env.optimizer.step()               # train
           
             # Conclude a step
-            if train: self.env.scheduler.step()
+            self.env.scheduler.step()   # Our scheduler is OneCycleLR, which is a per-batch scheduler
             step_loss = torch.tensor(step_loss).mean()   # (,)
             step_rmses = torch.stack(step_rmses, dim=0).mean(dim=0)   # (C,)
             strC = ", ".join(f"{x:.2f}" for x in step_rmses.ravel().tolist())
@@ -180,8 +180,9 @@ class Trainer():
             print("---------- epoch {} ------------".format(epoch))
             self.model.train()
             train_loss, train_rmses = self._run_epoch(epoch, "train_set", train=True)   # (,), (C,)
+            # self.env.scheduler.step()   # Commented out, because our scheduler is OneCycleLR, which is a per-batch scheduler
 
-            if epoch >= 1:              # Mike!!!
+            if epoch >= 0:              # Mike!!!
                 keep_go_next_epoch, best_rmse_yet = self._validate(epoch, train_loss, train_rmses)
             self.env._save_train_state(epoch=epoch)
             if self.bayes is not None:  self.bayes.on_epoch_end()
@@ -258,11 +259,7 @@ class Trainer():
 
 if __name__ == "__main__":
 
-    from models.config import config
-
-    import platform
-    if platform.system() == "Windows":  root_path = Path("D:/Zeus_Data")
-    else:   root_path = Path("/mnt/Data/Zeus_Data")
+    from models.config import config, root_path
 
     bases_path = root_path / 'bayes' / 'test'
     trainer = Trainer(config, root_path, bases_path, bayes=None)
