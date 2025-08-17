@@ -39,3 +39,6 @@ htmlcov/
 build/
 dist/
 *.egg-info/
+
+# saved numpy array
+*.npy

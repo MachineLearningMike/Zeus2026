@@ -47,7 +47,7 @@ class Zeus_Dataset(Dataset):
         self.train_set, self.vali_set, self.test_set = None, None, None
         self.x_set, self.x_set_len = None, 0
 
-        self.load_data()
+        # self.load_data()
 
     #------------------------------------- Download dataset -----------------------
 
@@ -234,15 +234,18 @@ class Zeus_Dataset(Dataset):
                 for day_dir in month_dir.iterdir():
                     if not day_dir.is_dir():
                         continue
+                    
+                    file_path = day_dir / 'all.npy'
+                    arr = np.load(str(file_path))   # (24, C, 721, 1440)
+                    arr = arr[:, :, :720, :]        # (24, C, 720, 1440)
+                    _mean = np.mean(arr, axis=(0, 2, 3))    # (C,)
 
-                    sorted_files = self.sort_files(day_dir, self.pm.variables)
-                    # arr = np.load(sorted_files[0])[np.load(sorted_files[0]).files[0]]   # (24, 721, 1440)
-                    file_means = [np.mean(np.load(f)[np.load(f).files[0]], axis=(0,1,2)) for f in sorted_files] # A list of C scalars.
-                    mean.append(file_means)
-                    has_nan = np.any(np.isnan(file_means))
+                    has_nan = np.any(np.isnan(_mean))
                     if has_nan:
                         raise Exception("NAN found: ", str(year_dir).split("\\")[-1], str(month_dir).split("\\")[-1], str(day_dir).split("\\")[-1])
-                    print("mean", str(year_dir).split("\\")[-1], str(month_dir).split("\\")[-1], str(day_dir).split("\\")[-1], file_means)
+
+                    mean.append(_mean)
+                    print("mean", str(year_dir).split("\\")[-1], str(month_dir).split("\\")[-1], str(day_dir).split("\\")[-1], _mean)
             #         break
             #     break
             # break
@@ -260,21 +263,25 @@ class Zeus_Dataset(Dataset):
                 for day_dir in month_dir.iterdir():
                     if not day_dir.is_dir():
                         continue
-                    
-                    sorted_files = self.sort_files(day_dir, self.pm.variables)
-                    # print('sorted_files', sorted_files)
-                    file_data = [np.load(f)[np.load(f).files[0]] for f in sorted_files]
-                    file_data = np.array(file_data)
-                    file_data = file_data.transpose(1,2,3,0)   # (24, 721, 1440, C)
-                    file_data = np.mean(np.power(file_data - self.mean, 2), axis=(0,1,2))    # (C,)
-                    var.append(file_data)
-                    print("var", str(year_dir).split("\\")[-1], str(month_dir).split("\\")[-1], str(day_dir).split("\\")[-1], file_data)
+
+                    file_path = day_dir / 'all.npy'
+                    arr = np.load(str(file_path))   # (24, C, 721, 1440)
+                    arr = arr[:, :, :720, :]        # (24, C, 720, 1440)
+                    arr = arr.transpose(0, 2, 3, 1) # (24, 720, 1440, C)
+                    _var = np.mean(np.power(arr - self.mean, 2), axis=(0, 1, 2))    # (C,)
+
+                    has_nan = np.any(np.isnan(_var))
+                    if has_nan:
+                        raise Exception("NAN found: ", str(year_dir).split("\\")[-1], str(month_dir).split("\\")[-1], str(day_dir).split("\\")[-1])
+
+                    var.append(_var)
+                    print("var", str(year_dir).split("\\")[-1], str(month_dir).split("\\")[-1], str(day_dir).split("\\")[-1], _var)
             #         break
             #     break
             # break
         
         var = np.array(var)     # (days, C)
-        self.std = np.power( np.mean(var, axis=0), 0.5)
+        self.std = np.power(np.mean(var, axis=0), 0.5)  # (C,)
 
         data = {
             "mean": self.mean.tolist(),
@@ -290,10 +297,8 @@ class Zeus_Dataset(Dataset):
         with open(self.param_path, "r") as f:
             data = json.load(f)        
         mean, std = np.array(data['mean']), np.array(data['std'])
-        if mean is not None and std is not None:
-            self.mean, self.std = mean, std
-
-        return self.mean, self.std    # (C,), (C,)
+        self.mean, self.std = mean, std
+        return mean, std    # (C,), (C,)
     
     def unnormalize(self, data):
         return data * rearrange(self.std, 'c -> c 1 1') + rearrange(self.mean, 'c -> c 1 1')
@@ -331,29 +336,29 @@ class Zeus_Dataset(Dataset):
         return target_year, target_month
     
 
-    def create_difficulties(self, latest_date, WRITE_FILES = False):
-        for variable in self.pm.variables:
-            print(variable)
+    def create_difficulties(self, latest_date):
+        for variable_idx in range(len(self.pm.variables)):
+            # handle variables one by one, as month_data is of huge size.
+            print(self.pm.variables[variable_idx])
             difficulties = []
-
             maxDeffVar = 0.0
             for nth in range(12):
                 year, month = self.previous_nth_month(latest_date, nth)
                 first_day = date(year, month, 1)
                 last_day = first_day.replace(day = self.last_day_of_month(year, month))
 
-                data = []
+                month_data = []
                 for day in range(1, self.last_day_of_month(year, month) + 1):
-                    file_path = self.get_file_path(year, month, day, variable)
-                    if not file_path.exists(): 
-                        raise Exception("Data file not found. {}/{}/{}, {}".format(year, month, day, variable))
-                    
-                    load = np.load(file_path)
-                    _data = load[load.files[0]]     # (24, 721, 1440)
-                    data.append(torch.tensor(_data, dtype=self.pm.dtype))
+                    file_path = self.get_file_path_npy(year, month, day, 'all')
 
-                data = torch.concat(data, dim=0)               # (n, 721, 1440)
-                diffs = torch.diff(data, n=1, dim=0)    # (n-1, 721, 1440)
+                    if not file_path.exists(): 
+                        raise Exception("Data file not found. {}/{}/{}, {}".format(year, month, day))
+
+                    _data = np.load(file_path)[variable_idx:, :, :, :]   # (24, 721, 1440)                                
+                    month_data.append(torch.tensor(_data, dtype=self.pm.dtype))
+
+                month_data = torch.concat(month_data, dim=0)               # (n, 721, 1440)
+                diffs = torch.diff(month_data, n=1, dim=0)    # (n-1, 721, 1440)
                 var_per_loc = diffs.var(dim=0).numpy()  # (721, 1440)
 
                 month_str = self.month_string(first_day)
@@ -365,8 +370,8 @@ class Zeus_Dataset(Dataset):
             
             for var_per_loc, year, month in difficulties:
                 rel_var_per_loc = var_per_loc / maxDeffVar      # (721, 1440)
-                current_folder = Path(__file__).resolve().parane
-                folder = current_folder / "weights" / variable
+                current_folder = Path(__file__).resolve().parent
+                folder = current_folder / "weights" / self.pm.variables[variable_idx]
                 folder.mkdir(parents=True, exist_ok=True)
                 path = folder / (str(year) + '-' + str(month).zfill(2) + ".npy")
                 np.save(path, rel_var_per_loc)
@@ -777,23 +782,23 @@ if __name__ == "__main__":
     print(start_day, end_day)
     print(total_days, complete)
 
-    # complete, mean, std = dataset.analyze_dataset()
-    # print(complete, mean, std)
+    # mean, std = dataset.analyze_dataset()
+    # print(mean, std)
 
     # mean, std = dataset.load_dataset_params()
     # print("mean: {}, std: {}".format(mean, std))
 
-    train_dates, vali_dates, test_dates = dataset.split_data_dates(train_pct=0.7, vali_pct=0.3, seed=523)
-    print("Lengths of dates:", len(train_dates), len(vali_dates), len(test_dates))
-    print("train_dates[:3]", train_dates[:3])
+    # train_dates, vali_dates, test_dates = dataset.split_data_dates(train_pct=0.7, vali_pct=0.3, seed=523)
+    # print("Lengths of dates:", len(train_dates), len(vali_dates), len(test_dates))
+    # print("train_dates[:3]", train_dates[:3])
 
     # train_set, vali_set, test_set = dataset.generate_x_sets(seed=523)
     # print("train_set, vali_set, test_set lengths:", len(train_set), len(vali_set), len(test_set))
     # print("train_set[:3]", train_set[:3])
 
-    # dataset.create_difficulties(end_day, WRITE_FILES=True)
-    # dataset.load_difficulties()
-    # dataset.show_difficulty("100m_u_component_of_wind")
+    dataset.create_difficulties(end_day)
+    dataset.load_difficulties()
+    dataset.show_difficulty("100m_u_component_of_wind")
   
     # vars = dataset.load_era5_data_vars()
     # print('vars ', vars)
