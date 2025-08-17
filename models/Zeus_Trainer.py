@@ -2,7 +2,7 @@
 import numpy as np
 import torch
 from torch import nn
-
+from torch.amp import autocast, GradScaler
 from einops.layers.torch import Rearrange
 from einops import rearrange, repeat
 from fvcore.nn import FlopCountAnalysis, flop_count_table
@@ -33,6 +33,8 @@ class Trainer():
 
         self.dataset = Zeus_Dataset(config, root_path)
         logging.info("dataset is created.")
+        
+        self.scaler = GradScaler(device='cuda')
         return
     
     def setup_logging(self, log_dir):
@@ -115,25 +117,28 @@ class Trainer():
             step_loss = []; step_rmses = []
 
             for t2 in range(T2):
-                base_x = torch.concat([batch_x, pred_y], dim=1)
-                base_x = base_x[:, -T1*FG:, :, :, :]     #(B, T1FG, C, H, W)
-                pred = self.model(base_x)     # (B,FG,C,H,W)
-                # pred_y = torch.concat((pred_y, pred), dim=1).to(self.env.device)
-                pred_y = torch.concat((pred_y, pred.detach()), dim=1)
-                target = batch_y[:, t2*FG:(t2+1)*FG, :,:].to(self.env.device)   # (B,FG,C,H,W)
-                # print('1', pred.shape, std.shape, mean.shape)
+                with autocast(device_type='cuda'):
+                    base_x = torch.concat([batch_x, pred_y], dim=1)
+                    base_x = base_x[:, -T1*FG:, :, :, :]     #(B, T1FG, C, H, W), dtype: torch.float32
+                    pred = self.model(base_x)     # (B,FG,C,H,W), dtype: torch.float16
+                    # pred_y = torch.concat((pred_y, pred), dim=1).to(self.env.device)
+                    pred_y = torch.concat((pred_y, pred.detach()), dim=1)
+                    target = batch_y[:, t2*FG:(t2+1)*FG, :,:].to(self.env.device)   # (B,FG,C,H,W)
+                    # print('1', pred.shape, std.shape, mean.shape)
 
-                pred = pred * std + mean
-                target = target * std + mean
-                # loss = torch.sqrt(torch.mean((pred - target) ** 2))
-                # loss, rmse = self.losses.loss(target, pred, batch_diff.to(self.env.device), era5_data_vars.to(self.env.device))
-                loss, rmse = self.losses.loss(target, pred, batch_diff, era5_data_vars.to(self.env.device)) # (,), (C,)
+                    pred = pred * std + mean
+                    target = target * std + mean
+                    # loss = torch.sqrt(torch.mean((pred - target) ** 2))
+                    # loss, rmse = self.losses.loss(target, pred, batch_diff.to(self.env.device), era5_data_vars.to(self.env.device))
+                    loss, rmse = self.losses.loss(target, pred, batch_diff, era5_data_vars.to(self.env.device)) # (,), (C,)
 
-                step_loss.append(loss)  # (,) - list
-                step_rmses.append(rmse)      # (C,) - list
-                if train: self.env.optimizer.zero_grad()                       # train
-                if train: loss.backward()                         # train
-                if train: self.env.optimizer.step()               # train
+                    step_loss.append(loss)  # (,) - list
+                    step_rmses.append(rmse)      # (C,) - list
+                    if train:
+                        self.env.optimizer.zero_grad()                       # train
+                        self.scaler.scale(loss).backward()                         # train
+                        self.scaler.step(self.env.optimizer)               # train
+                        self.scaler.update()
           
             # Conclude a step
             self.env.scheduler.step()   # Our scheduler is OneCycleLR, which is a per-batch scheduler
