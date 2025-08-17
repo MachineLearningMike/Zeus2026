@@ -77,7 +77,7 @@ class Trainer():
     
     def _run_epoch(self, epoch, x_set_label, train=False):  
         self.model.to(self.env.device)
-
+        
         mean = rearrange(torch.tensor(self.dataset.mean), 'c -> c 1 1').to(self.env.device)
         std = rearrange(torch.tensor(self.dataset.std), 'c -> c 1 1').to(self.env.device)
 
@@ -101,11 +101,14 @@ class Trainer():
             # Mike!!! Remove this block in production version.
             batch_x = batch_x[:, :, :, :self.pm.image_height, :self.pm.image_width]
             batch_y = batch_y[:, :, :, :self.pm.image_height, :self.pm.image_width]
+            # print('----- 1', batch_x.shape, batch_x.dtype, batch_y.shape, batch_y.dtype)
+
             if self.pm.include_difficulty:
                 batch_diff = batch_diff[:, :, :self.pm.image_height, :self.pm.image_width]
 
             T2 = (batch_y.shape)[1] // FG
             batch_x, batch_y = batch_x.float().to(self.env.device), batch_y.float().to(self.env.device)
+            # print('----- 2', batch_x.shape, batch_x.dtype, batch_y.shape, batch_y.dtype)
 
             (B, T1FG, C, H, W) = batch_x.shape
             pred_y = torch.zeros(size=(B,0,C,H,W)).to(self.env.device)

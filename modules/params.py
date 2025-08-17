@@ -1,3 +1,4 @@
+import torch
 import math
 
 def nearest_multiple_of_3_ge(p, h):
@@ -11,6 +12,8 @@ def nearest_multiple_of_3_ge(p, h):
 
 class Params:
     def __init__(self, config):
+        self.dtype = torch.float16 if config['dtype'] == 16 else torch.float32 if config['dtype'] == 32 else None
+        
         self.image_height = config['height']                        # 720
         self.image_width = config['width']                          # 1,440
         self.variables = config['variables']

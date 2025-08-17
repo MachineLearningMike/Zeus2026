@@ -1,6 +1,7 @@
 variables = ["2m_temperature", 'total_precipitation', "100m_u_component_of_wind", '100m_v_component_of_wind']   # order matters.
 
 config = {
+    'dtype' : 32,   # 16 is complicated. deffered.
     # image h w c
     'height': 72,
     'width': 144,
@@ -40,7 +41,7 @@ config = {
     'epoch_patience' : 5,
 
     'seed': 523,
-    'bayesProject' : '0816-1',    # Represents an instance of a whole bayesian miximization.
+    'bayesProject' : '0817-1',    # Represents an instance of a whole bayesian miximization. Mike!!!
 }
 
 from pathlib import Path
@@ -53,3 +54,4 @@ else:
     root_path = Path("/mnt/Data/Zeus_Data")
     config['weight'] = 720
     config['width'] = 1440
+    

@@ -300,7 +300,7 @@ class Zeus_Dataset(Dataset):
     
     def load_era5_data_vars(self):
         vars = [ERA5_DATA_VARS[k] for k in self.pm.variables if k in ERA5_DATA_VARS.keys()]
-        self.era5_data_vars = torch.tensor(vars)
+        self.era5_data_vars = torch.tensor(vars, dtype=self.pm.dtype)
         return self.era5_data_vars
    
     #----------------------------------- Difficulty ------------------------------
@@ -350,7 +350,7 @@ class Zeus_Dataset(Dataset):
                     
                     load = np.load(file_path)
                     _data = load[load.files[0]]     # (24, 721, 1440)
-                    data.append(torch.tensor(_data))
+                    data.append(torch.tensor(_data, dtype=self.pm.dtype))
 
                 data = torch.concat(data, dim=0)               # (n, 721, 1440)
                 diffs = torch.diff(data, n=1, dim=0)    # (n-1, 721, 1440)
@@ -405,7 +405,7 @@ class Zeus_Dataset(Dataset):
             torch.meshgrid(
                 *[
                     torch.as_tensor(
-                        dataset[v].data, dtype=torch.float
+                        dataset[v].data, dtype=self.pm.dtype
                     )
                     for v in ("latitude", "longitude")
                 ],
@@ -560,7 +560,7 @@ class Zeus_Dataset(Dataset):
             file_path = self.get_file_path(day.year, day.month, day.day, variable)
             if file_path.exists():
                 load = np.load(file_path)
-                variable_data = torch.tensor(load[load.files[0]])[:, :720, :]    # (24, H, W)
+                variable_data = torch.tensor(load[load.files[0]], dtype=self.pm.dtype)[:, :720, :]    # (24, H, W)
                 day_data.append(variable_data)
         if len(day_data) == len(self.pm.variables):
             day_data = torch.stack(day_data, dim=1)     # (24, C, H, W)
@@ -573,7 +573,7 @@ class Zeus_Dataset(Dataset):
         if all_path.exists():
             try:
                 load = np.load(all_path)
-                data = torch.tensor(load[load.files[0]])[:, :, :720, :]    # (24, C, H, W)
+                data = torch.tensor(load[load.files[0]], dtype=self.pm.dtype)[:, :, :720, :]    # (24, C, H, W)
             except:
                 total_ds = self.get_normalized_dataset()
                 self.lownload_day_vdata(total_ds, day.year, day.month, day.day)
@@ -586,7 +586,7 @@ class Zeus_Dataset(Dataset):
         all_path = self.get_file_path_npy(day.year, day.month, day.day, 'all')
         try:
             load = np.load(all_path)
-            data = torch.tensor(load)[:, :, :720, :]    # (24, C, H, W)
+            data = torch.tensor(load, dtype=self.pm.dtype)[:, :, :720, :]    # (24, C, H, W)
             return data
         except:
             raise Exception("No data found for {}".format(day))
@@ -661,7 +661,7 @@ class Zeus_Dataset(Dataset):
         B, C, T1, FG, H, W = len(taken), len(self.pm.variables), self.pm.T1, self.pm.FG, self.pm.image_height, self.pm.image_width
 
         # batch_x: (B, T1*FG, C, H, W), batch_y: (B, T2*FG, C, H, W). batch_y[i] immediately follows batch_x[i]
-        batch_x, batch_y = [], []  #torch.empty((B, 0, C, H, W)), torch.empty((B, 0, C, H, W))
+        batch_x, batch_y = [], []  #torch.empty((B, 0, C, H, W), dtype=self.pm.dtype), torch.empty((B, 0, C, H, W), dtype=self.pm.dtype)
 
         months = []
         for b in range(B):
@@ -686,8 +686,8 @@ class Zeus_Dataset(Dataset):
 
         batch_x = torch.stack(batch_x, dim=0).cpu()       # (B, T1FG, C, H, W)
         batch_y = torch.stack(batch_y, dim=0).cpu()       # (B, T2FG, C, H, W)
-        mean = rearrange(torch.tensor(self.mean).cpu(), 'c -> c 1 1')
-        std = rearrange(torch.tensor(self.std).cpu(), 'c -> c 1 1')
+        mean = rearrange(torch.tensor(self.mean, dtype=self.pm.dtype).cpu(), 'c -> c 1 1')
+        std = rearrange(torch.tensor(self.std, dtype=self.pm.dtype).cpu(), 'c -> c 1 1')
         batch_x = (batch_x - mean) / std        # (B, T1FG, C, H, W)
         batch_y = (batch_y - mean) / std        # (B, T2FG, C, H, W)
 
@@ -697,7 +697,7 @@ class Zeus_Dataset(Dataset):
                 variable_diff = []
                 for vaiable in self.pm.variables:
                     diff = self.difficulties[vaiable][months[b]][:-1, :]    # (720, 1440)
-                    variable_diff.append(torch.tensor(diff))
+                    variable_diff.append(torch.tensor(diff, dtype=self.pm.dtype))
                 variable_diff = torch.stack(variable_diff, dim=0)           # (C, 720, 1440)
                 batch_diff.append(variable_diff)
             batch_diff = torch.stack(batch_diff, dim=0)                     # (B, C, 720, 1440)
@@ -706,8 +706,7 @@ class Zeus_Dataset(Dataset):
         # print('batch_diff', batch_diff.shape)
 
         # print("batch_x, y shape: ", batch_x.shape, batch_y.shape)
-        # print(batch_x, batch_y)
-
+        # print('-------- type ', batch_x.dtype, batch_y.dtype, batch_diff.dtype, self.era5_data_vars.dtype)
         return batch_x, batch_y, batch_diff, self.era5_data_vars     # (B, T1FG, C, H, W), (B, T2FG, C, H, W), (B, 1, C, H, W), (C,)
         
     #---------------------------------- Prefetch -------------------------------------
