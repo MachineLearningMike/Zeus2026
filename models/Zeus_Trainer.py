@@ -135,8 +135,8 @@ class Trainer():
                     step_loss.append(loss)  # (,) - list
                     step_rmses.append(rmse)      # (C,) - list
                     if train:
-                        self.env.optimizer.zero_grad()                       # train
-                        self.scaler.scale(loss).backward()                         # train
+                        self.env.optimizer.zero_grad()                     # train
+                        self.scaler.scale(loss).backward()                 # train
                         self.scaler.step(self.env.optimizer)               # train
                         self.scaler.update()
           
