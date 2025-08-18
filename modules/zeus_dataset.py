@@ -272,8 +272,8 @@ class Zeus_Dataset(Dataset):
                     _var = np.mean(np.power(arr - self.mean, 2), axis=(0, 1, 2))    # (C,)
                     has_nan = np.any(np.isnan(_var))
                     if has_nan:
-                        raise Exception("NAN found: ", str(year_dir).split("\\")[-1], str(month_dir).split("\\")[-1], str(day_dir).split("\\")[-1])
-                    print("var", str(year_dir).split("\\")[-1], str(month_dir).split("\\")[-1], str(day_dir).split("\\")[-1], _var)
+                        raise Exception("NAN found: ", str(day_dir))
+                    print("var", str(day_dir), _var)
                     n += 1
                     var = var * (n-1)/n + _var / n   # (C,)
             #         break
