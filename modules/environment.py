@@ -159,6 +159,8 @@ class TrainEnvironment:
         }
         utils.check_dir(self.bayes_path)
         torch.save(checkpoint, self.bayes_path / (name + '.pth'))
+        print(f"Checkpoint '{name}' saved, including model, optimizer, scheduler, and rmses_old")
+        
         return
 
 
@@ -189,7 +191,7 @@ class TrainEnvironment:
             self.rmses_old = checkpoint['rmses_old']
             self.nWasNotBestEpoch = checkpoint['nWasNotBestEpoch']
 
-            print(f"Checkpoint '{name}' loaded to {self.device}")
+            print(f"Checkpoint '{name}' loaded to {self.device}, including model, optimizer, scheduler, and rmses_old")
         except:
             # Everything else has its default value.
             epoch = -1

@@ -74,7 +74,7 @@ class Trainer():
         train_set, _, _ = self.dataset.generate_x_sets(seed=self.pm.seed)
         logging.info("x_sets are generated.")
         self.env = TrainEnvironment(config, self.bayes_path, self.model, len(train_set))
-        self.losses = Losses(self.env, self.pm.variables)
+        self.losses = Losses(self.env, self.pm.variables)        
         return
     
     def _print_tensor_state(self, n, t):
@@ -101,18 +101,21 @@ class Trainer():
             # self._print_tensor_state(1, batch_x)    # 32, cpu, False
             # self._print_tensor_state(2, batch_y)    # 32, cpu, False
             # self._print_tensor_state(3, era5_data_vars) # 32, cpu, False
-            if self.pm.include_difficulty: self._print_tensor_state(4, batch_diff)
+            if self.pm.include_difficulty:
+                pass 
+                self._print_tensor_state(4, batch_diff)   # 32, cpu, False
             no_more_data = pbar.no_more_data()
             if not no_more_data:  pbar.prefetch(x_set_label)    # Fetch one batch asynchronously
 
             batch_x = batch_x[:, :, :, :self.pm.image_height, :self.pm.image_width]     # torch.float32, cpu
             batch_y = batch_y[:, :, :, :self.pm.image_height, :self.pm.image_width]     # torch.float32, cpu
             era5_data_vars = era5_data_vars # torch.float32, cpu
-            self._print_tensor_state(5, batch_x)        # 32, cpu, False
-            self._print_tensor_state(6, batch_y)        # 32, cpu, False
-            self._print_tensor_state(7, era5_data_vars) # 32, cpu, False
+            # self._print_tensor_state(5, batch_x)        # 32, cpu, False
+            # self._print_tensor_state(6, batch_y)        # 32, cpu, False
+            # self._print_tensor_state(7, era5_data_vars) # 32, cpu, False
 
             if self.pm.include_difficulty:
+                print('---', self.pm.image_height, self.pm.image_width)
                 batch_diff = batch_diff[:, :, :self.pm.image_height, :self.pm.image_width]
                 self._print_tensor_state(8, batch_diff)
 
@@ -120,35 +123,35 @@ class Trainer():
             batch_x = batch_x.to(self.env.device)               # torch.float32, cuda
             batch_y = batch_y.float().to(self.env.device)       # torch.float32, cuda
             era5_data_vars = era5_data_vars.to(self.env.device) # torch.float32, cuda
-            self._print_tensor_state(9, batch_x)            # 32, cuda, False
-            self._print_tensor_state(10, batch_y)           # 32, cuda, False
-            self._print_tensor_state(11, era5_data_vars)    # 32, cuda, False
+            # self._print_tensor_state(9, batch_x)            # 32, cuda, False
+            # self._print_tensor_state(10, batch_y)           # 32, cuda, False
+            # self._print_tensor_state(11, era5_data_vars)    # 32, cuda, False
 
             (B, T1FG, C, H, W) = batch_x.shape
             pred_y = torch.zeros(size=(B,0,C,H,W)).to(self.env.device)  # torch.float32, cuda
-            self._print_tensor_state(12, pred_y)            # 32, cuda, False
+            # self._print_tensor_state(12, pred_y)            # 32, cuda, False
             step_loss = []; step_rmses = []
 
             for t2 in range(T2):
                 with autocast(device_type='cuda'):
-                    self._print_tensor_state(13, batch_x)   # 32, cuda, False
-                    self._print_tensor_state(14, pred_y)    # 32, cuda, False
+                    # self._print_tensor_state(13, batch_x)   # 32, cuda, False
+                    # self._print_tensor_state(14, pred_y)    # 32, cuda, False
                     base_x = torch.cat([batch_x, pred_y], dim=1)
                     base_x = base_x[:, -T1*FG:, :, :, :]     #(B, T1FG, C, H, W), torch.float32, cuda, requires_grad False
-                    self._print_tensor_state(15, base_x)    # 32, cuda, False
+                    # self._print_tensor_state(15, base_x)    # 32, cuda, False
                     pred = self.model(base_x)     # (B,FG,C,H,W), torch.float16 !!!, cuda, requires_grad True !!!
-                    self._print_tensor_state(16, pred)      # 16 !!!, cuda, True !!!
+                    # self._print_tensor_state(16, pred)      # 16 !!!, cuda, True !!!
                     pred_y = torch.cat([pred_y, pred.detach()], dim=1) # torch.float32, cuda, requires_grad False
-                    self._print_tensor_state(17, pred_y)    # 32, cuda, False
+                    # self._print_tensor_state(17, pred_y)    # 32, cuda, False
                     target = batch_y[:, t2*FG:(t2+1)*FG, :,:].to(self.env.device)   # (B,FG,C,H,W)  # torch.float32, cuda, requries_grad False
-                    self._print_tensor_state(18, target)    # 32, cuda, False
+                    # self._print_tensor_state(18, target)    # 32, cuda, False
                     pred = self.dataset.unnormalize(pred)   # torch.float32 !!!, cuda, requires_grad True !!!
-                    self._print_tensor_state(19, pred)      # 32, cuda, True !!!
+                    # self._print_tensor_state(19, pred)      # 32, cuda, True !!!
                     target = self.dataset.unnormalize(target)   # torch.float32, cuda, requires_grad False
-                    self._print_tensor_state(20, target)    # 32, cuda, False
+                    # self._print_tensor_state(20, target)    # 32, cuda, False
                     loss, rmse = self.losses.loss(target, pred, batch_diff, era5_data_vars.to(self.env.device)) # (,), (C,), torch.float32, cuda, requries_grad True !!!
-                    self._print_tensor_state(21, loss)      # 32, cuda, True !!!
-                    self._print_tensor_state(22, rmse)      # 32, cuda, True !!!
+                    # self._print_tensor_state(21, loss)      # 32, cuda, True !!!
+                    # self._print_tensor_state(22, rmse)      # 32, cuda, True !!!
                     step_loss.append(loss.cpu().detach())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
                     step_rmses.append(rmse.cpu().detach())      # (C,) - list.  If no cpu(), their stack results in cuda
 
@@ -163,9 +166,9 @@ class Trainer():
             # Conclude a step
             self.env.scheduler.step()   # Our scheduler is OneCycleLR, which is a per-batch scheduler
             step_loss = torch.tensor(step_loss).mean()   # (,)
-            self._print_tensor_state(23, step_loss)         # 32, cpu False
+            # self._print_tensor_state(23, step_loss)         # 32, cpu False
             step_rmses = torch.stack(step_rmses, dim=0).mean(dim=0)   # (C,)
-            self._print_tensor_state(24, step_rmses)        # 32, cpt False
+            # self._print_tensor_state(24, step_rmses)        # 32, cpt False
             strC = ", ".join(f"{x:.2f}" for x in step_rmses.ravel().tolist())
             pbar.set_description('Loss: {:.3f}, rmses: {}'.format(step_loss.item(), strC))
 

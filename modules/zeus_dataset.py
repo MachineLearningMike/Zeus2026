@@ -47,13 +47,13 @@ class Zeus_Dataset(Dataset):
         self.train_set, self.vali_set, self.test_set = None, None, None
         self.x_set, self.x_set_len = None, 0
 
-        self.load_data()
+        # self.load_data()
 
     #------------------------------------- Download dataset -----------------------
 
     def load_data(self):
         self.load_dataset_params()
-        self.load_difficulties()
+        if self.pm.include_difficulty: self.load_difficulties()
         self.load_era5_data_vars()
         self.split_data_dates(train_pct=self.pm.train_pct, vali_pct=self.pm.vali_pct, seed=self.pm.seed)
         return
@@ -224,7 +224,8 @@ class Zeus_Dataset(Dataset):
     
 
     def analyze_dataset(self):
-        mean = []
+        mean = np.array((len(self.pm.variables),), dtype=np.float32)
+        n = 0
         for year_dir in sorted(self.cds_folder.iterdir()):
             if not year_dir.is_dir():
                 continue
@@ -234,26 +235,25 @@ class Zeus_Dataset(Dataset):
                 for day_dir in sorted(month_dir.iterdir()):
                     if not day_dir.is_dir():
                         continue
-                    
+                                        
                     file_path = day_dir / 'all.npy'
                     arr = np.load(str(file_path))   # (24, C, 721, 1440)
                     arr = arr[:, :, :720, :]        # (24, C, 720, 1440)    # Exclude the north pole at this time.
                     _mean = np.mean(arr, axis=(0, 2, 3))    # (C,)
-
                     has_nan = np.any(np.isnan(_mean))
                     if has_nan:
                         raise Exception("NAN found: ", str(year_dir).split("\\")[-1], str(month_dir).split("\\")[-1], str(day_dir).split("\\")[-1])
-
-                    mean.append(_mean)
                     print("mean", str(year_dir).split("\\")[-1], str(month_dir).split("\\")[-1], str(day_dir).split("\\")[-1], _mean)
+                    n += 1
+                    mean = mean * (n-1)/n + _mean / n   # (C,)
+
             #         break
             #     break
             # break
-        mean = np.array(mean)   # (days, C)
-        mean = np.mean(mean, axis=0)    # (C,)
         self.mean = mean        # (C,)
 
-        var = []
+        var = np.array((len(self.pm.variables),), dtype=np.float32)
+        n = 0
         for year_dir in sorted(self.cds_folder.iterdir()):
             if not year_dir.is_dir():
                 continue
@@ -269,19 +269,16 @@ class Zeus_Dataset(Dataset):
                     arr = arr[:, :, :720, :]        # (24, C, 720, 1440)    # Exclude the north pole, at this time.
                     arr = arr.transpose(0, 2, 3, 1) # (24, 720, 1440, C)
                     _var = np.mean(np.power(arr - self.mean, 2), axis=(0, 1, 2))    # (C,)
-
                     has_nan = np.any(np.isnan(_var))
                     if has_nan:
                         raise Exception("NAN found: ", str(year_dir).split("\\")[-1], str(month_dir).split("\\")[-1], str(day_dir).split("\\")[-1])
-
-                    var.append(_var)
                     print("var", str(year_dir).split("\\")[-1], str(month_dir).split("\\")[-1], str(day_dir).split("\\")[-1], _var)
+                    n += 1
+                    var = var * (n-1)/n + _var / n   # (C,)
             #         break
             #     break
             # break
-        
-        var = np.array(var)     # (days, C)
-        self.std = np.power(np.mean(var, axis=0), 0.5)  # (C,)
+            self.std = np.power(var, 0.5)  # (C,)
 
         data = {
             "mean": self.mean.tolist(),
@@ -366,8 +363,8 @@ class Zeus_Dataset(Dataset):
                     month_data.append(torch.tensor(_data, dtype=self.pm.dtype))
 
                 month_data = torch.cat(month_data, dim=0)               # (n, 721, 1440)
-                diffs = torch.diff(month_data, n=1, dim=0)    # (n-1, 721, 1440)
-                var_per_loc = diffs.var(dim=0).numpy()  # (721, 1440)
+                diffs = torch.diff(month_data, n=1, dim=0)              # (n-1, 721, 1440)
+                var_per_loc = diffs.var(dim=0).numpy()                  # (721, 1440)
 
                 month_str = self.month_string(first_day)
                 print(f"Min/Mean/Max for {month_str}", var_per_loc.min(), var_per_loc.mean(), var_per_loc.max())
@@ -404,7 +401,7 @@ class Zeus_Dataset(Dataset):
                 # print('load', variable, month, data.shape)
                 _difficulties.update({month: data})     # data: (721, 1440)
             
-            difficulties.update({variable: _difficulties})
+            difficulties.update({variable: _difficulties})      # difficulties[variable][month] : data (721, 1440)
 
         self.difficulties = difficulties
 
@@ -703,12 +700,15 @@ class Zeus_Dataset(Dataset):
         batch_y = self.normalize(batch_y)
 
         if self.pm.include_difficulty:
+            # difficulties[variable][month] : data (721, 1440)
             batch_diff = []
             for b in range(B):
-                variable_diff = []
-                for vaiable in self.pm.variables:
-                    diff = self.difficulties[vaiable][months[b]][:-1, :]    # (720, 1440)
+                for variable in self.pm.variables:
+                    print("=========", len(self.difficulties[variable]), self.difficulties[variable][months[b]].shape)
+                    # self.difficulties[vaiable][months[b]].shape = (720, 1440)
+                    diff = self.difficulties[variable][months[b]]   # (721, 1440)
                     variable_diff.append(torch.tensor(diff, dtype=self.pm.dtype))
+
                 variable_diff = torch.stack(variable_diff, dim=0)           # (C, 720, 1440)
                 batch_diff.append(variable_diff)
             batch_diff = torch.stack(batch_diff, dim=0)                     # (B, C, 720, 1440)

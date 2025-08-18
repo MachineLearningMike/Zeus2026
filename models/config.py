@@ -26,7 +26,7 @@ config = {
     'zeusLayers': 3,
     # training
     'seed' : 523,
-    'include_difficulty' : False,
+    'include_difficulty' : True,
     'epochs': 50,
     'batch_size' : 2,
     'log_step': 10,
@@ -48,10 +48,10 @@ from pathlib import Path
 import platform
 if platform.system() == "Windows":  
     root_path = Path("D:/Zeus_Data")
-    config['weight'] = 72
+    config['height'] = 72
     config['width'] = 144
 else:   
     root_path = Path("/mnt/Data/Zeus_Data")
-    config['weight'] = 720
+    config['height'] = 720
     config['width'] = 1440
     
