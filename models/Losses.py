@@ -19,7 +19,6 @@ class Losses():
 
         # improve this line regarding missing variables.
         min_sota_delta = torch.tensor([value for (key, value) in REWARD_IMPROVEMENT_MIN_DELTA.items() if key in variables])  # (C,)
-        print('=====', min_sota_delta)
         self.min_sota_delta = rearrange(min_sota_delta, 'c -> c 1 1')
         
     def _print_tensor_state(self, n, t):

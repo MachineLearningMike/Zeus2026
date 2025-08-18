@@ -13,7 +13,6 @@ import os, sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.utils import check_dir
-from models.Losses import Losses
 from modules.environment import TrainEnvironment
 from modules.zeus_tqdm import zeus_tqdm
 import modules.metrics
@@ -73,8 +72,7 @@ class Trainer():
         logging.info("Zeus model is created.")
         train_set, _, _ = self.dataset.generate_x_sets(seed=self.pm.seed)
         logging.info("x_sets are generated.")
-        self.env = TrainEnvironment(config, self.bayes_path, self.model, len(train_set))
-        self.losses = Losses(self.env, self.pm.variables)        
+        self.env = TrainEnvironment(config, self.bayes_path, self.model, len(train_set))     
         return
     
     def _print_tensor_state(self, n, t):
@@ -148,7 +146,7 @@ class Trainer():
                     # self._print_tensor_state(19, pred)      # 32, cuda, True !!!
                     target = self.dataset.unnormalize(target)   # torch.float32, cuda, False
                     # self._print_tensor_state(20, target)    # 32, cuda, False
-                    loss, rmse = self.losses.loss(target, pred, batch_diff, era5_data_vars.to(self.env.device)) # (,), (C,), torch.float32, cuda, True !!!
+                    loss, rmse = self.env.loss(target, pred, batch_diff, era5_data_vars.to(self.env.device)) # (,), (C,), torch.float32, cuda, True !!!
                     # self._print_tensor_state(21, loss)      # 32, cuda, True !!!
                     # self._print_tensor_state(22, rmse)      # 32, cuda, True !!!
                     step_loss.append(loss.cpu().detach())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!

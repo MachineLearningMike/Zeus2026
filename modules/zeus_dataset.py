@@ -239,14 +239,14 @@ class Zeus_Dataset(Dataset):
                     file_path = day_dir / 'all.npy'
                     arr = np.load(str(file_path))   # (24, C, 721, 1440)
                     arr = arr[:, :, :720, :]        # (24, C, 720, 1440)    # Exclude the north pole at this time.
-                    _mean = np.mean(arr, axis=(0, 2, 3))    # (C,)
+                    # _mean = np.mean(arr, axis=(0, 2, 3))    # (C,)
+                    _mean = torch.tensor(arr, dtype=torch.float32).cuda().mean(dim=(0,2,3)).cpu().numpy()
                     has_nan = np.any(np.isnan(_mean))
                     if has_nan:
                         raise Exception("NAN found: ", str(day_dir))
                     print("mean", str(day_dir), _mean)
                     n += 1
                     mean = mean * (n-1)/n + _mean / n   # (C,)
-
             #         break
             #     break
             # break
@@ -258,6 +258,7 @@ class Zeus_Dataset(Dataset):
         # M2   = np.zeros((C,), dtype=np.float64)
         # n = 0
 
+        self_mean = torch.tensor(self.mean).cuda()
         var = np.zeros((len(self.pm.variables),), dtype=np.float32)
         n = 0
 
@@ -289,10 +290,13 @@ class Zeus_Dataset(Dataset):
 
                     arr = np.load(str(file_path))   # (24, C, 721, 1440)
                     arr = arr[:, :, :720, :]        # (24, C, 720, 1440)    # Exclude the north pole, at this time.
-                    # arr = arr.transpose(0, 2, 3, 1) # (24, 720, 1440, C)
-                    # _var = np.mean(np.power(arr - self.mean, 2), axis=(0, 1, 2))    # (C,)
-                    arr = arr.transpose(0, 2, 3, 1).reshape(-1, C) # (x, C)
-                    _var = np.mean(np.power(arr - self.mean, 2), axis=0)    # (C,)
+
+                    arr = arr.transpose(0, 2, 3, 1) # (24, 720, 1440, C)
+                    # _var = np.mean(np.power(arr - self.mean, 2), axis=(0,1,2))    # (C,)
+                    
+                    ten = torch.tensor(arr, dtype=torch.float32).cuda()
+                    _var = torch.mean(torch.pow(ten - self_mean, 2), dim=(0,1,2)).cpu().numpy()
+
                     has_nan = np.any(np.isnan(_var))
                     if has_nan:
                         raise Exception("NAN found: ", str(day_dir))
@@ -318,7 +322,6 @@ class Zeus_Dataset(Dataset):
             json.dump(data, f)
 
         return self.mean, self.std  # (C,), (C,)
-
 
     def load_dataset_params(self):
         with open(self.param_path, "r") as f:
@@ -584,9 +587,9 @@ class Zeus_Dataset(Dataset):
 
         # Mike!!! remove [:2]
         # No need to copy.copy(), as self.x_sets are re-generated above.
-        self.x_set = self.train_set[:] if x_label=='train_set' \
-            else self.vali_set[:] if x_label=='vali_set' \
-            else self.test_set[:] if x_label=='test_set' else None
+        self.x_set = self.train_set[:5] if x_label=='train_set' \
+            else self.vali_set[:4] if x_label=='vali_set' \
+            else self.test_set[:4] if x_label=='test_set' else None
         
         random.shuffle(self.x_set)
 
@@ -689,16 +692,17 @@ class Zeus_Dataset(Dataset):
         return
 
     def take_batch(self):
-        if self.no_more_data(): return None
+        if len(self.x_set) <= 0: return None
 
         _, T2 = self.x_set[0]
 
         taken = []
-        i = len(self.x_set) - 1
-        while i >= 0 and len(taken) < self.pm.batch_size:
-            if self.x_set[i][1] == T2:                   # x_set[0][1] == T2, at least.
-                taken.append(self.x_set.pop(i))          # This way, self.train_set, self.vali_set, and self.test_set diminish.
-            i -= 1
+        cursor = len(self.x_set) - 1
+        while cursor >= 0 and len(taken) < self.pm.batch_size:
+            if self.x_set[cursor][1] == T2:                   # x_set[0][1] == T2, at least.
+                taken.append(self.x_set.pop(cursor))          # This way, self.train_set, self.vali_set, and self.test_set diminish.
+            cursor -= 1
+        assert len(taken) > 0
 
         B, C, T1, FG, H, W = len(taken), len(self.pm.variables), self.pm.T1, self.pm.FG, self.pm.image_height, self.pm.image_width
 
