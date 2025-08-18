@@ -47,7 +47,7 @@ class Zeus_Dataset(Dataset):
         self.train_set, self.vali_set, self.test_set = None, None, None
         self.x_set, self.x_set_len = None, 0
 
-        # self.load_data()
+        self.load_data()
 
     #------------------------------------- Download dataset -----------------------
 
@@ -224,7 +224,7 @@ class Zeus_Dataset(Dataset):
     
 
     def analyze_dataset(self):
-        mean = np.array((len(self.pm.variables),), dtype=np.float32)
+        mean = np.zeros((len(self.pm.variables),), dtype=np.float32)
         n = 0
         for year_dir in sorted(self.cds_folder.iterdir()):
             if not year_dir.is_dir():
@@ -247,14 +247,20 @@ class Zeus_Dataset(Dataset):
                     n += 1
                     mean = mean * (n-1)/n + _mean / n   # (C,)
 
-            #         break
-            #     break
-            # break
+                    break
+                break
+            break
         self.mean = mean        # (C,)
-        gc.collect()
 
-        var = np.array((len(self.pm.variables),), dtype=np.float32)
+        #-------------------------------- std -------------------
+        C = len(self.pm.variables)
+        # mean = np.zeros((C,), dtype=np.float64)
+        # M2   = np.zeros((C,), dtype=np.float64)
+        # n = 0
+
+        var = np.zeros((len(self.pm.variables),), dtype=np.float32)
         n = 0
+
         for year_dir in sorted(self.cds_folder.iterdir()):
             if not year_dir.is_dir():
                 continue
@@ -266,20 +272,41 @@ class Zeus_Dataset(Dataset):
                         continue
 
                     file_path = day_dir / 'all.npy'
+
+                    # arr = np.load(file_path)[:, :, :720, :]   # (24, C, 720, 1440)
+                    # x = arr.transpose(0, 2, 3, 1).reshape(-1, C)  # flatten all samples
+                    # for batch in np.array_split(x, 10):  # optional: process in chunks
+                    #     n_batch = batch.shape[0]
+                    #     batch_mean = batch.mean(axis=0)
+                    #     batch_var  = ((batch - batch_mean)**2).sum(axis=0)
+                    #     # Update running stats (Welford)
+                    #     delta = batch_mean - mean
+                    #     total_n = n + n_batch
+                    #     mean += delta * n_batch / total_n
+                    #     M2   += batch_var + delta**2 * n * n_batch / total_n
+                    #     n = total_n
+                    # print("var", str(day_dir), M2)
+
                     arr = np.load(str(file_path))   # (24, C, 721, 1440)
                     arr = arr[:, :, :720, :]        # (24, C, 720, 1440)    # Exclude the north pole, at this time.
-                    arr = arr.transpose(0, 2, 3, 1) # (24, 720, 1440, C)
-                    _var = np.mean(np.power(arr - self.mean, 2), axis=(0, 1, 2))    # (C,)
+                    # arr = arr.transpose(0, 2, 3, 1) # (24, 720, 1440, C)
+                    # _var = np.mean(np.power(arr - self.mean, 2), axis=(0, 1, 2))    # (C,)
+                    arr = arr.transpose(0, 2, 3, 1).reshape(-1, C) # (x, C)
+                    _var = np.mean(np.power(arr - self.mean, 2), axis=0)    # (C,)
                     has_nan = np.any(np.isnan(_var))
                     if has_nan:
                         raise Exception("NAN found: ", str(day_dir))
                     print("var", str(day_dir), _var)
                     n += 1
                     var = var * (n-1)/n + _var / n   # (C,)
-            #         break
-            #     break
-            # break
-            self.std = np.power(var, 0.5)  # (C,)
+
+                    break
+                break
+            break
+            
+        # var = M2 / n
+        std = np.sqrt(var)
+        self.std = std
 
         data = {
             "mean": self.mean.tolist(),
@@ -360,7 +387,7 @@ class Zeus_Dataset(Dataset):
                     if not file_path.exists(): 
                         raise Exception("Data file not found. {}/{}/{}, {}".format(year, month, day))
 
-                    _data = np.load(file_path)[variable_idx:, :, :, :]   # (24, 721, 1440)                                
+                    _data = np.load(file_path)[:, variable_idx, :, :]   # (24, 721, 1440)
                     month_data.append(torch.tensor(_data, dtype=self.pm.dtype))
 
                 month_data = torch.cat(month_data, dim=0)               # (n, 721, 1440)
@@ -371,7 +398,6 @@ class Zeus_Dataset(Dataset):
                 print(f"Min/Mean/Max for {month_str}", var_per_loc.min(), var_per_loc.mean(), var_per_loc.max())
 
                 if maxDeffVar < var_per_loc.max().item(): maxDeffVar = var_per_loc.max().item()
-                
                 difficulties.append((var_per_loc, year, month))
             
             for var_per_loc, year, month in difficulties:
@@ -405,6 +431,7 @@ class Zeus_Dataset(Dataset):
             difficulties.update({variable: _difficulties})      # difficulties[variable][month] : data (721, 1440)
 
         self.difficulties = difficulties
+        print('load per variable per month', self.difficulties['2m_temperature'][3].shape)
 
 
     def show_difficulty(self, variable):
@@ -436,6 +463,10 @@ class Zeus_Dataset(Dataset):
         gl = ax.gridlines(draw_labels=True)
         gl.xlabel_style = {"size": 8}
         gl.ylabel_style = {"size": 8}
+        
+        if var_per_loc.shape[0] < 721:  # just for the case where var_per_loc.shape[0] == 720, < 721
+            var_per_loc = np.concatenate((var_per_loc, np.ones_like(var_per_loc[:721-var_per_loc.shape[0], :])), axis=0)
+        
         scatterplot = ax.scatter(
                 x_grid[..., -1], 
                 x_grid[..., -2], 
@@ -704,8 +735,8 @@ class Zeus_Dataset(Dataset):
             # difficulties[variable][month] : data (721, 1440)
             batch_diff = []
             for b in range(B):
+                variable_diff = []
                 for variable in self.pm.variables:
-                    print("=========", len(self.difficulties[variable]), self.difficulties[variable][months[b]].shape)
                     # self.difficulties[vaiable][months[b]].shape = (720, 1440)
                     diff = self.difficulties[variable][months[b]]   # (721, 1440)
                     variable_diff.append(torch.tensor(diff, dtype=self.pm.dtype))
@@ -805,7 +836,7 @@ if __name__ == "__main__":
 
     # dataset.create_difficulties(end_day)
     # dataset.load_difficulties()
-    # dataset.show_difficulty("100m_u_component_of_wind")
+    # dataset.show_difficulty("2m_temperature")
   
     # vars = dataset.load_era5_data_vars()
     # print('vars ', vars)

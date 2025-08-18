@@ -26,7 +26,7 @@ config = {
     'zeusLayers': 3,
     # training
     'seed' : 523,
-    'include_difficulty' : True,
+    'include_difficulty' : False,
     'epochs': 50,
     'batch_size' : 2,
     'log_step': 10,

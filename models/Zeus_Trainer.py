@@ -103,7 +103,7 @@ class Trainer():
             # self._print_tensor_state(3, era5_data_vars) # 32, cpu, False
             if self.pm.include_difficulty:
                 pass 
-                self._print_tensor_state(4, batch_diff)   # 32, cpu, False
+                # self._print_tensor_state(4, batch_diff)   # 32, cpu, False
             no_more_data = pbar.no_more_data()
             if not no_more_data:  pbar.prefetch(x_set_label)    # Fetch one batch asynchronously
 
@@ -115,9 +115,8 @@ class Trainer():
             # self._print_tensor_state(7, era5_data_vars) # 32, cpu, False
 
             if self.pm.include_difficulty:
-                print('---', self.pm.image_height, self.pm.image_width)
                 batch_diff = batch_diff[:, :, :self.pm.image_height, :self.pm.image_width]
-                self._print_tensor_state(8, batch_diff)
+                # self._print_tensor_state(8, batch_diff)
 
             T2 = (batch_y.shape)[1] // FG
             batch_x = batch_x.to(self.env.device)               # torch.float32, cuda
@@ -137,19 +136,19 @@ class Trainer():
                     # self._print_tensor_state(13, batch_x)   # 32, cuda, False
                     # self._print_tensor_state(14, pred_y)    # 32, cuda, False
                     base_x = torch.cat([batch_x, pred_y], dim=1)
-                    base_x = base_x[:, -T1*FG:, :, :, :]     #(B, T1FG, C, H, W), torch.float32, cuda, requires_grad False
+                    base_x = base_x[:, -T1*FG:, :, :, :]     #(B, T1FG, C, H, W), torch.float32, cuda, False
                     # self._print_tensor_state(15, base_x)    # 32, cuda, False
-                    pred = self.model(base_x)     # (B,FG,C,H,W), torch.float16 !!!, cuda, requires_grad True !!!
+                    pred = self.model(base_x)     # (B,FG,C,H,W), torch.float16 !!!, cuda, True !!!
                     # self._print_tensor_state(16, pred)      # 16 !!!, cuda, True !!!
-                    pred_y = torch.cat([pred_y, pred.detach()], dim=1) # torch.float32, cuda, requires_grad False
+                    pred_y = torch.cat([pred_y, pred.detach()], dim=1) # torch.float32, cuda, False
                     # self._print_tensor_state(17, pred_y)    # 32, cuda, False
-                    target = batch_y[:, t2*FG:(t2+1)*FG, :,:].to(self.env.device)   # (B,FG,C,H,W)  # torch.float32, cuda, requries_grad False
+                    target = batch_y[:, t2*FG:(t2+1)*FG, :,:].to(self.env.device)   # (B,FG,C,H,W)  # torch.float32, cuda, False
                     # self._print_tensor_state(18, target)    # 32, cuda, False
-                    pred = self.dataset.unnormalize(pred)   # torch.float32 !!!, cuda, requires_grad True !!!
+                    pred = self.dataset.unnormalize(pred)   # torch.float32 !!!, cuda, True !!!
                     # self._print_tensor_state(19, pred)      # 32, cuda, True !!!
-                    target = self.dataset.unnormalize(target)   # torch.float32, cuda, requires_grad False
+                    target = self.dataset.unnormalize(target)   # torch.float32, cuda, False
                     # self._print_tensor_state(20, target)    # 32, cuda, False
-                    loss, rmse = self.losses.loss(target, pred, batch_diff, era5_data_vars.to(self.env.device)) # (,), (C,), torch.float32, cuda, requries_grad True !!!
+                    loss, rmse = self.losses.loss(target, pred, batch_diff, era5_data_vars.to(self.env.device)) # (,), (C,), torch.float32, cuda, True !!!
                     # self._print_tensor_state(21, loss)      # 32, cuda, True !!!
                     # self._print_tensor_state(22, rmse)      # 32, cuda, True !!!
                     step_loss.append(loss.cpu().detach())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
