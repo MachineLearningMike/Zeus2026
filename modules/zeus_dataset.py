@@ -5,7 +5,7 @@ import threading
 import calendar
 import json
 import math
-import copy
+import gc
 from datetime import datetime, date, timedelta
 import random
 from torch.utils.data import Dataset
@@ -251,6 +251,7 @@ class Zeus_Dataset(Dataset):
             #     break
             # break
         self.mean = mean        # (C,)
+        gc.collect()
 
         var = np.array((len(self.pm.variables),), dtype=np.float32)
         n = 0
