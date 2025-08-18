@@ -123,7 +123,7 @@ def sinusoidal_embedding_3d(sPos, dim):    # shape of positions, dim. -> (1,) + 
     pe0 = sinusoidal_embedding_1d(sPos[0], dim//3)[:, None, None, :].expand(-1, sPos[1], sPos[2], -1)
     pe1 = sinusoidal_embedding_1d(sPos[1], dim//3)[None, :, None, :].expand(sPos[0], -1, sPos[2], -1)
     pe2 = sinusoidal_embedding_1d(sPos[2], dim//3)[None, None, :, :].expand(sPos[0], sPos[1], -1, -1)
-    pe = torch.concat((pe0, pe1, pe2), dim=-1)  # sPos + (dim,)
+    pe = torch.cat((pe0, pe1, pe2), dim=-1)  # sPos + (dim,)
     return pe # (s0, s1, s2, d)
 
 class GatedTemporalAttention(nn.Module):      # ((b n), t, dim) -> ((b n), t, dim) 

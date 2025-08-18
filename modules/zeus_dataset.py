@@ -47,7 +47,7 @@ class Zeus_Dataset(Dataset):
         self.train_set, self.vali_set, self.test_set = None, None, None
         self.x_set, self.x_set_len = None, 0
 
-        # self.load_data()
+        self.load_data()
 
     #------------------------------------- Download dataset -----------------------
 
@@ -297,16 +297,19 @@ class Zeus_Dataset(Dataset):
 
     def load_dataset_params(self):
         with open(self.param_path, "r") as f:
-            data = json.load(f)        
-        mean, std = np.array(data['mean']), np.array(data['std'])
+            data = json.load(f)
+            print('------', data, torch.tensor(data['mean']).shape)
+        mean, std = torch.tensor(data['mean']), torch.tensor(data['std'])
         self.mean, self.std = mean, std
         return mean, std    # (C,), (C,)
 
     def normalize(self, data):    # data: (... C, H, W)
-        return ( data - rearrange(self.mean, 'c -> c 1 1') ) / rearrange(self.std, 'c -> c 1 1')
+        device = data.device
+        return ( data - rearrange(self.mean, 'c -> c 1 1').to(device) ) / rearrange(self.std, 'c -> c 1 1').to(device)
     
     def unnormalize(self, data):    # data: (... C, H, W)
-        return data * rearrange(self.std, 'c -> c 1 1') + rearrange(self.mean, 'c -> c 1 1')
+        device = data.device
+        return data * rearrange(self.std, 'c -> c 1 1').to(device) + rearrange(self.mean, 'c -> c 1 1').to(device)
     
     def load_era5_data_vars(self):
         vars = [ERA5_DATA_VARS[k] for k in self.pm.variables if k in ERA5_DATA_VARS.keys()]
@@ -362,7 +365,7 @@ class Zeus_Dataset(Dataset):
                     _data = np.load(file_path)[variable_idx:, :, :, :]   # (24, 721, 1440)                                
                     month_data.append(torch.tensor(_data, dtype=self.pm.dtype))
 
-                month_data = torch.concat(month_data, dim=0)               # (n, 721, 1440)
+                month_data = torch.cat(month_data, dim=0)               # (n, 721, 1440)
                 diffs = torch.diff(month_data, n=1, dim=0)    # (n-1, 721, 1440)
                 var_per_loc = diffs.var(dim=0).numpy()  # (721, 1440)
 
@@ -683,7 +686,7 @@ class Zeus_Dataset(Dataset):
                 day = start_date + timedelta(days=t1)
                 day_data = self.load_day_all_data_npy(day)                    # (24, C, H, W)
                 days_data_x.append(day_data)
-            days_data_x = torch.concat(days_data_x, dim=0)      # (T1*24, C, H, W)
+            days_data_x = torch.cat(days_data_x, dim=0)      # (T1*24, C, H, W)
             batch_x.append(days_data_x)
 
             days_data_y = []
@@ -691,7 +694,7 @@ class Zeus_Dataset(Dataset):
                 day = start_date + timedelta(days=T1+t2) 
                 day_data = self.load_day_all_data_npy(day)                    # (24, C, H, W)
                 days_data_y.append(day_data)
-            days_data_y = torch.concat(days_data_y, dim=0)      # (T2*24, C, H, W)
+            days_data_y = torch.cat(days_data_y, dim=0)      # (T2*24, C, H, W)
             batch_y.append(days_data_y)
 
         batch_x = torch.stack(batch_x, dim=0).cpu()       # (B, T1FG, C, H, W)
