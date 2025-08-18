@@ -247,9 +247,9 @@ class Zeus_Dataset(Dataset):
                     n += 1
                     mean = mean * (n-1)/n + _mean / n   # (C,)
 
-                    break
-                break
-            break
+            #         break
+            #     break
+            # break
         self.mean = mean        # (C,)
 
         #-------------------------------- std -------------------
@@ -300,9 +300,9 @@ class Zeus_Dataset(Dataset):
                     n += 1
                     var = var * (n-1)/n + _var / n   # (C,)
 
-                    break
-                break
-            break
+            #         break
+            #     break
+            # break
             
         # var = M2 / n
         std = np.sqrt(var)
