@@ -47,7 +47,7 @@ class Zeus_Dataset(Dataset):
         self.train_set, self.vali_set, self.test_set = None, None, None
         self.x_set, self.x_set_len = None, 0
 
-        # self.load_data()
+        self.load_data()
 
     #------------------------------------- Download dataset -----------------------
 
