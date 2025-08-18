@@ -99,25 +99,20 @@ class Trainer():
             no_more_data = pbar.no_more_data()
             if not no_more_data:  pbar.prefetch(x_set_label)    # Fetch one batch asynchronously
 
-            # Mike!!! Remove this block in production version.
             batch_x = batch_x[:, :, :, :self.pm.image_height, :self.pm.image_width]     # torch.float32, cpu
             batch_y = batch_y[:, :, :, :self.pm.image_height, :self.pm.image_width]     # torch.float32, cpu
             era5_data_vars = era5_data_vars # torch.float32, cpu
-            # print('3 ', batch_x.dtype, batch_x.shape, batch_x.device, batch_y.dtype, batch_y.shape, batch_y.device, era5_data_vars.dtype, era5_data_vars.shape, era5_data_vars.device)
 
             if self.pm.include_difficulty:
                 batch_diff = batch_diff[:, :, :self.pm.image_height, :self.pm.image_width]
-                # print('4', batch_diff.shape, batch_diff.device)
 
             T2 = (batch_y.shape)[1] // FG
             batch_x = batch_x.to(self.env.device)               # torch.float32, cuda
             batch_y = batch_y.float().to(self.env.device)       # torch.float32, cuda
             era5_data_vars = era5_data_vars.to(self.env.device) # torch.float32, cuda
-            # print('5', batch_x.dtype, batch_x.shape, batch_x.device, batch_y.dtype, batch_y.shape, batch_y.device, era5_data_vars.dtype, era5_data_vars.shape, era5_data_vars.device)
 
             (B, T1FG, C, H, W) = batch_x.shape
             pred_y = torch.zeros(size=(B,0,C,H,W)).to(self.env.device)  # torch.float32, cuda
-            # print('6', pred_y.dtype, pred_y.shape, pred_y.device)
             step_loss = []; step_rmses = []
 
             for t2 in range(T2):
@@ -127,7 +122,7 @@ class Trainer():
                     pred = self.model(base_x)     # (B,FG,C,H,W), torch.float16 !!!, cuda, requires_grad True !!!
                     pred_y = torch.cat([pred_y, pred.detach()], dim=1) # torch.float32, cuda, requires_grad False
                     target = batch_y[:, t2*FG:(t2+1)*FG, :,:].to(self.env.device)   # (B,FG,C,H,W)  # torch.float32, cuda, requries_grad False
-                    pred = self.dataset.unnormalize(pred)   # torch.float32, cuda, requires_grad True !!!
+                    pred = self.dataset.unnormalize(pred)   # torch.float32 !!!, cuda, requires_grad True !!!
                     target = self.dataset.unnormalize(target)   # torch.float32, cuda, requires_grad False
                     loss, rmse = self.losses.loss(target, pred, batch_diff, era5_data_vars.to(self.env.device)) # (,), (C,), torch.float32, cuda, requries_grad True !!!
                     step_loss.append(loss.detach())  # (,) - list
