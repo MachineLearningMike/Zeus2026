@@ -94,6 +94,8 @@ class Trainer():
         if not pbar.no_more_data():  pbar.prefetch(x_set_label)        # Fetch one batch asynchronously
         for batch in pbar:              # Wait for the asynchronous .prefetch
             # print('got data!')
+            if train: self.env.optimizer.zero_grad()                     # train
+            
             if batch is None: break     # just in case
             batch_x, batch_y, batch_diff, era5_data_vars = batch    # (B, T1FG, C, H, W), (B, T2FG, C, H, W), (B, C, H, W), (C,)
             
@@ -131,14 +133,16 @@ class Trainer():
                     # loss = torch.sqrt(torch.mean((pred - target) ** 2))
                     # loss, rmse = self.losses.loss(target, pred, batch_diff.to(self.env.device), era5_data_vars.to(self.env.device))
                     loss, rmse = self.losses.loss(target, pred, batch_diff, era5_data_vars.to(self.env.device)) # (,), (C,)
-
                     step_loss.append(loss)  # (,) - list
                     step_rmses.append(rmse)      # (C,) - list
-                    if train:
-                        self.env.optimizer.zero_grad()                     # train
-                        self.scaler.scale(loss).backward()                 # train
-                        self.scaler.step(self.env.optimizer)               # train
-                        self.scaler.update()
+
+                if train:
+                    loss = loss / T2    # Normalize loss, so gradients match what we'd get if we did a one big forwards pass.
+                    self.scaler.scale(loss).backward()          # accumulate gradients T2 times by backpropagating (scaled) loss
+
+            if train: 
+                self.scaler.step(self.env.optimizer)            # (un-scalsed) step for accumulated gradients.
+                self.scaler.update()                            # This is the only place to adjust the scale factor.
           
             # Conclude a step
             self.env.scheduler.step()   # Our scheduler is OneCycleLR, which is a per-batch scheduler

@@ -121,13 +121,13 @@ class Zeus_Dataset(Dataset):
 
                     try:
                         file_path_npz = self.get_file_path(year, month, day, variable)
-                        load = np.load()
+                        load = np.load(file_path_npz)
                         array = load[load.files[0]]
                         files_to_remove.append(file_path_npz)
                     except:
                         ds = total_ds[[variable]]
-                        monthDayStr = str(year) + '-' + str(month).zfill(2) + '-' + str(day).zfill(2)
-                        ds = ds.sel(time=slice(monthDayStr, monthDayStr))               # day data
+                        dayStr = str(year) + '-' + str(month).zfill(2) + '-' + str(day).zfill(2)
+                        ds = ds.sel(time=slice(dayStr, dayStr))               # day data
                         array = ds[variable].values     # Actual downloading happens.
                         array = array.astype(np.float16)    # (24, 721, 1440)           #-------- float16
                     data_list.append(array)
@@ -225,19 +225,19 @@ class Zeus_Dataset(Dataset):
 
     def analyze_dataset(self):
         mean = []
-        for year_dir in self.cds_folder.iterdir():
+        for year_dir in sorted(self.cds_folder.iterdir()):
             if not year_dir.is_dir():
                 continue
-            for month_dir in year_dir.iterdir():
+            for month_dir in sorted(year_dir.iterdir()):
                 if not month_dir.is_dir():
                     continue
-                for day_dir in month_dir.iterdir():
+                for day_dir in sorted(month_dir.iterdir()):
                     if not day_dir.is_dir():
                         continue
                     
                     file_path = day_dir / 'all.npy'
                     arr = np.load(str(file_path))   # (24, C, 721, 1440)
-                    arr = arr[:, :, :720, :]        # (24, C, 720, 1440)
+                    arr = arr[:, :, :720, :]        # (24, C, 720, 1440)    # Exclude the north pole at this time.
                     _mean = np.mean(arr, axis=(0, 2, 3))    # (C,)
 
                     has_nan = np.any(np.isnan(_mean))
@@ -254,19 +254,19 @@ class Zeus_Dataset(Dataset):
         self.mean = mean        # (C,)
 
         var = []
-        for year_dir in self.cds_folder.iterdir():
+        for year_dir in sorted(self.cds_folder.iterdir()):
             if not year_dir.is_dir():
                 continue
-            for month_dir in year_dir.iterdir():
+            for month_dir in sorted(year_dir.iterdir()):
                 if not month_dir.is_dir():
                     continue
-                for day_dir in month_dir.iterdir():
+                for day_dir in sorted(month_dir.iterdir()):
                     if not day_dir.is_dir():
                         continue
 
                     file_path = day_dir / 'all.npy'
                     arr = np.load(str(file_path))   # (24, C, 721, 1440)
-                    arr = arr[:, :, :720, :]        # (24, C, 720, 1440)
+                    arr = arr[:, :, :720, :]        # (24, C, 720, 1440)    # Exclude the north pole, at this time.
                     arr = arr.transpose(0, 2, 3, 1) # (24, 720, 1440, C)
                     _var = np.mean(np.power(arr - self.mean, 2), axis=(0, 1, 2))    # (C,)
 
@@ -287,6 +287,8 @@ class Zeus_Dataset(Dataset):
             "mean": self.mean.tolist(),
             "std":  self.std.tolist(),
         }
+        if self.param_path.exists() and self.param_path.is_file():
+            self.param_path.unlink()  # deletes the file
         with open(self.param_path, "w") as f:
             json.dump(data, f)
 
@@ -299,8 +301,11 @@ class Zeus_Dataset(Dataset):
         mean, std = np.array(data['mean']), np.array(data['std'])
         self.mean, self.std = mean, std
         return mean, std    # (C,), (C,)
+
+    def normalize(self, data):    # data: (... C, H, W)
+        return ( data - rearrange(self.mean, 'c -> c 1 1') ) / rearrange(self.std, 'c -> c 1 1')
     
-    def unnormalize(self, data):
+    def unnormalize(self, data):    # data: (... C, H, W)
         return data * rearrange(self.std, 'c -> c 1 1') + rearrange(self.mean, 'c -> c 1 1')
     
     def load_era5_data_vars(self):
@@ -690,11 +695,9 @@ class Zeus_Dataset(Dataset):
             batch_y.append(days_data_y)
 
         batch_x = torch.stack(batch_x, dim=0).cpu()       # (B, T1FG, C, H, W)
-        batch_y = torch.stack(batch_y, dim=0).cpu()       # (B, T2FG, C, H, W)
-        mean = rearrange(torch.tensor(self.mean, dtype=self.pm.dtype).cpu(), 'c -> c 1 1')
-        std = rearrange(torch.tensor(self.std, dtype=self.pm.dtype).cpu(), 'c -> c 1 1')
-        batch_x = (batch_x - mean) / std        # (B, T1FG, C, H, W)
-        batch_y = (batch_y - mean) / std        # (B, T2FG, C, H, W)
+        batch_y = torch.stack(batch_y, dim=0).cpu()       # (B, T2FG, C, H, W)        
+        batch_x = self.normalize(batch_x)
+        batch_y = self.normalize(batch_y)
 
         if self.pm.include_difficulty:
             batch_diff = []
@@ -782,8 +785,8 @@ if __name__ == "__main__":
     print(start_day, end_day)
     print(total_days, complete)
 
-    # mean, std = dataset.analyze_dataset()
-    # print(mean, std)
+    mean, std = dataset.analyze_dataset()
+    print(mean, std)
 
     # mean, std = dataset.load_dataset_params()
     # print("mean: {}, std: {}".format(mean, std))
@@ -796,9 +799,9 @@ if __name__ == "__main__":
     # print("train_set, vali_set, test_set lengths:", len(train_set), len(vali_set), len(test_set))
     # print("train_set[:3]", train_set[:3])
 
-    dataset.create_difficulties(end_day)
-    dataset.load_difficulties()
-    dataset.show_difficulty("100m_u_component_of_wind")
+    # dataset.create_difficulties(end_day)
+    # dataset.load_difficulties()
+    # dataset.show_difficulty("100m_u_component_of_wind")
   
     # vars = dataset.load_era5_data_vars()
     # print('vars ', vars)

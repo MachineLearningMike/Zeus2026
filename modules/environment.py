@@ -87,6 +87,11 @@ class TrainEnvironment:
         else:
             OptimizerClass = torch.optim.Adam
 
+        # At the time of calling this, self.model.parameters() may be on CPU.
+        # This call let optmizer keep reference to the pararmeters.
+        # Later, if the model is moved to GPU, the optimizer's references points to Cuda tensors.
+        # If optimizer.step() happens after moving the model, the states will also be on Cuda 
+        # because optimizer's state is created lazily when calling optimizer.step() first.
         optimizer = OptimizerClass(
             self.model.parameters(),
             lr=lr,
@@ -105,6 +110,9 @@ class TrainEnvironment:
         final_div_factor = getattr(self.pm, 'final_div_factor', 1e4)
 
         scheduler = torch.optim.lr_scheduler.OneCycleLR(    # Mike!!! This is a per-batch scheduler.
+            # A per-batch scheduler's time axis is on mini-batch, not on epochs.
+            # It only counts how many mini-batches it traverses, across epochs, and doesn't aware of epochs.
+            # steps_per_epoch and epochs are only used to get total_steps.
             optimizer,
             max_lr=max_lr,
             steps_per_epoch=steps_per_epoch,
@@ -168,7 +176,7 @@ class TrainEnvironment:
 
             # Ensure optimizer & scheduler exist before loading states
             if not hasattr(self, 'optimizer') or not hasattr(self, 'scheduler'):
-                self._select_optimizer()
+                self.optimizer, self.scheduler = self._select_optimizer()
 
             self.optimizer.load_state_dict(checkpoint['optimizer'])
             for state in self.optimizer.state.values():
