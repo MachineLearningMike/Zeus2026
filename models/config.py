@@ -7,12 +7,12 @@ config = {
     'width': 144,
     # video length in and out
     'variables': variables,
-    'T1': 2,    # 5 later.
+    'T1': 1,    # 2 runs out of GPU memory 5 later.
     'maxT2': 6,
     'FG': 24,   # frames in a frame group
     # data split
-    'train_pct': 70,
-    'vali_pct': 30,
+    'train_pct': 75,
+    'vali_pct': 25,
     # patch size
     'patch_size': 8, # 8
     # transformer
@@ -29,7 +29,7 @@ config = {
     'seed' : 523,
     'include_difficulty' : False,
     'epochs': 50,
-    'batch_size' : 2,
+    'batch_size' : 1,
     'log_step': 10,
     'optimizer': 'adam',
     'lr' : 1e-5,
@@ -39,10 +39,10 @@ config = {
     'anneal_strategy' : 'linear',   # 'cos'
     'div_factor' : 25.0,
     'final_div_factor' : 1e4,
-    'epoch_patience' : 1,       # Mike!!!
+    'epoch_patience' : 5,       # Mike!!!
 
     'seed': 523,
-    'bayesProject' : '0819-6',    # Represents an instance of a whole bayesian miximization. Mike!!!
+    'bayesProject' : '0819d_11h',    # Represents an instance of a whole bayesian miximization. Mike!!!
 }
 
 from pathlib import Path

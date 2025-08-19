@@ -2,6 +2,7 @@
 import numpy as np
 import torch
 from torch import nn
+import gc
 from torch.amp import autocast, GradScaler
 from einops.layers.torch import Rearrange
 from einops import rearrange, repeat
@@ -78,7 +79,9 @@ class Trainer():
     def _print_tensor_state(self, n, t):
         print(n, t.dtype, t.device, t.requires_grad, t.shape)
     
-    def _run_epoch(self, epoch, x_set_label, train=False):  
+    def _run_epoch(self, epoch, x_set_label, train=False):
+        gc.collect()
+        torch.cuda.empty_cache()
         self.model.to(self.env.device)
         
         self.dataset.refresh_x_set(x_set_label, seed=self.pm.seed)

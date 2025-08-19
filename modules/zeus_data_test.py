@@ -18,7 +18,7 @@ print(total_days, complete)
 mean, std = dataset.load_dataset_params()
 print("mean: {}, std: {}".format(mean, std))
 
-train_dates, vali_dates, test_dates = dataset.split_data_dates(train_pct=0.5, vali_pct=0.3, seed=523)
+train_dates, vali_dates, test_dates = dataset.split_data_dates(seed=523)
 print("Lengths of dates:", len(train_dates), len(vali_dates), len(test_dates))
 print("train_dates[:3]", train_dates[:3])
 

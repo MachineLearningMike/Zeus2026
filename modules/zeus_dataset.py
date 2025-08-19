@@ -55,7 +55,7 @@ class Zeus_Dataset(Dataset):
         self.load_dataset_params()
         if self.pm.include_difficulty: self.load_difficulties()
         self.load_era5_data_vars()
-        self.split_data_dates(train_pct=self.pm.train_pct, vali_pct=self.pm.vali_pct, seed=self.pm.seed)
+        self.split_data_dates(seed=self.pm.seed)
         return
     
     def start_prefetch_thread(self):
@@ -511,10 +511,13 @@ class Zeus_Dataset(Dataset):
 
         return t2
     
-    def split_data_dates(self, train_pct=0.7, vali_pct=0.3, seed=None):
+    def split_data_dates(self, renew=False, seed=None):
         total_days, start_day, end_day, complete, data_dates = self.count_data_days()
 
+        train_pct = self.pm.train_pct; vali_pct = self.pm.vali_pct
+
         try:
+            assert renew == False
             print("Loading data dates...")
             with open(self.split_dates_path, "r") as f:
                 data = json.load(f)
@@ -526,7 +529,7 @@ class Zeus_Dataset(Dataset):
             print("Loading failed. Creating data dates...")
 
             T1 = self.pm.T1
-            maxT2 = 14                          #------------- This is an implicit dependency
+            maxT2 = self.pm.maxT2                      #------------- This is an implicit dependency
             data_dates = data_dates[: -(T1 + maxT2)]    # latest days cannot be a start date.
 
             if seed is not None: random.seed(seed)
@@ -534,8 +537,10 @@ class Zeus_Dataset(Dataset):
             shuffled_dates = data_dates[:]
             random.shuffle(shuffled_dates)
             n = len(shuffled_dates)
-            train_size = int(n * train_pct)
-            vali_size = int(n * vali_pct)
+            print('---------------split', n, train_pct, vali_pct)
+            train_size = int(n * train_pct / 100)
+            vali_size = int(n * vali_pct / 100)
+            print('---------------split 2', train_size, vali_size)
             self.train_dates = shuffled_dates[:train_size]
             self.vali_dates = shuffled_dates[train_size : train_size + vali_size]
             self.test_dates = shuffled_dates[train_size + vali_size :]
@@ -587,9 +592,9 @@ class Zeus_Dataset(Dataset):
 
         # Mike!!! remove [:2]
         # No need to copy.copy(), as self.x_sets are re-generated above.
-        self.x_set = self.train_set[:8] if x_label=='train_set' \
-            else self.vali_set[:5] if x_label=='vali_set' \
-            else self.test_set[:5] if x_label=='test_set' else None
+        self.x_set = self.train_set[:] if x_label=='train_set' \
+            else self.vali_set[:] if x_label=='vali_set' \
+            else self.test_set[:] if x_label=='test_set' else None
         
         random.shuffle(self.x_set)
 
@@ -824,15 +829,15 @@ if __name__ == "__main__":
     print(start_day, end_day)
     print(total_days, complete)
 
-    mean, std = dataset.analyze_dataset()
-    print(mean, std)
+    # mean, std = dataset.analyze_dataset()
+    # print(mean, std)
 
-    # mean, std = dataset.load_dataset_params()
-    # print("mean: {}, std: {}".format(mean, std))
+    mean, std = dataset.load_dataset_params()
+    print("mean: {}, std: {}".format(mean, std))
 
-    # train_dates, vali_dates, test_dates = dataset.split_data_dates(train_pct=0.7, vali_pct=0.3, seed=523)
-    # print("Lengths of dates:", len(train_dates), len(vali_dates), len(test_dates))
-    # print("train_dates[:3]", train_dates[:3])
+    train_dates, vali_dates, test_dates = dataset.split_data_dates(renew=True, seed=523)
+    print("Lengths of dates:", len(train_dates), len(vali_dates), len(test_dates))
+    print("train_dates[:3]", train_dates[:3])
 
     # train_set, vali_set, test_set = dataset.generate_x_sets(seed=523)
     # print("train_set, vali_set, test_set lengths:", len(train_set), len(vali_set), len(test_set))

@@ -132,10 +132,10 @@ if __name__ == "__main__":
     from models.config import config, root_path
 
     pbounds = {     # Mike!!!
-        "patch_size": (8, 8, int),
+        "patch_size": (16, 16, int),
         "heads": (8, 8, int),
-        "attLayers": (1, 2, int),   # 6
-        "zeusLayers": (2, 3, int),  # 6
+        "attLayers": (1, 2, int),   # !!! assert attLayers + zeusLayers <= 3
+        "zeusLayers": (1, 1, int),  # 
     }
         
     bayes = MLBayesianOptimizer(config, root_path, pbounds, random_state=523)
