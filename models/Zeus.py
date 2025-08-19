@@ -2,7 +2,7 @@ import numpy as np
 import torch
 from torch import nn
 from torch import nn, einsum
-
+from torch.utils.checkpoint import checkpoint
 from einops.layers.torch import Rearrange
 from einops import rearrange
 
@@ -310,8 +310,8 @@ class Zeus(nn.Module):
         # Add a mask?
 
         # Encoders
-        for blk in self.zeusLayers:
-            x = blk(x)          # (B, T1FG, H/p * W/p, dim)
+        for layer in self.zeusLayers:
+            x = checkpoint(layer.forward, x, use_reentrant=False)          # (B, T1FG, H/p * W/p, dim)
 
         # Reduce frames
         x = self.reduce_frames(x)   # (B, FG, H/p * W/p, dim)

@@ -29,7 +29,7 @@ config = {
     'seed' : 523,
     'include_difficulty' : False,
     'epochs': 50,
-    'batch_size' : 1,
+    'batch_size' : 2,
     'log_step': 10,
     'optimizer': 'adam',
     'lr' : 1e-5,
