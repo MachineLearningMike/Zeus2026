@@ -91,11 +91,11 @@ class Trainer():
         
         FG = self.pm.FG; T1 = self.pm.nFramesIn // FG
         epoch_loss = []; epoch_rmses = []
-
+        
+        if train: self.env.optimizer.zero_grad()                     # train
         if not pbar.no_more_data():  pbar.prefetch(x_set_label)        # Fetch one batch asynchronously
         for batch in pbar:              # Wait for the asynchronous .prefetch
             # print('got data!')
-            if train: self.env.optimizer.zero_grad()                     # train
             
             if batch is None: break     # just in case
             batch_x, batch_y, batch_diff, era5_data_vars = batch    # (B, T1FG, C, H, W), (B, T2FG, C, H, W), None or (B, C, H, W), (C,)
@@ -161,6 +161,7 @@ class Trainer():
 
             if train: 
                 self.scaler.step(self.env.optimizer)            # (un-scalsed) step for accumulated gradients.
+                self.env.optimizer.zero_grad()                     # train
                 self.scaler.update()                            # This is the only place to adjust the scale factor.
           
             # Conclude a step

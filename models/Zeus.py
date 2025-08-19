@@ -275,7 +275,7 @@ class Zeus(nn.Module):
         pe = sinusoidal_embedding_3d((self.pm.nFramesIn, self.pm.nPatches_h, self.pm.nPatches_w), self.pm.dim)
         self.pos_embedding = nn.Parameter(rearrange(pe, 't h w dim -> 1 t (h w) dim'))
 
-        self.blocks = nn.ModuleList([       # (B, T, N, dim) -> (B, T, N, dim)
+        self.zeusLayers = nn.ModuleList([       # (B, T, N, dim) -> (B, T, N, dim)
             ZeusLayer(self.pm)
             for i in range(self.pm.zeusLayers)
         ])
@@ -310,7 +310,7 @@ class Zeus(nn.Module):
         # Add a mask?
 
         # Encoders
-        for blk in self.blocks:
+        for blk in self.zeusLayers:
             x = blk(x)          # (B, T1FG, H/p * W/p, dim)
 
         # Reduce frames

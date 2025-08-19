@@ -332,10 +332,12 @@ class Zeus_Dataset(Dataset):
         return mean, std    # (C,), (C,)
 
     def normalize(self, data):    # data: (... C, H, W)
+        ## Shall we compute it on cuda? This data is on cpu. cuda is working now. Choose not to interfere cuda with new momory allocation.
         device = data.device
         return ( data - rearrange(self.mean, 'c -> c 1 1').to(device) ) / rearrange(self.std, 'c -> c 1 1').to(device)
     
     def unnormalize(self, data):    # data: (... C, H, W)
+        # This data is already on cuda. So computing uses the GPU(s).
         device = data.device
         return data * rearrange(self.std, 'c -> c 1 1').to(device) + rearrange(self.mean, 'c -> c 1 1').to(device)
     
