@@ -587,9 +587,9 @@ class Zeus_Dataset(Dataset):
 
         # Mike!!! remove [:2]
         # No need to copy.copy(), as self.x_sets are re-generated above.
-        self.x_set = self.train_set[:5] if x_label=='train_set' \
-            else self.vali_set[:4] if x_label=='vali_set' \
-            else self.test_set[:4] if x_label=='test_set' else None
+        self.x_set = self.train_set[:8] if x_label=='train_set' \
+            else self.vali_set[:5] if x_label=='vali_set' \
+            else self.test_set[:5] if x_label=='test_set' else None
         
         random.shuffle(self.x_set)
 

@@ -25,6 +25,7 @@ config = {
     'attLayers' : 2,
     'zeusLayers': 3,
     # training
+    'hypers' : {},
     'seed' : 523,
     'include_difficulty' : False,
     'epochs': 50,
@@ -38,10 +39,10 @@ config = {
     'anneal_strategy' : 'linear',   # 'cos'
     'div_factor' : 25.0,
     'final_div_factor' : 1e4,
-    'epoch_patience' : 5,
+    'epoch_patience' : 1,       # Mike!!!
 
     'seed': 523,
-    'bayesProject' : '0819-2',    # Represents an instance of a whole bayesian miximization. Mike!!!
+    'bayesProject' : '0819-6',    # Represents an instance of a whole bayesian miximization. Mike!!!
 }
 
 from pathlib import Path

@@ -146,9 +146,10 @@ class TrainEnvironment:
 
         if torch.mean(rmses) < torch.mean(self.rmses_old):
             wasBestEpoch = True
-            logging.info("saving best model... avg rmse: {:.3f}".format(torch.mean(rmses).item()))
             self.rmses_old = rmses
-            self._save_train_state(name='best_state')
+            name = "best-" + "-".join([str(v) for v in self.pm.hypers.values()])
+            logging.info("saving best model... avg rmse: {:.3f}, name: {}".format(torch.mean(rmses).item(), name))
+            self._save_train_state(name=name)
 
         self.nWasNotBestEpoch = self.nWasNotBestEpoch + 1 if not wasBestEpoch else 0
         

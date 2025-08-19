@@ -254,6 +254,8 @@ class Trainer():
         self.config['zeusLayers'] = zeusLayers
         logging.info("Trainer is configured with new hyper-parameters. patch_size {}, heads {}, attLayers {}, zeusLayers {}" \
                     .format(patch_size, heads, attLayers, zeusLayers))
+        
+        self.config['hypers'] = {'patch_size': patch_size, 'heads': heads, 'attLayers': attLayers, 'zeusLayers': zeusLayers}
 
         # Initialize: self.pm, self.model, self.env, self.loss, and state variables
         self._initialize_train(self.config)

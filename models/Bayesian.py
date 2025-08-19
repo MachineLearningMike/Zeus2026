@@ -137,7 +137,7 @@ if __name__ == "__main__":
         "attLayers": (1, 2, int),   # 6
         "zeusLayers": (2, 3, int),  # 6
     }
-    
+        
     bayes = MLBayesianOptimizer(config, root_path, pbounds, random_state=523)
 
     best = bayes.maximize(init_points=3, n_iter=10)     # Mike!!!

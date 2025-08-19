@@ -68,6 +68,7 @@ class Params:
         self.final_div_factor = config['final_div_factor']
         self.epoch_patience = config['epoch_patience']
 
+        self.hypers = config['hypers']
         self.seed = config['seed']
         self.bayesProject = config['bayesProject']
         
