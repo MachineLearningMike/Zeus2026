@@ -1,19 +1,16 @@
 import torch
-from datetime import datetime
-import json
-import pytz, tzlocal
+import json, tzlocal
 from torch.amp import autocast, GradScaler
 from einops import rearrange
 from pathlib import Path
 import logging
-import gc
+from datetime import datetime
+import sys, gc
 
-import os, sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.utils import check_dir
 from modules.zeus_tqdm import zeus_tqdm
-
 from models.Zeus import Zeus
 from modules.zeus_dataset import Zeus_Dataset
 import modules.utils as utils
@@ -26,15 +23,15 @@ from modules_zeus.constants import (
 )
 
 class Train():
-    def __init__(self, config, root_path, pbounds, random_state=42):
+    def __init__(self, config, root_path, bayes_path):
                
         #======================== Fixed train state =======================
-        utils.set_seed(self.pm.seed)
+        # utils.set_seed(self.pm.seed)
         self.pm = Params(config)
-        self.bayes_path = root_path / 'bayes' / self.pm.bayesProject
+        self.bayes_path = bayes_path
         
         self.dataset = Zeus_Dataset(config, root_path)
-        logging.infi("Zeus_Dataset is created.")
+        logging.info("Zeus_Dataset is created.")
         self.device = self._acquire_device()
 
         #---------- Loss ----------------
@@ -64,12 +61,11 @@ class Train():
         
         self.scaler = GradScaler(device=self.device)
 
-        self.epoch
+        self.epoch = 0
         self.epochs_since_improvement = 0
-        self.train_finished = False
         self.rmses_old = torch.ones_like(self.era5_data_vars) * 1e9
 
-   
+
     def _acquire_device(self):
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -94,6 +90,7 @@ class Train():
     
     def get_train_id_string(self):
         string = "-".join([str(v) for v in self.pm.hypers.values()])
+        return string
     
     def get_minute_stamp(self):
         local_tz = tzlocal.get_localzone()
@@ -140,7 +137,7 @@ class Train():
         steps_per_epoch = self.dataset.get_steps_per_epoch()
 
         # Scheduler parameters with defaults, overridable by args
-        max_lr = getattr(self.pm, 'max_lr', optimizer.lr)
+        max_lr = getattr(self.pm, 'max_lr', optimizer.param_groups[0]['lr'] * 2)
         pct_start = getattr(self.pm, 'pct_start', 0.3)
         epochs = getattr(self.pm, 'epochs', 10)
         anneal_strategy =  getattr(self.pm, 'anneal_strategy', 'linear')
@@ -165,7 +162,7 @@ class Train():
 
         return scheduler
     
-    def save_best_epoch(self, train_rmses, vali_rmses):   # (C,), (C,)
+    def save_best_train(self, train_rmses, vali_rmses):   # (C,), (C,)
         wasBestEpoch = False
         device = train_rmses.device
         assert vali_rmses.device == device
@@ -176,8 +173,8 @@ class Train():
         if torch.mean(rmses) < torch.mean(self.rmses_old):
             wasBestEpoch = True
             self.rmses_old = rmses
-            name = "best-" + self.get_train_id_string()
-            logging.info("saving best model... avg rmse: {:.3f}, name: {}".format(torch.mean(rmses).item(), name))
+            name = 'best-' + self.get_train_id_string()
+            logging.info("saving best train_state... avg rmse: {:.3f}, name: {}".format(torch.mean(rmses).item(), name))
             self.save_state(name=name)
 
         self.epochs_since_improvement = self.epochs_since_improvement + 1 if not wasBestEpoch else 0
@@ -187,8 +184,8 @@ class Train():
 
         return keep_go_next_epoch, best_rmse_yet
     
-    def save_state(self, name=None):
-        if name is None: name = 'train_state' + "-" + self.get_train_id_string
+    def save_state(self, name=None, train_finished=False):
+        if name is None: name = 'train_state-' + self.get_train_id_string()
         checkpoint = {
             'model': self.model.state_dict(),
             'optimizer': self.optimizer.state_dict(),
@@ -197,14 +194,14 @@ class Train():
             'epoch': self.epoch,
             'rmses_old': self.rmses_old,
             'epochs_since_improvement': self.epochs_since_improvement,
-            'train_finished' : self.train_finished,
+            'train_finished' : train_finished,
         }
         utils.check_dir(self.bayes_path)
         torch.save(checkpoint, self.bayes_path / (name + '.pth'))
         print(f"Checkpoint '{name}' saved, including model, optimizer, scheduler, scaler, and rmses_old")
     
-    def try_laod_state(self, name=None):    # Couples with save_state
-        if name is None: name = 'train_state' + "-" + self.get_train_id_string
+    def try_load_state(self, name=None):    # Couples with save_state
+        if name is None: name = 'train_state-' + self.get_train_id_string()
         try:
             checkpoint_path = self.bayes_path / (name + '.pth')
             # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -238,6 +235,12 @@ class Train():
             epoch = -1
 
         return epoch
+    
+    def set_train_mode(self):
+        if self.model is not None: self.model.train()
+    
+    def set_eval_mode(self):
+        if self.model is not None: self.model.eval()
     
     def run_epoch(self, epoch, x_set_label, train=False):
         self.epoch = epoch
@@ -291,7 +294,7 @@ class Train():
             # self._print_tensor_state(11, era5_data_vars)    # 32, cuda, False
 
             (B, T1FG, C, H, W) = batch_x.shape
-            pred_y = torch.zeros(size=(B,0,C,H,W)).to(self.env.device)  # torch.float32, cuda
+            pred_y = torch.zeros(size=(B,0,C,H,W)).to(self.device)  # torch.float32, cuda
             # self._print_tensor_state(12, pred_y)            # 32, cuda, False
             step_loss = []; step_rmses = []
 
@@ -306,13 +309,13 @@ class Train():
                     # self._print_tensor_state(16, pred)      # 16 !!!, cuda, True !!!
                     pred_y = torch.cat([pred_y, pred.detach()], dim=1) # torch.float32, cuda, False
                     # self._print_tensor_state(17, pred_y)    # 32, cuda, False
-                    target = batch_y[:, t2*FG:(t2+1)*FG, :,:].to(self.env.device)   # (B,FG,C,H,W)  # torch.float32, cuda, False
+                    target = batch_y[:, t2*FG:(t2+1)*FG, :,:].to(self.device)   # (B,FG,C,H,W)  # torch.float32, cuda, False
                     # self._print_tensor_state(18, target)    # 32, cuda, False
                     pred = self.dataset.unnormalize(pred)   # torch.float32 !!!, cuda, True !!!
                     # self._print_tensor_state(19, pred)      # 32, cuda, True !!!
                     target = self.dataset.unnormalize(target)   # torch.float32, cuda, False
                     # self._print_tensor_state(20, target)    # 32, cuda, False
-                    loss, rmse = self.env.loss(target, pred, batch_diff, era5_data_vars.to(self.env.device)) # (,), (C,), torch.float32, cuda, True !!!
+                    loss, rmse = self.loss(target, pred, batch_diff, era5_data_vars.to(self.device)) # (,), (C,), torch.float32, cuda, True !!!
                     # self._print_tensor_state(21, loss)      # 32, cuda, True !!!
                     # self._print_tensor_state(22, rmse)      # 32, cuda, True !!!
                     step_loss.append(loss.cpu().detach())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
@@ -323,12 +326,12 @@ class Train():
                     self.scaler.scale(loss).backward()          # accumulate gradients T2 times by backpropagating (scaled) loss
 
             if train: 
-                self.scaler.step(self.env.optimizer)            # (un-scalsed) step for accumulated gradients.
-                self.env.optimizer.zero_grad()                     # train
+                self.scaler.step(self.optimizer)            # (un-scalsed) step for accumulated gradients.
+                self.optimizer.zero_grad()                     # train
                 self.scaler.update()                            # This is the only place to adjust the scale factor.
           
             # Conclude a step
-            self.env.scheduler.step()   # Our scheduler is OneCycleLR, which is a per-batch scheduler
+            self.scheduler.step()   # Our scheduler is OneCycleLR, which is a per-batch scheduler
             step_loss = torch.tensor(step_loss).mean()   # (,)
             # self._print_tensor_state(23, step_loss)         # 32, cpu False
             step_rmses = torch.stack(step_rmses, dim=0).mean(dim=0)   # (C,)
@@ -345,7 +348,7 @@ class Train():
         epoch_rmses = torch.stack(epoch_rmses, dim=0).mean(dim=0)       # (C,)
         strC = ", ".join(f"{x:.2f}" for x in epoch_rmses.ravel().tolist())
         pbar.set_description('Loss: {:.3f}, rmses: {}'.format(epoch_loss.item(), strC))
-        pbar.shutdown()
+        pbar.stop_prefetch_thread()
 
         return epoch_loss, epoch_rmses  # (,), (C,)
     
@@ -407,7 +410,7 @@ if __name__ == "__main__":
     
     from models.config import config, root_path
 
-    bases_path = root_path / 'bayes' / 'test'
+    bayes_path = root_path / 'bayes' / 'test'
     pbounds = {     # Mike!!!
         "patch_size": (8, 8, int),
         "heads": (8, 8, int),
@@ -415,5 +418,5 @@ if __name__ == "__main__":
         "zeusLayers": (8, 8, int),  # 
     }
     
-    train = Train(config, bases_path, pbounds, random_state=523)
+    train = Train(config, root_path, bayes_path)
     

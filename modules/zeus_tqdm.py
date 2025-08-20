@@ -19,5 +19,5 @@ class zeus_tqdm(tqdm):
     def start_prefetch_thread(self):
         self.iterable.start_prefetch_thread()
 
-    def shutdown(self):
+    def stop_prefetch_thread(self):
         self.iterable.shutdown()

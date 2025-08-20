@@ -326,7 +326,7 @@ class Zeus_Dataset(Dataset):
     def load_dataset_params(self):
         with open(self.param_path, "r") as f:
             data = json.load(f)
-            print('------', data, torch.tensor(data['mean']).shape)
+            # print('------', data, torch.tensor(data['mean']).shape)
         mean, std = torch.tensor(data['mean']), torch.tensor(data['std'])
         self.mean, self.std = mean, std
         return mean, std    # (C,), (C,)
@@ -520,7 +520,7 @@ class Zeus_Dataset(Dataset):
 
         try:
             assert renew == False
-            print("Loading data dates...")
+            # print("Loading data dates...")
             with open(self.split_dates_path, "r") as f:
                 data = json.load(f)
 
@@ -596,9 +596,9 @@ class Zeus_Dataset(Dataset):
 
         # Mike!!! remove [:2]
         # No need to copy.copy(), as self.x_sets are re-generated above.
-        self.x_set = self.train_set[:] if x_label=='train_set' \
-            else self.vali_set[:] if x_label=='vali_set' \
-            else self.test_set[:] if x_label=='test_set' else None
+        self.x_set = self.train_set[:6] if x_label=='train_set' \
+            else self.vali_set[:4] if x_label=='vali_set' \
+            else self.test_set[:4] if x_label=='test_set' else None
         
         random.shuffle(self.x_set)
 

@@ -14,7 +14,7 @@ config = {
     'train_pct': 75,
     'vali_pct': 25,
     # patch size
-    'patch_size': 8, # 8
+    'patch_size': 16, # 8
     # transformer
     'heads': 8,     # 8
     'dropout': 0.0,
@@ -37,19 +37,19 @@ config = {
     'weight_decay': 0.01,
     'pct_start' : 0.3,
     'anneal_strategy' : 'linear',   # 'cos'
-    'div_factor' : 25.0,
-    'final_div_factor' : 1e4,
+    'div_factor' : 1.0,
+    'final_div_factor' : 10,
     'epoch_patience' : 5,       # Mike!!!
 
     'seed': 523,
-    'bayesProject' : 'production_0820_16',    # Represents an instance of a whole bayesian miximization. Mike!!!
+    'bayesProject' : 'production_0820_18',    # Represents an instance of a whole bayesian miximization. Mike!!!
 }
 
 from pathlib import Path
 import platform
 if platform.system() == "Windows":  
     root_path = Path("D:/Zeus_Data")
-    config['height'] = 72
+    config['height'] = 72 * 2
     config['width'] = 144
 else:   
     root_path = Path("/mnt/Data/Zeus_Data")

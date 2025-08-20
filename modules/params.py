@@ -72,5 +72,7 @@ class Params:
         self.seed = config['seed']
         self.bayesProject = config['bayesProject']
         
-        assert self.image_height % self.patch_size == 0, 'Image height must be divisible by the patch size.'
-        assert self.image_width % self.patch_size == 0, 'Image width must be divisible by the patch size.'
+        if self.image_height % self.patch_size != 0:
+            raise Exception("Image height must be divisible by the patch size: {}, {}".format(self.image_height, self.patch_size))
+        if self.image_width % self.patch_size != 0:
+            raise Exception("Image height must be divisible by the patch size: {}, {}".format(self.image_width, self.patch_size))

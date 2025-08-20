@@ -10,7 +10,7 @@ from pathlib import Path
 import os, sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from models.Zeus_Trainer import Trainer
+from models.Trainer import Trainer
 from modules.params import Params
 from modules.utils import check_dir
 
@@ -132,10 +132,11 @@ if __name__ == "__main__":
     from models.config import config, root_path
 
     pbounds = {     # Mike!!!
+    # !!! assert attLayers + zeusLayers == 4 is the maximum when amp is employed and batch_size == 1
         "patch_size": (16, 16, int),
         "heads": (8, 8, int),
-        "attLayers": (2, 2, int),   # !!! assert attLayers + zeusLayers == 4 is the maximum when amp is employed and batch_size == 1
-        "zeusLayers": (2, 2, int),  # 
+        "attLayers": (2, 2, int),
+        "zeusLayers": (2, 2, int),
     }
         
     bayes = MLBayesianOptimizer(config, root_path, pbounds, random_state=523)

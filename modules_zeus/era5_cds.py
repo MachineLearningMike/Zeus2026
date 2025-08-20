@@ -39,11 +39,11 @@ class Era5CDSLoader(Era5BaseLoader):
     ) -> None:
         
         self.cds_api_key = os.getenv("CDS_API_KEY")
-        self.client = cdsapi.Client(
-            url=copernicus_url, key=self.cds_api_key, quiet=True, progress=False, warning_callback=lambda _: None,
-        )
+        # self.client = cdsapi.Client(      # Mike
+        #     url=copernicus_url, key=self.cds_api_key, quiet=True, progress=False, warning_callback=lambda _: None,
+        # )
         # temporarily muted to remove confusing warning
-        self.client.warning_callback = None
+        # self.client.warning_callback = None # Mike
 
         cache_dir.mkdir(parents=True, exist_ok=True)
         self.cache_dir: Path = cache_dir
@@ -187,9 +187,9 @@ class Era5CDSLoader(Era5BaseLoader):
         try:
             filename = self.get_file_name(variable, timestamp)
             Path(filename).parent.mkdir(exist_ok=True)
-            self.client.retrieve(
-                "reanalysis-era5-single-levels", request, target=filename
-            )
+            # self.client.retrieve( # Mike
+            #     "reanalysis-era5-single-levels", request, target=filename
+            # )
 
             # bt.logging.info(f"Downloaded {variable} ERA5 data for {timestamp.strftime('%Y-%m-%d')} to {filename}")  # Mike
             print(f"Downloaded {variable} ERA5 data for {timestamp.strftime('%Y-%m-%d')} to {filename}")  # Mike
