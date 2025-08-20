@@ -134,8 +134,8 @@ if __name__ == "__main__":
     pbounds = {     # Mike!!!
         "patch_size": (16, 16, int),
         "heads": (8, 8, int),
-        "attLayers": (1, 2, int),   # !!! assert attLayers + zeusLayers == 4 is the maximum when amp is employed and batch_size == 1
-        "zeusLayers": (1, 2, int),  # 
+        "attLayers": (2, 2, int),   # !!! assert attLayers + zeusLayers == 4 is the maximum when amp is employed and batch_size == 1
+        "zeusLayers": (2, 2, int),  # 
     }
         
     bayes = MLBayesianOptimizer(config, root_path, pbounds, random_state=523)
