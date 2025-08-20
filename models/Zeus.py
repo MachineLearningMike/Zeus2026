@@ -96,15 +96,51 @@ class Attention(nn.Module):     # (b, n, dim)  -> (b, n, dim)
             nn.Linear(inner_dim, dim),
             nn.Dropout(dropout)
         ) if project_out else nn.Identity()
+        
+    def efficient_attention(self, q, k, scale, query_chunk_size=128):
+        """
+        q: (b, h, i, d)
+        k: (b, h, j, d)
+        scale: scalar to scale attention scores
+        query_chunk_size: chunk size along query dimension
+        """
+        b, h, i, d = q.shape
+        _, _, j, _ = k.shape
+
+        dots_chunks = []
+
+        for start in range(0, i, query_chunk_size):
+            end = min(start + query_chunk_size, i)
+            q_chunk = q[:, :, start:end, :]  # (b, h, chunk_size, d)
+
+            # Compute attention scores head by head for this chunk
+            dot_chunk = []
+            for head in range(h):
+                # einsum: (b, chunk_size, d) x (b, j, d) -> (b, chunk_size, j)
+                dot_head = torch.einsum('bid,bjd->bij', q_chunk[:, head], k[:, head])
+                dot_chunk.append(dot_head.unsqueeze(1))  # restore head dim
+
+            # concat heads for this chunk: (b, h, chunk_size, j)
+            dot_chunk = torch.cat(dot_chunk, dim=1)
+            dots_chunks.append(dot_chunk)
+
+        # concat all chunks along query dimension: (b, h, i, j)
+        dots = torch.cat(dots_chunks, dim=2)
+
+        # apply scaling
+        dots = dots * scale
+        return dots
 
     def forward(self, x):                   # (b, n, dim)  -> (b, n, dim)
         b, n, dim, h = *x.shape, self.heads
         qkv = self.to_qkv(x).chunk(3, dim=-1)                                   # (b, n, dim_head * heads) x 3
         q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=h), qkv) # (b, heads, n, dim_head) x 3
+        
+        # This is the notorious attention memory bottleneck. Replace it!
         dots = einsum('b h i d, b h j d -> b h i j', q, k) * self.scale         # (b, heads, n, n)
+        # dots = self.efficient_attention(q, k, self.scale)     # !!! This doesn't mitigate memory peak !!!
 
         attn = dots.softmax(dim=-1)                                             # (b, heads, n, n)
-
         out = einsum('b h i j, b h j d -> b h i d', attn, v)                    # (b, heads, n, dim_head)
         out = rearrange(out, 'b h n d -> b n (h d)')                            # (b, n, dim_head * heads)
         out = self.to_out(out)                                                  # (b, n, dim)
@@ -311,7 +347,9 @@ class Zeus(nn.Module):
 
         # Encoders
         for layer in self.zeusLayers:
+            # !!! This line fails to mitigate memory peak !!!
             x = checkpoint(layer.forward, x, use_reentrant=False)          # (B, T1FG, H/p * W/p, dim)
+            # x = layer(x)          # (B, T1FG, H/p * W/p, dim)
 
         # Reduce frames
         x = self.reduce_frames(x)   # (B, FG, H/p * W/p, dim)

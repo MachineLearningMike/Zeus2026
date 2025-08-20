@@ -29,7 +29,7 @@ config = {
     'seed' : 523,
     'include_difficulty' : False,
     'epochs': 50,
-    'batch_size' : 2,
+    'batch_size' : 1,
     'log_step': 10,
     'optimizer': 'adam',
     'lr' : 1e-5,
@@ -42,7 +42,7 @@ config = {
     'epoch_patience' : 5,       # Mike!!!
 
     'seed': 523,
-    'bayesProject' : '0819d_11h',    # Represents an instance of a whole bayesian miximization. Mike!!!
+    'bayesProject' : 'production_0819_13',    # Represents an instance of a whole bayesian miximization. Mike!!!
 }
 
 from pathlib import Path
