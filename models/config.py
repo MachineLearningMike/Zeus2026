@@ -23,7 +23,7 @@ config = {
     'dim_to_mlp_dim': 2,
     # layers:   max (2, 3) on laptop
     'attLayers' : 2,
-    'zeusLayers': 3,
+    'zeusLayers': 2,
     # training
     'hypers' : {},
     'seed' : 523,
@@ -32,8 +32,8 @@ config = {
     'batch_size' : 1,
     'log_step': 10,
     'optimizer': 'adam',
-    'lr' : 1e-5,
-    'max_lr' : 1e-3,
+    'lr' : 1e-6,
+    'max_lr' : 2e-6,
     'weight_decay': 0.01,
     'pct_start' : 0.3,
     'anneal_strategy' : 'linear',   # 'cos'
@@ -42,7 +42,7 @@ config = {
     'epoch_patience' : 5,       # Mike!!!
 
     'seed': 523,
-    'bayesProject' : 'production_0819_13',    # Represents an instance of a whole bayesian miximization. Mike!!!
+    'bayesProject' : 'production_0820_16',    # Represents an instance of a whole bayesian miximization. Mike!!!
 }
 
 from pathlib import Path

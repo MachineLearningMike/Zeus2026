@@ -368,7 +368,7 @@ if __name__ == "__main__":
 
     model = Zeus(config)
 
-    x = torch.rand(1, config['T1'] * config['FG'], config['channels'], config['height'], config['width'])
+    x = torch.rand(1, config['T1'] * config['FG'], len(config['variables']), config['height'], config['width'])
     print("input", x.shape)  # [B, T, C, H, W]
     output = model(x)
     print("output", output.shape)  # [B, T, C, H, W]

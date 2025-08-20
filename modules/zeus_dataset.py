@@ -588,6 +588,8 @@ class Zeus_Dataset(Dataset):
 
         return train_set, vali_set, test_set
     
+    def get_steps_per_epoch(self):
+        return math.ceil(len(self.train_dates) / self.pm.batch_size)
 
     def refresh_x_set(self, x_label, seed=None):
         self.generate_x_sets(seed=seed)
@@ -737,8 +739,8 @@ class Zeus_Dataset(Dataset):
             days_data_y = torch.cat(days_data_y, dim=0)      # (T2*24, C, H, W)
             batch_y.append(days_data_y)
 
-        batch_x = torch.stack(batch_x, dim=0).cpu()       # (B, T1FG, C, H, W)
-        batch_y = torch.stack(batch_y, dim=0).cpu()       # (B, T2FG, C, H, W)        
+        batch_x = torch.stack(batch_x, dim=0)     # (B, T1FG, C, H, W)
+        batch_y = torch.stack(batch_y, dim=0)     # (B, T2FG, C, H, W)        
         batch_x = self.normalize(batch_x)
         batch_y = self.normalize(batch_y)
 

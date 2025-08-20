@@ -40,7 +40,7 @@ class TrainEnvironment:
 
         self.era5_data_vars = self.load_era5_data_vars()
         self.rmses_old = torch.ones_like(self.era5_data_vars) * 1e9
-        self.nWasNotBestEpoch = 0
+        self.epochs_since_improvement = 0
 
         #---------- Loss --------------
         # improve this line regarding missing variables.
@@ -151,9 +151,9 @@ class TrainEnvironment:
             logging.info("saving best model... avg rmse: {:.3f}, name: {}".format(torch.mean(rmses).item(), name))
             self._save_train_state(name=name)
 
-        self.nWasNotBestEpoch = self.nWasNotBestEpoch + 1 if not wasBestEpoch else 0
+        self.epochs_since_improvement = self.epochs_since_improvement + 1 if not wasBestEpoch else 0
         
-        keep_go_next_epoch = self.nWasNotBestEpoch < self.pm.epoch_patience
+        keep_go_next_epoch = self.epochs_since_improvement < self.pm.epoch_patience
         best_rmse_yet = torch.mean(self.rmses_old).item()
 
         return keep_go_next_epoch, best_rmse_yet
@@ -168,7 +168,7 @@ class TrainEnvironment:
             'optimizer': self.optimizer.state_dict(),
             'scheduler': self.scheduler.state_dict(),
             'rmses_old': self.rmses_old,
-            'nWasNotBestEpoch': self.nWasNotBestEpoch,
+            'epochs_since_improvement': self.epochs_since_improvement,
             'train_finished' : train_finished,
         }
         utils.check_dir(self.bayes_path)
@@ -203,7 +203,7 @@ class TrainEnvironment:
             self.scheduler.load_state_dict(checkpoint['scheduler'])
 
             self.rmses_old = checkpoint['rmses_old']
-            self.nWasNotBestEpoch = checkpoint['nWasNotBestEpoch']
+            self.epochs_since_improvement = checkpoint['epochs_since_improvement']
 
             print(f"Checkpoint '{name}' loaded to {self.device}, including model, optimizer, scheduler, and rmses_old")
         except:
