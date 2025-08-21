@@ -34,7 +34,7 @@ config = {
     'optimizer': 'adamw',
     'lr' : 1e-6,
     'max_lr' : 2e-6,
-    'weight_decay': 0.01,   # 0.0 disables the entire decaying process, with adamw.
+    'weight_decay': 0.0,    # disable weight_decay, in AdamW
     'pct_start' : 0.3,
     'anneal_strategy' : 'linear',   # 'cos'
     'div_factor' : 10.0,
@@ -42,7 +42,7 @@ config = {
     'epoch_patience' : 3,       # Mike!!!
 
     'seed': 523,
-    'bayesProject' : 'production_0820_18',    # Represents an instance of a whole bayesian miximization. Mike!!!
+    'bayesProject' : 'production_0821_09',    # Represents an instance of a whole bayesian miximization. Mike!!!
 }
 
 from pathlib import Path
