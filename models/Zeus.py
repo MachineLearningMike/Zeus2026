@@ -294,11 +294,13 @@ class ZeusLayer(nn.Module):
         return x
 
 class Zeus(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, nDevices):
         super().__init__()
-
         self.pm = Params(config)
+        self.nDevices = nDevices
+        self.deployed_to_gpus = False
 
+        #--------------- token embedding ---------------
         # We need to enable more complex non-linearity here.
         self.to_patch_embedding = nn.Sequential(
             Rearrange('b t c (h p1) (w p2) -> b t (h w) (p1 p2 c)', p1=self.pm.patch_size, p2=self.pm.patch_size),
@@ -306,32 +308,49 @@ class Zeus(nn.Module):
             nn.Tanh(),
             nn.Linear(2 * self.pm.dim, self.pm.dim),
             )
-        
+        if self.nDevices > 1: self.to_patch_embedding = self.to_patch_embedding.to('cuda:0')
+                    
+        #-------------- positional embedding ----------------
         # pe: (self.pm.nFramesId, self.pm.nPatches_h, self.pm.nPatches_w, self.pm.dim)
         pe = sinusoidal_embedding_3d((self.pm.nFramesIn, self.pm.nPatches_h, self.pm.nPatches_w), self.pm.dim)
         self.pos_embedding = nn.Parameter(rearrange(pe, 't h w dim -> 1 t (h w) dim'))
+        if self.nDevices > 1: self.pos_embedding = self.pos_embedding.to('cuda:0')
 
+        #-------------- zeus layers -------------------------
+        if self.nDevices > 1: 
+            assert self.nDevices == self.pm.zeusLayers, "The numbers of devices and zeud layers must be the same if nDevices > 1"
         self.zeusLayers = nn.ModuleList([       # (B, T, N, dim) -> (B, T, N, dim)
             ZeusLayer(self.pm)
             for i in range(self.pm.zeusLayers)
         ])
+        if self.nDevices > 1:
+            for idx, layer in enumerate(self.zeusLayers):
+                layer = layer.to('cuda:' + str(idx))
 
         # self.reduce_frames = nn.Sequential(
         #     Rearrange('b t p d -> b p d t'),
         #     nn.Linear(self.pm.nFramesIn, self.pm.nFramesOut),       # (B, H/p * W/p, dim, FG)
         #     Rearrange('b p d t -> b t p d')
         # )
+        
+        #--------------- reduce -----------------------------
+        if self.pm.nFramesIn != self.pm.nFramesOut:
+            self.reduce_frames = nn.Sequential(
+                Rearrange('b t (h w) d -> (b d) t h w', h=self.pm.nPatches_h),
+                nn.Conv2d(self.pm.nFramesIn, self.pm.nFramesOut, 3, 1, 1),       # (B, H/p * W/p, dim, 1FG)
+                Rearrange('(b d) t h w -> b t (h w) d', d=self.pm.dim)
+            )
+            if self.nDevices > 1: self.reduce_frames = self.reduce_frames.to('cuda:' + str(self.nDevices-1))
 
-        self.reduce_frames = nn.Sequential(
-            Rearrange('b t (h w) d -> (b d) t h w', h=self.pm.nPatches_h),
-            nn.Conv2d(self.pm.nFramesIn, self.pm.nFramesOut, 3, 1, 1),       # (B, H/p * W/p, dim, 1FG)
-            Rearrange('(b d) t h w -> b t (h w) d', d=self.pm.dim)
-        )
-
+        #--------------- ffn --------------------------------
         self.mlp_head = nn.Sequential(
             nn.LayerNorm(self.pm.dim),
             nn.Linear(self.pm.dim, self.pm.nChannels * self.pm.patch_size ** 2)  # just restore.
         )
+        if self.nDevices > 1: self.mlp_head = self.mlp_head.to('cuda:' + str(self.nDevices-1))
+
+        #---------------- flag it ---------------------------
+        if self.nDevices > 1: self.deployed_to_gpus = True
 
 
     def forward(self, x):
@@ -346,13 +365,17 @@ class Zeus(nn.Module):
         # Add a mask?
 
         # Encoders
-        for layer in self.zeusLayers:
+        for idx, layer in enumerate(self.zeusLayers):
             # !!! This line fails to mitigate memory peak !!!
-            x = checkpoint(layer.forward, x, use_reentrant=False)          # (B, T1FG, H/p * W/p, dim)
+            # x = checkpoint(layer.forward, x, use_reentrant=False)          # (B, T1FG, H/p * W/p, dim)
             # x = layer(x)          # (B, T1FG, H/p * W/p, dim)
-
+            if idx > 0:
+                x = x.to('cuda:' + str(min(idx, self.nDevices-1)))
+                x = layer(x)
+ 
         # Reduce frames
-        x = self.reduce_frames(x)   # (B, FG, H/p * W/p, dim)
+        if self.nDevices > 1:
+            x = self.reduce_frames(x)   # (B, FG, H/p * W/p, dim)
         
         # MLP head        
         x = self.mlp_head(x.reshape(-1, self.pm.dim))

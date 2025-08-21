@@ -32,7 +32,7 @@ class Train():
         
         self.dataset = Zeus_Dataset(config, root_path)
         logging.info("Zeus_Dataset is created.")
-        self.device = self._acquire_device()
+        self.nDevices, self.device = self._acquire_device()
 
         #---------- Loss ----------------
         min_sota_delta = torch.tensor([value for (key, value) in REWARD_IMPROVEMENT_MIN_DELTA.items() if key in self.pm.variables])  # (C,)
@@ -50,7 +50,7 @@ class Train():
         # saved at the end of every epoch, 
         # loaded at the start of training, if saved earlier.
         # x_set is refreshed at every epoch, but not included.
-        self.model = Zeus(config).float()
+        self.model = Zeus(config, self.nDevices).float()   # The only place where the model is created.
         logging.info("Zeus model is created.")
 
         self.optimizer = self._select_optimizer()
@@ -67,7 +67,9 @@ class Train():
 
 
     def _acquire_device(self):
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        assert torch.cuda.is_available()
+        nDevices = torch.cuda.device_count()
+        default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")   # default device. device 0 if default is not changed.
 
         # # Default to CPU
         # device = torch.device("cpu")
@@ -86,7 +88,7 @@ class Train():
         #     else:
         #         utils.print_log("Using CPU.")
         
-        return device
+        return nDevices, default_device
     
     def get_train_id_string(self):
         string = "-".join([str(v) for v in self.pm.hypers.values()])
@@ -248,7 +250,7 @@ class Train():
         gc.collect()
         torch.cuda.empty_cache()
 
-        self.model.to(self.device)
+        if not self.model.deployed_to_gpus: self.model.to(self.device)
         
         self.dataset.refresh_x_set(x_set_label, seed=self.pm.seed)
         logging.info("{} is refreshed.".format(x_set_label))
