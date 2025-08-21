@@ -136,7 +136,7 @@ if __name__ == "__main__":
         "patch_size": (16, 16, int),
         "heads": (8, 8, int),
         "attLayers": (2, 2, int),
-        "zeusLayers": (8, 8, int),
+        "zeusLayers": (4, 4, int),
     }
         
     bayes = MLBayesianOptimizer(config, root_path, pbounds, random_state=523)
