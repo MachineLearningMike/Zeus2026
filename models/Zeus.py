@@ -314,7 +314,7 @@ class Zeus(nn.Module):
         # pe: (self.pm.nFramesId, self.pm.nPatches_h, self.pm.nPatches_w, self.pm.dim)
         pe = sinusoidal_embedding_3d((self.pm.nFramesIn, self.pm.nPatches_h, self.pm.nPatches_w), self.pm.dim)
         self.pos_embedding = nn.Parameter(rearrange(pe, 't h w dim -> 1 t (h w) dim'))
-        if self.nDevices > 1: self.pos_embedding = self.pos_embedding.to('cuda:0')
+        if self.nDevices > 1: self.pos_embedding = nn.Parameter(self.pos_embedding.to('cuda:0'))
 
         #-------------- zeus layers -------------------------
         if self.nDevices > 1: 
@@ -374,7 +374,7 @@ class Zeus(nn.Module):
                 x = layer(x)
  
         # Reduce frames
-        if self.nDevices > 1:
+        if self.pm.nFramesIn != self.pm.nFramesOut:
             x = self.reduce_frames(x)   # (B, FG, H/p * W/p, dim)
         
         # MLP head        
