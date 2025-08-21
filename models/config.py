@@ -31,15 +31,15 @@ config = {
     'epochs': 50,
     'batch_size' : 1,
     'log_step': 10,
-    'optimizer': 'adam',
+    'optimizer': 'adamw',
     'lr' : 1e-6,
     'max_lr' : 2e-6,
-    'weight_decay': 0.01,
+    'weight_decay': 0.01,   # 0.0 disables the entire decaying process, with adamw.
     'pct_start' : 0.3,
     'anneal_strategy' : 'linear',   # 'cos'
-    'div_factor' : 1.0,
+    'div_factor' : 10.0,
     'final_div_factor' : 10,
-    'epoch_patience' : 5,       # Mike!!!
+    'epoch_patience' : 3,       # Mike!!!
 
     'seed': 523,
     'bayesProject' : 'production_0820_18',    # Represents an instance of a whole bayesian miximization. Mike!!!

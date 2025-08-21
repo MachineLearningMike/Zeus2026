@@ -39,7 +39,7 @@ class Train():
         self.min_sota_delta = rearrange(min_sota_delta, 'c -> c 1 1')
         self.era5_data_vars = self.load_era5_data_vars()
         #---------- Save config ---------
-        configPath =  self.bayes_path / 'config.json'
+        configPath =  self.bayes_path / ('config-' + self.get_train_id_string() +'.json')
         utils.check_dir(configPath.parent)
         with open(configPath, 'w') as f:
             json.dump(config, f, indent=4)
@@ -274,9 +274,9 @@ class Train():
             no_more_data = pbar.no_more_data()
             if not no_more_data:  pbar.prefetch(x_set_label)    # Fetch one batch asynchronously
 
-            batch_x = batch_x[:, :, :, :self.pm.image_height, :self.pm.image_width]     # torch.float32, cpu
-            batch_y = batch_y[:, :, :, :self.pm.image_height, :self.pm.image_width]     # torch.float32, cpu
-            era5_data_vars = era5_data_vars # torch.float32, cpu
+            batch_x = batch_x[:, :, :, :self.pm.image_height, :self.pm.image_width].pin_memory()     # torch.float32, cpu
+            batch_y = batch_y[:, :, :, :self.pm.image_height, :self.pm.image_width].pin_memory()     # torch.float32, cpu
+            era5_data_vars = era5_data_vars.pin_memory() # torch.float32, cpu
             # self._print_tensor_state(5, batch_x)        # 32, cpu, False
             # self._print_tensor_state(6, batch_y)        # 32, cpu, False
             # self._print_tensor_state(7, era5_data_vars) # 32, cpu, False
@@ -286,9 +286,9 @@ class Train():
                 # self._print_tensor_state(8, batch_diff)
 
             T2 = (batch_y.shape)[1] // FG
-            batch_x = batch_x.to(self.device)               # torch.float32, cuda
-            batch_y = batch_y.float().to(self.device)       # torch.float32, cuda
-            era5_data_vars = era5_data_vars.to(self.device) # torch.float32, cuda
+            batch_x = batch_x.to(self.device, non_blocking=True)               # torch.float32, cuda
+            batch_y = batch_y.float().to(self.device, non_blocking=True)       # torch.float32, cuda
+            era5_data_vars = era5_data_vars.to(self.device, non_blocking=True) # torch.float32, cuda
             # self._print_tensor_state(9, batch_x)            # 32, cuda, False
             # self._print_tensor_state(10, batch_y)           # 32, cuda, False
             # self._print_tensor_state(11, era5_data_vars)    # 32, cuda, False
