@@ -371,7 +371,7 @@ class Zeus(nn.Module):
             # x = layer(x)          # (B, T1FG, H/p * W/p, dim)
             if idx > 0:
                 x = x.to('cuda:' + str(min(idx, self.nDevices-1)))
-                x = layer(x)
+            x = layer(x)
  
         # Reduce frames
         if self.pm.nFramesIn != self.pm.nFramesOut:
