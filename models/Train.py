@@ -356,6 +356,12 @@ class Train():
 
         return epoch_loss, epoch_rmses  # (,), (C,)
     
+    def get_epoch_display(self, epoch_loss, epoch_rmses):
+        loss = "Loss: {:.4f}".format(epoch_loss.item())
+        rmses = "RMSE: " + ", ".join(f"{x:.2f}" for x in epoch_rmses.ravel().tolist())
+        display = loss + ', ' + rmses
+        return display
+    
     def _print_tensor_state(self, n, t):
         print(n, t.dtype, t.device, t.requires_grad, t.shape)
     

@@ -54,11 +54,13 @@ class Trainer():
         for epoch in range(start_epoch, self.pm.epochs):
             print("---------- epoch {} ------------".format(epoch))
             self.train.set_train_mode()
-            train_loss, train_rmses = self.train.run_epoch(epoch, "train_set", train=True)   # (,), (C,)
+            train_loss, train_metrics = self.train.run_epoch(epoch, "train_set", train=True)   # (,), (C,)
             # self.scheduler.step()   # Commented out, because our scheduler is OneCycleLR, which is a per-batch scheduler
+            display = self.train.get_epoch_display(train_loss, train_metrics)
+            logging.info("Train epoch: {}, {}".format(epoch, display))
 
             if epoch >= 0:              # Mike!!!
-                keep_go_next_epoch, best_rmse_yet = self.validate(epoch, train_loss, train_rmses)
+                keep_go_next_epoch, best_rmse_yet = self.validate(epoch, train_loss, train_metrics)
             self.train.save_state()
             if self.bayes is not None:  self.bayes.on_epoch_end()
 
@@ -69,21 +71,15 @@ class Trainer():
 
         return - best_rmse_yet
 
-    def validate(self, epoch, train_loss, train_rmses):
+    def validate(self, epoch, train_loss, train_metrics):
         self.train.set_eval_mode()
         with torch.no_grad():
-            vali_loss, vali_rmses = self.train.run_epoch(epoch, "vali_set", train=False)     # (,), (C,)
+            vali_loss, vali_metrics = self.train.run_epoch(epoch, "vali_set", train=False)     # (,), (C,)
 
-        train_loss = train_loss.item()
-        vali_loss = vali_loss.item()
+        display = self.train.get_epoch_display(vali_loss, vali_metrics)
+        logging.info("Vali epoch: {}, {}".format(epoch, display))
 
-        keep_go_next_epoch, best_rmse_yet = self.train.save_best_train(train_rmses, vali_rmses) # (C,), (C,)
-
-        train_rmses = ", ".join(f"{x:.2f}" for x in train_rmses.ravel().tolist())
-        vali_rmses = ", ".join(f"{x:.2f}" for x in vali_rmses.ravel().tolist())
-
-        logging.info("Epoch: {} | Train Loss: {:.4f} Vali Loss: {:.4f} train RMSE: {} vali RMSE: {}\n".format(
-            epoch, train_loss, vali_loss, train_rmses, vali_rmses))
+        keep_go_next_epoch, best_rmse_yet = self.train.save_best_train(train_metrics, vali_metrics) # (C,), (C,)
         
         return keep_go_next_epoch, best_rmse_yet
 
@@ -92,11 +88,11 @@ class Trainer():
         T1 = self.config('T1'); FG = self.config('FG')
 
         epoch = 0
-        test_loss, test_rmses = self.train.run_epoch(epoch, "test_set", train=False)
-
-        logging.info("Test finished: vali rmse:{:.4f}".format(test_rmses.numpy()))
+        test_loss, test_metrics = self.train.run_epoch(epoch, "test_set", train=False)
+        display = self.train.get_epoch_display(test_loss, test_metrics)
+        logging.info("Vali epoch: {}, {}".format(epoch, display))
         
-        return test_loss, test_rmses
+        return test_loss, test_metrics
 
     def bayesian_target(self, patch_size, heads, attLayers, zeusLayers):
         # Update with new hyper-parameters
