@@ -187,6 +187,7 @@ class Train():
         return keep_go_next_epoch, best_rmse_yet
     
     def save_state(self, name=None, train_finished=False):
+    #-------------- My version
         if name is None: name = 'train_state-' + self.get_train_id_string()
         checkpoint = {
             'model': self.model.state_dict(),
@@ -202,50 +203,85 @@ class Train():
         torch.save(checkpoint, self.bayes_path / (name + '.pth'))
         print(f"Checkpoint '{name}' saved, including model, optimizer, scheduler, scaler, and rmses_old")
     
-    # def try_load_state(self, name=None):    # Couples with save_state
-    #     if name is None: name = 'train_state-' + self.get_train_id_string()
-    #     try:
-    #         checkpoint_path = self.bayes_path / (name + '.pth')
-    #         # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    #         checkpoint = torch.load(checkpoint_path, map_location=self.device)
-
-    #         assert checkpoint['train_finished'] == False    # It raise an deliberate exception if True.
-
-    #         # Load model parameters
-    #         epoch = checkpoint['epoch']
-    #         self.model.load_state_dict(checkpoint['model'])
-
-    #         # Ensure optimizer & scheduler exist before loading states
-    #         if not hasattr(self, 'optimizer') or not hasattr(self, 'scheduler'):
-    #             self.optimizer, self.scheduler = self._select_optimizer()
-                
-    #         for param_group in self.optimizer.param_groups:
-    #             for p in param_group['params']:
-    #                 if p in self.optimizer.state:
-    #                     for k, v in self.optimizer.state[p].items():
-    #                         if isinstance(v, torch.Tensor):
-    #                             self.optimizer.state[p][k] = v.to(p.device)
-
-    #         # self.optimizer.load_state_dict(checkpoint['optimizer'])
-    #         # for state in self.optimizer.state.values():
-    #         #     for k, v in state.items():
-    #         #         if isinstance(v, torch.Tensor):
-    #         #             state[k] = v.to(self.device)
-
-    #         self.scheduler.load_state_dict(checkpoint['scheduler'])
-    #         self.scaler.load_state_dict(checkpoint['scaler'])
-
-    #         self.rmses_old = checkpoint['rmses_old']
-    #         self.epochs_since_improvement = checkpoint['epochs_since_improvement']
-
-    #         print(f"Checkpoint '{name}' loaded to {self.device}, including model, optimizer, scheduler, scaler, and rmses_old")
-    #     except:
-    #         # Everything else has its default value.
-    #         epoch = -1
-
-    #     return epoch
     
-    def try_load_state(self, name=None):  # Couples with save_state
+    def try_load_state(self, name=None):    # Couples with save_state
+    #-------------- My version -------------- shortens tranining step.
+        if name is None: name = 'train_state-' + self.get_train_id_string()
+        try:
+            checkpoint_path = self.bayes_path / (name + '.pth')
+            # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            checkpoint = torch.load(checkpoint_path, map_location=self.device)
+
+            assert checkpoint['train_finished'] == False    # It raise an deliberate exception if True.
+
+            # Load model parameters
+            epoch = checkpoint['epoch']
+            self.model.load_state_dict(checkpoint['model'])
+            # for name, param in self.model.named_parameters():
+            #     print('--------------', name, param.device, param.dtype)
+
+            # Ensure optimizer & scheduler exist before loading states
+            if not hasattr(self, 'optimizer') or not hasattr(self, 'scheduler'):
+                self.optimizer, self.scheduler = self._select_optimizer()
+                
+            for param_group in self.optimizer.param_groups:
+                for p in param_group['params']:
+                    if p in self.optimizer.state:
+                        for k, v in self.optimizer.state[p].items():
+                            if isinstance(v, torch.Tensor):
+                                self.optimizer.state[p][k] = v.to(p.device)
+
+            self.scheduler.load_state_dict(checkpoint['scheduler'])
+            self.scaler.load_state_dict(checkpoint['scaler'])
+
+            self.rmses_old = checkpoint['rmses_old']
+            self.epochs_since_improvement = checkpoint['epochs_since_improvement']
+
+            print(f"Checkpoint '{name}' loaded to {self.device}, including model, optimizer, scheduler, scaler, and rmses_old")
+        except:
+            # Everything else has its default value.
+            epoch = -1
+
+        return epoch
+    
+    def save_state_GPT(self, name=None, train_finished=False):
+    # ----------------- GPT version, that pairs with its version of try_laod_state.
+        if name is None:
+            name = 'train_state-' + self.get_train_id_string()
+        checkpoint_path = self.bayes_path / (name + '.pth')
+
+        # Move model weights to CPU for safe checkpointing
+        model_state = {
+            k: v.cpu() for k, v in self.model.state_dict().items()
+        }
+
+        # Move optimizer state to CPU
+        optimizer_state = self.optimizer.state_dict()
+        for state in optimizer_state['state'].values():
+            for k, v in state.items():
+                if isinstance(v, torch.Tensor):
+                    state[k] = v.cpu()
+
+        # Move scheduler + scaler states as-is (safe)
+        scheduler_state = self.scheduler.state_dict()
+        scaler_state = self.scaler.state_dict()
+
+        checkpoint = {
+            'epoch': self.current_epoch,
+            'train_finished': train_finished,
+            'model': model_state,
+            'optimizer': optimizer_state,
+            'scheduler': scheduler_state,
+            'scaler': scaler_state,
+            'rmses_old': getattr(self, 'rmses_old', None),
+            'epochs_since_improvement': getattr(self, 'epochs_since_improvement', 0),
+        }
+
+        torch.save(checkpoint, checkpoint_path)
+        print(f"Checkpoint saved to {checkpoint_path}")
+    
+    def try_load_state_GPT(self, name=None):  # Couples with save_state
+    # -------------- GPT version -------------- lengthens tranining step.
         if name is None:
             name = 'train_state-' + self.get_train_id_string()
 
