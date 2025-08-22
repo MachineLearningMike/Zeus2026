@@ -15,6 +15,7 @@ class Trainer():
         self.root_path = root_path
         self.bayes_path = bayes_path
         self.bayes = bayes
+        self.setup_logging(bayes_path)
 
         self.pm = None
         self.train = None
