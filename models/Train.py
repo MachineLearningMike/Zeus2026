@@ -202,41 +202,112 @@ class Train():
         torch.save(checkpoint, self.bayes_path / (name + '.pth'))
         print(f"Checkpoint '{name}' saved, including model, optimizer, scheduler, scaler, and rmses_old")
     
-    def try_load_state(self, name=None):    # Couples with save_state
-        if name is None: name = 'train_state-' + self.get_train_id_string()
+    # def try_load_state(self, name=None):    # Couples with save_state
+    #     if name is None: name = 'train_state-' + self.get_train_id_string()
+    #     try:
+    #         checkpoint_path = self.bayes_path / (name + '.pth')
+    #         # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    #         checkpoint = torch.load(checkpoint_path, map_location=self.device)
+
+    #         assert checkpoint['train_finished'] == False    # It raise an deliberate exception if True.
+
+    #         # Load model parameters
+    #         epoch = checkpoint['epoch']
+    #         self.model.load_state_dict(checkpoint['model'])
+
+    #         # Ensure optimizer & scheduler exist before loading states
+    #         if not hasattr(self, 'optimizer') or not hasattr(self, 'scheduler'):
+    #             self.optimizer, self.scheduler = self._select_optimizer()
+                
+    #         for param_group in self.optimizer.param_groups:
+    #             for p in param_group['params']:
+    #                 if p in self.optimizer.state:
+    #                     for k, v in self.optimizer.state[p].items():
+    #                         if isinstance(v, torch.Tensor):
+    #                             self.optimizer.state[p][k] = v.to(p.device)
+
+    #         # self.optimizer.load_state_dict(checkpoint['optimizer'])
+    #         # for state in self.optimizer.state.values():
+    #         #     for k, v in state.items():
+    #         #         if isinstance(v, torch.Tensor):
+    #         #             state[k] = v.to(self.device)
+
+    #         self.scheduler.load_state_dict(checkpoint['scheduler'])
+    #         self.scaler.load_state_dict(checkpoint['scaler'])
+
+    #         self.rmses_old = checkpoint['rmses_old']
+    #         self.epochs_since_improvement = checkpoint['epochs_since_improvement']
+
+    #         print(f"Checkpoint '{name}' loaded to {self.device}, including model, optimizer, scheduler, scaler, and rmses_old")
+    #     except:
+    #         # Everything else has its default value.
+    #         epoch = -1
+
+    #     return epoch
+    
+    def try_load_state(self, name=None):  # Couples with save_state
+        if name is None:
+            name = 'train_state-' + self.get_train_id_string()
+
+        checkpoint_path = self.bayes_path / (name + '.pth')
+        epoch = -1  # default if load fails
+
         try:
-            checkpoint_path = self.bayes_path / (name + '.pth')
-            # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            checkpoint = torch.load(checkpoint_path, map_location=self.device)
+            # 1) Always load checkpoint to CPU to avoid scattering across GPUs
+            checkpoint = torch.load(checkpoint_path, map_location='cpu')
 
-            assert checkpoint['train_finished'] == False    # It raise an deliberate exception if True.
+            assert checkpoint['train_finished'] is False  # deliberate exception if True
 
-            # Load model parameters
-            epoch = checkpoint['epoch']
-            self.model.load_state_dict(checkpoint['model'])
+            # 2) Model must already be constructed with layers on their planned devices.
+            #    Loading from CPU state_dict will copy each tensor to its module's device.
+            missing, unexpected = self.model.load_state_dict(checkpoint['model'], strict=False)
+            if missing or unexpected:
+                print(f"[warn] load_state_dict strict=False: missing={missing}, unexpected={unexpected}")
 
-            # Ensure optimizer & scheduler exist before loading states
+            # 3) Make sure optimizer/scheduler/scaler exist
             if not hasattr(self, 'optimizer') or not hasattr(self, 'scheduler'):
                 self.optimizer, self.scheduler = self._select_optimizer()
+            if not hasattr(self, 'scaler'):
+                from torch.cuda.amp import GradScaler
+                self.scaler = GradScaler()
 
+            epoch = checkpoint['epoch']
+
+            # 4) Load optimizer and move its states to the SAME device as each param
             self.optimizer.load_state_dict(checkpoint['optimizer'])
-            for state in self.optimizer.state.values():
-                for k, v in state.items():
-                    if isinstance(v, torch.Tensor):
-                        state[k] = v.to(self.device)
 
-            self.scheduler.load_state_dict(checkpoint['scheduler'])
-            self.scaler.load_state_dict(checkpoint['scaler'])
+            # Build fast lookup of param -> device (handles true model parallel)
+            for param_group in self.optimizer.param_groups:
+                for p in param_group['params']:
+                    if p is None:
+                        continue
+                    state = self.optimizer.state.get(p, None)
+                    if state is None:
+                        continue
+                    for k, v in list(state.items()):
+                        if isinstance(v, torch.Tensor):
+                            # move optimizer buffer to the parameter's device & dtype
+                            # (dtype cast keeps AMP/FP16/FP32 consistent)
+                            target_dtype = p.dtype
+                            target_device = p.device
+                            state[k] = v.to(device=target_device, dtype=target_dtype, non_blocking=True)
 
-            self.rmses_old = checkpoint['rmses_old']
-            self.epochs_since_improvement = checkpoint['epochs_since_improvement']
+            # 5) Scheduler / Scaler (both CPU-side states)
+            if 'scheduler' in checkpoint:
+                self.scheduler.load_state_dict(checkpoint['scheduler'])
+            if 'scaler' in checkpoint and hasattr(self, 'scaler'):
+                self.scaler.load_state_dict(checkpoint['scaler'])
 
-            print(f"Checkpoint '{name}' loaded to {self.device}, including model, optimizer, scheduler, scaler, and rmses_old")
-        except:
-            # Everything else has its default value.
-            epoch = -1
+            # 6) Other bookkeeping
+            self.rmses_old = checkpoint.get('rmses_old', None)
+            self.epochs_since_improvement = checkpoint.get('epochs_since_improvement', 0)
+
+            print(f"Checkpoint '{name}' loaded to proper device(s), including model, optimizer, scheduler, scaler, and rmses_old")
+        except Exception as e:
+            print(f"[load warning] Could not load '{name}': {e}")
 
         return epoch
+    
     
     def set_train_mode(self):
         if self.model is not None: self.model.train()
@@ -330,6 +401,8 @@ class Train():
                     self.scaler.scale(loss).backward()          # accumulate gradients T2 times by backpropagating (scaled) loss
 
             if train: 
+                # for name, param in self.model.named_parameters():
+                    # print('--------------', name, param.device, param.dtype)
                 self.scaler.step(self.optimizer)            # (un-scalsed) step for accumulated gradients.
                 self.optimizer.zero_grad()                     # train
                 self.scaler.update()                            # This is the only place to adjust the scale factor.
