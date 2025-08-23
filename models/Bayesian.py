@@ -135,8 +135,8 @@ if __name__ == "__main__":
     pbounds = {     # Mike!!!
     # !!! assert attLayers + zeusLayers == 4 is the maximum when amp is employed and batch_size == 1
         "patch_size": (16, 16, int),
-        "heads": (8, 8, int),
-        "attLayers": (2, 2, int),
+        "heads": (4, 4, int),
+        "attLayers": (4, 4, int),
         "zeusLayers": (4, 4, int),
     }
         
