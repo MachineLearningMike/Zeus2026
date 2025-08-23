@@ -9,7 +9,7 @@ config = {
     'variables': variables,
     'T1': 1,    #
     'maxT2': 6,
-    'FG': 4, #24,   # frames in a frame group
+    'FG': 24, #24,   # frames in a frame group
     # data split
     'train_pct': 75,
     'vali_pct': 25,

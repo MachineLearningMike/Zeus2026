@@ -381,7 +381,9 @@ class Zeus(nn.Module):
             # x = checkpoint(layer.forward, x, use_reentrant=False)          # (B, T1FG, H/p * W/p, dim)
             # x = layer(x)          # (B, T1FG, H/p * W/p, dim)
             if idx > 0:
-                x = x.to('cuda:' + str(min(idx, self.nDevices-1)))
+                device = 'cuda:' + str(min(idx, self.nDevices-1))
+                x = x.to(device)
+            d = x.device
             x = layer(x)
  
         # Reduce frames
