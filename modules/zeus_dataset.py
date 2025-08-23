@@ -513,6 +513,19 @@ class Zeus_Dataset(Dataset):
 
         return t2
     
+    def get_T2_new(self):
+        start_timestamp, end_timestamp, num_predict_hours = self.loader.sample_time_range()
+        current_hour = np.random.randint(0, 24)
+        # Make the time-agnostic. Simulate reality, where time drifts.
+        start = start_timestamp - get_today('h') + timedelta(hours=current_hour)
+        end = end_timestamp - get_today('h') + timedelta(hours=current_hour)
+        choice = end
+        # t2 = math.ceil((end.to_pytimedelta().total_seconds()/3600) / 24) + 4
+        hours = choice.to_pytimedelta().total_seconds()/3600
+        t2 = math.ceil(hours / self.pm.FG) + math.ceil(5 * 24 / self.pm.FG)    # starts from 5 days ago
+
+        return t2
+    
     def split_data_dates(self, renew=False, seed=None):
         total_days, start_day, end_day, complete, data_dates = self.count_data_days()
 
@@ -539,10 +552,8 @@ class Zeus_Dataset(Dataset):
             shuffled_dates = data_dates[:]
             random.shuffle(shuffled_dates)
             n = len(shuffled_dates)
-            print('---------------split', n, train_pct, vali_pct)
             train_size = int(n * train_pct / 100)
             vali_size = int(n * vali_pct / 100)
-            print('---------------split 2', train_size, vali_size)
             self.train_dates = shuffled_dates[:train_size]
             self.vali_dates = shuffled_dates[train_size : train_size + vali_size]
             self.test_dates = shuffled_dates[train_size + vali_size :]
@@ -838,15 +849,18 @@ if __name__ == "__main__":
     print(start_day, end_day)
     print(total_days, complete)
 
+    for _ in range(100):
+        print(dataset.get_T2_new())
+
     # mean, std = dataset.analyze_dataset()
     # print(mean, std)
 
-    mean, std = dataset.load_dataset_params()
-    print("mean: {}, std: {}".format(mean, std))
+    # mean, std = dataset.load_dataset_params()
+    # print("mean: {}, std: {}".format(mean, std))
 
-    train_dates, vali_dates, test_dates = dataset.split_data_dates(renew=True, seed=523)
-    print("Lengths of dates:", len(train_dates), len(vali_dates), len(test_dates))
-    print("train_dates[:3]", train_dates[:3])
+    # train_dates, vali_dates, test_dates = dataset.split_data_dates(renew=True, seed=523)
+    # print("Lengths of dates:", len(train_dates), len(vali_dates), len(test_dates))
+    # print("train_dates[:3]", train_dates[:3])
 
     # train_set, vali_set, test_set = dataset.generate_x_sets(seed=523)
     # print("train_set, vali_set, test_set lengths:", len(train_set), len(vali_set), len(test_set))

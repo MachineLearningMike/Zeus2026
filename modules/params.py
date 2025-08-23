@@ -35,14 +35,11 @@ class Params:
         self.nChannels = len(config['variables'])                         # 5
         self.patch_dim = self.nChannels * self.patch_size ** 2      # 16 * 16 * 5 = 1,280
 
-        # self.dim == self.dim_head * self.nHeads, nearest to self.patch_dim
-        # self.dim == inner_dim, as in Attension
-        # This is the tightest scheme that saves memory most.
-        self.dim = nearest_multiple_of_3_ge(self.patch_dim, config['heads'])
-
+        self.dim = self.patch_dim
+        self.dim_head = int(self.dim / config['heads'])
+        
         self.nClasses = self.nChannels
         self.nHeads = config['heads']
-        self.dim_head = math.ceil(self.patch_dim / config['heads'])
         self.dropout = config['dropout']
         self.attn_dropout = config['attn_dropout']
         self.drop_path = config['drop_path']

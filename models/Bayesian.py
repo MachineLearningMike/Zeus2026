@@ -47,6 +47,7 @@ class MLBayesianOptimizer:
 
         # Initialize plot
         # self.fig, self.ax = plt.subplots(figsize=(6, 4))
+        print("ptach*patch*nChannels, heads, dim, dim_head", self.pm.patch_dim, self.pm.nHeads, self.pm.dim, self.pm.dim_head)
 
     def _objective(self, **params):     # a part of self.bayes_optimizer
         # print('_objective', params)

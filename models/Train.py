@@ -31,7 +31,7 @@ class Train():
         self.bayes_path = bayes_path
         
         self.dataset = Zeus_Dataset(config, root_path)
-        logging.info("Zeus_Dataset is created.")
+        logging.info("Zeus_Dataset created.")
         self.nDevices, self.device = self._acquire_device()
 
         #---------- Loss ----------------
@@ -51,14 +51,10 @@ class Train():
         # loaded at the start of training, if saved earlier.
         # x_set is refreshed at every epoch, but not included.
         self.model = Zeus(config, self.nDevices).float()   # The only place where the model is created.
-        logging.info("Zeus model is created.")
+        logging.info("Zeus created.")
 
         self.optimizer = self._select_optimizer()
-        logging.info("Optmizer is created")
-
         self.scheduler = self._select_scheduler(self.optimizer)
-        logging.info("Scheduler is created.")
-        
         self.scaler = GradScaler(device=self.device)
 
         self.epoch = 0
@@ -129,7 +125,7 @@ class Train():
             weight_decay=weight_decay
         )
 
-        logging.info(f"Optimizer selected: {optimizer_name.upper()} with lr={lr}, weight_decay={weight_decay}")
+        logging.info(f"Optimizer created: {optimizer_name.upper()} with lr={lr}, weight_decay={weight_decay}")
 
         return optimizer
     
@@ -160,7 +156,7 @@ class Train():
             final_div_factor=final_div_factor
         )
 
-        logging.info(f"Scheduler: OneCycleLR with max_lr={max_lr}, epochs={epochs}, steps_per_epoch={steps_per_epoch}")
+        logging.info(f"Scheduler created: OneCycleLR with max_lr={max_lr}, epochs={epochs}, steps_per_epoch={steps_per_epoch}")
 
         return scheduler
     
@@ -360,7 +356,7 @@ class Train():
         if not self.model.deployed_to_gpus: self.model.to(self.device)
         
         self.dataset.refresh_x_set(x_set_label, seed=self.pm.seed)
-        logging.info("{} is refreshed.".format(x_set_label))
+        logging.info("{} refreshed.".format(x_set_label))
         pbar = zeus_tqdm(self.dataset)
         pbar.start_prefetch_thread()
         

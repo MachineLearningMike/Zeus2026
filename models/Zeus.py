@@ -146,6 +146,13 @@ class Attention(nn.Module):     # (b, n, dim)  -> (b, n, dim)
         out = self.to_out(out)                                                  # (b, n, dim)
         return out                                                              # (b, n, dim)
     
+def sinusoidal_embedding(n_channels, dim):
+    pe = torch.FloatTensor([[p / (10000 ** (2 * (i // 2) / dim)) for i in range(dim)]
+                            for p in range(n_channels)])
+    pe[:, 0::2] = torch.sin(pe[:, 0::2])
+    pe[:, 1::2] = torch.cos(pe[:, 1::2])
+    return pe    # (n_channels, dim)
+    
 def sinusoidal_embedding_1d(n_channels, dim):
     pe = torch.FloatTensor([[p / (10000 ** (2 * (i // 2) / dim)) for i in range(dim)]
                             for p in range(n_channels)])
@@ -312,8 +319,12 @@ class Zeus(nn.Module):
                     
         #-------------- positional embedding ----------------
         # pe: (self.pm.nFramesId, self.pm.nPatches_h, self.pm.nPatches_w, self.pm.dim)
-        pe = sinusoidal_embedding_3d((self.pm.nFramesIn, self.pm.nPatches_h, self.pm.nPatches_w), self.pm.dim)
-        self.pos_embedding = nn.Parameter(rearrange(pe, 't h w dim -> 1 t (h w) dim'))
+        pe = sinusoidal_embedding(self.pm.nFramesIn * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.dim)
+        self.pos_embedding = nn.Parameter(rearrange(pe, '(t n) dim -> 1 t n dim', t=self.pm.nFramesIn))
+
+        # pe = sinusoidal_embedding_3d((self.pm.nFramesIn, self.pm.nPatches_h, self.pm.nPatches_w), self.pm.dim)
+        # self.pos_embedding = nn.Parameter(rearrange(pe, 't h w dim -> 1 t (h w) dim'))
+
         if self.nDevices > 1: self.pos_embedding = nn.Parameter(self.pos_embedding.to('cuda:0'))
 
         #-------------- zeus layers -------------------------
