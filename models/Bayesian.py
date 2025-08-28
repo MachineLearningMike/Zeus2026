@@ -132,13 +132,22 @@ if __name__ == "__main__":
 
     from models.config import config, root_path
 
-    pbounds = {     # Mike!!!
-    # !!! assert attLayers + zeusLayers == 4 is the maximum when amp is employed and batch_size == 1
-        "patch_size": (16, 16, int),
-        "heads": (4, 4, int),
-        "attLayers": (4, 4, int),
-        "zeusLayers": (4, 4, int),
-    }
+    from pathlib import Path
+    import platform
+    if platform.system() == "Windows":  
+        pbounds = {
+            "patch_size": (16, 16, int),
+            "heads": (4, 4, int),
+            "attLayers": (1, 1, int),
+            "zeusLayers": (1, 1, int),
+        }
+    else:   
+        pbounds = {     # Mike!!!
+            "patch_size": (16, 16, int),
+            "heads": (4, 4, int),
+            "attLayers": (4, 4, int),
+            "zeusLayers": (4, 4, int),
+        }
         
     bayes = MLBayesianOptimizer(config, root_path, pbounds, random_state=523)
 

@@ -51,6 +51,7 @@ class Params:
         #----------------- Training ---------------
         self.include_difficulty = config['include_difficulty']
         self.epochs = config['epochs']
+        self.steps_to_save = config['steps_to_save']
         self.batch_size = config['batch_size']
         self.log_step = config['log_step']
         self.seed = config['seed']

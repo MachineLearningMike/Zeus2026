@@ -173,7 +173,9 @@ class Train():
             self.rmses_old = rmses
             name = 'best-' + self.get_train_id_string()
             logging.info("saving best train_state... avg rmse: {:.3f}, name: {}".format(torch.mean(rmses).item(), name))
-            self.save_state(name=name)
+            # train==True means the next possible loading should train not validate.
+            self.save_state(name=name)  # Extra epoch_save after as a conlusion of validate()
+            print('----------- best_saved')
 
         self.epochs_since_improvement = self.epochs_since_improvement + 1 if not wasBestEpoch else 0
         
@@ -181,8 +183,8 @@ class Train():
         best_rmse_yet = torch.mean(self.rmses_old).item()
 
         return keep_go_next_epoch, best_rmse_yet
-    
-    def save_state(self, name=None, train_finished=False):
+       
+    def save_state(self, name=None, train_finished=False, step_state=None):
     #-------------- My version
         if name is None: name = 'train_state-' + self.get_train_id_string()
         checkpoint = {
@@ -194,27 +196,35 @@ class Train():
             'rmses_old': self.rmses_old,
             'epochs_since_improvement': self.epochs_since_improvement,
             'train_finished' : train_finished,
+            'dataset': self.dataset.pack_state(),
+            'step_state': step_state,
         }
         utils.check_dir(self.bayes_path)
         torch.save(checkpoint, self.bayes_path / (name + '.pth'))
-        print(f"Checkpoint '{name}' saved, including model, optimizer, scheduler, scaler, and rmses_old")
+        # logging.info(f"Checkpoint '{name}' saved, including model, optimizer, scheduler, scaler, rmses_old, and dataset state")
     
     
     def try_load_state(self, name=None):    # Couples with save_state
     #-------------- My version -------------- shortens tranining step.
         if name is None: name = 'train_state-' + self.get_train_id_string()
+        
+        train_finished = False
+        
         try:
             checkpoint_path = self.bayes_path / (name + '.pth')
             # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             checkpoint = torch.load(checkpoint_path, map_location=self.device)
 
-            assert checkpoint['train_finished'] == False    # It raise an deliberate exception if True.
+            if checkpoint['train_finished'] == True:
+                train_finished = True
+                raise Exception()
 
             # Load model parameters
             epoch = checkpoint['epoch']
             self.model.load_state_dict(checkpoint['model'])
             # for name, param in self.model.named_parameters():
             #     print('--------------', name, param.device, param.dtype)
+            logging.info("Model loaded with saved state")
 
             # Ensure optimizer & scheduler exist before loading states
             if not hasattr(self, 'optimizer') or not hasattr(self, 'scheduler'):
@@ -225,149 +235,92 @@ class Train():
                     if p in self.optimizer.state:
                         for k, v in self.optimizer.state[p].items():
                             if isinstance(v, torch.Tensor):
-                                self.optimizer.state[p][k] = v.to(p.device)
+                                self.optimizer.state[p][k] = v.to(p.device)       
+            logging.info("Optimizer loaded with saved state")
 
             self.scheduler.load_state_dict(checkpoint['scheduler'])
             self.scaler.load_state_dict(checkpoint['scaler'])
+            logging.info("Scheduler loaded with saved state")
 
             self.rmses_old = checkpoint['rmses_old']
             self.epochs_since_improvement = checkpoint['epochs_since_improvement']
+            logging.info("rmses_old and epochs_since_improvement loaded with saved value")
+            
+            if checkpoint.get('dataset', None) is not None:
+                self.dataset.unpack_state(checkpoint['dataset'])
+                logging.info("dataset state loaded with saved state")
 
-            print(f"Checkpoint '{name}' loaded to {self.device}, including model, optimizer, scheduler, scaler, and rmses_old")
+            if checkpoint.get('step_state', None) is not None:
+                step_state = checkpoint['step_state']
+            else:
+                step_state = None
+    
+            print('----------- step_state loaded is ', step_state)
+            if step_state is not None:  # The previous session was terminated after a new step was finished and before an epoch is finished.
+                epoch = epoch
+            else:   # The previous session was terminated after an epoch was finished and before a new step was finished. 
+                epoch = epoch + 1
+
+            logging.info(f"Checkpoint '{name}' loaded to {self.device}, including model, optimizer, scheduler, scaler, rmses_old, and datase state")
         except:
-            # Everything else has its default value.
-            epoch = -1
+            if train_finished:
+                logging.info("You tried to start/continue a finished training. Aborting...")
+                sys.exit()
+            else:   # Save not found.
+                # Starts a new training.
+                epoch = 0; step_state = None
 
-        return epoch
-    
-    def save_state_GPT(self, name=None, train_finished=False):
-    # ----------------- GPT version, that pairs with its version of try_laod_state.
-        if name is None:
-            name = 'train_state-' + self.get_train_id_string()
-        checkpoint_path = self.bayes_path / (name + '.pth')
+        length = len(self.dataset.x_set) if self.dataset.x_set is not None else 0
+        print('-------- ', self.dataset._fetched_batches, self.dataset.total_batches, length)
 
-        # Move model weights to CPU for safe checkpointing
-        model_state = {
-            k: v.cpu() for k, v in self.model.state_dict().items()
-        }
-
-        # Move optimizer state to CPU
-        optimizer_state = self.optimizer.state_dict()
-        for state in optimizer_state['state'].values():
-            for k, v in state.items():
-                if isinstance(v, torch.Tensor):
-                    state[k] = v.cpu()
-
-        # Move scheduler + scaler states as-is (safe)
-        scheduler_state = self.scheduler.state_dict()
-        scaler_state = self.scaler.state_dict()
-
-        checkpoint = {
-            'epoch': self.current_epoch,
-            'train_finished': train_finished,
-            'model': model_state,
-            'optimizer': optimizer_state,
-            'scheduler': scheduler_state,
-            'scaler': scaler_state,
-            'rmses_old': getattr(self, 'rmses_old', None),
-            'epochs_since_improvement': getattr(self, 'epochs_since_improvement', 0),
-        }
-
-        torch.save(checkpoint, checkpoint_path)
-        print(f"Checkpoint saved to {checkpoint_path}")
-    
-    def try_load_state_GPT(self, name=None):  # Couples with save_state
-    # -------------- GPT version -------------- lengthens tranining step.
-        if name is None:
-            name = 'train_state-' + self.get_train_id_string()
-
-        checkpoint_path = self.bayes_path / (name + '.pth')
-        epoch = -1  # default if load fails
-
-        try:
-            # 1) Always load checkpoint to CPU to avoid scattering across GPUs
-            checkpoint = torch.load(checkpoint_path, map_location='cpu')
-
-            assert checkpoint['train_finished'] is False  # deliberate exception if True
-
-            # 2) Model must already be constructed with layers on their planned devices.
-            #    Loading from CPU state_dict will copy each tensor to its module's device.
-            missing, unexpected = self.model.load_state_dict(checkpoint['model'], strict=False)
-            if missing or unexpected:
-                print(f"[warn] load_state_dict strict=False: missing={missing}, unexpected={unexpected}")
-
-            # 3) Make sure optimizer/scheduler/scaler exist
-            if not hasattr(self, 'optimizer') or not hasattr(self, 'scheduler'):
-                self.optimizer, self.scheduler = self._select_optimizer()
-            if not hasattr(self, 'scaler'):
-                from torch.cuda.amp import GradScaler
-                self.scaler = GradScaler()
-
-            epoch = checkpoint['epoch']
-
-            # 4) Load optimizer and move its states to the SAME device as each param
-            self.optimizer.load_state_dict(checkpoint['optimizer'])
-
-            # Build fast lookup of param -> device (handles true model parallel)
-            for param_group in self.optimizer.param_groups:
-                for p in param_group['params']:
-                    if p is None:
-                        continue
-                    state = self.optimizer.state.get(p, None)
-                    if state is None:
-                        continue
-                    for k, v in list(state.items()):
-                        if isinstance(v, torch.Tensor):
-                            # move optimizer buffer to the parameter's device & dtype
-                            # (dtype cast keeps AMP/FP16/FP32 consistent)
-                            target_dtype = p.dtype
-                            target_device = p.device
-                            state[k] = v.to(device=target_device, dtype=target_dtype, non_blocking=True)
-
-            # 5) Scheduler / Scaler (both CPU-side states)
-            if 'scheduler' in checkpoint:
-                self.scheduler.load_state_dict(checkpoint['scheduler'])
-            if 'scaler' in checkpoint and hasattr(self, 'scaler'):
-                self.scaler.load_state_dict(checkpoint['scaler'])
-
-            # 6) Other bookkeeping
-            self.rmses_old = checkpoint.get('rmses_old', None)
-            self.epochs_since_improvement = checkpoint.get('epochs_since_improvement', 0)
-
-            print(f"Checkpoint '{name}' loaded to proper device(s), including model, optimizer, scheduler, scaler, and rmses_old")
-        except Exception as e:
-            print(f"[load warning] Could not load '{name}': {e}")
-
-        return epoch
-    
+        return epoch, step_state
     
     def set_train_mode(self):
         if self.model is not None: self.model.train()
     
     def set_eval_mode(self):
         if self.model is not None: self.model.eval()
+        
+    def pack_step_state(self, epoch_loss, epoch_rmses):
+        assert epoch_loss is not None and epoch_rmses is not None
+        return {
+            "epoch_loss": [t.item() for t in epoch_loss],          # each scalar -> float
+            "epoch_rmses": [t.tolist() for t in epoch_rmses]         # each (4,) tensor -> list    
+        }
+
+    def unpack_step_state(self, data):
+        epoch_loss, epoch_rmses = [], []
+        if data is not None:
+            epoch_loss = [torch.tensor(v) for v in data["epoch_loss"]]
+            epoch_rmses = [torch.tensor(v) for v in data["epoch_rmses"]]
+        return epoch_loss, epoch_rmses
     
-    def run_epoch(self, epoch, x_set_label, train=False):
+    def run_epoch(self, epoch, x_set_label, train=False, epoch_loss=None, epoch_rmses=None, step_state=None):
         self.epoch = epoch
 
         gc.collect()
         torch.cuda.empty_cache()
 
         if not self.model.deployed_to_gpus: self.model.to(self.device)
-        
-        self.dataset.refresh_x_set(x_set_label, seed=self.pm.seed)
-        logging.info("{} refreshed.".format(x_set_label))
+        if step_state is not None:
+            logging.info("Contiuing saved epoch...")
+        else:
+            self.dataset.refresh_x_set(x_set_label, seed=self.pm.seed)
+            logging.info("{} refreshed.".format(x_set_label))
         pbar = zeus_tqdm(self.dataset)
         pbar.start_prefetch_thread()
         
         FG = self.pm.FG; T1 = self.pm.nFramesIn // FG
-        epoch_loss = []; epoch_rmses = []
+        if epoch_loss is not None and epoch_rmses is not None:
+            _epoch_loss, _epoch_rmses = self.unpack_step_state(step_state)
+        else:
+            _epoch_loss, _epoch_rmses = [], []
         
         if train: self.optimizer.zero_grad()                     # train
         if not pbar.no_more_data():  pbar.prefetch(x_set_label)        # Fetch one batch asynchronously
+        step = 0
         for batch in pbar:              # Wait for the asynchronous .prefetch
             # print('got data!')
-            
             if batch is None: break     # just in case
             batch_x, batch_y, batch_diff, era5_data_vars = batch    # (B, T1FG, C, H, W), (B, T2FG, C, H, W), None or (B, C, H, W), (C,)
             # self._print_tensor_state(1, batch_x)    # 32, cpu, False
@@ -448,22 +401,31 @@ class Train():
             strC = ", ".join(f"{x:.2f}" for x in step_rmses.ravel().tolist())
             pbar.set_description('Loss: {:.3f}, rmses: {}'.format(step_loss.item(), strC))
 
-            epoch_loss.append(step_loss)    # (,) - list
-            epoch_rmses.append(step_rmses)   # (C,) - list
-            if no_more_data: break
+            _epoch_loss.append(step_loss)    # (,) - list
+            _epoch_rmses.append(step_rmses)   # (C,) - list
+            
+            if train is True and step % self.pm.steps_to_save == 0:
+                step_state = self.pack_step_state(_epoch_loss, _epoch_rmses)
+                # train==True means the next possible loading should train not validate.
+                self.save_state(step_state=step_state)  # Step_save
+                print('----------- step_saved')
+            step += 1
             # print('waiting for data...')
 
-        epoch_loss = torch.stack(epoch_loss, dim=0).mean(dim=0)  # (,)
-        epoch_rmses = torch.stack(epoch_rmses, dim=0).mean(dim=0)       # (C,)
-        strC = ", ".join(f"{x:.2f}" for x in epoch_rmses.ravel().tolist())
-        pbar.set_description('Loss: {:.3f}, rmses: {}'.format(epoch_loss.item(), strC))
+        _epoch_loss = torch.stack(_epoch_loss, dim=0).mean(dim=0)  # (,)
+        _epoch_rmses = torch.stack(_epoch_rmses, dim=0).mean(dim=0)       # (C,)
+        strC = ", ".join(f"{x:.2f}" for x in _epoch_rmses.ravel().tolist())
+        pbar.set_description('Loss: {:.3f}, rmses: {}'.format(_epoch_loss.item(), strC))
         pbar.stop_prefetch_thread()
-
-        return epoch_loss, epoch_rmses  # (,), (C,)
+        
+        if train is True: 
+            self.save_state()   # Epoch_save. No step_state saved.
+            print('----------- epoch_saved')
+        return _epoch_loss, _epoch_rmses  # (,), (C,)
     
-    def get_epoch_display(self, epoch_loss, epoch_rmses):
-        loss = "Loss: {:.4f}".format(epoch_loss.item())
-        rmses = "RMSE: " + ", ".join(f"{x:.2f}" for x in epoch_rmses.ravel().tolist())
+    def get_epoch_display(self, _epoch_loss, _epoch_rmses):
+        loss = "Loss: {:.4f}".format(_epoch_loss.item())
+        rmses = "RMSE: " + ", ".join(f"{x:.2f}" for x in _epoch_rmses.ravel().tolist())
         display = loss + ', ' + rmses
         return display
     

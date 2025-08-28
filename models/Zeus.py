@@ -273,8 +273,8 @@ class ZeusLayer(nn.Module):
         self.spatial_colvolution_1 = SpatialConvolution(pm)
         self.temporal_transformer_1 = GatedAttention(pm)
 
-        self.space_transformer_1 = GatedAttention(pm)
-        self.space_transformer_2 = GatedAttention(pm)
+        self.spatial_transformer_1 = GatedAttention(pm)
+        self.spatial_transformer_2 = GatedAttention(pm)
         
         self.spacial_colvolution_2 = SpatialConvolution(pm)
         self.temporal_transformer_2 = GatedAttention(pm)
@@ -287,8 +287,8 @@ class ZeusLayer(nn.Module):
         x = self.temporal_transformer_1(x)       # (B*N, T, dim)
         
         x = rearrange(x, '(b n) t d -> (b t) n d', b=b)       # (B*T, N, dim)
-        x = self.space_transformer_1(x)                      # (B*T, N, dim)
-        x = self.space_transformer_2(x)                      # (B*T, N, dim)
+        x = self.spatial_transformer_1(x)                      # (B*T, N, dim)
+        x = self.spatial_transformer_2(x)                      # (B*T, N, dim)
         
         x = rearrange(x, '(b t) n d -> b t n d', b=b)       # (B, T, N, dim)
         x = self.spacial_colvolution_2(x)                   # (B, T, N, dim)
@@ -402,7 +402,7 @@ if __name__ == "__main__":
 
     from models.config import config
 
-    model = Zeus(config)
+    model = Zeus(config, 1)
 
     x = torch.rand(1, config['T1'] * config['FG'], len(config['variables']), config['height'], config['width'])
     print("input", x.shape)  # [B, T, C, H, W]

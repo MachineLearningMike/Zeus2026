@@ -48,6 +48,9 @@ class Zeus_Dataset(Dataset):
         self.x_set, self.x_set_len = None, 0
 
         self.load_data()
+        
+        self._fetched_batches = 0
+        self.total_batches = 0
 
     #------------------------------------- Download dataset -----------------------
 
@@ -608,9 +611,9 @@ class Zeus_Dataset(Dataset):
         # Mike!!! remove [:2]
         # No need to copy.copy(), as self.x_sets are re-generated above.
         if platform.system() == "Windows": 
-            self.x_set = self.train_set[:6] if x_label=='train_set' \
-                else self.vali_set[:4] if x_label=='vali_set' \
-                else self.test_set[:4] if x_label=='test_set' else None
+            self.x_set = self.train_set[:20] if x_label=='train_set' \
+                else self.vali_set[:5] if x_label=='vali_set' \
+                else self.test_set[:5] if x_label=='test_set' else None
         else:
             self.x_set = self.train_set if x_label=='train_set' \
                 else self.vali_set if x_label=='vali_set' \
@@ -620,6 +623,21 @@ class Zeus_Dataset(Dataset):
 
         self._fetched_batches = 0
         self.total_batches = math.ceil(len(self.x_set) / self.pm.batch_size)
+        
+    def pack_state(self):
+           return {
+            "x_set": [(d.strftime("%Y-%m-%d"), t2) for d, t2 in self.x_set],
+            "_fetched_batches": self._fetched_batches,
+            "total_batches": self.total_batches,
+        }
+
+    def unpack_state(self, data):
+        self.x_set = [
+            (datetime.strptime(item[0], "%Y-%m-%d").date(), item[1])
+            for item in data["x_set"]
+        ]
+        self._fetched_batches = 0
+        self.total_batches = data["total_batches"] - data["_fetched_batches"]
 
     def no_more_data(self):
         return len(self.x_set) <= 0

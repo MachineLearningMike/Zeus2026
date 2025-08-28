@@ -47,27 +47,30 @@ class Trainer():
         logging.root.addHandler(file_handler)
         logging.root.addHandler(console_handler)
         
-    def run_train(self, start_epoch=0):
+    def run_train(self, start_epoch=0, step_state=None):
         keep_go_next_epoch = True
         best_rmse_yet = 1e10
 
         for epoch in range(start_epoch, self.pm.epochs):
             print("---------- epoch {} ------------".format(epoch))
+                        
             self.train.set_train_mode()
-            train_loss, train_metrics = self.train.run_epoch(epoch, "train_set", train=True)   # (,), (C,)
+            train_loss, train_metrics = self.train.run_epoch(epoch, "train_set", train=True, step_state=step_state)   # (,), (C,)
+            step_state = None # Valid initially only.
             # self.scheduler.step()   # Commented out, because our scheduler is OneCycleLR, which is a per-batch scheduler
             display = self.train.get_epoch_display(train_loss, train_metrics)
             logging.info("Train epoch: {}, {}".format(epoch, display))
 
             if epoch >= 0:              # Mike!!!
                 keep_go_next_epoch, best_rmse_yet = self.validate(epoch, train_loss, train_metrics)
-            self.train.save_state()
+
             if self.bayes is not None:  self.bayes.on_epoch_end()
 
             if not keep_go_next_epoch: break
 
+        self.train.save_state(train_finished=True)  # Train_save. Save no step_state. Do not take care of validate()
+        print('----------- train_saved')
         logging.info("Train finishes or breaks after epoch: {}".format(epoch))
-        self.train.save_state(train_finished=True)
 
         return - best_rmse_yet
 
@@ -111,9 +114,9 @@ class Trainer():
         # Load: epoch, self.model state, env.optimizer, env.scheduler
         # If epoch == -1, they've not been loaded/updated.
         # If the previous train has finished, epoch == -1
-        epoch = self.train.try_load_state()
+        epoch, step_state = self.train.try_load_state()     
 
-        profit = self.run_train(start_epoch=epoch+1)
+        profit = self.run_train(start_epoch=epoch, step_state=step_state)
 
         return profit
 

@@ -3,8 +3,8 @@ variables = ["2m_temperature", 'total_precipitation', "100m_u_component_of_wind"
 config = {
     'dtype' : 32,   # 16 is complicated. deffered.
     # image h w c
-    'height': 72,
-    'width': 144,
+    'height': 720,
+    'width': 1440,
     # video length in and out
     'variables': variables,
     'T1': 1,    #
@@ -29,6 +29,7 @@ config = {
     'seed' : 523,
     'include_difficulty' : False,
     'epochs': 50,
+    'steps_to_save' : 100,
     'batch_size' : 1,
     'log_step': 10,
     'optimizer': 'adamw',
@@ -42,7 +43,7 @@ config = {
     'epoch_patience' : 3,       # Mike!!!
 
     'seed': 523,
-    'bayesProject' : 'production_0823_18',    # Represents an instance of a whole bayesian miximization. Mike!!!
+    'bayesProject' : 'test_4',    # Represents an instance of a whole bayesian miximization. Mike!!!
 }
 
 from pathlib import Path
@@ -51,8 +52,9 @@ if platform.system() == "Windows":
     root_path = Path("D:/Zeus_Data")
     config['height'] = 72 * 2
     config['width'] = 144
+    config['epochs'] = 3
+    config['steps_to_save'] = 5
 else:   
     root_path = Path("/mnt/Data/Zeus_Data")
-    config['height'] = 720
-    config['width'] = 1440
+
     
