@@ -406,12 +406,12 @@ class Train():
             _epoch_loss.append(step_loss)    # (,) - list
             _epoch_rmses.append(step_rmses)   # (C,) - list
             
+            step += 1
             if train is True and step % self.pm.steps_to_save == 0:
                 step_state = self.pack_step_state(_epoch_loss, _epoch_rmses)
                 # train==True means the next possible loading should train not validate.
                 self.save_state(step_state=step_state)  # Step_save
                 # print('----------- step_saved')
-            step += 1
             # print('waiting for data...')
 
         _epoch_loss = torch.stack(_epoch_loss, dim=0).mean(dim=0)  # (,)
