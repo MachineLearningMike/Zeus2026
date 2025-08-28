@@ -43,7 +43,7 @@ config = {
     'epoch_patience' : 3,       # Mike!!!
 
     'seed': 523,
-    'bayesProject' : 'test_7',    # Represents an instance of a whole bayesian miximization. Mike!!!
+    'bayesProject' : 'test_10',    # Represents an instance of a whole bayesian miximization. Mike!!!
 }
 
 from pathlib import Path

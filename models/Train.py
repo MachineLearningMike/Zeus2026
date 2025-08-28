@@ -307,17 +307,18 @@ class Train():
         else:
             self.dataset.refresh_x_set(x_set_label, seed=self.pm.seed)
             logging.info("{} refreshed.".format(x_set_label))
-        pbar = zeus_tqdm(self.dataset)
-        pbar.start_prefetch_thread()
         
         FG = self.pm.FG; T1 = self.pm.nFramesIn // FG
         if step_state is not None:
             _epoch_loss, _epoch_rmses = self.unpack_step_state(step_state)
-            print('------------ step_state restored: ')
+            logging.info("Step state restored with saved one")
         else:
             _epoch_loss, _epoch_rmses = [], []
         
         if train: self.optimizer.zero_grad()                     # train
+        pbar = zeus_tqdm(self.dataset)
+        pbar.start_prefetch_thread()
+        
         if not pbar.no_more_data():  pbar.prefetch(x_set_label)        # Fetch one batch asynchronously
         step = 0
         for batch in pbar:              # Wait for the asynchronous .prefetch
