@@ -175,7 +175,7 @@ class Train():
             logging.info("saving best train_state... avg rmse: {:.3f}, name: {}".format(torch.mean(rmses).item(), name))
             # train==True means the next possible loading should train not validate.
             self.save_state(name=name)  # Extra epoch_save after as a conlusion of validate()
-            print('----------- best_saved')
+            # print('----------- best_saved')
 
         self.epochs_since_improvement = self.epochs_since_improvement + 1 if not wasBestEpoch else 0
         
@@ -255,7 +255,7 @@ class Train():
             else:
                 step_state = None
     
-            print('----------- step_state loaded is ', step_state)
+            # print('----------- step_state loaded is ', step_state)
             if step_state is not None:  # The previous session was terminated after a new step was finished and before an epoch is finished.
                 epoch = epoch
             else:   # The previous session was terminated after an epoch was finished and before a new step was finished. 
@@ -271,7 +271,7 @@ class Train():
                 epoch = 0; step_state = None
 
         length = len(self.dataset.x_set) if self.dataset.x_set is not None else 0
-        print('-------- ', self.dataset._fetched_batches, self.dataset.total_batches, length)
+        # print('-------- ', self.dataset._fetched_batches, self.dataset.total_batches, length)
 
         return epoch, step_state
     
@@ -295,7 +295,7 @@ class Train():
             epoch_rmses = [torch.tensor(v) for v in data["epoch_rmses"]]
         return epoch_loss, epoch_rmses
     
-    def run_epoch(self, epoch, x_set_label, train=False, epoch_loss=None, epoch_rmses=None, step_state=None):
+    def run_epoch(self, epoch, x_set_label, train=False, step_state=None):
         self.epoch = epoch
 
         gc.collect()
@@ -311,8 +311,9 @@ class Train():
         pbar.start_prefetch_thread()
         
         FG = self.pm.FG; T1 = self.pm.nFramesIn // FG
-        if epoch_loss is not None and epoch_rmses is not None:
+        if step_state is not None:
             _epoch_loss, _epoch_rmses = self.unpack_step_state(step_state)
+            print('------------ step_state restored: ')
         else:
             _epoch_loss, _epoch_rmses = [], []
         
@@ -408,7 +409,7 @@ class Train():
                 step_state = self.pack_step_state(_epoch_loss, _epoch_rmses)
                 # train==True means the next possible loading should train not validate.
                 self.save_state(step_state=step_state)  # Step_save
-                print('----------- step_saved')
+                # print('----------- step_saved')
             step += 1
             # print('waiting for data...')
 
@@ -420,7 +421,7 @@ class Train():
         
         if train is True: 
             self.save_state()   # Epoch_save. No step_state saved.
-            print('----------- epoch_saved')
+            # print('----------- epoch_saved')
         return _epoch_loss, _epoch_rmses  # (,), (C,)
     
     def get_epoch_display(self, _epoch_loss, _epoch_rmses):
