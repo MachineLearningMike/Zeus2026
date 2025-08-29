@@ -201,10 +201,11 @@ class Train():
         }
         utils.check_dir(self.bayes_path)
         torch.save(checkpoint, self.bayes_path / (name + '.pth'))
+        torch.save(checkpoint, self.bayes_path / (name + '.pth.bak'))   # Create a backup, as creating takes a long time.
         # logging.info(f"Checkpoint '{name}' saved, including model, optimizer, scheduler, scaler, rmses_old, and dataset state")
     
     
-    def try_load_state(self, name=None):    # Couples with save_state
+    def try_load_state_old(self, name=None):    # Couples with save_state
     #-------------- My version -------------- shortens tranining step.
         if name is None: name = 'train_state-' + self.get_train_id_string()
         
@@ -272,6 +273,99 @@ class Train():
 
         length = len(self.dataset.x_set) if self.dataset.x_set is not None else 0
         # print('-------- ', self.dataset._fetched_batches, self.dataset.total_batches, length)
+
+        return epoch, step_state
+    
+    
+    def try_load_state(self, name=None):    # Pairs with save_state
+        if name is None: name = 'train_state-' + self.get_train_id_string()
+        
+        file_not_found = False; train_finished = False; file_loaded = False
+
+        try:
+            checkpoint_path = self.bayes_path / (name + '.pth')
+            checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        except:
+            try:
+                checkpoint_path = self.bayes_path / (name + '.pth.bak')     # Maybe the previous save.
+                checkpoint = torch.load(checkpoint_path, map_location=self.device)
+            except:
+                file_not_found = True
+
+        if not file_not_found:
+            if checkpoint.get('train_finished', None) is not None:
+                train_finished = checkpoint['train_finished']
+            else:
+                logging.info("train_finished is not found")
+                sys.exit()
+        
+        if not file_not_found and not train_finished:
+            try:
+                # Load model parameters
+                epoch = checkpoint['epoch']
+                self.model.load_state_dict(checkpoint['model'])
+                # for name, param in self.model.named_parameters():
+                #     print('--------------', name, param.device, param.dtype)
+                logging.info("Model loaded with saved state")
+
+                # Ensure optimizer & scheduler exist before loading states
+                if not hasattr(self, 'optimizer') or not hasattr(self, 'scheduler'):
+                    self.optimizer, self.scheduler = self._select_optimizer()
+                    
+                for param_group in self.optimizer.param_groups:
+                    for p in param_group['params']:
+                        if p in self.optimizer.state:
+                            for k, v in self.optimizer.state[p].items():
+                                if isinstance(v, torch.Tensor):
+                                    self.optimizer.state[p][k] = v.to(p.device)       
+                logging.info("Optimizer loaded with saved state")
+
+                self.scheduler.load_state_dict(checkpoint['scheduler'])
+                self.scaler.load_state_dict(checkpoint['scaler'])
+                logging.info("Scheduler loaded with saved state")
+
+                self.rmses_old = checkpoint['rmses_old']
+                self.epochs_since_improvement = checkpoint['epochs_since_improvement']
+                logging.info("rmses_old and epochs_since_improvement loaded with saved values")
+                
+                if checkpoint.get('dataset', None) is not None:
+                    self.dataset.unpack_state(checkpoint['dataset'])
+                    logging.info("dataset state loaded with saved state")
+
+                if checkpoint.get('step_state', None) is not None:
+                    step_state = checkpoint['step_state']
+                else:
+                    step_state = None
+
+                # print('----------- step_state loaded is ', step_state)
+                if step_state is not None:  # The previous session was terminated after a new step was finished and before an epoch is finished.
+                    epoch = epoch
+                else:   # The previous session was terminated after an epoch was finished and before a new step was finished. 
+                    epoch = epoch + 1
+
+                logging.info(f"Checkpoint '{name}' loaded to {self.device}, including model, optimizer, scheduler, scaler, rmses_old, and datase state")
+                file_loaded = True
+            except:
+                file_loaded = False
+        
+        else:
+            pass
+                
+        print('------------ file not found, train_finished, file_loaded', file_not_found, train_finished, file_loaded)
+        
+        if file_not_found:               
+            # Start a new training, creating the file.
+            epoch = 0; step_state = None    # This is the moment where an existing train will be overriden !!!    
+        elif train_finished:
+            # Keep the finished train intact.
+            logging.info("You tried to start/continue a finished training. Aborting...")
+            sys.exit()
+        elif not file_loaded:
+            # Start a new training, creating the file.
+            epoch = 0; step_state = None    # This is the moment where an existing train will be overriden !!!    
+        else: # file found, train not finished, file loaded
+            # Continue the loaded train.
+            epoch = epoch; step_state = step_state
 
         return epoch, step_state
     
