@@ -244,7 +244,7 @@ class Train():
 
             self.rmses_old = checkpoint['rmses_old']
             self.epochs_since_improvement = checkpoint['epochs_since_improvement']
-            logging.info("rmses_old and epochs_since_improvement loaded with saved value")
+            logging.info("rmses_old and epochs_since_improvement loaded with saved values")
             
             if checkpoint.get('dataset', None) is not None:
                 self.dataset.unpack_state(checkpoint['dataset'])
