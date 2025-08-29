@@ -51,7 +51,7 @@ class Train():
         # loaded at the start of training, if saved earlier.
         # x_set is refreshed at every epoch, but not included.
         self.model = Zeus(config, self.nDevices).float()   # The only place where the model is created.
-        logging.info("Zeus created.")
+        logging.info("Zeus model created.")
 
         self.optimizer = self._select_optimizer()
         self.scheduler = self._select_scheduler(self.optimizer)
