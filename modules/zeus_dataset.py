@@ -586,7 +586,8 @@ class Zeus_Dataset(Dataset):
         def get_t2s(n):
             t2s = []
             while True:
-                t2 = self.get_T2()
+                # t2 = self.get_T2()    # Mike!!!
+                t2 = 1
                 if t2 <= self.pm.maxT2: t2s.append(t2)
                 if len(t2s) >= n: break
             return t2s
@@ -827,7 +828,7 @@ class Zeus_Dataset(Dataset):
         self._ready_event.clear()
         self._request_event.set()
 
-    def get_batch(self):
+    def get_batch(self):    # If __prefetch__ doesn't procedes, it returns all the same batch.
         self._ready_event.wait()
         with self._lock:
             return self._batch

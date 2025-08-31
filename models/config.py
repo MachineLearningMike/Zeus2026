@@ -33,8 +33,8 @@ config = {
     'batch_size' : 1,
     'log_step': 10,
     'optimizer': 'adamw',
-    'lr' : 1e-6,
-    'max_lr' : 2e-6,
+    'lr' : 1e-7,    #
+    'max_lr' : 2e-7,
     'weight_decay': 0.0,    # disable weight_decay, in AdamW
     'pct_start' : 0.3,
     'anneal_strategy' : 'linear',   # 'cos'
@@ -43,7 +43,7 @@ config = {
     'epoch_patience' : 3,       # Mike!!!
 
     'seed': 523,
-    'bayesProject' : 'production_0823_18',    # Represents an instance of a whole bayesian miximization. Mike!!!
+    'bayesProject' : 'production_0823_18' #'production_0823-18' #31_12',  #23-18  # Represents an instance of a whole bayesian miximization. Mike!!!
 }
 
 from pathlib import Path

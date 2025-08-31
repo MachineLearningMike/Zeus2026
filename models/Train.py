@@ -24,7 +24,7 @@ from modules_zeus.constants import (
 
 class Train():
     def __init__(self, config, root_path, bayes_path):
-               
+        self.config = config
         #======================== Fixed train state =======================
         # utils.set_seed(self.pm.seed)
         self.pm = Params(config)
@@ -104,7 +104,7 @@ class Train():
     def _select_optimizer(self):
         # Choose optimizer type, default to Adam
         optimizer_name = getattr(self.pm, 'optimizer', 'adam').lower()
-        lr = getattr(self.pm, 'lr', 1e-3)
+        lr = getattr(self.pm, 'lr', 1e-6)
         weight_decay = getattr(self.pm, 'weight_decay', 0.01)
 
         if optimizer_name == 'adamw':
@@ -201,7 +201,7 @@ class Train():
         }
         utils.check_dir(self.bayes_path)
         torch.save(checkpoint, self.bayes_path / (name + '.pth'))
-        torch.save(checkpoint, self.bayes_path / (name + '.pth.bak'))   # Create a backup, as creating takes a long time.
+        torch.save(checkpoint, self.bayes_path / (name + '.pth.bak'))   # Create a backup, as creating takes a long time and may fail by the cloud Spot service.
         # logging.info(f"Checkpoint '{name}' saved, including model, optimizer, scheduler, scaler, rmses_old, and dataset state")
     
     
@@ -284,11 +284,13 @@ class Train():
 
         try:
             checkpoint_path = self.bayes_path / (name + '.pth')
-            checkpoint = torch.load(checkpoint_path, map_location=self.device)
+            checkpoint = torch.load(checkpoint_path)
+            logging.info("Checkpoint loaded from the .pth file")
         except:
             try:
                 checkpoint_path = self.bayes_path / (name + '.pth.bak')     # Maybe the previous save.
-                checkpoint = torch.load(checkpoint_path, map_location=self.device)
+                checkpoint = torch.load(checkpoint_path)
+                logging.info("Checkpoint loaded from the .pth.bak file")
             except:
                 file_not_found = True
 
@@ -308,10 +310,10 @@ class Train():
                 #     print('--------------', name, param.device, param.dtype)
                 logging.info("Model loaded with saved state")
 
-                # Ensure optimizer & scheduler exist before loading states
                 if not hasattr(self, 'optimizer') or not hasattr(self, 'scheduler'):
                     self.optimizer, self.scheduler = self._select_optimizer()
-                    
+                self.optimizer.zero_grad()
+                
                 for param_group in self.optimizer.param_groups:
                     for p in param_group['params']:
                         if p in self.optimizer.state:
@@ -350,8 +352,6 @@ class Train():
         
         else:
             pass
-                
-        print('------------ file not found, train_finished, file_loaded', file_not_found, train_finished, file_loaded)
         
         if file_not_found:               
             # Start a new training, creating the file.
@@ -389,7 +389,8 @@ class Train():
             epoch_rmses = [torch.tensor(v) for v in data["epoch_rmses"]]
         return epoch_loss, epoch_rmses
     
-    def run_epoch(self, epoch, x_set_label, train=False, step_state=None):
+    
+    def run_epoch_generic_T1(self, epoch, x_set_label, train=False, step_state=None):
         self.epoch = epoch
 
         gc.collect()
@@ -453,7 +454,7 @@ class Train():
             step_loss = []; step_rmses = []
 
             for t2 in range(T2):
-                with autocast(device_type='cuda'):
+                with autocast(device_type='cuda', dtype=torch.bfloat16):
                     # self._print_tensor_state(13, batch_x)   # 32, cuda, False
                     pred_y = pred_y.to(self.device, non_blocking=True)  #------------
                     # self._print_tensor_state(14, pred_y)    # 32, cuda, False
@@ -479,14 +480,18 @@ class Train():
 
                 if train:
                     loss = loss / T2    # Normalize loss, so gradients match what we'd get if we did a one big forwards pass.
-                    self.scaler.scale(loss).backward()          # accumulate gradients T2 times by backpropagating (scaled) loss
+                    # bfloat16 doesn't require scaler.
+                    # self.scaler.scale(loss).backward()          # accumulate gradients T2 times by backpropagating (scaled) loss
+                    loss.backward()
 
             if train: 
                 # for name, param in self.model.named_parameters():
                     # print('--------------', name, param.device, param.dtype)
-                self.scaler.step(self.optimizer)            # (un-scalsed) step for accumulated gradients.
+                # bfloat16 doesn't require scaler.
+                # self.scaler.step(self.optimizer)            # (un-scalsed) step for accumulated gradients.
+                self.optimizer.step()
                 self.optimizer.zero_grad()                     # train
-                self.scaler.update()                            # This is the only place to adjust the scale factor.
+                # self.scaler.update()                            # This is the only place to adjust the scale factor.
           
             # Conclude a step
             self.scheduler.step()   # Our scheduler is OneCycleLR, which is a per-batch scheduler
@@ -519,6 +524,113 @@ class Train():
             # print('----------- epoch_saved')
         return _epoch_loss, _epoch_rmses  # (,), (C,)
     
+    
+    def run_epoch(self, epoch, x_set_label, train=False, step_state=None):
+        self.epoch = epoch
+
+        gc.collect()
+        torch.cuda.empty_cache()
+
+        if not self.model.deployed_to_gpus: self.model.to(self.device)
+        if step_state is not None:
+            logging.info("Contiuing saved epoch...")
+        else:
+            self.dataset.refresh_x_set(x_set_label, seed=self.pm.seed)
+            logging.info("{} refreshed.".format(x_set_label))
+        
+        FG = self.pm.FG; T1 = self.pm.nFramesIn // FG
+        if step_state is not None:
+            _epoch_loss, _epoch_rmses = self.unpack_step_state(step_state)
+            logging.info("Step state restored with saved one")
+        else:
+            _epoch_loss, _epoch_rmses = [], []
+        
+        if train: self.optimizer.zero_grad()                     # train
+        pbar = zeus_tqdm(self.dataset)
+        pbar.start_prefetch_thread()
+        
+        if not pbar.no_more_data():  pbar.prefetch(x_set_label)        # Fetch one batch asynchronously
+        step = 0
+        for batch in pbar:              # Wait for the asynchronous .prefetch
+            if not pbar.no_more_data():  pbar.prefetch(x_set_label)        # Prefetch ensures getting new bacthes.
+            if batch is None: break     # just in case
+            batch_x, batch_y, batch_diff, era5_data_vars = batch    # (B, T1FG, C, H, W), (B, T2FG, C, H, W), None or (B, C, H, W), (C,)
+            if self.pm.include_difficulty:
+                pass
+            batch_x = batch_x[:, :, :, :self.pm.image_height, :self.pm.image_width].pin_memory()     # torch.float32, cpu
+            batch_y = batch_y[:, :, :, :self.pm.image_height, :self.pm.image_width].pin_memory()     # torch.float32, cpu
+            era5_data_vars = era5_data_vars.pin_memory() # torch.float32, cpu
+
+            if self.pm.include_difficulty:
+                batch_diff = batch_diff[:, :, :self.pm.image_height, :self.pm.image_width]
+
+            T2 = (batch_y.shape)[1] // FG
+            batch_x = batch_x.to(self.device, non_blocking=True)               # torch.float32, cuda
+            batch_y = batch_y.float().to('cuda:' + str(self.nDevices-1), non_blocking=True)       # torch.float32, cuda
+            era5_data_vars = era5_data_vars.to('cuda:' + str(self.nDevices-1), non_blocking=True) # torch.float32, cuda
+
+            (B, T1FG, C, H, W) = batch_x.shape
+            pred = batch_x
+            step_loss = []; step_rmses = []
+
+            for t2 in range(1): # range(T2):    Mike!!!
+                with autocast(device_type='cuda', dtype=torch.bfloat16):
+                    pred = pred.detach().to(self.device, non_blocking=True)
+                    pred = self.model(pred)
+                    target = batch_y[:, t2*FG:(t2+1)*FG, :,:] #.to(self.device)   # (B,FG,C,H,W)  # torch.float32, cuda, False
+                    pred = self.dataset.unnormalize(pred)   # torch.float32 !!!, cuda, True !!!
+                    target = self.dataset.unnormalize(target)   # torch.float32, cuda, False
+                    loss, rmse = self.loss(target, pred, batch_diff, era5_data_vars)  #.to(self.device)) # (,), (C,), torch.float32, cuda, True !!!
+                    step_loss.append(loss.cpu().detach())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
+                    step_rmses.append(rmse.cpu().detach())      # (C,) - list.  If no cpu(), their stack results in cuda
+
+                if train:
+                    loss = loss     # Do not divide by T2.
+                    loss.backward()
+                    
+            if train: 
+                self.optimizer.step()
+                self.optimizer.zero_grad()
+                
+            # self.compare_save_load()     # All True.
+            self.scheduler.step()   # Our scheduler is OneCycleLR, which is a per-batch scheduler
+            step_loss = torch.tensor(step_loss).mean()   # (,)
+            step_rmses = torch.stack(step_rmses, dim=0).mean(dim=0)   # (C,)
+            strC = ", ".join(f"{x:.3f}" for x in step_rmses.ravel().tolist())
+            pbar.set_description('Loss: {:.3f}, rmses: {}'.format(step_loss.item(), strC))
+
+            _epoch_loss.append(step_loss)    # (,) - list
+            _epoch_rmses.append(step_rmses)   # (C,) - list
+            
+            step += 1
+            if train is True and step % self.pm.steps_to_save == 0:
+                step_state = self.pack_step_state(_epoch_loss, _epoch_rmses)
+                self.save_state(step_state=step_state)  # Step_save
+                
+        _epoch_loss = torch.stack(_epoch_loss, dim=0).mean(dim=0)  # (,)
+        _epoch_rmses = torch.stack(_epoch_rmses, dim=0).mean(dim=0)       # (C,)
+        strC = ", ".join(f"{x:.2f}" for x in _epoch_rmses.ravel().tolist())
+        pbar.set_description('Loss: {:.3f}, rmses: {}'.format(_epoch_loss.item(), strC))
+        pbar.stop_prefetch_thread()
+        
+        if train is True: 
+            self.save_state()   # Epoch_save. No step_state saved.
+        return _epoch_loss, _epoch_rmses  # (,), (C,)
+    
+    
+    def compare_save_load(self):
+            # Save the model's state
+        torch.save(self.model.state_dict(), 'saved_model.pth')
+
+        # Load the model's state back
+        loaded_model = Zeus(self.config, self.config['zeusLayers'])
+        loaded_model.load_state_dict(torch.load('saved_model.pth'))
+
+        # Check if weights are the same
+        for param1, param2 in zip(self.model.parameters(), loaded_model.parameters()):
+            print(torch.allclose(param1, param2))
+
+    
     def get_epoch_display(self, _epoch_loss, _epoch_rmses):
         loss = "Loss: {:.4f}".format(_epoch_loss.item())
         rmses = "RMSE: " + ", ".join(f"{x:.2f}" for x in _epoch_rmses.ravel().tolist())
@@ -526,7 +638,7 @@ class Train():
         return display
     
     def _print_tensor_state(self, n, t):
-        print(n, t.dtype, t.device, t.requires_grad, t.shape)
+        print('-----------', n, t.dtype, t.device, t.requires_grad, t.shape)
     
     def get_curved_scores(self, raw_rmse: torch.Tensor, gamma: float) -> torch.Tensor:
         # gamma: (B, C, H, W)
@@ -550,32 +662,31 @@ class Train():
         # (B,FG,C,H,W), (B,FG,C,H,W), (B, C, H, W), (C,)
         # 32, cuda, False ; 32, cuda, True !!!, 32, cuda, False, 32, cuda, False
         device = pred.device
-        rmse = ((pred - target) ** 2).mean(dim=1).sqrt()    # (B, C, H, W), 32, cuda, True !!!
+        rmse = ((pred - target) ** 2).mean(dim=(0,1,3,4)).sqrt()    # (C,), 32, cuda, True !!!
         # self._print_tensor_state(1, target)                 # 
         # self._print_tensor_state(2, pred)
         # self._print_tensor_state(3, batch_diff)
         # self._print_tensor_state(4, era5_data_vars)
         # self._print_tensor_state(4.5, rmse)
 
-        if batch_diff is not None:
-            baseline_rmse = 0
-            improvement = baseline_rmse - rmse  - self.min_sota_delta.to(device)   # (B, C, H, W), 32, cuda, True,  the-higher-the-better
-            # self._print_tensor_state(5, improvement)
-            baseline_improvement = torch.maximum(torch.tensor(0.0).to(device), improvement)    # 0.0, (B, C, H, W), 32, cuda, True !!!,  the-higher-the-better
-            # self._print_tensor_state(6, baseline_improvement)
-            gamma = torch.pow(REWARD_DIFFICULTY_SCALER, batch_diff * 2 - 1).to(device)  # (B, C, H, W), 32, cuda, False,  the-higher-the-more-difficult
-            # self._print_tensor_state(7, gamma)
-            quality_score = self.get_curved_scores(rmse, gamma)       # (B, C, H, W), 32, cuda, True !!!, the-higher-the-worse
-            # self._print_tensor_state(8, quality_score)
-            improvement_score = self.get_curved_scores(-baseline_improvement, gamma) # (B, C, H, W), 32, cuda, True !!!, the-higher-the-worse
-            # self._print_tensor_state(10, improvement_score)
-            rmse = (1 - REWARD_IMPROVEMENT_WEIGHT) * quality_score + REWARD_IMPROVEMENT_WEIGHT * improvement_score    # (B, C, H, W), 32, cuda, True !!!
-            # self._print_tensor_state(11, rmse)
+        # if batch_diff is not None:
+        #     baseline_rmse = 0
+        #     improvement = baseline_rmse - rmse  - self.min_sota_delta.to(device)   # (B, C, H, W), 32, cuda, True,  the-higher-the-better
+        #     # self._print_tensor_state(5, improvement)
+        #     baseline_improvement = torch.maximum(torch.tensor(0.0).to(device), improvement)    # 0.0, (B, C, H, W), 32, cuda, True !!!,  the-higher-the-better
+        #     # self._print_tensor_state(6, baseline_improvement)
+        #     gamma = torch.pow(REWARD_DIFFICULTY_SCALER, batch_diff * 2 - 1).to(device)  # (B, C, H, W), 32, cuda, False,  the-higher-the-more-difficult
+        #     # self._print_tensor_state(7, gamma)
+        #     quality_score = self.get_curved_scores(rmse, gamma)       # (B, C, H, W), 32, cuda, True !!!, the-higher-the-worse
+        #     # self._print_tensor_state(8, quality_score)
+        #     improvement_score = self.get_curved_scores(-baseline_improvement, gamma) # (B, C, H, W), 32, cuda, True !!!, the-higher-the-worse
+        #     # self._print_tensor_state(10, improvement_score)
+        #     rmse = (1 - REWARD_IMPROVEMENT_WEIGHT) * quality_score + REWARD_IMPROVEMENT_WEIGHT * improvement_score    # (B, C, H, W), 32, cuda, True !!!
+        #     # self._print_tensor_state(11, rmse)
         
-        reward = rmse * rearrange(era5_data_vars, 'c -> c 1 1')   # (B, C, H, W), 32, cuda, True !!!, the-higher-the-worse
+        reward = rmse * era5_data_vars   # (C,), 32, cuda, True !!!, the-higher-the-worse
         # self._print_tensor_state(12, reward)
         reward = reward.mean()  # (,)
-        rmse = rmse.mean(dim=(0,2,3))   # (C,)
 
         return reward, rmse # (,), (C,)     32, cuda, True
     
