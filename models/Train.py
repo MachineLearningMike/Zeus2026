@@ -265,7 +265,7 @@ class Train():
         return epoch, step_state
     
     
-    def try_load_state(self, name=None):    # Pairs with save_state
+    def try_load_state(self, name=None, train=True):    # Pairs with save_state
         if name is None: name = 'train_state-' + self.get_train_id_string()
         
         file_not_found = False; train_finished = False; file_loaded = False
@@ -289,7 +289,7 @@ class Train():
                 logging.info("train_finished is not found")
                 sys.exit()
         
-        if not file_not_found and not train_finished:
+        if not file_not_found and (not train_finished or not train):
             try:
                 # Load model parameters
                 epoch = checkpoint['epoch']
@@ -298,21 +298,22 @@ class Train():
                 #     print('--------------', name, param.device, param.dtype)
                 logging.info("Model loaded with saved state")
 
-                if not hasattr(self, 'optimizer') or not hasattr(self, 'scheduler'):
-                    self.optimizer, self.scheduler = self._select_optimizer()
-                self.optimizer.zero_grad()
-                
-                for param_group in self.optimizer.param_groups:
-                    for p in param_group['params']:
-                        if p in self.optimizer.state:
-                            for k, v in self.optimizer.state[p].items():
-                                if isinstance(v, torch.Tensor):
-                                    self.optimizer.state[p][k] = v.to(p.device)       
-                logging.info("Optimizer loaded with saved state")
+                if train:
+                    if not hasattr(self, 'optimizer') or not hasattr(self, 'scheduler'):
+                        self.optimizer, self.scheduler = self._select_optimizer()
+                    self.optimizer.zero_grad()
+                    
+                    for param_group in self.optimizer.param_groups:
+                        for p in param_group['params']:
+                            if p in self.optimizer.state:
+                                for k, v in self.optimizer.state[p].items():
+                                    if isinstance(v, torch.Tensor):
+                                        self.optimizer.state[p][k] = v.to(p.device)       
+                    logging.info("Optimizer loaded with saved state")
 
-                self.scheduler.load_state_dict(checkpoint['scheduler'])
-                self.scaler.load_state_dict(checkpoint['scaler'])
-                logging.info("Scheduler loaded with saved state")
+                    self.scheduler.load_state_dict(checkpoint['scheduler'])
+                    self.scaler.load_state_dict(checkpoint['scaler'])
+                    logging.info("Scheduler loaded with saved state")
 
                 self.rmses_old = checkpoint['rmses_old']
                 self.epochs_since_improvement = checkpoint['epochs_since_improvement']
