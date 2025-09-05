@@ -63,9 +63,11 @@ class Train():
 
 
     def _acquire_device(self):
-        assert torch.cuda.is_available()
-        nDevices = torch.cuda.device_count()
-        default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")   # default device. device 0 if default is not changed.
+        default_device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu:0")   # default device. device 0 if default is not changed.
+        if default_device == "cuda:0":
+            nDevices = torch.cuda.device_count()
+        else:
+            nDevices = torch.cpu.device_count()
 
         # # Default to CPU
         # device = torch.device("cpu")
@@ -530,6 +532,7 @@ class Train():
 
         gc.collect()
         torch.cuda.empty_cache()
+        device = str(self.device).split(":", 1)[0]
 
         if not self.model.deployed_to_gpus: self.model.to(self.device)
         if step_state is not None:
@@ -557,24 +560,25 @@ class Train():
             batch_x, batch_y, batch_diff, era5_data_vars = batch    # (B, T1FG, C, H, W), (B, T2FG, C, H, W), None or (B, C, H, W), (C,)
             if self.pm.include_difficulty:
                 pass
-            batch_x = batch_x[:, :, :, :self.pm.image_height, :self.pm.image_width].pin_memory()     # torch.float32, cpu
-            batch_y = batch_y[:, :, :, :self.pm.image_height, :self.pm.image_width].pin_memory()     # torch.float32, cpu
-            era5_data_vars = era5_data_vars.pin_memory() # torch.float32, cpu
+            if device == 'cuda':
+                batch_x = batch_x[:, :, :, :self.pm.image_height, :self.pm.image_width].pin_memory()     # torch.float32, cpu
+                batch_y = batch_y[:, :, :, :self.pm.image_height, :self.pm.image_width].pin_memory()     # torch.float32, cpu
+                era5_data_vars = era5_data_vars.pin_memory() # torch.float32, cpu
 
             if self.pm.include_difficulty:
                 batch_diff = batch_diff[:, :, :self.pm.image_height, :self.pm.image_width]
 
             T2 = (batch_y.shape)[1] // FG
             batch_x = batch_x.to(self.device, non_blocking=True)               # torch.float32, cuda
-            batch_y = batch_y.float().to('cuda:' + str(self.nDevices-1), non_blocking=True)       # torch.float32, cuda
-            era5_data_vars = era5_data_vars.to('cuda:' + str(self.nDevices-1), non_blocking=True) # torch.float32, cuda
+            batch_y = batch_y.float().to(device + ':' + str(self.nDevices-1), non_blocking=True)       # torch.float32, cuda
+            era5_data_vars = era5_data_vars.to(device + ':' + str(self.nDevices-1), non_blocking=True) # torch.float32, cuda
 
             (B, T1FG, C, H, W) = batch_x.shape
             pred = batch_x
             step_loss = []; step_rmses = []
 
             for t2 in range(1): # range(T2):    Mike!!!
-                with autocast(device_type='cuda', dtype=torch.bfloat16):
+                with autocast(device_type=device, dtype=torch.bfloat16):
                     pred = pred.detach().to(self.device, non_blocking=True)
                     pred = self.model(pred)
                     target = batch_y[:, t2*FG:(t2+1)*FG, :,:] #.to(self.device)   # (B,FG,C,H,W)  # torch.float32, cuda, False
