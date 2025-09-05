@@ -52,7 +52,7 @@ class Train():
         # saved at the end of every epoch, 
         # loaded at the start of training, if saved earlier.
         # x_set is refreshed at every epoch, but not included.
-        self.model = Zeus(config, self.nDevices).float()   # The only place where the model is created.
+        self.model = Zeus(config, self.nDevices, device_type=self.device_type).float()   # The only place where the model is created.
         logging.info("Zeus model created.")
 
         self.optimizer = self._select_optimizer()
@@ -547,9 +547,9 @@ class Train():
             batch_x, batch_y, batch_diff, era5_data_vars = batch    # (B, T1FG, C, H, W), (B, T2FG, C, H, W), None or (B, C, H, W), (C,)
             if self.pm.include_difficulty:
                 pass
-            batch_x = batch_x[:, :, :, :self.pm.image_height, :self.pm.image_width].pin_memory()     # torch.float32, cpu
-            batch_y = batch_y[:, :, :, :self.pm.image_height, :self.pm.image_width].pin_memory()     # torch.float32, cpu
-            era5_data_vars = era5_data_vars.pin_memory() # torch.float32, cpu
+            batch_x = batch_x[:, :, :, :self.pm.image_height, :self.pm.image_width] #.pin_memory()     # torch.float32, cpu
+            batch_y = batch_y[:, :, :, :self.pm.image_height, :self.pm.image_width] #.pin_memory()     # torch.float32, cpu
+            era5_data_vars = era5_data_vars #.pin_memory() # torch.float32, cpu
 
             if self.pm.include_difficulty:
                 batch_diff = batch_diff[:, :, :self.pm.image_height, :self.pm.image_width]
@@ -613,7 +613,7 @@ class Train():
         torch.save(self.model.state_dict(), 'saved_model.pth')
 
         # Load the model's state back
-        loaded_model = Zeus(self.config, self.config['zeusLayers'])
+        loaded_model = Zeus(self.config, self.config['zeusLayers'], device_type=self.device_type)
         loaded_model.load_state_dict(torch.load('saved_model.pth'))
 
         # Check if weights are the same
