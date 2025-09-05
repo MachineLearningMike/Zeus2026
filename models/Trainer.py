@@ -10,12 +10,11 @@ import modules.utils as utils
 from modules.params import Params
 
 class Trainer():
-    def __init__(self, config, root_path, bayes_path, bayes=None, train=True):
+    def __init__(self, config, root_path, bayes_path, bayes=None):
         self.config = config
         self.root_path = root_path
         self.bayes_path = bayes_path
         self.bayes = bayes
-        self.train = train
         self.setup_logging(bayes_path)
 
         self.pm = None
@@ -70,7 +69,6 @@ class Trainer():
             if not keep_go_next_epoch: break
 
         self.train.save_state(train_finished=True)  # Train_save. Save no step_state. Do not take care of validate()
-        print('----------- train_saved')
         logging.info("Train finishes or breaks after epoch: {}".format(epoch))
 
         return - best_rmse_yet
@@ -88,7 +86,7 @@ class Trainer():
         return keep_go_next_epoch, best_rmse_yet
 
     def test(self):
-        self.train = Train(self.config, self.root_path, self.bayes_path, train=False)
+        self.train = Train(self.config, self.root_path, self.bayes_path, trainable=False)
         self.train.set_eval_mode()
 
         self.train.try_load_state()
@@ -111,7 +109,7 @@ class Trainer():
         self.config['hypers'] = {'patch_size': patch_size, 'heads': heads, 'attLayers': attLayers, 'zeusLayers': zeusLayers}
         self.pm = Params(self.config)
 
-        self.train = Train(self.config, self.root_path, self.bayes_path)
+        self.train = Train(self.config, self.root_path, self.bayes_path, trainable=True)
         epoch, step_state = self.train.try_load_state()     
 
         profit = self.run_train(start_epoch=epoch, step_state=step_state)
@@ -122,7 +120,7 @@ if __name__ == "__main__":
     from models.config import config, root_path
 
     bases_path = root_path / 'bayes' / 'test'
-    trainer = Trainer(config, root_path, bases_path, bayes=None, train=False)
+    trainer = Trainer(config, root_path, bases_path, bayes=None)
 
     patch_size = config['patch_size']
     heads = config['heads']

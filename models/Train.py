@@ -23,18 +23,18 @@ from modules_zeus.constants import (
 )
 
 class Train():
-    def __init__(self, config, root_path, bayes_path, train=True):
+    def __init__(self, config, root_path, bayes_path, trainable=True):
         self.config = config
         #======================== Fixed train state =======================
         # utils.set_seed(self.pm.seed)
         self.pm = Params(config)
         self.bayes_path = bayes_path
-        self.train = train
+        self.trainable = trainable
         
         self.dataset = Zeus_Dataset(config, root_path)
         logging.info("Zeus_Dataset created.")
         self.device_type, self.nDevices, self.device = self._acquire_device()
-        if self.train: assert self.nDevices >= self.pm.zeusLayers
+        if self.trainable: assert self.nDevices == self.pm.zeusLayers
         
         #---------- Loss ----------------
         min_sota_delta = torch.tensor([value for (key, value) in REWARD_IMPROVEMENT_MIN_DELTA.items() if key in self.pm.variables])  # (C,)
@@ -52,7 +52,7 @@ class Train():
         # saved at the end of every epoch, 
         # loaded at the start of training, if saved earlier.
         # x_set is refreshed at every epoch, but not included.
-        self.model = Zeus(config, self.nDevices, device_type=self.device_type).float()   # The only place where the model is created.
+        self.model = Zeus(config, self.nDevices, device_type=self.device_type, trainable=self.trainable).float()   # The only place where the model is created.
         logging.info("Zeus model created.")
 
         self.optimizer = self._select_optimizer()
@@ -290,7 +290,7 @@ class Train():
                 logging.info("train_finished is not found")
                 sys.exit()
         
-        if not file_not_found and (not train_finished or not self.train):
+        if not file_not_found and (not train_finished or not self.trainable):
             try:
                 # Load model parameters
                 epoch = checkpoint['epoch']
@@ -299,7 +299,7 @@ class Train():
                 #     print('--------------', name, param.device, param.dtype)
                 logging.info("Model loaded with saved state")
 
-                if self.train:
+                if self.trainable:
                     if not hasattr(self, 'optimizer') or not hasattr(self, 'scheduler'):
                         self.optimizer, self.scheduler = self._select_optimizer()
                     self.optimizer.zero_grad()
