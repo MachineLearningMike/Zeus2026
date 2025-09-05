@@ -23,7 +23,7 @@ from modules_zeus.constants import (
 )
 
 class Train():
-    def __init__(self, config, root_path, bayes_path):
+    def __init__(self, config, root_path, bayes_path, train=True):
         self.config = config
         #======================== Fixed train state =======================
         # utils.set_seed(self.pm.seed)
@@ -50,12 +50,14 @@ class Train():
         # saved at the end of every epoch, 
         # loaded at the start of training, if saved earlier.
         # x_set is refreshed at every epoch, but not included.
-        self.model = Zeus(config, self.nDevices).float()   # The only place where the model is created.
+        device = str(self.device).split(":", 1)[0]
+        self.model = Zeus(config, self.nDevices, device=device).float()   # The only place where the model is created.
         logging.info("Zeus model created.")
 
-        self.optimizer = self._select_optimizer()
-        self.scheduler = self._select_scheduler(self.optimizer)
-        self.scaler = GradScaler(device=self.device)
+        if train:
+            self.optimizer = self._select_optimizer()
+            self.scheduler = self._select_scheduler(self.optimizer)
+            self.scaler = GradScaler(device=self.device)
 
         self.epoch = 0
         self.epochs_since_improvement = 0
@@ -279,7 +281,7 @@ class Train():
         return epoch, step_state
     
     
-    def try_load_state(self, name=None):    # Pairs with save_state
+    def try_load_state(self, name=None, train=True):    # Pairs with save_state
         if name is None: name = 'train_state-' + self.get_train_id_string()
         
         file_not_found = False; train_finished = False; file_loaded = False
@@ -303,7 +305,7 @@ class Train():
                 logging.info("train_finished is not found")
                 sys.exit()
         
-        if not file_not_found and not train_finished:
+        if not file_not_found and (not train_finished or not train):
             try:
                 # Load model parameters
                 epoch = checkpoint['epoch']
@@ -312,21 +314,22 @@ class Train():
                 #     print('--------------', name, param.device, param.dtype)
                 logging.info("Model loaded with saved state")
 
-                if not hasattr(self, 'optimizer') or not hasattr(self, 'scheduler'):
-                    self.optimizer, self.scheduler = self._select_optimizer()
-                self.optimizer.zero_grad()
-                
-                for param_group in self.optimizer.param_groups:
-                    for p in param_group['params']:
-                        if p in self.optimizer.state:
-                            for k, v in self.optimizer.state[p].items():
-                                if isinstance(v, torch.Tensor):
-                                    self.optimizer.state[p][k] = v.to(p.device)       
-                logging.info("Optimizer loaded with saved state")
+                if train:
+                    if not hasattr(self, 'optimizer') or not hasattr(self, 'scheduler'):
+                        self.optimizer, self.scheduler = self._select_optimizer()
+                    self.optimizer.zero_grad()
+                    
+                    for param_group in self.optimizer.param_groups:
+                        for p in param_group['params']:
+                            if p in self.optimizer.state:
+                                for k, v in self.optimizer.state[p].items():
+                                    if isinstance(v, torch.Tensor):
+                                        self.optimizer.state[p][k] = v.to(p.device)       
+                    logging.info("Optimizer loaded with saved state")
 
-                self.scheduler.load_state_dict(checkpoint['scheduler'])
-                self.scaler.load_state_dict(checkpoint['scaler'])
-                logging.info("Scheduler loaded with saved state")
+                    self.scheduler.load_state_dict(checkpoint['scheduler'])
+                    self.scaler.load_state_dict(checkpoint['scaler'])
+                    logging.info("Scheduler loaded with saved state")
 
                 self.rmses_old = checkpoint['rmses_old']
                 self.epochs_since_improvement = checkpoint['epochs_since_improvement']
@@ -398,7 +401,7 @@ class Train():
         gc.collect()
         torch.cuda.empty_cache()
 
-        if not self.model.deployed_to_gpus: self.model.to(self.device)
+        if not self.model.deployed_to_devices: self.model.to(self.device)
         if step_state is not None:
             logging.info("Contiuing saved epoch...")
         else:
@@ -534,7 +537,7 @@ class Train():
         torch.cuda.empty_cache()
         device = str(self.device).split(":", 1)[0]
 
-        if not self.model.deployed_to_gpus: self.model.to(self.device)
+        if not self.model.deployed_to_devices: self.model.to(self.device)
         if step_state is not None:
             logging.info("Contiuing saved epoch...")
         else:

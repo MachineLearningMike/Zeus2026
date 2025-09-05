@@ -87,11 +87,12 @@ class Trainer():
         return keep_go_next_epoch, best_rmse_yet
 
     def test(self):
+        self.train = Train(self.config, self.root_path, self.bayes_path)
         self.train.set_eval_mode()
-        T1 = self.config('T1'); FG = self.config('FG')
 
+        self.train.try_load_state(train=False)
         epoch = 0
-        test_loss, test_metrics = self.train.run_epoch(epoch, "test_set", train=False)
+        test_loss, test_metrics = self.train.run_epoch(epoch, "vali_set", train=False)
         display = self.train.get_epoch_display(test_loss, test_metrics)
         logging.info("Vali epoch: {}, {}".format(epoch, display))
         
@@ -107,13 +108,9 @@ class Trainer():
                     .format(patch_size, heads, attLayers, zeusLayers))
         
         self.config['hypers'] = {'patch_size': patch_size, 'heads': heads, 'attLayers': attLayers, 'zeusLayers': zeusLayers}
-
         self.pm = Params(self.config)
-        self.train = Train(self.config, self.root_path, self.bayes_path)
 
-        # Load: epoch, self.model state, env.optimizer, env.scheduler
-        # If epoch == -1, they've not been loaded/updated.
-        # If the previous train has finished, epoch == -1
+        self.train = Train(self.config, self.root_path, self.bayes_path)
         epoch, step_state = self.train.try_load_state()     
 
         profit = self.run_train(start_epoch=epoch, step_state=step_state)
@@ -126,12 +123,10 @@ if __name__ == "__main__":
     bases_path = root_path / 'bayes' / 'test'
     trainer = Trainer(config, root_path, bases_path, bayes=None)
 
-    # x = torch.rand(1, config['T1'] * config['FG'], config['channels'], config['height'], config['width'])
-    # print(x.shape)
-    # pred = trainer.model(x)
-    # print(pred.shape)
     patch_size = config['patch_size']
     heads = config['heads']
     attLayers = config['attLayers']
     zeusLayers = config['zeusLayers']
-    profit = trainer.bayesian_target(patch_size, heads, attLayers, zeusLayers) 
+    # profit = trainer.bayesian_target(patch_size, heads, attLayers, zeusLayers) 
+    
+    trainer.test()
