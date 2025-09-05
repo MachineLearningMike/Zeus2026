@@ -10,11 +10,12 @@ import modules.utils as utils
 from modules.params import Params
 
 class Trainer():
-    def __init__(self, config, root_path, bayes_path, bayes=None):
+    def __init__(self, config, root_path, bayes_path, bayes=None, train=True):
         self.config = config
         self.root_path = root_path
         self.bayes_path = bayes_path
         self.bayes = bayes
+        self.train = train
         self.setup_logging(bayes_path)
 
         self.pm = None
@@ -87,10 +88,10 @@ class Trainer():
         return keep_go_next_epoch, best_rmse_yet
 
     def test(self):
-        self.train = Train(self.config, self.root_path, self.bayes_path)
+        self.train = Train(self.config, self.root_path, self.bayes_path, train=False)
         self.train.set_eval_mode()
 
-        self.train.try_load_state(train=False)
+        self.train.try_load_state()
         epoch = 0
         test_loss, test_metrics = self.train.run_epoch(epoch, "vali_set", train=False)
         display = self.train.get_epoch_display(test_loss, test_metrics)
@@ -121,7 +122,7 @@ if __name__ == "__main__":
     from models.config import config, root_path
 
     bases_path = root_path / 'bayes' / 'test'
-    trainer = Trainer(config, root_path, bases_path, bayes=None)
+    trainer = Trainer(config, root_path, bases_path, bayes=None, train=False)
 
     patch_size = config['patch_size']
     heads = config['heads']

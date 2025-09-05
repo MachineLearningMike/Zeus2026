@@ -336,7 +336,7 @@ class Zeus(nn.Module):
             for i in range(self.pm.zeusLayers)
         ])
         for idx, layer in enumerate(self.zeusLayers):
-            layer = layer.to(self.device + ':' + str(idx))  # to the i-th device
+            layer = layer.to(self.device + ':' + str(min(self.nDevices-1, idx)))  # to the i-th device
             
         # self.reduce_frames = nn.Sequential(
         #     Rearrange('b t p d -> b p d t'),
@@ -351,14 +351,14 @@ class Zeus(nn.Module):
                 nn.Conv2d(self.pm.nFramesIn, self.pm.nFramesOut, 3, 1, 1),       # (B, H/p * W/p, dim, 1FG)
                 Rearrange('(b d) t h w -> b t (h w) d', d=self.pm.dim)
             )
-            self.reduce_frames = self.reduce_frames.to(self.device + ':' + str(self.nDevices-1)) # to the last device
+            self.reduce_frames = self.reduce_frames.to(self.device + ':' + str(self.zeusLayers-1)) # to the last device
 
         #--------------- ffn --------------------------------
         self.mlp_head = nn.Sequential(
             nn.LayerNorm(self.pm.dim),
             nn.Linear(self.pm.dim, self.pm.nChannels * self.pm.patch_size ** 2)  # just restore.
         )
-        self.mlp_head = self.mlp_head.to(self.device + ':' + str(self.nDevices-1))    # to the last device
+        self.mlp_head = self.mlp_head.to(self.device + ':' + str(self.zeusLayers-1))    # to the last device
 
         #---------------- flag it ---------------------------
         if self.nDevices > 1: self.deployed_to_devices = True

@@ -23,17 +23,18 @@ from modules_zeus.constants import (
 )
 
 class Train():
-    def __init__(self, config, root_path, bayes_path):
+    def __init__(self, config, root_path, bayes_path, train=True):
         self.config = config
         #======================== Fixed train state =======================
         # utils.set_seed(self.pm.seed)
         self.pm = Params(config)
         self.bayes_path = bayes_path
+        self.train = train
         
         self.dataset = Zeus_Dataset(config, root_path)
         logging.info("Zeus_Dataset created.")
         self.device_type, self.nDevices, self.device = self._acquire_device()
-        assert self.nDevices >= self.pm.zeusLayers
+        if self.train: assert self.nDevices >= self.pm.zeusLayers
         
         #---------- Loss ----------------
         min_sota_delta = torch.tensor([value for (key, value) in REWARD_IMPROVEMENT_MIN_DELTA.items() if key in self.pm.variables])  # (C,)
@@ -265,7 +266,7 @@ class Train():
         return epoch, step_state
     
     
-    def try_load_state(self, name=None, train=True):    # Pairs with save_state
+    def try_load_state(self, name=None):    # Pairs with save_state
         if name is None: name = 'train_state-' + self.get_train_id_string()
         
         file_not_found = False; train_finished = False; file_loaded = False
@@ -289,7 +290,7 @@ class Train():
                 logging.info("train_finished is not found")
                 sys.exit()
         
-        if not file_not_found and (not train_finished or not train):
+        if not file_not_found and (not train_finished or not self.train):
             try:
                 # Load model parameters
                 epoch = checkpoint['epoch']
@@ -298,7 +299,7 @@ class Train():
                 #     print('--------------', name, param.device, param.dtype)
                 logging.info("Model loaded with saved state")
 
-                if train:
+                if self.train:
                     if not hasattr(self, 'optimizer') or not hasattr(self, 'scheduler'):
                         self.optimizer, self.scheduler = self._select_optimizer()
                     self.optimizer.zero_grad()
