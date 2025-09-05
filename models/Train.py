@@ -32,7 +32,7 @@ class Train():
         
         self.dataset = Zeus_Dataset(config, root_path)
         logging.info("Zeus_Dataset created.")
-        self.nDevices, self.device = self._acquire_device()
+        self.device_class, self.nDevices, self.device = self._acquire_device()
 
         #---------- Loss ----------------
         min_sota_delta = torch.tensor([value for (key, value) in REWARD_IMPROVEMENT_MIN_DELTA.items() if key in self.pm.variables])  # (C,)
@@ -50,8 +50,7 @@ class Train():
         # saved at the end of every epoch, 
         # loaded at the start of training, if saved earlier.
         # x_set is refreshed at every epoch, but not included.
-        device = str(self.device).split(":", 1)[0]
-        self.model = Zeus(config, self.nDevices, device=device).float()   # The only place where the model is created.
+        self.model = Zeus(config, self.nDevices, device=self.device_class).float()   # The only place where the model is created.
         logging.info("Zeus model created.")
 
         if train:
@@ -67,28 +66,13 @@ class Train():
     def _acquire_device(self):
         default_device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu:0")   # default device. device 0 if default is not changed.
         if default_device == "cuda:0":
+            device_class = 'cuda'
             nDevices = torch.cuda.device_count()
         else:
+            device_class = 'cpu'
             nDevices = torch.cpu.device_count()
-
-        # # Default to CPU
-        # device = torch.device("cpu")
-        
-        # if self.args.use_gpu and torch.cuda.is_available():
-        #     # Clamp GPU index to available range
-        #     gpu_index = min(self.args.gpu, torch.cuda.device_count() - 1)
-            
-        #     os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_index)
-        #     device = torch.device(f"cuda:{gpu_index}")
-            
-        #     utils.print_log(f"Using GPU: {gpu_index} ({torch.cuda.get_device_name(gpu_index)})")
-        # else:
-        #     if self.args.use_gpu:
-        #         utils.print_log("GPU requested but not available — falling back to CPU.")
-        #     else:
-        #         utils.print_log("Using CPU.")
-        
-        return nDevices, default_device
+       
+        return device_class, nDevices, default_device
     
     def get_train_id_string(self):
         string = "-".join([str(v) for v in self.pm.hypers.values()])
@@ -535,7 +519,6 @@ class Train():
 
         gc.collect()
         torch.cuda.empty_cache()
-        device = str(self.device).split(":", 1)[0]
 
         if not self.model.deployed_to_devices: self.model.to(self.device)
         if step_state is not None:
@@ -563,7 +546,7 @@ class Train():
             batch_x, batch_y, batch_diff, era5_data_vars = batch    # (B, T1FG, C, H, W), (B, T2FG, C, H, W), None or (B, C, H, W), (C,)
             if self.pm.include_difficulty:
                 pass
-            if device == 'cuda':
+            if self.device_class == 'cuda':
                 batch_x = batch_x[:, :, :, :self.pm.image_height, :self.pm.image_width].pin_memory()     # torch.float32, cpu
                 batch_y = batch_y[:, :, :, :self.pm.image_height, :self.pm.image_width].pin_memory()     # torch.float32, cpu
                 era5_data_vars = era5_data_vars.pin_memory() # torch.float32, cpu
@@ -573,15 +556,15 @@ class Train():
 
             T2 = (batch_y.shape)[1] // FG
             batch_x = batch_x.to(self.device, non_blocking=True)               # torch.float32, cuda
-            batch_y = batch_y.float().to(device + ':' + str(self.nDevices-1), non_blocking=True)       # torch.float32, cuda
-            era5_data_vars = era5_data_vars.to(device + ':' + str(self.nDevices-1), non_blocking=True) # torch.float32, cuda
+            batch_y = batch_y.float().to(self.device_class + ':' + str(self.nDevices-1), non_blocking=True)       # torch.float32, cuda
+            era5_data_vars = era5_data_vars.to(self.device_class + ':' + str(self.nDevices-1), non_blocking=True) # torch.float32, cuda
 
             (B, T1FG, C, H, W) = batch_x.shape
             pred = batch_x
             step_loss = []; step_rmses = []
 
             for t2 in range(1): # range(T2):    Mike!!!
-                with autocast(device_type=device, dtype=torch.bfloat16):
+                with autocast(device_type=self.device_class, dtype=torch.bfloat16):
                     pred = pred.detach().to(self.device, non_blocking=True)
                     pred = self.model(pred)
                     target = batch_y[:, t2*FG:(t2+1)*FG, :,:] #.to(self.device)   # (B,FG,C,H,W)  # torch.float32, cuda, False
