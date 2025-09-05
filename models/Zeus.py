@@ -301,11 +301,11 @@ class ZeusLayer(nn.Module):
         return x
 
 class Zeus(nn.Module):
-    def __init__(self, config, nDevices, device='cuda'):
+    def __init__(self, config, nDevices, device_type='cuda'):
         super().__init__()
         self.pm = Params(config)
         self.nDevices = nDevices
-        self.device = device
+        self.device_type = device_type
         self.deployed_to_devices = False
 
         #--------------- token embedding ---------------
@@ -316,7 +316,7 @@ class Zeus(nn.Module):
             nn.Tanh(),
             nn.Linear(2 * self.pm.dim, self.pm.dim),
             )
-        self.to_patch_embedding = self.to_patch_embedding.to(self.device + ':0')  # from the defalut devoce to the 1st device.
+        self.to_patch_embedding = self.to_patch_embedding.to(self.device_type + ':0')  # from the defalut devoce to the 1st device.
                     
         #-------------- positional embedding ----------------
         # pe: (self.pm.nFramesId, self.pm.nPatches_h, self.pm.nPatches_w, self.pm.dim)
@@ -326,7 +326,7 @@ class Zeus(nn.Module):
         # pe = sinusoidal_embedding_3d((self.pm.nFramesIn, self.pm.nPatches_h, self.pm.nPatches_w), self.pm.dim)
         # self.pos_embedding = nn.Parameter(rearrange(pe, 't h w dim -> 1 t (h w) dim'))
 
-        self.pos_embedding = nn.Parameter(self.pos_embedding.to(self.device + ':0')) # from the defalut devoce to the 1st device.
+        self.pos_embedding = nn.Parameter(self.pos_embedding.to(self.device_type + ':0')) # from the defalut devoce to the 1st device.
 
         #-------------- zeus layers -------------------------
         if self.nDevices > 1: 
@@ -336,7 +336,7 @@ class Zeus(nn.Module):
             for i in range(self.pm.zeusLayers)
         ])
         for idx, layer in enumerate(self.zeusLayers):
-            layer = layer.to(self.device + ':' + str(min(self.nDevices-1, idx)))  # to the i-th device
+            layer = layer.to(self.device_type + ':' + str(min(self.nDevices-1, idx)))  # to the i-th device
             
         # self.reduce_frames = nn.Sequential(
         #     Rearrange('b t p d -> b p d t'),
@@ -351,14 +351,14 @@ class Zeus(nn.Module):
                 nn.Conv2d(self.pm.nFramesIn, self.pm.nFramesOut, 3, 1, 1),       # (B, H/p * W/p, dim, 1FG)
                 Rearrange('(b d) t h w -> b t (h w) d', d=self.pm.dim)
             )
-            self.reduce_frames = self.reduce_frames.to(self.device + ':' + str(self.zeusLayers-1)) # to the last device
+            self.reduce_frames = self.reduce_frames.to(self.device_type + ':' + str(self.zeusLayers-1)) # to the last device
 
         #--------------- ffn --------------------------------
         self.mlp_head = nn.Sequential(
             nn.LayerNorm(self.pm.dim),
             nn.Linear(self.pm.dim, self.pm.nChannels * self.pm.patch_size ** 2)  # just restore.
         )
-        self.mlp_head = self.mlp_head.to(self.device + ':' + str(self.zeusLayers-1))    # to the last device
+        self.mlp_head = self.mlp_head.to(self.device_type + ':' + str(self.zeusLayers-1))    # to the last device
 
         #---------------- flag it ---------------------------
         if self.nDevices > 1: self.deployed_to_devices = True
@@ -381,7 +381,7 @@ class Zeus(nn.Module):
             # x = checkpoint(layer.forward, x, use_reentrant=False)          # (B, T1FG, H/p * W/p, dim)
             # x = layer(x)          # (B, T1FG, H/p * W/p, dim)
             if idx > 0:
-                device = self.device + ':' + str(min(idx, self.nDevices-1))
+                device = self.device_type + ':' + str(min(self.nDevices-1, idx))
                 x = x.to(device)
             x = layer(x)
  
