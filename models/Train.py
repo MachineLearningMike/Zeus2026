@@ -23,7 +23,7 @@ from modules_zeus.constants import (
 )
 
 class Train():
-    def __init__(self, config, root_path, bayes_path, train=True):
+    def __init__(self, config, root_path, bayes_path):
         self.config = config
         #======================== Fixed train state =======================
         # utils.set_seed(self.pm.seed)
@@ -32,8 +32,9 @@ class Train():
         
         self.dataset = Zeus_Dataset(config, root_path)
         logging.info("Zeus_Dataset created.")
-        self.device_class, self.nDevices, self.device = self._acquire_device()
-
+        self.device_type, self.nDevices, self.device = self._acquire_device()
+        assert self.nDevices >= self.pm.zeusLayers
+        
         #---------- Loss ----------------
         min_sota_delta = torch.tensor([value for (key, value) in REWARD_IMPROVEMENT_MIN_DELTA.items() if key in self.pm.variables])  # (C,)
         self.min_sota_delta = rearrange(min_sota_delta, 'c -> c 1 1')
@@ -50,30 +51,29 @@ class Train():
         # saved at the end of every epoch, 
         # loaded at the start of training, if saved earlier.
         # x_set is refreshed at every epoch, but not included.
-        self.model = Zeus(config, self.nDevices, device=self.device_class).float()   # The only place where the model is created.
+        self.model = Zeus(config, self.nDevices).float()   # The only place where the model is created.
         logging.info("Zeus model created.")
 
-        if train:
-            self.optimizer = self._select_optimizer()
-            self.scheduler = self._select_scheduler(self.optimizer)
-            self.scaler = GradScaler(device=self.device)
+        self.optimizer = self._select_optimizer()
+        self.scheduler = self._select_scheduler(self.optimizer)
+        self.scaler = GradScaler(device=self.device)
 
         self.epoch = 0
         self.epochs_since_improvement = 0
         self.rmses_old = torch.ones_like(self.era5_data_vars) * 1e9
 
-
     def _acquire_device(self):
-        default_device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu:0")   # default device. device 0 if default is not changed.
-        if default_device == "cuda:0":
-            device_class = 'cuda'
+        if torch.cuda.is_available():
+            device_type = 'cuda'
+            default_device = torch.device('cuda:0')
             nDevices = torch.cuda.device_count()
         else:
-            device_class = 'cpu'
+            device_type = 'cpu'
+            default_device = torch.device('cpu:0')
             nDevices = torch.cpu.device_count()
-       
-        return device_class, nDevices, default_device
-    
+                   
+        return device_type, nDevices, default_device
+
     def get_train_id_string(self):
         string = "-".join([str(v) for v in self.pm.hypers.values()])
         return string
@@ -265,7 +265,7 @@ class Train():
         return epoch, step_state
     
     
-    def try_load_state(self, name=None, train=True):    # Pairs with save_state
+    def try_load_state(self, name=None):    # Pairs with save_state
         if name is None: name = 'train_state-' + self.get_train_id_string()
         
         file_not_found = False; train_finished = False; file_loaded = False
@@ -289,7 +289,7 @@ class Train():
                 logging.info("train_finished is not found")
                 sys.exit()
         
-        if not file_not_found and (not train_finished or not train):
+        if not file_not_found and not train_finished:
             try:
                 # Load model parameters
                 epoch = checkpoint['epoch']
@@ -298,22 +298,21 @@ class Train():
                 #     print('--------------', name, param.device, param.dtype)
                 logging.info("Model loaded with saved state")
 
-                if train:
-                    if not hasattr(self, 'optimizer') or not hasattr(self, 'scheduler'):
-                        self.optimizer, self.scheduler = self._select_optimizer()
-                    self.optimizer.zero_grad()
-                    
-                    for param_group in self.optimizer.param_groups:
-                        for p in param_group['params']:
-                            if p in self.optimizer.state:
-                                for k, v in self.optimizer.state[p].items():
-                                    if isinstance(v, torch.Tensor):
-                                        self.optimizer.state[p][k] = v.to(p.device)       
-                    logging.info("Optimizer loaded with saved state")
+                if not hasattr(self, 'optimizer') or not hasattr(self, 'scheduler'):
+                    self.optimizer, self.scheduler = self._select_optimizer()
+                self.optimizer.zero_grad()
+                
+                for param_group in self.optimizer.param_groups:
+                    for p in param_group['params']:
+                        if p in self.optimizer.state:
+                            for k, v in self.optimizer.state[p].items():
+                                if isinstance(v, torch.Tensor):
+                                    self.optimizer.state[p][k] = v.to(p.device)       
+                logging.info("Optimizer loaded with saved state")
 
-                    self.scheduler.load_state_dict(checkpoint['scheduler'])
-                    self.scaler.load_state_dict(checkpoint['scaler'])
-                    logging.info("Scheduler loaded with saved state")
+                self.scheduler.load_state_dict(checkpoint['scheduler'])
+                self.scaler.load_state_dict(checkpoint['scaler'])
+                logging.info("Scheduler loaded with saved state")
 
                 self.rmses_old = checkpoint['rmses_old']
                 self.epochs_since_improvement = checkpoint['epochs_since_improvement']
@@ -443,7 +442,7 @@ class Train():
             step_loss = []; step_rmses = []
 
             for t2 in range(T2):
-                with autocast(device_type='cuda', dtype=torch.bfloat16):
+                with autocast(device_type=self.device_type, dtype=torch.bfloat16):
                     # self._print_tensor_state(13, batch_x)   # 32, cuda, False
                     pred_y = pred_y.to(self.device, non_blocking=True)  #------------
                     # self._print_tensor_state(14, pred_y)    # 32, cuda, False
@@ -546,25 +545,24 @@ class Train():
             batch_x, batch_y, batch_diff, era5_data_vars = batch    # (B, T1FG, C, H, W), (B, T2FG, C, H, W), None or (B, C, H, W), (C,)
             if self.pm.include_difficulty:
                 pass
-            if self.device_class == 'cuda':
-                batch_x = batch_x[:, :, :, :self.pm.image_height, :self.pm.image_width].pin_memory()     # torch.float32, cpu
-                batch_y = batch_y[:, :, :, :self.pm.image_height, :self.pm.image_width].pin_memory()     # torch.float32, cpu
-                era5_data_vars = era5_data_vars.pin_memory() # torch.float32, cpu
+            batch_x = batch_x[:, :, :, :self.pm.image_height, :self.pm.image_width].pin_memory()     # torch.float32, cpu
+            batch_y = batch_y[:, :, :, :self.pm.image_height, :self.pm.image_width].pin_memory()     # torch.float32, cpu
+            era5_data_vars = era5_data_vars.pin_memory() # torch.float32, cpu
 
             if self.pm.include_difficulty:
                 batch_diff = batch_diff[:, :, :self.pm.image_height, :self.pm.image_width]
 
             T2 = (batch_y.shape)[1] // FG
             batch_x = batch_x.to(self.device, non_blocking=True)               # torch.float32, cuda
-            batch_y = batch_y.float().to(self.device_class + ':' + str(self.nDevices-1), non_blocking=True)       # torch.float32, cuda
-            era5_data_vars = era5_data_vars.to(self.device_class + ':' + str(self.nDevices-1), non_blocking=True) # torch.float32, cuda
+            batch_y = batch_y.float().to(self.device_type + ':' + str(self.nDevices-1), non_blocking=True)       # torch.float32, cuda
+            era5_data_vars = era5_data_vars.to(self.device_type + ':' + str(self.nDevices-1), non_blocking=True) # torch.float32, cuda
 
             (B, T1FG, C, H, W) = batch_x.shape
             pred = batch_x
             step_loss = []; step_rmses = []
 
             for t2 in range(1): # range(T2):    Mike!!!
-                with autocast(device_type=self.device_class, dtype=torch.bfloat16):
+                with autocast(device_type=self.device_type, dtype=torch.bfloat16):
                     pred = pred.detach().to(self.device, non_blocking=True)
                     pred = self.model(pred)
                     target = batch_y[:, t2*FG:(t2+1)*FG, :,:] #.to(self.device)   # (B,FG,C,H,W)  # torch.float32, cuda, False

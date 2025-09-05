@@ -22,8 +22,8 @@ config = {
     'drop_path': 0.0,
     'dim_to_mlp_dim': 2,
     # layers:   max (2, 3) on laptop
-    'attLayers' : 2,
-    'zeusLayers': 2,
+    'attLayers' : 4,
+    'zeusLayers': 4,
     # training
     'hypers' : {},
     'seed' : 523,
@@ -52,6 +52,8 @@ if platform.system() == "Windows":
     root_path = Path("D:/Zeus_Data")
     config['height'] = 72 * 2
     config['width'] = 144
+    config['attLayers'] = 1
+    config['zeusLayers'] = 1
     config['epochs'] = 3
     config['steps_to_save'] = 5
 else:   
