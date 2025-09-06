@@ -298,6 +298,11 @@ class Train():
                 # for name, param in self.model.named_parameters():
                 #     print('--------------', name, param.device, param.dtype)
                 logging.info("Model loaded with saved state")
+                
+                logging.info('----------------- trainable', self.trainable)
+                if not self.trainable:
+                    logging.info('--------------------- not trainable')
+                    self.model = self.model.to('cpu:0')
 
                 if self.trainable:
                     if not hasattr(self, 'optimizer') or not hasattr(self, 'scheduler'):

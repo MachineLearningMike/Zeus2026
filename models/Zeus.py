@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 from torch import nn
+import gc
 from torch import nn, einsum
 from torch.utils.checkpoint import checkpoint
 from einops.layers.torch import Rearrange
@@ -383,7 +384,7 @@ class Zeus(nn.Module):
         else:
             temp = self.to_patch_embedding.to(inference_device)
             x = temp(x)
-            del temp; torch.cuda.empty_cache()
+            del temp; gc.collect(); torch.cuda.empty_cache()
         
         if self.trainable:
             device = self.pos_embedding.device
@@ -392,7 +393,7 @@ class Zeus(nn.Module):
         else:
             temp = self.pos_embedding.to(inference_device)
             x += temp
-            del temp; torch.cuda.empty_cache()
+            del temp; gc.collect(); torch.cuda.empty_cache()
 
         for idx, layer in enumerate(self.zeusLayers):
             # !!! This line fails to mitigate memory peak !!!
@@ -405,7 +406,7 @@ class Zeus(nn.Module):
             else:
                 temp = layer.to(inference_device)
                 x = temp(x)
-                del temp; torch.cuda.empty_cache()
+                del temp; gc.collect(); torch.cuda.empty_cache()
  
         # Reduce frames
         if self.pm.nFramesIn != self.pm.nFramesOut:
@@ -416,7 +417,7 @@ class Zeus(nn.Module):
             else:
                 temp = self.reduce_frames.to(inference_device)
                 x = temp(x)
-                del temp; torch.cuda.empty_cache()
+                del temp; gc.collect(); torch.cuda.empty_cache()
                 
         # MLP head
         if self.trainable:
@@ -426,7 +427,7 @@ class Zeus(nn.Module):
         else:
             temp = self.mlp_head.to(inference_device)
             x = temp(x.reshape(-1, self.pm.dim))
-            del temp; torch.cuda.empty_cache()
+            del temp; gc.collect(); torch.cuda.empty_cache()
 
         x = x.view(B, self.pm.nFramesOut, self.pm.nPatches_h, self.pm.nPatches_w, C, self.pm.patch_size, self.pm.patch_size)
         x = x.permute(0, 1, 4, 2, 5, 3, 6).reshape(B, self.pm.nFramesOut, C, H, W)

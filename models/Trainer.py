@@ -85,10 +85,18 @@ class Trainer():
         
         return keep_go_next_epoch, best_rmse_yet
 
-    def test(self):
+    def bayesian_test(self, patch_size, heads, attLayers, zeusLayers):
+        self.config['patch_size'] = patch_size
+        self.config['heads'] = heads
+        self.config['attLayers'] = attLayers
+        self.config['zeusLayers'] = zeusLayers
+        logging.info("Trainer is configured with new hyper-parameters. patch_size {}, heads {}, attLayers {}, zeusLayers {}" \
+                    .format(patch_size, heads, attLayers, zeusLayers))
+        
+        self.config['hypers'] = {'patch_size': patch_size, 'heads': heads, 'attLayers': attLayers, 'zeusLayers': zeusLayers}
+        self.pm = Params(self.config)
+        
         self.train = Train(self.config, self.root_path, self.bayes_path, trainable=False)
-        self.train.set_eval_mode()
-
         self.train.try_load_state()
         epoch = 0
         test_loss, test_metrics = self.train.run_epoch(epoch, "vali_set", train=False)
@@ -119,7 +127,7 @@ class Trainer():
 if __name__ == "__main__":
     from models.config import config, root_path
 
-    bases_path = root_path / 'bayes' / 'test'
+    bases_path = root_path / 'bayes' / config['bayesProject']
     trainer = Trainer(config, root_path, bases_path, bayes=None)
 
     patch_size = config['patch_size']
@@ -128,4 +136,4 @@ if __name__ == "__main__":
     zeusLayers = config['zeusLayers']
     # profit = trainer.bayesian_target(patch_size, heads, attLayers, zeusLayers) 
     
-    trainer.test()
+    trainer.bayesian_test(16, 4, 4, 4)
