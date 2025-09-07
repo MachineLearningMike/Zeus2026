@@ -54,8 +54,7 @@ class Trainer():
         for epoch in range(start_epoch, self.pm.epochs):
             print("---------- epoch {} ------------".format(epoch))
                         
-            self.train.set_train_mode()
-            train_loss, train_metrics = self.train.run_epoch(epoch, "train_set", train=True, step_state=step_state)   # (,), (C,)
+            train_loss, train_metrics = self.train.run_epoch(epoch, "train_set", trainable=True, step_state=step_state)   # (,), (C,)
             step_state = None # Valid initially only.
             # self.scheduler.step()   # Commented out, because our scheduler is OneCycleLR, which is a per-batch scheduler
             display = self.train.get_epoch_display(train_loss, train_metrics)
@@ -74,9 +73,7 @@ class Trainer():
         return - best_rmse_yet
 
     def validate(self, epoch, train_loss, train_metrics):
-        self.train.set_eval_mode()
-        with torch.no_grad():
-            vali_loss, vali_metrics = self.train.run_epoch(epoch, "vali_set", train=False)     # (,), (C,)
+        vali_loss, vali_metrics = self.train.run_epoch(epoch, "vali_set", trainable=False)     # (,), (C,)
 
         display = self.train.get_epoch_display(vali_loss, vali_metrics)
         logging.info("Vali epoch: {}, {}".format(epoch, display))
@@ -99,7 +96,7 @@ class Trainer():
         self.train = Train(self.config, self.root_path, self.bayes_path, trainable=False)
         self.train.try_load_state()
         epoch = 0
-        test_loss, test_metrics = self.train.run_epoch(epoch, "vali_set", train=False)
+        test_loss, test_metrics = self.train.run_epoch(epoch, "vali_set", trainable=False)
         display = self.train.get_epoch_display(test_loss, test_metrics)
         logging.info("Vali epoch: {}, {}".format(epoch, display))
         

@@ -520,11 +520,12 @@ class Train():
         return _epoch_loss, _epoch_rmses  # (,), (C,)
     
     
-    def run_epoch(self, epoch, x_set_label, train=False, step_state=None):
+    def run_epoch(self, epoch, x_set_label, trainable=False, step_state=None):
         self.epoch = epoch
 
         gc.collect()
         torch.cuda.empty_cache()
+        self.model.train(trainable)
 
         if not self.model.deployed_to_devices: self.model.to(self.device)
         if step_state is not None:
@@ -540,7 +541,7 @@ class Train():
         else:
             _epoch_loss, _epoch_rmses = [], []
         
-        if train: self.optimizer.zero_grad()                     # train
+        if trainable: self.optimizer.zero_grad()                     # trainable
         pbar = zeus_tqdm(self.dataset)
         pbar.start_prefetch_thread()
         
@@ -560,9 +561,9 @@ class Train():
                 batch_diff = batch_diff[:, :, :self.pm.image_height, :self.pm.image_width]
 
             T2 = (batch_y.shape)[1] // FG
-            batch_x = batch_x.to(self.device, non_blocking=True)               # torch.float32, cuda
-            batch_y = batch_y.float().to(self.device_type + ':' + str(self.nDevices-1), non_blocking=True)       # torch.float32, cuda
-            era5_data_vars = era5_data_vars.to(self.device_type + ':' + str(self.nDevices-1), non_blocking=True) # torch.float32, cuda
+            # batch_x = batch_x.to(self.device, non_blocking=True)               # torch.float32, cuda
+            # batch_y = batch_y.float().to(self.device_type + ':' + str(self.nDevices-1), non_blocking=True)       # torch.float32, cuda
+            # era5_data_vars = era5_data_vars.to(self.device_type + ':' + str(self.nDevices-1), non_blocking=True) # torch.float32, cuda
 
             (B, T1FG, C, H, W) = batch_x.shape
             pred = batch_x
@@ -571,7 +572,8 @@ class Train():
             for t2 in range(1): # range(T2):    Mike!!!
                 with autocast(device_type=self.device_type, dtype=torch.bfloat16):
                     pred = pred.detach().to(self.device, non_blocking=True)
-                    pred = self.model(pred)
+                    with torch.set_grad_enabled(trainable):
+                        pred = self.model(pred)
                     target = batch_y[:, t2*FG:(t2+1)*FG, :,:] #.to(self.device)   # (B,FG,C,H,W)  # torch.float32, cuda, False
                     pred = self.dataset.unnormalize(pred)   # torch.float32 !!!, cuda, True !!!
                     target = self.dataset.unnormalize(target)   # torch.float32, cuda, False
@@ -579,11 +581,11 @@ class Train():
                     step_loss.append(loss.cpu().detach())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
                     step_rmses.append(rmse.cpu().detach())      # (C,) - list.  If no cpu(), their stack results in cuda
 
-                if train:
+                if trainable:
                     loss = loss     # Do not divide by T2.
                     loss.backward()
                     
-            if train: 
+            if trainable: 
                 self.optimizer.step()
                 self.optimizer.zero_grad()
                 
@@ -598,7 +600,7 @@ class Train():
             _epoch_rmses.append(step_rmses)   # (C,) - list
             
             step += 1
-            if train is True and step % self.pm.steps_to_save == 0:
+            if trainable is True and step % self.pm.steps_to_save == 0:
                 step_state = self.pack_step_state(_epoch_loss, _epoch_rmses)
                 self.save_state(step_state=step_state)  # Step_save
                 
@@ -608,7 +610,7 @@ class Train():
         pbar.set_description('Loss: {:.3f}, rmses: {}'.format(_epoch_loss.item(), strC))
         pbar.stop_prefetch_thread()
         
-        if train is True: 
+        if trainable is True: 
             self.save_state()   # Epoch_save. No step_state saved.
         return _epoch_loss, _epoch_rmses  # (,), (C,)
     
@@ -657,6 +659,7 @@ class Train():
         # (B,FG,C,H,W), (B,FG,C,H,W), (B, C, H, W), (C,)
         # 32, cuda, False ; 32, cuda, True !!!, 32, cuda, False, 32, cuda, False
         device = pred.device
+        target = target.to(device)
         rmse = ((pred - target) ** 2).mean(dim=(0,1,3,4)).sqrt()    # (C,), 32, cuda, True !!!
         # self._print_tensor_state(1, target)                 # 
         # self._print_tensor_state(2, pred)
@@ -679,6 +682,7 @@ class Train():
         #     rmse = (1 - REWARD_IMPROVEMENT_WEIGHT) * quality_score + REWARD_IMPROVEMENT_WEIGHT * improvement_score    # (B, C, H, W), 32, cuda, True !!!
         #     # self._print_tensor_state(11, rmse)
         
+        era5_data_vars = era5_data_vars.to(device)
         reward = rmse * era5_data_vars   # (C,), 32, cuda, True !!!, the-higher-the-worse
         # self._print_tensor_state(12, reward)
         reward = reward.mean()  # (,)

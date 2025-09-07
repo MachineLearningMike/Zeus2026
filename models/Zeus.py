@@ -373,27 +373,26 @@ class Zeus(nn.Module):
     def forward(self, x):
         B, T1FG, C, H, W = x.shape
         inference_device = self.device_type + ':0'
-        
-        if self.trainable:
-            x = x.to(inference_device)
-    
+            
         if self.trainable:
             device = next(self.to_patch_embedding.parameters()).device
             x = x.to(device)
             x = self.to_patch_embedding(x)  # (B, T1FG, H/p * W/p, self.patch_dim = p * p * C) -> (B, T1FG, H/p * W/p, dim)
         else:
-            temp = self.to_patch_embedding.to(inference_device)
-            x = temp(x)
-            del temp; gc.collect(); torch.cuda.empty_cache()
+            layer_gpu = self.to_patch_embedding.to(inference_device)
+            x_gpu = x.to(inference_device)
+            x = layer_gpu(x_gpu).to('cpu:0')
+            del layer_gpu; del x_gpu; torch.cuda.empty_cache()
         
         if self.trainable:
             device = self.pos_embedding.device
             x = x.to(device)
             x += (self.pos_embedding.to(x.device))    # pos_embedding: (1, T1FG * H/p * W/p, dim) -> (1, T1FG, H/p * W/p, dim) 
         else:
-            temp = self.pos_embedding.to(inference_device)
-            x += temp
-            del temp; gc.collect(); torch.cuda.empty_cache()
+            layer_gpu = self.pos_embedding.to(inference_device)
+            x_gpu = x.to(inference_device)
+            x = (layer_gpu + x_gpu).to('cpu:0')
+            del layer_gpu; del x_gpu; torch.cuda.empty_cache()
 
         for idx, layer in enumerate(self.zeusLayers):
             # !!! This line fails to mitigate memory peak !!!
@@ -404,9 +403,10 @@ class Zeus(nn.Module):
                 x = x.to(device)
                 x = layer(x)
             else:
-                temp = layer.to(inference_device)
-                x = temp(x)
-                del temp; gc.collect(); torch.cuda.empty_cache()
+                layer_gpu = layer.to(inference_device)
+                x_gpu = x.to(inference_device)
+                x = layer_gpu(x_gpu).to('cpu:0')
+                del layer_gpu; del x_gpu; torch.cuda.empty_cache()
  
         # Reduce frames
         if self.pm.nFramesIn != self.pm.nFramesOut:
@@ -415,9 +415,10 @@ class Zeus(nn.Module):
                 x = x.to(device)
                 x = self.reduce_frames(x)   # (B, FG, H/p * W/p, dim)
             else:
-                temp = self.reduce_frames.to(inference_device)
-                x = temp(x)
-                del temp; gc.collect(); torch.cuda.empty_cache()
+                layer_gpu = self.reduce_frames.to(inference_device)
+                x_gpu = x.to(inference_device)
+                x = layer_gpu(x_gpu).to('cpu:0')
+                del layer_gpu; del x_gpu; torch.cuda.empty_cache()
                 
         # MLP head
         if self.trainable:
@@ -425,9 +426,10 @@ class Zeus(nn.Module):
             x = x.to(device)
             x = self.mlp_head(x.reshape(-1, self.pm.dim))
         else:
-            temp = self.mlp_head.to(inference_device)
-            x = temp(x.reshape(-1, self.pm.dim))
-            del temp; gc.collect(); torch.cuda.empty_cache()
+            layer_gpu = self.mlp_head.to(inference_device)
+            x_gpu = x.reshape(-1, self.pm.dim).to(inference_device)
+            x = layer_gpu(x_gpu).to('cpu:0')
+            del layer_gpu; del x_gpu; torch.cuda.empty_cache()
 
         x = x.view(B, self.pm.nFramesOut, self.pm.nPatches_h, self.pm.nPatches_w, C, self.pm.patch_size, self.pm.patch_size)
         x = x.permute(0, 1, 4, 2, 5, 3, 6).reshape(B, self.pm.nFramesOut, C, H, W)
