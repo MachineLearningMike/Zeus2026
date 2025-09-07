@@ -300,7 +300,9 @@ class Train():
                 #     print('--------------', name, param.device, param.dtype)
                 logging.info("Model loaded with saved state")
                 
-                if self.trainable:
+                step_state = None
+                
+                if self.trainable and False:
                     self.optimizer.load_state_dict(checkpoint['optimizer'])
                     logging.info("Optimizer loaded with saved state")
 
@@ -319,8 +321,6 @@ class Train():
 
                     if checkpoint.get('step_state', None) is not None:
                         step_state = checkpoint['step_state']
-                    else:
-                        step_state = None
 
                 # print('----------- step_state loaded is ', step_state)
                 if step_state is not None:  # The previous session was terminated after a new step was finished and before an epoch is finished.
