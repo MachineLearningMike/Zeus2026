@@ -175,6 +175,7 @@ class Train():
        
     def save_state(self, name=None, train_finished=False, step_state=None):
     #-------------- My version
+        assert self.trainable, "Non-trainable train object cannot be saved."
         if name is None: name = 'train_state-' + self.get_train_id_string()
         checkpoint = {
             'model': self.model.state_dict(),
@@ -273,12 +274,12 @@ class Train():
 
         try:
             checkpoint_path = self.bayes_path / (name + '.pth')
-            checkpoint = torch.load(checkpoint_path)
+            checkpoint = torch.load(checkpoint_path, map_location="cpu")
             logging.info("Checkpoint loaded from the .pth file")
         except:
             try:
                 checkpoint_path = self.bayes_path / (name + '.pth.bak')     # Maybe the previous save.
-                checkpoint = torch.load(checkpoint_path)
+                checkpoint = torch.load(checkpoint_path, map_location="cpu")
                 logging.info("Checkpoint loaded from the .pth.bak file")
             except:
                 file_not_found = True
@@ -553,8 +554,8 @@ class Train():
             batch_x, batch_y, batch_diff, era5_data_vars = batch    # (B, T1FG, C, H, W), (B, T2FG, C, H, W), None or (B, C, H, W), (C,)
             if self.pm.include_difficulty:
                 pass
-            batch_x = batch_x[:, :, :, :self.pm.image_height, :self.pm.image_width] #.pin_memory()     # torch.float32, cpu
-            batch_y = batch_y[:, :, :, :self.pm.image_height, :self.pm.image_width] #.pin_memory()     # torch.float32, cpu
+            batch_x = batch_x[:, :, :, :self.pm.image_height, :self.pm.image_width].pin_memory()     # torch.float32, cpu
+            batch_y = batch_y[:, :, :, :self.pm.image_height, :self.pm.image_width].pin_memory()     # torch.float32, cpu
             era5_data_vars = era5_data_vars #.pin_memory() # torch.float32, cpu
 
             if self.pm.include_difficulty:
