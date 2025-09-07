@@ -11,7 +11,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.utils import check_dir
 from modules.zeus_tqdm import zeus_tqdm
-from models.Zeus import Zeus
+from models.Zeus import Zeus, DoubleZeus
 from modules.zeus_dataset import Zeus_Dataset
 import modules.utils as utils
 from modules.params import Params
@@ -52,8 +52,12 @@ class Train():
         # saved at the end of every epoch, 
         # loaded at the start of training, if saved earlier.
         # x_set is refreshed at every epoch, but not included.
-        self.model = Zeus(config, self.nDevices, device_type=self.device_type, trainable=self.trainable).float()   # The only place where the model is created.
-        logging.info("Zeus model created.")
+        if not self.pm.doubleZeus:
+            self.model = Zeus(config, self.nDevices, device_type=self.device_type, trainable=self.trainable).float()   # The only place where the model is created.
+            logging.info("Zeus model created.")
+        else:
+            self.model = DoubleZeus(config, self.nDevices, device_type=self.device_type, trainable=self.trainable, freeze_1st_half=self.pm.freeze_1st_half)
+            logging.info("DoubleZeus model created.")
 
         self.optimizer = self._select_optimizer()
         self.scheduler = self._select_scheduler(self.optimizer)
@@ -109,7 +113,7 @@ class Train():
         # If optimizer.step() happens after moving the model, the states will also be on Cuda 
         # because optimizer's state is created lazily when calling optimizer.step() first.
         optimizer = OptimizerClass(
-            self.model.parameters(),
+            filter(lambda p: p.requires_grad, self.model.parameters()),
             lr=lr,
             weight_decay=weight_decay
         )
@@ -216,10 +220,6 @@ class Train():
             # for name, param in self.model.named_parameters():
             #     print('--------------', name, param.device, param.dtype)
             logging.info("Model loaded with saved state")
-
-            # Ensure optimizer & scheduler exist before loading states
-            if not hasattr(self, 'optimizer') or not hasattr(self, 'scheduler'):
-                self.optimizer, self.scheduler = self._select_optimizer()
                 
             for param_group in self.optimizer.param_groups:
                 for p in param_group['params']:
@@ -300,40 +300,27 @@ class Train():
                 #     print('--------------', name, param.device, param.dtype)
                 logging.info("Model loaded with saved state")
                 
-                logging.info('----------------- trainable', self.trainable)
-                if not self.trainable:
-                    logging.info('--------------------- not trainable')
-                    self.model = self.model.to('cpu:0')
-
                 if self.trainable:
-                    if not hasattr(self, 'optimizer') or not hasattr(self, 'scheduler'):
-                        self.optimizer, self.scheduler = self._select_optimizer()
-                    self.optimizer.zero_grad()
-                    
-                    for param_group in self.optimizer.param_groups:
-                        for p in param_group['params']:
-                            if p in self.optimizer.state:
-                                for k, v in self.optimizer.state[p].items():
-                                    if isinstance(v, torch.Tensor):
-                                        self.optimizer.state[p][k] = v.to(p.device)       
+                    self.optimizer.load_state_dict(checkpoint['optimizer'])
                     logging.info("Optimizer loaded with saved state")
 
                     self.scheduler.load_state_dict(checkpoint['scheduler'])
-                    self.scaler.load_state_dict(checkpoint['scaler'])
                     logging.info("Scheduler loaded with saved state")
+                    self.scaler.load_state_dict(checkpoint['scaler'])
+                    logging.info("Scaler loaded with saved state")
 
-                self.rmses_old = checkpoint['rmses_old']
-                self.epochs_since_improvement = checkpoint['epochs_since_improvement']
-                logging.info("rmses_old and epochs_since_improvement loaded with saved values")
+                    self.rmses_old = checkpoint['rmses_old']
+                    self.epochs_since_improvement = checkpoint['epochs_since_improvement']
+                    logging.info("rmses_old and epochs_since_improvement loaded with saved values")
                 
-                if checkpoint.get('dataset', None) is not None:
-                    self.dataset.unpack_state(checkpoint['dataset'])
-                    logging.info("dataset state loaded with saved state")
+                    if checkpoint.get('dataset', None) is not None:
+                        self.dataset.unpack_state(checkpoint['dataset'])
+                        logging.info("dataset state loaded with saved state")
 
-                if checkpoint.get('step_state', None) is not None:
-                    step_state = checkpoint['step_state']
-                else:
-                    step_state = None
+                    if checkpoint.get('step_state', None) is not None:
+                        step_state = checkpoint['step_state']
+                    else:
+                        step_state = None
 
                 # print('----------- step_state loaded is ', step_state)
                 if step_state is not None:  # The previous session was terminated after a new step was finished and before an epoch is finished.

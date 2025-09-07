@@ -70,6 +70,9 @@ class Params:
         self.seed = config['seed']
         self.bayesProject = config['bayesProject']
         
+        self.doubleZeus = config['doubleZeus']
+        self.freeze_1st_half = config['freeze_1st_half']
+        
         if self.image_height % self.patch_size != 0:
             raise Exception("Image height must be divisible by the patch size: {}, {}".format(self.image_height, self.patch_size))
         if self.image_width % self.patch_size != 0:

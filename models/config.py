@@ -41,6 +41,9 @@ config = {
     'div_factor' : 10.0,
     'final_div_factor' : 10,
     'epoch_patience' : 3,       # Mike!!!
+    
+    'doubleZeus' : True,
+    'freeze_1st_half' : True,
 
     'seed': 523,
     'bayesProject' : 'production_0823_18' #'production_0823-18' #31_12',  #23-18  # Represents an instance of a whole bayesian miximization. Mike!!!
@@ -56,6 +59,7 @@ if platform.system() == "Windows":
     config['zeusLayers'] = 1
     config['epochs'] = 3
     config['steps_to_save'] = 5
+    config['doubleZeus'] = False
 else:   
     root_path = Path("/mnt/Data/Zeus_Data")
 
