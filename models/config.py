@@ -42,6 +42,7 @@ config = {
     'final_div_factor' : 10,
     'epoch_patience' : 3,       # Mike!!!
     
+    'multi_gpu_train' : False,
     'doubleZeus' : True,
     'freeze_1st_half' : True,
 

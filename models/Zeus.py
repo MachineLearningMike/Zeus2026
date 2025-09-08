@@ -309,7 +309,7 @@ class PatchEmbedWithPos(nn.Module):
         self.pos_embedding = nn.Parameter(pos_embedding)    # trainable
 
     def forward(self, x):
-        x = self.patch_embedding_layer(x)
+        x = self.to_patch_embedding(x)
         x = x + self.pos_embedding
         return x
 
@@ -338,8 +338,8 @@ class Zeus(nn.Module):
         
         self.patch_module = PatchEmbedWithPos(to_patch_embedding, pos_embedding)
                 
-        # if self.trainable:   # else: remain on cpu.
-        #     self.patch_module = self.patch_module.to(self.device_type + ':' + str(self.base_device))  # from the defalut devoce to the 1st device.
+        if self.pm.multi_gpu_train and self.trainable:   # else: remain on cpu.
+            self.patch_module = self.patch_module.to(self.device_type + ':' + str(self.base_device))  # from the defalut devoce to the 1st device.
 
         #-------------- zeus layers -------------------------
         if self.nDevices > 1: 
@@ -348,9 +348,9 @@ class Zeus(nn.Module):
             ZeusLayer(self.pm)
             for i in range(self.pm.zeusLayers)
         ])
-        # if self.trainable:   # else: remain on cpu
-        #     for idx, layer in enumerate(self.zeusLayers):
-        #         layer = layer.to(self.device_type + ':' + str(self.base_device + min(self.nDevices-1, idx)))  # to the i-th device
+        if self.pm.multi_gpu_train and self.trainable:   # else: remain on cpu.
+            for idx, layer in enumerate(self.zeusLayers):
+                layer = layer.to(self.device_type + ':' + str(self.base_device + min(self.nDevices-1, idx)))  # to the i-th device
             
         # self.reduce_frames = nn.Sequential(
         #     Rearrange('b t p d -> b p d t'),
@@ -366,7 +366,7 @@ class Zeus(nn.Module):
         #         nn.Conv2d(self.pm.nFramesIn, self.pm.nFramesOut, 3, 1, 1),       # (B, H/p * W/p, dim, 1FG)
         #         Rearrange('(b d) t h w -> b t (h w) d', d=self.pm.dim)
         #     )
-        #     if self.trainable:  # else: remain on cpu
+        #     if self.pm.multi_gpu_train and self.trainable:   # else: remain on cpu.
         #         self.reduce_frames = self.reduce_frames.to(self.device_type + ':' + str(self.base_device + self.pm.zeusLayers-1)) # to the last device
 
         #--------------- ffn --------------------------------
@@ -374,8 +374,8 @@ class Zeus(nn.Module):
             nn.LayerNorm(self.pm.dim),
             nn.Linear(self.pm.dim, self.pm.nChannels * self.pm.patch_size ** 2)  # just restore.
         )
-        # if self.trainable:   # else: remain on cpu
-        #     self.mlp_head = self.mlp_head.to(self.device_type + ':' + str(self.base_device + self.pm.zeusLayers-1))    # to the last device
+        if self.pm.multi_gpu_train and self.trainable:   # else: remain on cpu.
+            self.mlp_head = self.mlp_head.to(self.device_type + ':' + str(self.base_device + self.pm.zeusLayers-1))    # to the last device
 
         #---------------- flag it ---------------------------
         if self.nDevices > 1: self.deployed_to_devices = True
@@ -386,16 +386,17 @@ class Zeus(nn.Module):
     def forward(self, x):
         B, T1FG, C, H, W = x.shape
         inference_device = self.device_type + ':0'
+        x = x.to(inference_device)
             
         if self.trainable:
             device = next(self.patch_module.parameters()).device
             x = x.to(device)
             x = self.patch_module(x)  # (B, T1FG, H/p * W/p, self.patch_dim = p * p * C) -> (B, T1FG, H/p * W/p, dim)
         else:
-            layer_gpu = self.patch_module.to(inference_device)
-            x_gpu = x.to(inference_device)
-            x = layer_gpu(x_gpu).to('cpu:0')
-            del layer_gpu; del x_gpu; torch.cuda.empty_cache()
+            layer = self.patch_module.to(inference_device)  # layer is not a copy.
+            x = layer(x)
+            layer.to('cpu:0')
+            torch.cuda.empty_cache()
 
         for idx, layer in enumerate(self.zeusLayers):
             # !!! This line fails to mitigate memory peak !!!
@@ -406,10 +407,10 @@ class Zeus(nn.Module):
                 x = x.to(device)
                 x = layer(x)
             else:
-                layer_gpu = layer.to(inference_device)
-                x_gpu = x.to(inference_device)
-                x = layer_gpu(x_gpu).to('cpu:0')
-                del layer_gpu; del x_gpu; torch.cuda.empty_cache()
+                layer.to(inference_device)
+                x = layer(x)
+                layer.to('cpu:0')
+                torch.cuda.empty_cache()
  
         # # Reduce frames
         # if self.pm.nFramesIn != self.pm.nFramesOut:
@@ -429,10 +430,11 @@ class Zeus(nn.Module):
             x = x.to(device)
             x = self.mlp_head(x.reshape(-1, self.pm.dim))
         else:
-            layer_gpu = self.mlp_head.to(inference_device)
-            x_gpu = x.reshape(-1, self.pm.dim).to(inference_device)
-            x = layer_gpu(x_gpu).to('cpu:0')
-            del layer_gpu; del x_gpu; torch.cuda.empty_cache()
+            layer = self.mlp_head.to(inference_device)
+            x = x.reshape(-1, self.pm.dim)
+            x = layer(x)
+            layer.to('cpu:0')
+            torch.cuda.empty_cache()
 
         x = x.view(B, self.pm.nFramesOut, self.pm.nPatches_h, self.pm.nPatches_w, C, self.pm.patch_size, self.pm.patch_size)
         x = x.permute(0, 1, 4, 2, 5, 3, 6).reshape(B, self.pm.nFramesOut, C, H, W)
@@ -446,6 +448,7 @@ class DoubleZeus(nn.Module):
         self.zeus2 = Zeus(config, nDevices=nDevices//2, device_type=device_type, base_device=nDevices//2, trainable=trainable)
         
         self.deployed_to_devices = self.zeus1.deployed_to_devices and self.zeus2.deployed_to_devices
+        self.modules = self.get_modules()
         
         if freeze_1st_half:
             self.zeus1.eval()
@@ -459,6 +462,81 @@ class DoubleZeus(nn.Module):
         x = self.zeus1(x)
         x = self.zeus2(x)
         return x
+    
+    def single_gpu_inference(self, x):        
+        x = x.to("cuda:0")  # input on GPU
+
+        for i, module in enumerate(self.modules):
+            module.to("cuda:0")
+            with torch.set_grad_enabled(False):
+                x = module(x)
+                module.to("cpu:0")       # move module back to CPU
+                torch.cuda.empty_cache()
+        return x.to("cpu:0")
+    
+    def single_gpu_forth_and_back(self, data, target, loss_fn, nFirstFrozenModules):
+        # data, target = data.to("cpu"), target.to("cpu")
+        acts_cpu = []
+        x = data.to("cuda:0")  # input on GPU
+        
+        # ---------------- Forward Pass ----------------
+        for i, module in enumerate(self.modules):
+            module.to("cuda:0")
+
+            if i < len(self.modules) - 1:
+                with torch.no_grad():
+                    x = module(x)       # intermediate module, no grad
+                x = x.detach()          # safe, disconnect from graph
+                acts_cpu.append(x.cpu())  # save for recomputation
+                module.to("cpu")
+                torch.cuda.empty_cache()
+            else:
+                # Last module
+                final_input = x
+                final_module = module
+                final_input.requires_grad_(True)   # leaf tensor
+                final_out = final_module(final_input)    # compute output with grad
+
+        # ---------------- Backward Pass ----------------
+        # 1) Last module and loss
+        loss = loss_fn(final_out, target.to('cuda:0'))
+        loss.backward()                         # grads for last module & final_input
+        final_module.to("cpu")                  # Safe place to move back.
+        grad_next = final_input.grad.detach().cpu()
+
+        # 2) Recompute previous modules in reverse
+        for i in reversed(range(len(self.modules)-1)):
+            if i < nFirstFrozenModules: continue
+            
+            # Comment out this block, as modules[i] is not frozen now.
+            # if not any(p.requires_grad for p in modules[i].parameters()):
+            #     # frozen: recompute output without tracking grads
+            #     with torch.no_grad():
+            #         out = module(prev_act.to("cuda:0"))
+            #     # propagate gradient to input
+            #     prev_act.requires_grad_(True)
+            #     out.backward(grad_next.to(out.device))
+            #     grad_next = prev_act.grad.detach().cpu()
+            #     del out, prev_act            
+            #     continue
+
+            module = self.modules[i]
+            module.to("cuda:0")
+
+            prev_act = acts_cpu[i-1].to("cuda:0") if i > 0 else data.to("cuda:0")
+            prev_act.requires_grad_(True)
+
+            with torch.set_grad_enabled(True):
+                out = module(prev_act)
+                if grad_next is None:
+                    grad_next = torch.ones_like(out)
+                out.backward(grad_next.to(out.device))
+
+            grad_next = prev_act.grad.detach().cpu()
+            del out, prev_act
+            torch.cuda.empty_cache()
+            module.to("cpu")
+
     
     def load_state_dict(self, state_dict, strict=True):
         # Detect if state_dict belongs to a single Zeus model

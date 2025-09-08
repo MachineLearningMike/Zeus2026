@@ -609,7 +609,7 @@ class Train():
                 self.optimizer.zero_grad()
                 
             # self.compare_save_load()     # All True.
-            self.scheduler.step()   # Our scheduler is OneCycleLR, which is a per-batch scheduler
+            # self.scheduler.step()   # Our scheduler is OneCycleLR, which is a per-batch scheduler
             step_loss = torch.tensor(step_loss).mean()   # (,)
             step_rmses = torch.stack(step_rmses, dim=0).mean(dim=0)   # (C,)
             strC = ", ".join(f"{x:.3f}" for x in step_rmses.ravel().tolist())
@@ -628,6 +628,7 @@ class Train():
         strC = ", ".join(f"{x:.2f}" for x in _epoch_rmses.ravel().tolist())
         pbar.set_description('Loss: {:.3f}, rmses: {}'.format(_epoch_loss.item(), strC))
         pbar.stop_prefetch_thread()
+        self.scheduler.step()   # Our scheduler is not a OneCycleLR, which is a per-batch scheduler
         
         if trainable is True: 
             self.save_state()   # Epoch_save. No step_state saved.
