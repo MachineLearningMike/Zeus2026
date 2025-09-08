@@ -32,7 +32,7 @@ config = {
     'steps_to_save' : 100,
     'batch_size' : 1,
     'log_step': 10,
-    'optimizer': 'adamw',
+    'optimizer': 'adam',    # 'adamw' takes more momory for optimizer.
     'lr' : 1e-7,    #
     'max_lr' : 2e-7,
     'weight_decay': 0.0,    # disable weight_decay, in AdamW
