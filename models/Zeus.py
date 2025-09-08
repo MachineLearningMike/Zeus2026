@@ -300,6 +300,18 @@ class ZeusLayer(nn.Module):
         x = rearrange(x, '(b n) t d -> b t n d', b=b)         # (B, T, N, dim)
         
         return x
+    
+class PatchEmbedWithPos(nn.Module):
+    def __init__(self, patch_embedding_layer, pos_embedding):
+        super().__init__()
+        # Assign with the name you want in state_dict
+        self.patch_embedding_layer = patch_embedding_layer  # nn.Linear
+        self.pos_embedding = nn.Parameter(pos_embedding)    # trainable
+
+    def forward(self, x):
+        x = self.patch_embedding_layer(x)
+        x = x + self.pos_embedding
+        return x
 
 class Zeus(nn.Module):
     def __init__(self, config, nDevices, device_type='cuda', base_device=0, trainable=True):
@@ -313,24 +325,21 @@ class Zeus(nn.Module):
 
         #--------------- token embedding ---------------
         # We need to enable more complex non-linearity here.
-        self.to_patch_embedding = nn.Sequential(
+        to_patch_embedding = nn.Sequential(
             Rearrange('b t c (h p1) (w p2) -> b t (h w) (p1 p2 c)', p1=self.pm.patch_size, p2=self.pm.patch_size),
             nn.Linear(self.pm.patch_dim, 2 * self.pm.dim),
             nn.Tanh(),
             nn.Linear(2 * self.pm.dim, self.pm.dim),
             )
-        if self.trainable:   # else: remain on cpu.
-            self.to_patch_embedding = self.to_patch_embedding.to(self.device_type + ':' + str(self.base_device))  # from the defalut devoce to the 1st device.
-                    
         #-------------- positional embedding ----------------
         # pe: (self.pm.nFramesId, self.pm.nPatches_h, self.pm.nPatches_w, self.pm.dim)
         pe = sinusoidal_embedding(self.pm.nFramesIn * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.dim)
-        self.pos_embedding = nn.Parameter(rearrange(pe, '(t n) dim -> 1 t n dim', t=self.pm.nFramesIn))
-
-        # pe = sinusoidal_embedding_3d((self.pm.nFramesIn, self.pm.nPatches_h, self.pm.nPatches_w), self.pm.dim)
-        # self.pos_embedding = nn.Parameter(rearrange(pe, 't h w dim -> 1 t (h w) dim'))
-        if self.trainable:   #else: remain on cpu
-            self.pos_embedding = nn.Parameter(self.pos_embedding.to(self.device_type + ':' + str(self.base_device))) # from the defalut devoce to the 1st device.
+        pos_embedding = rearrange(pe, '(t n) dim -> 1 t n dim', t=self.pm.nFramesIn)
+        
+        self.patch_module = PatchEmbedWithPos(to_patch_embedding, pos_embedding)
+                
+        if self.trainable:   # else: remain on cpu.
+            self.patch_module = self.patch_module.to(self.device_type + ':' + str(self.base_device))  # from the defalut devoce to the 1st device.
 
         #-------------- zeus layers -------------------------
         if self.nDevices > 1: 
@@ -349,15 +358,16 @@ class Zeus(nn.Module):
         #     Rearrange('b p d t -> b t p d')
         # )
         
-        #--------------- reduce -----------------------------
-        if self.pm.nFramesIn != self.pm.nFramesOut:
-            self.reduce_frames = nn.Sequential(
-                Rearrange('b t (h w) d -> (b d) t h w', h=self.pm.nPatches_h),
-                nn.Conv2d(self.pm.nFramesIn, self.pm.nFramesOut, 3, 1, 1),       # (B, H/p * W/p, dim, 1FG)
-                Rearrange('(b d) t h w -> b t (h w) d', d=self.pm.dim)
-            )
-            if self.trainable:  # else: remain on cpu
-                self.reduce_frames = self.reduce_frames.to(self.device_type + ':' + str(self.base_device + self.pm.zeusLayers-1)) # to the last device
+        assert self.pm.nFramesIn == self.pm.nFramesOut
+        # #--------------- reduce -----------------------------
+        # if self.pm.nFramesIn != self.pm.nFramesOut:
+        #     self.reduce_frames = nn.Sequential(
+        #         Rearrange('b t (h w) d -> (b d) t h w', h=self.pm.nPatches_h),
+        #         nn.Conv2d(self.pm.nFramesIn, self.pm.nFramesOut, 3, 1, 1),       # (B, H/p * W/p, dim, 1FG)
+        #         Rearrange('(b d) t h w -> b t (h w) d', d=self.pm.dim)
+        #     )
+        #     if self.trainable:  # else: remain on cpu
+        #         self.reduce_frames = self.reduce_frames.to(self.device_type + ':' + str(self.base_device + self.pm.zeusLayers-1)) # to the last device
 
         #--------------- ffn --------------------------------
         self.mlp_head = nn.Sequential(
@@ -376,23 +386,13 @@ class Zeus(nn.Module):
         inference_device = self.device_type + ':0'
             
         if self.trainable:
-            device = next(self.to_patch_embedding.parameters()).device
+            device = next(self.patch_module.parameters()).device
             x = x.to(device)
-            x = self.to_patch_embedding(x)  # (B, T1FG, H/p * W/p, self.patch_dim = p * p * C) -> (B, T1FG, H/p * W/p, dim)
+            x = self.patch_module(x)  # (B, T1FG, H/p * W/p, self.patch_dim = p * p * C) -> (B, T1FG, H/p * W/p, dim)
         else:
-            layer_gpu = self.to_patch_embedding.to(inference_device)
+            layer_gpu = self.patch_module.to(inference_device)
             x_gpu = x.to(inference_device)
             x = layer_gpu(x_gpu).to('cpu:0')
-            del layer_gpu; del x_gpu; torch.cuda.empty_cache()
-        
-        if self.trainable:
-            device = self.pos_embedding.device
-            x = x.to(device)
-            x += (self.pos_embedding.to(x.device))    # pos_embedding: (1, T1FG * H/p * W/p, dim) -> (1, T1FG, H/p * W/p, dim) 
-        else:
-            layer_gpu = self.pos_embedding.to(inference_device)
-            x_gpu = x.to(inference_device)
-            x = (layer_gpu + x_gpu).to('cpu:0')
             del layer_gpu; del x_gpu; torch.cuda.empty_cache()
 
         for idx, layer in enumerate(self.zeusLayers):
@@ -409,17 +409,17 @@ class Zeus(nn.Module):
                 x = layer_gpu(x_gpu).to('cpu:0')
                 del layer_gpu; del x_gpu; torch.cuda.empty_cache()
  
-        # Reduce frames
-        if self.pm.nFramesIn != self.pm.nFramesOut:
-            if self.trainable:
-                device = next(self.reduce_frames.parameters()).device
-                x = x.to(device)
-                x = self.reduce_frames(x)   # (B, FG, H/p * W/p, dim)
-            else:
-                layer_gpu = self.reduce_frames.to(inference_device)
-                x_gpu = x.to(inference_device)
-                x = layer_gpu(x_gpu).to('cpu:0')
-                del layer_gpu; del x_gpu; torch.cuda.empty_cache()
+        # # Reduce frames
+        # if self.pm.nFramesIn != self.pm.nFramesOut:
+        #     if self.trainable:
+        #         device = next(self.reduce_frames.parameters()).device
+        #         x = x.to(device)
+        #         x = self.reduce_frames(x)   # (B, FG, H/p * W/p, dim)
+        #     else:
+        #         layer_gpu = self.reduce_frames.to(inference_device)
+        #         x_gpu = x.to(inference_device)
+        #         x = layer_gpu(x_gpu).to('cpu:0')
+        #         del layer_gpu; del x_gpu; torch.cuda.empty_cache()
                 
         # MLP head
         if self.trainable:
