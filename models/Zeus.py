@@ -302,10 +302,10 @@ class ZeusLayer(nn.Module):
         return x
     
 class PatchEmbedWithPos(nn.Module):
-    def __init__(self, patch_embedding_layer, pos_embedding):
+    def __init__(self, to_patch_embedding, pos_embedding):
         super().__init__()
         # Assign with the name you want in state_dict
-        self.patch_embedding_layer = patch_embedding_layer  # nn.Linear
+        self.to_patch_embedding = to_patch_embedding  # nn.Linear
         self.pos_embedding = nn.Parameter(pos_embedding)    # trainable
 
     def forward(self, x):
@@ -338,8 +338,8 @@ class Zeus(nn.Module):
         
         self.patch_module = PatchEmbedWithPos(to_patch_embedding, pos_embedding)
                 
-        if self.trainable:   # else: remain on cpu.
-            self.patch_module = self.patch_module.to(self.device_type + ':' + str(self.base_device))  # from the defalut devoce to the 1st device.
+        # if self.trainable:   # else: remain on cpu.
+        #     self.patch_module = self.patch_module.to(self.device_type + ':' + str(self.base_device))  # from the defalut devoce to the 1st device.
 
         #-------------- zeus layers -------------------------
         if self.nDevices > 1: 
@@ -348,9 +348,9 @@ class Zeus(nn.Module):
             ZeusLayer(self.pm)
             for i in range(self.pm.zeusLayers)
         ])
-        if self.trainable:   # else: remain on cpu
-            for idx, layer in enumerate(self.zeusLayers):
-                layer = layer.to(self.device_type + ':' + str(self.base_device + min(self.nDevices-1, idx)))  # to the i-th device
+        # if self.trainable:   # else: remain on cpu
+        #     for idx, layer in enumerate(self.zeusLayers):
+        #         layer = layer.to(self.device_type + ':' + str(self.base_device + min(self.nDevices-1, idx)))  # to the i-th device
             
         # self.reduce_frames = nn.Sequential(
         #     Rearrange('b t p d -> b p d t'),
@@ -374,12 +374,14 @@ class Zeus(nn.Module):
             nn.LayerNorm(self.pm.dim),
             nn.Linear(self.pm.dim, self.pm.nChannels * self.pm.patch_size ** 2)  # just restore.
         )
-        if self.trainable:   # else: remain on cpu
-            self.mlp_head = self.mlp_head.to(self.device_type + ':' + str(self.base_device + self.pm.zeusLayers-1))    # to the last device
+        # if self.trainable:   # else: remain on cpu
+        #     self.mlp_head = self.mlp_head.to(self.device_type + ':' + str(self.base_device + self.pm.zeusLayers-1))    # to the last device
 
         #---------------- flag it ---------------------------
         if self.nDevices > 1: self.deployed_to_devices = True
-
+        
+    def get_modules(self):
+        return [self.patch_module] + list(self.zeusLayers) + [self.mlp_head]
 
     def forward(self, x):
         B, T1FG, C, H, W = x.shape
@@ -436,6 +438,38 @@ class Zeus(nn.Module):
         x = x.permute(0, 1, 4, 2, 5, 3, 6).reshape(B, self.pm.nFramesOut, C, H, W)
 
         return x    # (B,FG,C,H,W)
+    
+class DoubleZeus(nn.Module):
+    def __init__(self, config, nDevices, device_type='cuda', trainable=True, freeze_1st_half=True):
+        super().__init__()
+        self.zeus1 = Zeus(config, nDevices=nDevices//2, device_type=device_type, base_device=0, trainable=trainable)
+        self.zeus2 = Zeus(config, nDevices=nDevices//2, device_type=device_type, base_device=nDevices//2, trainable=trainable)
+        
+        self.deployed_to_devices = self.zeus1.deployed_to_devices and self.zeus2.deployed_to_devices
+        
+        if freeze_1st_half:
+            self.zeus1.eval()
+            for param in self.zeus1.parameters():
+                param.requires_grad = False
+                
+    def get_modules(self):  # on either (distributed) GPU(s) on CPU(s)
+        return self.zeus1.get_modules() + self.zeus2.get_modules()
+    
+    def forward(self, x):
+        x = self.zeus1(x)
+        x = self.zeus2(x)
+        return x
+    
+    def load_state_dict(self, state_dict, strict=True):
+        # Detect if state_dict belongs to a single Zeus model
+        sample_keys = list(state_dict.keys())
+        if sample_keys and all(not k.startswith("zeus2") for k in sample_keys):
+            # assume it's a single Zeus, load into zeus1
+            return self.zeus1.load_state_dict(state_dict, strict=strict)
+        else:
+            # default behavior: load as usual
+            return super().load_state_dict(state_dict, strict=strict)
+        
 
 if __name__ == "__main__":
     from fvcore.nn import FlopCountAnalysis, flop_count_table
@@ -453,28 +487,3 @@ if __name__ == "__main__":
     print(f'Number of flops: {flop_count_table(flops)}')
 
 
-class DoubleZeus(nn.Module):
-    def __init__(self, config, nDevices, device_type='cuda', trainable=True, freeze_1st_half=True):
-        super().__init__()
-        self.zeus1 = Zeus(config, nDevices=nDevices//2, device_type=device_type, base_device=0, trainable=trainable)
-        self.zeus2 = Zeus(config, nDevices=nDevices//2, device_type=device_type, base_device=nDevices//2, trainable=trainable)
-        
-        if freeze_1st_half:
-            self.zeus1.eval()
-            for param in self.zeus1.parameters():
-                param.requires_grad = False
-    
-    def forward(self, x):
-        x = self.zeus1(x)
-        x = self.zeus2(x)
-        return x
-    
-    def load_state_dict(self, state_dict, strict=True):
-        # Detect if state_dict belongs to a single Zeus model
-        sample_keys = list(state_dict.keys())
-        if sample_keys and all(not k.startswith("zeus2") for k in sample_keys):
-            # assume it's a single Zeus, load into zeus1
-            return self.zeus1.load_state_dict(state_dict, strict=strict)
-        else:
-            # default behavior: load as usual
-            return super().load_state_dict(state_dict, strict=strict)

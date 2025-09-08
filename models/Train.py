@@ -34,7 +34,7 @@ class Train():
         self.dataset = Zeus_Dataset(config, root_path)
         logging.info("Zeus_Dataset created.")
         self.device_type, self.nDevices, self.device = self._acquire_device()
-        if self.trainable: assert self.nDevices == self.pm.zeusLayers
+        # if self.trainable: assert self.nDevices == self.pm.zeusLayers
         
         #---------- Loss ----------------
         min_sota_delta = torch.tensor([value for (key, value) in REWARD_IMPROVEMENT_MIN_DELTA.items() if key in self.pm.variables])  # (C,)
@@ -295,32 +295,63 @@ class Train():
             try:
                 # Load model parameters
                 epoch = checkpoint['epoch']
+
+                # old_ckpt = checkpoint['model']
+                # new_state_dict = self.model.state_dict()
+                # keys_to_prefix = ["to_patch_embedding",
+                #                 "pos_embedding"]
+                # prefix1 = "zeus1.patch_module."
+                # prefic2 = "zeus1."
+                
+                # remapped_ckpt = {}       
+                # for k, v in old_ckpt.items():
+                #     target = False
+                #     for key in keys_to_prefix:
+                #         if k.startswith(key):
+                #             target = True; break                    
+                #     if target:
+                #         new_key = prefix1 + k
+                #     else:
+                #         new_key = prefic2 + k
+                #     target = False
+                #     for key in new_state_dict.keys():
+                #         if key.startswith(new_key):
+                #             target = True; break
+                #     if target:        
+                #         remapped_ckpt[new_key] = v
+                #     else:
+                #         print(f"Skipping {new_key}, not found in model")
+                
+                # new_state_dict.update(remapped_ckpt)
+                # self.model.load_state_dict(new_state_dict)
+
                 self.model.load_state_dict(checkpoint['model'])
-                # for name, param in self.model.named_parameters():
-                #     print('--------------', name, param.device, param.dtype)
                 logging.info("Model loaded with saved state")
                 
                 step_state = None
                 
-                if self.trainable and False:
-                    self.optimizer.load_state_dict(checkpoint['optimizer'])
-                    logging.info("Optimizer loaded with saved state")
+                if self.trainable:
+                    try:
+                        self.optimizer.load_state_dict(checkpoint['optimizer'])
+                        logging.info("Optimizer loaded with saved state")
 
-                    self.scheduler.load_state_dict(checkpoint['scheduler'])
-                    logging.info("Scheduler loaded with saved state")
-                    self.scaler.load_state_dict(checkpoint['scaler'])
-                    logging.info("Scaler loaded with saved state")
+                        self.scheduler.load_state_dict(checkpoint['scheduler'])
+                        logging.info("Scheduler loaded with saved state")
+                        self.scaler.load_state_dict(checkpoint['scaler'])
+                        logging.info("Scaler loaded with saved state")
 
-                    self.rmses_old = checkpoint['rmses_old']
-                    self.epochs_since_improvement = checkpoint['epochs_since_improvement']
-                    logging.info("rmses_old and epochs_since_improvement loaded with saved values")
-                
-                    if checkpoint.get('dataset', None) is not None:
-                        self.dataset.unpack_state(checkpoint['dataset'])
-                        logging.info("dataset state loaded with saved state")
+                        self.rmses_old = checkpoint['rmses_old']
+                        self.epochs_since_improvement = checkpoint['epochs_since_improvement']
+                        logging.info("rmses_old and epochs_since_improvement loaded with saved values")
+                    
+                        if checkpoint.get('dataset', None) is not None:
+                            self.dataset.unpack_state(checkpoint['dataset'])
+                            logging.info("dataset state loaded with saved state")
 
-                    if checkpoint.get('step_state', None) is not None:
-                        step_state = checkpoint['step_state']
+                        if checkpoint.get('step_state', None) is not None:
+                            step_state = checkpoint['step_state']
+
+                    except: pass
 
                 # print('----------- step_state loaded is ', step_state)
                 if step_state is not None:  # The previous session was terminated after a new step was finished and before an epoch is finished.

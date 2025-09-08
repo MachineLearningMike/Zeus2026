@@ -115,7 +115,7 @@ class Trainer():
         self.pm = Params(self.config)
 
         self.train = Train(self.config, self.root_path, self.bayes_path, trainable=True)
-        epoch, step_state = self.train.try_load_state()     
+        epoch, step_state = self.train.try_load_state()
 
         profit = self.run_train(start_epoch=epoch, step_state=step_state)
 
