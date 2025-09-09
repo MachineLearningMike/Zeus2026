@@ -337,7 +337,7 @@ class Zeus(nn.Module):
         pos_embedding = rearrange(pe, '(t n) dim -> 1 t n dim', t=self.pm.nFramesIn)
         
         self.patch_module = PatchEmbedWithPos(to_patch_embedding, pos_embedding)
-                
+
         if self.pm.multi_gpu_train and self.trainable:   # else: remain on cpu.
             self.patch_module = self.patch_module.to(self.device_type + ':' + str(self.base_device))  # from the defalut devoce to the 1st device.
 
@@ -474,7 +474,9 @@ class DoubleZeus(nn.Module):
                 torch.cuda.empty_cache()
         return x.to("cpu:0")
     
-    def single_gpu_forth_and_back(self, data, target, loss_fn, nFirstFrozenModules):
+    def single_gpu_forth_and_back(self, data, target, loss_fn, denormal_fn, batch_diff, era5_data_vars):
+        nFirstFrozenModules = len(self.modules) // 2 if self.pm.freeze_1st_half else 0
+        
         # data, target = data.to("cpu"), target.to("cpu")
         acts_cpu = []
         x = data.to("cuda:0")  # input on GPU
@@ -499,7 +501,11 @@ class DoubleZeus(nn.Module):
 
         # ---------------- Backward Pass ----------------
         # 1) Last module and loss
-        loss = loss_fn(final_out, target.to('cuda:0'))
+        target = target.to('cuda:0')
+        final_out = denormal_fn(final_out)
+        target = denormal_fn(target)
+        lossAndMetrics = loss_fn(final_out, target, batch_diff, era5_data_vars)     
+        loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
         loss.backward()                         # grads for last module & final_input
         final_module.to("cpu")                  # Safe place to move back.
         grad_next = final_input.grad.detach().cpu()
@@ -536,6 +542,8 @@ class DoubleZeus(nn.Module):
             del out, prev_act
             torch.cuda.empty_cache()
             module.to("cpu")
+            
+        return lossAndMetrics
 
     
     def load_state_dict(self, state_dict, strict=True):

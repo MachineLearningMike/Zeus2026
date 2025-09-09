@@ -59,6 +59,9 @@ class Train():
             self.model = DoubleZeus(config, self.nDevices, device_type=self.device_type, trainable=self.trainable, freeze_1st_half=self.pm.freeze_1st_half)
             logging.info("DoubleZeus model created.")
 
+        # Change device before creating optimizer.
+        if not self.model.deployed_to_devices: self.model.to(self.device)   # if a single GPU, move all to the GPU
+        
         self.optimizer = self._select_optimizer()
         self.scheduler = self._select_scheduler(self.optimizer)
         self.scaler = GradScaler(device=self.device)
@@ -545,8 +548,7 @@ class Train():
         gc.collect()
         torch.cuda.empty_cache()
         self.model.train(trainable)
-
-        if not self.model.deployed_to_devices: self.model.to(self.device)
+       
         if step_state is not None:
             logging.info("Contiuing saved epoch...")
         else:
@@ -589,11 +591,11 @@ class Train():
             step_loss = []; step_rmses = []
 
             for t2 in range(1): # range(T2):    Mike!!!
+                target = batch_y[:, t2*FG:(t2+1)*FG, :,:] #.to(self.device)   # (B,FG,C,H,W)  # torch.float32, cuda, False
                 with autocast(device_type=self.device_type, dtype=torch.bfloat16):
-                    pred = pred.detach().to(self.device, non_blocking=True)
+                    pred = pred.detach() #.to(self.device, non_blocking=True)
                     with torch.set_grad_enabled(trainable):
                         pred = self.model(pred)
-                    target = batch_y[:, t2*FG:(t2+1)*FG, :,:] #.to(self.device)   # (B,FG,C,H,W)  # torch.float32, cuda, False
                     pred = self.dataset.unnormalize(pred)   # torch.float32 !!!, cuda, True !!!
                     target = self.dataset.unnormalize(target)   # torch.float32, cuda, False
                     loss, rmse = self.loss(target, pred, batch_diff, era5_data_vars)  #.to(self.device)) # (,), (C,), torch.float32, cuda, True !!!
@@ -609,7 +611,7 @@ class Train():
                 self.optimizer.zero_grad()
                 
             # self.compare_save_load()     # All True.
-            # self.scheduler.step()   # Our scheduler is OneCycleLR, which is a per-batch scheduler
+            self.scheduler.step()   # Our scheduler is OneCycleLR, which is a per-batch scheduler
             step_loss = torch.tensor(step_loss).mean()   # (,)
             step_rmses = torch.stack(step_rmses, dim=0).mean(dim=0)   # (C,)
             strC = ", ".join(f"{x:.3f}" for x in step_rmses.ravel().tolist())
@@ -628,7 +630,6 @@ class Train():
         strC = ", ".join(f"{x:.2f}" for x in _epoch_rmses.ravel().tolist())
         pbar.set_description('Loss: {:.3f}, rmses: {}'.format(_epoch_loss.item(), strC))
         pbar.stop_prefetch_thread()
-        self.scheduler.step()   # Our scheduler is not a OneCycleLR, which is a per-batch scheduler
         
         if trainable is True: 
             self.save_state()   # Epoch_save. No step_state saved.
