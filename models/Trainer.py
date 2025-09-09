@@ -87,7 +87,7 @@ class Trainer():
         self.config['heads'] = heads
         self.config['attLayers'] = attLayers
         self.config['zeusLayers'] = zeusLayers
-        logging.info("Trainer is configured with new hyper-parameters. patch_size {}, heads {}, attLayers {}, zeusLayers {}" \
+        logging.info("Trainer configured with new hyper-parameters. patch_size {}, heads {}, attLayers {}, zeusLayers {}" \
                     .format(patch_size, heads, attLayers, zeusLayers))
         
         self.config['hypers'] = {'patch_size': patch_size, 'heads': heads, 'attLayers': attLayers, 'zeusLayers': zeusLayers}
@@ -108,7 +108,7 @@ class Trainer():
         self.config['heads'] = heads
         self.config['attLayers'] = attLayers
         self.config['zeusLayers'] = zeusLayers
-        logging.info("Trainer is configured with new hyper-parameters. patch_size {}, heads {}, attLayers {}, zeusLayers {}" \
+        logging.info("Trainer configured with new hyper-parameters. patch_size {}, heads {}, attLayers {}, zeusLayers {}" \
                     .format(patch_size, heads, attLayers, zeusLayers))
         
         self.config['hypers'] = {'patch_size': patch_size, 'heads': heads, 'attLayers': attLayers, 'zeusLayers': zeusLayers}

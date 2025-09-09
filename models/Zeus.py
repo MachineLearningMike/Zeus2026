@@ -321,7 +321,9 @@ class Zeus(nn.Module):
         self.device_type = device_type
         self.base_device = base_device
         self.trainable = trainable
-        self.deployed_to_devices = False
+
+        def dstring(device_type, id):
+            return device_type + ':' + str(id)
 
         #--------------- token embedding ---------------
         # We need to enable more complex non-linearity here.
@@ -338,8 +340,8 @@ class Zeus(nn.Module):
         
         self.patch_module = PatchEmbedWithPos(to_patch_embedding, pos_embedding)
 
-        if self.pm.multi_gpu_train and self.trainable:   # else: remain on cpu.
-            self.patch_module = self.patch_module.to(self.device_type + ':' + str(self.base_device))  # from the defalut devoce to the 1st device.
+        if self.trainable:   # else: remain on cpu.
+            self.patch_module = self.patch_module.to(dstring(self.device_type, self.base_device))  # from the defalut devoce to the 1st device.
 
         #-------------- zeus layers -------------------------
         if self.nDevices > 1: 
@@ -348,9 +350,9 @@ class Zeus(nn.Module):
             ZeusLayer(self.pm)
             for i in range(self.pm.zeusLayers)
         ])
-        if self.pm.multi_gpu_train and self.trainable:   # else: remain on cpu.
+        if self.trainable:   # else: remain on cpu.
             for idx, layer in enumerate(self.zeusLayers):
-                layer = layer.to(self.device_type + ':' + str(self.base_device + min(self.nDevices-1, idx)))  # to the i-th device
+                layer = layer.to(dstring(self.device_type, self.base_device + min(self.nDevices - self.base_device - 1, idx)))  # to the i-th device
             
         # self.reduce_frames = nn.Sequential(
         #     Rearrange('b t p d -> b p d t'),
@@ -367,7 +369,7 @@ class Zeus(nn.Module):
         #         Rearrange('(b d) t h w -> b t (h w) d', d=self.pm.dim)
         #     )
         #     if self.pm.multi_gpu_train and self.trainable:   # else: remain on cpu.
-        #         self.reduce_frames = self.reduce_frames.to(self.device_type + ':' + str(self.base_device + self.pm.zeusLayers-1)) # to the last device
+        #         self.reduce_frames = self.reduce_frames.to(dstring(self.device_type, self.base_device + min(self.nDevices - self.base_device - 1, self.pm.zeusLayers-1))) # to the last device
 
         #--------------- ffn --------------------------------
         self.mlp_head = nn.Sequential(
@@ -375,10 +377,7 @@ class Zeus(nn.Module):
             nn.Linear(self.pm.dim, self.pm.nChannels * self.pm.patch_size ** 2)  # just restore.
         )
         if self.pm.multi_gpu_train and self.trainable:   # else: remain on cpu.
-            self.mlp_head = self.mlp_head.to(self.device_type + ':' + str(self.base_device + self.pm.zeusLayers-1))    # to the last device
-
-        #---------------- flag it ---------------------------
-        if self.nDevices > 1: self.deployed_to_devices = True
+            self.mlp_head = self.mlp_head.to(dstring(self.device_type, self.base_device + min(self.nDevices - self.base_device - 1, self.pm.zeusLayers-1)))    # to the last device
         
     def get_modules(self):
         return [self.patch_module] + list(self.zeusLayers) + [self.mlp_head]
@@ -390,7 +389,7 @@ class Zeus(nn.Module):
             
         if self.trainable:
             device = next(self.patch_module.parameters()).device
-            x = x.to(device)
+            x = x.to(device, non_blocking=True)
             x = self.patch_module(x)  # (B, T1FG, H/p * W/p, self.patch_dim = p * p * C) -> (B, T1FG, H/p * W/p, dim)
         else:
             layer = self.patch_module.to(inference_device)  # layer is not a copy.
@@ -404,7 +403,7 @@ class Zeus(nn.Module):
             # x = layer(x)          # (B, T1FG, H/p * W/p, dim)
             if self.trainable:
                 device = next(layer.parameters()).device
-                x = x.to(device)
+                x = x.to(device, non_blocking=True)
                 x = layer(x)
             else:
                 layer.to(inference_device)
@@ -427,7 +426,7 @@ class Zeus(nn.Module):
         # MLP head
         if self.trainable:
             device = next(self.mlp_head.parameters()).device
-            x = x.to(device)
+            x = x.to(device, non_blocking=True)
             x = self.mlp_head(x.reshape(-1, self.pm.dim))
         else:
             layer = self.mlp_head.to(inference_device)
@@ -447,7 +446,6 @@ class DoubleZeus(nn.Module):
         self.zeus1 = Zeus(config, nDevices=nDevices//2, device_type=device_type, base_device=0, trainable=trainable)
         self.zeus2 = Zeus(config, nDevices=nDevices//2, device_type=device_type, base_device=nDevices//2, trainable=trainable)
         
-        self.deployed_to_devices = self.zeus1.deployed_to_devices and self.zeus2.deployed_to_devices
         self.modules = self.get_modules()
         
         if freeze_1st_half:

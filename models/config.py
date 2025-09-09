@@ -57,7 +57,7 @@ if platform.system() == "Windows":
     config['height'] = 72 * 2
     config['width'] = 144
     config['attLayers'] = 1
-    config['zeusLayers'] = 1
+    config['zeusLayers'] = 4
     config['epochs'] = 3
     config['steps_to_save'] = 5
     config['doubleZeus'] = False

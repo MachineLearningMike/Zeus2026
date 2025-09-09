@@ -58,9 +58,6 @@ class Train():
         else:
             self.model = DoubleZeus(config, self.nDevices, device_type=self.device_type, trainable=self.trainable, freeze_1st_half=self.pm.freeze_1st_half)
             logging.info("DoubleZeus model created.")
-
-        # Change device before creating optimizer.
-        if not self.model.deployed_to_devices: self.model.to(self.device)   # if a single GPU, move all to the GPU
         
         self.optimizer = self._select_optimizer()
         self.scheduler = self._select_scheduler(self.optimizer)
@@ -291,8 +288,12 @@ class Train():
             if checkpoint.get('train_finished', None) is not None:
                 train_finished = checkpoint['train_finished']
             else:
-                logging.info("train_finished is not found")
+                logging.info("Train_finished not found")
                 sys.exit()
+        
+        if file_not_found and not self.trainable:
+            logging.info("Train checkpoint not found")
+            sys.exit()
         
         if not file_not_found and (not train_finished or not self.trainable):
             try:
@@ -413,7 +414,6 @@ class Train():
         gc.collect()
         torch.cuda.empty_cache()
 
-        if not self.model.deployed_to_devices: self.model.to(self.device)
         if step_state is not None:
             logging.info("Contiuing saved epoch...")
         else:
@@ -591,20 +591,22 @@ class Train():
             step_loss = []; step_rmses = []
 
             for t2 in range(1): # range(T2):    Mike!!!
-                target = batch_y[:, t2*FG:(t2+1)*FG, :,:] #.to(self.device)   # (B,FG,C,H,W)  # torch.float32, cuda, False
+                target = batch_y[:, t2*FG:(t2+1)*FG, :,:]   # (B,FG,C,H,W)  # torch.float32, cuda, False
+                
                 with autocast(device_type=self.device_type, dtype=torch.bfloat16):
-                    pred = pred.detach() #.to(self.device, non_blocking=True)
+                    pred = pred.detach()
                     with torch.set_grad_enabled(trainable):
                         pred = self.model(pred)
                     pred = self.dataset.unnormalize(pred)   # torch.float32 !!!, cuda, True !!!
                     target = self.dataset.unnormalize(target)   # torch.float32, cuda, False
-                    loss, rmse = self.loss(target, pred, batch_diff, era5_data_vars)  #.to(self.device)) # (,), (C,), torch.float32, cuda, True !!!
-                    step_loss.append(loss.cpu().detach())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
-                    step_rmses.append(rmse.cpu().detach())      # (C,) - list.  If no cpu(), their stack results in cuda
+                    loss, rmse = self.loss(target, pred, batch_diff, era5_data_vars)  # (,), (C,), torch.float32, cuda, True !!!
 
-                if trainable:
-                    loss = loss     # Do not divide by T2.
-                    loss.backward()
+                    if trainable:
+                        loss = loss     # Do not divide by T2.
+                        loss.backward()
+
+                step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
+                step_rmses.append(rmse.detach().cpu())      # (C,) - list.  If no cpu(), their stack results in cuda
                     
             if trainable: 
                 self.optimizer.step()
