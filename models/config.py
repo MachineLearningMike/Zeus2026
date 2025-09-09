@@ -42,7 +42,7 @@ config = {
     'final_div_factor' : 10,
     'epoch_patience' : 3,       # Mike!!!
     
-    'multi_gpu_train' : False,
+    'multi_gpu' : False,
     'doubleZeus' : True,
     'freeze_1st_half' : True,
 
@@ -60,7 +60,8 @@ if platform.system() == "Windows":
     config['zeusLayers'] = 4
     config['epochs'] = 3
     config['steps_to_save'] = 5
-    config['doubleZeus'] = False
+    config['multi_gpu'] = False
+    # config['doubleZeus'] = False
 else:   
     root_path = Path("/mnt/Data/Zeus_Data")
 

@@ -312,15 +312,40 @@ class PatchEmbedWithPos(nn.Module):
         x = self.to_patch_embedding(x)
         x = x + self.pos_embedding
         return x
+    
+class PatchReconstruct(nn.Module):
+    # x = x.view(B, self.pm.nFramesOut, self.pm.nPatches_h, self.pm.nPatches_w, C, self.pm.patch_size, self.pm.patch_size)
+    # x = x.permute(0, 1, 4, 2, 5, 3, 6).reshape(B, self.pm.nFramesOut, C, H, W)
+    def __init__(self, nFramesOut, nPatches_h, nPatches_w, patch_size, C, H, W):
+        super().__init__()
+        self.nFramesOut = nFramesOut
+        self.nPatches_h = nPatches_h
+        self.nPatches_w = nPatches_w
+        self.patch_size = patch_size
+        self.C = C
+        self.H = H
+        self.W = W
+
+    def forward(self, x):
+        B = x.size(0)
+        # Step 1: view into patch blocks
+        x = x.view(B, self.nFramesOut, self.nPatches_h, self.nPatches_w, self.C, self.patch_size, self.patch_size)
+        # Step 2: permute and merge patches back into H x W
+        x = x.permute(0, 1, 4, 2, 5, 3, 6).reshape(B, self.nFramesOut, self.C, self.H, self.W)
+        return x
 
 class Zeus(nn.Module):
-    def __init__(self, config, nDevices, device_type='cuda', base_device=0, trainable=True):
+    def __init__(self, config, nDevices, device_type='cuda', base_device=0, layers_home='device', compute_place='data_find_layer'):
+    # layers_home: gpu, cpu
+    # layers on gpu
+    # layers on cpu
         super().__init__()
         self.pm = Params(config)
         self.nDevices = nDevices
         self.device_type = device_type
         self.base_device = base_device
-        self.trainable = trainable
+        self.layers_home = layers_home
+        self.compute_place = compute_place
 
         def dstring(device_type, id):
             return device_type + ':' + str(id)
@@ -340,19 +365,21 @@ class Zeus(nn.Module):
         
         self.patch_module = PatchEmbedWithPos(to_patch_embedding, pos_embedding)
 
-        if self.trainable:   # else: remain on cpu.
+        if self.layers_home == 'device':
             self.patch_module = self.patch_module.to(dstring(self.device_type, self.base_device))  # from the defalut devoce to the 1st device.
+        elif self.layers_home == 'cpu': pass
 
         #-------------- zeus layers -------------------------
         if self.nDevices > 1: 
-            assert self.nDevices == self.pm.zeusLayers, "The numbers of devices and zeud layers must be the same if nDevices > 1"
+            assert self.nDevices >= self.pm.zeusLayers, "The numbers of devices and zeud layers must be the same if nDevices > 1"
         self.zeusLayers = nn.ModuleList([       # (B, T, N, dim) -> (B, T, N, dim)
             ZeusLayer(self.pm)
             for i in range(self.pm.zeusLayers)
         ])
-        if self.trainable:   # else: remain on cpu.
+        if self.layers_home == 'device':
             for idx, layer in enumerate(self.zeusLayers):
-                layer = layer.to(dstring(self.device_type, self.base_device + min(self.nDevices - self.base_device - 1, idx)))  # to the i-th device
+                layer = layer.to(dstring(self.device_type, self.base_device + min(self.nDevices - 1, idx)))  # to the i-th device
+        elif self.layers_home == 'cpu': pass
             
         # self.reduce_frames = nn.Sequential(
         #     Rearrange('b t p d -> b p d t'),
@@ -368,83 +395,117 @@ class Zeus(nn.Module):
         #         nn.Conv2d(self.pm.nFramesIn, self.pm.nFramesOut, 3, 1, 1),       # (B, H/p * W/p, dim, 1FG)
         #         Rearrange('(b d) t h w -> b t (h w) d', d=self.pm.dim)
         #     )
-        #     if self.pm.multi_gpu_train and self.trainable:   # else: remain on cpu.
-        #         self.reduce_frames = self.reduce_frames.to(dstring(self.device_type, self.base_device + min(self.nDevices - self.base_device - 1, self.pm.zeusLayers-1))) # to the last device
+        #     if self.layers_home == 'device':
+        #         self.reduce_frames = self.reduce_frames.to(dstring(self.device_type, self.base_device + min(self.nDevices - 1, self.pm.zeusLayers-1))) # to the last device
 
         #--------------- ffn --------------------------------
+        reconstruct = PatchReconstruct(
+            nFramesOut=self.pm.nFramesOut, nPatches_h=self.pm.nPatches_h, nPatches_w=self.pm.nPatches_w, patch_size=self.pm.patch_size,
+            C=self.pm.nChannels, H=self.pm.image_height, W=self.pm.image_width
+        )       
+        
         self.mlp_head = nn.Sequential(
             nn.LayerNorm(self.pm.dim),
-            nn.Linear(self.pm.dim, self.pm.nChannels * self.pm.patch_size ** 2)  # just restore.
+            nn.Linear(self.pm.dim, self.pm.nChannels * self.pm.patch_size ** 2),
+            reconstruct
         )
-        if self.pm.multi_gpu_train and self.trainable:   # else: remain on cpu.
-            self.mlp_head = self.mlp_head.to(dstring(self.device_type, self.base_device + min(self.nDevices - self.base_device - 1, self.pm.zeusLayers-1)))    # to the last device
+        if self.layers_home == 'device':
+            self.mlp_head = self.mlp_head.to(dstring(self.device_type, self.base_device + min(self.nDevices - 1, self.pm.zeusLayers-1)))    # to the last device
+        elif self.layers_home == 'cpu': pass
         
     def get_modules(self):
         return [self.patch_module] + list(self.zeusLayers) + [self.mlp_head]
 
     def forward(self, x):
+        # compute_place: data_find_layer, all_find_device_0
+        # data_find_layer: move data to layers' device
+        # all_find_device_0: move layers and data to cuda:0
         B, T1FG, C, H, W = x.shape
-        inference_device = self.device_type + ':0'
-        x = x.to(inference_device)
+        
+        if self.compute_place == 'all_find_device_0':
+            x = x.to(self.device_type + ':0')
             
-        if self.trainable:
+        if self.compute_place == 'data_find_layer':
             device = next(self.patch_module.parameters()).device
             x = x.to(device, non_blocking=True)
             x = self.patch_module(x)  # (B, T1FG, H/p * W/p, self.patch_dim = p * p * C) -> (B, T1FG, H/p * W/p, dim)
-        else:
-            layer = self.patch_module.to(inference_device)  # layer is not a copy.
+            torch.cuda.empty_cache()    # free the space where x was.
+        elif self.compute_place == 'all_find_device_0':
+            layer = self.patch_module.to(x.device)  # layer is not a copy.
             x = layer(x)
             layer.to('cpu:0')
-            torch.cuda.empty_cache()
+            torch.cuda.empty_cache()    # free the space where layer was
+        else: pass
 
         for idx, layer in enumerate(self.zeusLayers):
             # !!! This line fails to mitigate memory peak !!!
             # x = checkpoint(layer.forward, x, use_reentrant=False)          # (B, T1FG, H/p * W/p, dim)
             # x = layer(x)          # (B, T1FG, H/p * W/p, dim)
-            if self.trainable:
+            if self.compute_place == 'data_find_layer':
                 device = next(layer.parameters()).device
                 x = x.to(device, non_blocking=True)
                 x = layer(x)
-            else:
-                layer.to(inference_device)
+                torch.cuda.empty_cache()    # free the space where x was.
+            elif self.compute_place == 'all_find_device_0':
+                layer.to(x.device)
                 x = layer(x)
                 layer.to('cpu:0')
-                torch.cuda.empty_cache()
+                torch.cuda.empty_cache()    # free the space where layer was
+            else: pass
  
         # # Reduce frames
         # if self.pm.nFramesIn != self.pm.nFramesOut:
-        #     if self.trainable:
+        #     if self.compute_place == 'data_find_layer':
         #         device = next(self.reduce_frames.parameters()).device
         #         x = x.to(device)
         #         x = self.reduce_frames(x)   # (B, FG, H/p * W/p, dim)
-        #     else:
-        #         layer_gpu = self.reduce_frames.to(inference_device)
-        #         x_gpu = x.to(inference_device)
-        #         x = layer_gpu(x_gpu).to('cpu:0')
-        #         del layer_gpu; del x_gpu; torch.cuda.empty_cache()
+        #         torch.cuda.empty_cache()    # free the space where x was.
+        #     elif self.compute_place == 'all_find_device_0':
+        #         layer = self.reduce_frames.to(inference_device)
+        #         x = layer(x)
+        #         layer.to('cpu:0')
+        #         torch.cuda.empty_cache()    # free the space where layer was
                 
         # MLP head
-        if self.trainable:
+        if self.compute_place == 'data_find_layer':
             device = next(self.mlp_head.parameters()).device
             x = x.to(device, non_blocking=True)
             x = self.mlp_head(x.reshape(-1, self.pm.dim))
-        else:
-            layer = self.mlp_head.to(inference_device)
+            torch.cuda.empty_cache()    # free the space where x was.
+        elif self.compute_place == 'all_find_device_0':
+            layer = self.mlp_head.to(x.device)
             x = x.reshape(-1, self.pm.dim)
             x = layer(x)
             layer.to('cpu:0')
-            torch.cuda.empty_cache()
-
-        x = x.view(B, self.pm.nFramesOut, self.pm.nPatches_h, self.pm.nPatches_w, C, self.pm.patch_size, self.pm.patch_size)
-        x = x.permute(0, 1, 4, 2, 5, 3, 6).reshape(B, self.pm.nFramesOut, C, H, W)
+            torch.cuda.empty_cache()    # free the space where layer was
+        else: pass
 
         return x    # (B,FG,C,H,W)
     
 class DoubleZeus(nn.Module):
-    def __init__(self, config, nDevices, device_type='cuda', trainable=True, freeze_1st_half=True):
+    def __init__(self, config, multi_gpu, nDevices, device_type='cuda', trainable=True, freeze_1st_half=True):
         super().__init__()
-        self.zeus1 = Zeus(config, nDevices=nDevices//2, device_type=device_type, base_device=0, trainable=trainable)
-        self.zeus2 = Zeus(config, nDevices=nDevices//2, device_type=device_type, base_device=nDevices//2, trainable=trainable)
+        self.pm = Params(config)
+        self.multi_gpu = multi_gpu
+        self.nDevices = nDevices
+        self.device_type = device_type
+        self.trainable = trainable
+        self.freeze_1st_half = freeze_1st_half
+        
+        if self.multi_gpu:
+            if self.device_type == 'cuda' and self.nDevices >= 2:
+                # goal: deployed on [gpus + gpus if trainable else cpu]
+                self.zeus1 = Zeus(config, nDevices=nDevices//2, device_type=device_type, base_device=0, layers_home='device', compute_place='data_find_layer')
+                self.zeus2 = Zeus(config, nDevices=nDevices//2, device_type=device_type, base_device=nDevices//2, layers_home='device', compute_place='data_find_layer')
+            else:
+                raise Exception("DoubleZeus cannot be created in multi_gpu mode with less than 2 GPUs")
+        else:
+            if self.device_type == 'cuda' and self.nDevices == 1:
+                # goal: deployed on [cpu], for sinlge-gpu offload parallel inference and train
+                self.zeus1 = Zeus(config, nDevices=1, device_type=device_type, base_device=0, layers_home='cpu', compute_place='all_find_device_0')
+                self.zeus2 = Zeus(config, nDevices=1, device_type=device_type, base_device=0, layers_home='cpu', compute_place='all_find_device_0')      
+            else:
+                raise Exception("DoubleZeus cannot be created withoug GPU")    
         
         self.modules = self.get_modules()
         

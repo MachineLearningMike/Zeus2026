@@ -133,4 +133,8 @@ if __name__ == "__main__":
     zeusLayers = config['zeusLayers']
     # profit = trainer.bayesian_target(patch_size, heads, attLayers, zeusLayers) 
     
-    trainer.bayesian_test(16, 4, 4, 4)
+    import platform
+    if platform.system() == "Windows": 
+        trainer.bayesian_test(16, 4, 1, 1)
+    else:
+        trainer.bayesian_test(16, 4, 4, 4)

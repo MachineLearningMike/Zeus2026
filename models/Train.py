@@ -52,12 +52,19 @@ class Train():
         # saved at the end of every epoch, 
         # loaded at the start of training, if saved earlier.
         # x_set is refreshed at every epoch, but not included.
-        if not self.pm.doubleZeus:
-            self.model = Zeus(config, self.nDevices, device_type=self.device_type, trainable=self.trainable).float()   # The only place where the model is created.
-            logging.info("Zeus model created.")
-        else:
-            self.model = DoubleZeus(config, self.nDevices, device_type=self.device_type, trainable=self.trainable, freeze_1st_half=self.pm.freeze_1st_half)
-            logging.info("DoubleZeus model created.")
+
+        try:
+            if not self.pm.doubleZeus:
+                # self.model = Zeus(config, self.nDevices, device_type=self.device_type, layers_home='device', compute_place='data_find_layer').float()
+                self.model = Zeus(config, self.nDevices, device_type=self.device_type, layers_home='cpu', compute_place='all_find_device_0').float()
+                logging.info("Zeus model created.")
+            else:
+                self.model = DoubleZeus(config, self.pm.multi_gpu, self.nDevices, device_type=self.device_type, trainable=self.trainable, freeze_1st_half=self.pm.freeze_1st_half)
+                logging.info("DoubleZeus model created. multi_gpu: {}, nDevices: {}, trainable: {}".format(self.pm.multi_gpu, self.nDevices, trainable))
+
+        except Exception as e:
+            logging.info(str(e))
+            sys.exit(0)
         
         self.optimizer = self._select_optimizer()
         self.scheduler = self._select_scheduler(self.optimizer)
@@ -276,12 +283,14 @@ class Train():
             checkpoint_path = self.bayes_path / (name + '.pth')
             checkpoint = torch.load(checkpoint_path, map_location="cpu")
             logging.info("Checkpoint loaded from the .pth file")
-        except:
+        except Exception as e:
+            logging.info(str(e))
             try:
                 checkpoint_path = self.bayes_path / (name + '.pth.bak')     # Maybe the previous save.
                 checkpoint = torch.load(checkpoint_path, map_location="cpu")
                 logging.info("Checkpoint loaded from the .pth.bak file")
-            except:
+            except Exception as e:
+                logging.info(str(e))
                 file_not_found = True
 
         if not file_not_found:
@@ -374,7 +383,7 @@ class Train():
         if file_not_found:               
             # Start a new training, creating the file.
             epoch = 0; step_state = None    # This is the moment where an existing train will be overriden !!!    
-        elif train_finished:
+        elif train_finished and self.trainable:
             # Keep the finished train intact.
             logging.info("You tried to start/continue a finished training. Aborting...")
             sys.exit()
@@ -593,17 +602,20 @@ class Train():
             for t2 in range(1): # range(T2):    Mike!!!
                 target = batch_y[:, t2*FG:(t2+1)*FG, :,:]   # (B,FG,C,H,W)  # torch.float32, cuda, False
                 
-                with autocast(device_type=self.device_type, dtype=torch.bfloat16):
-                    pred = pred.detach()
-                    with torch.set_grad_enabled(trainable):
-                        pred = self.model(pred)
-                    pred = self.dataset.unnormalize(pred)   # torch.float32 !!!, cuda, True !!!
-                    target = self.dataset.unnormalize(target)   # torch.float32, cuda, False
-                    loss, rmse = self.loss(target, pred, batch_diff, era5_data_vars)  # (,), (C,), torch.float32, cuda, True !!!
+                if not self.pm.doubleZeus:                
+                    with autocast(device_type=self.device_type, dtype=torch.bfloat16):
+                        pred = pred.detach()
+                        with torch.set_grad_enabled(trainable):
+                            pred = self.model(pred)
+                        pred = self.dataset.unnormalize(pred)   # torch.float32 !!!, cuda, True !!!
+                        target = self.dataset.unnormalize(target)   # torch.float32, cuda, False
+                        loss, rmse = self.loss(target, pred, batch_diff, era5_data_vars)  # (,), (C,), torch.float32, cuda, True !!!
 
-                    if trainable:
-                        loss = loss     # Do not divide by T2.
-                        loss.backward()
+                        if trainable:
+                            loss = loss     # Do not divide by T2.
+                            loss.backward()
+                else:
+                    loss, rmse = self.model.single_gpu_forth_and_back(pred, target, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars)
 
                 step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
                 step_rmses.append(rmse.detach().cpu())      # (C,) - list.  If no cpu(), their stack results in cuda

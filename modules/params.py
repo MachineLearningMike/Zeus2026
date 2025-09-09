@@ -70,7 +70,7 @@ class Params:
         self.seed = config['seed']
         self.bayesProject = config['bayesProject']
         
-        self.multi_gpu_train = config['multi_gpu_train']
+        self.multi_gpu = config['multi_gpu']
         self.doubleZeus = config['doubleZeus']
         self.freeze_1st_half = config['freeze_1st_half']
         
