@@ -55,8 +55,8 @@ class Train():
 
         try:
             if not self.pm.doubleZeus:
-                # self.model = Zeus(config, self.nDevices, device_type=self.device_type, layers_home='device', compute_place='data_find_layer').float()
-                self.model = Zeus(config, self.nDevices, device_type=self.device_type, layers_home='cpu', compute_place='all_find_device_0').float()
+                self.model = Zeus(config, self.nDevices, device_type=self.device_type, layers_home='device', compute_place='data_find_layer').float()
+                # self.model = Zeus(config, self.nDevices, device_type=self.device_type, layers_home='cpu', compute_place='all_find_device_0').float()
                 logging.info("Zeus model created.")
             else:
                 self.model = DoubleZeus(config, self.pm.multi_gpu, self.nDevices, device_type=self.device_type, trainable=self.trainable, freeze_1st_half=self.pm.freeze_1st_half)
@@ -66,13 +66,14 @@ class Train():
             logging.info(str(e))
             sys.exit(0)
         
-        self.optimizer = self._select_optimizer()
-        self.scheduler = self._select_scheduler(self.optimizer)
-        self.scaler = GradScaler(device=self.device)
+        if self.trainable:
+            self.optimizer = self._select_optimizer()
+            self.scheduler = self._select_scheduler(self.optimizer)
+            self.scaler = GradScaler(device=self.device)
 
-        self.epoch = 0
-        self.epochs_since_improvement = 0
-        self.rmses_old = torch.ones_like(self.era5_data_vars) * 1e9
+            self.epoch = 0
+            self.epochs_since_improvement = 0
+            self.rmses_old = torch.ones_like(self.era5_data_vars) * 1e9
 
     def _acquire_device(self):
         if torch.cuda.is_available():
@@ -338,14 +339,35 @@ class Train():
                 # new_state_dict.update(remapped_ckpt)
                 # self.model.load_state_dict(new_state_dict)
 
-                self.model.load_state_dict(checkpoint['model'])
+                state_dict = checkpoint['model']
+                strict = True
+                # Remap each tensor to match the device of the new model's parameter
+                new_state_dict = {}
+                for name, param in self.model.state_dict().items():
+                    if name in state_dict:
+                        new_state_dict[name] = state_dict[name].to(param.device, non_blocking=True)
+                    elif strict:
+                        raise KeyError(f"Missing key {name} in model checkpoint")
+                    else:
+                        print(f"⚠️ Skipping {name}, not found in checkpoint")
+                self.model.load_state_dict(new_state_dict, strict=False)                
                 logging.info("Model loaded with saved state")
                 
                 step_state = None
-                
                 if self.trainable:
-                    try:
-                        self.optimizer.load_state_dict(checkpoint['optimizer'])
+                    
+                    try:                       
+                        # Restore optimizer
+                        if self.optimizer is not None and "optimizer" in checkpoint:
+                            self.optimizer.load_state_dict(checkpoint["optimizer"])
+
+                            # Move optimizer state tensors to the same device as their parameters
+                            for group in self.optimizer.param_groups:
+                                for p in group["params"]:
+                                    if p in self.optimizer.state:
+                                        for k, v in self.optimizer.state[p].items():
+                                            if torch.is_tensor(v):
+                                                self.optimizer.state[p][k] = v.to(p.device, non_blocking=True)                       
                         logging.info("Optimizer loaded with saved state")
 
                         self.scheduler.load_state_dict(checkpoint['scheduler'])
@@ -364,7 +386,8 @@ class Train():
                         if checkpoint.get('step_state', None) is not None:
                             step_state = checkpoint['step_state']
 
-                    except: pass
+                    except Exception as e:
+                        logging.info(str(e))
 
                 # print('----------- step_state loaded is ', step_state)
                 if step_state is not None:  # The previous session was terminated after a new step was finished and before an epoch is finished.
@@ -374,7 +397,8 @@ class Train():
 
                 logging.info(f"Checkpoint '{name}' loaded to {self.device}, including model, optimizer, scheduler, scaler, rmses_old, and datase state")
                 file_loaded = True
-            except:
+            except Exception as e:
+                logging.info(str(e))
                 file_loaded = False
         
         else:
@@ -602,7 +626,7 @@ class Train():
             for t2 in range(1): # range(T2):    Mike!!!
                 target = batch_y[:, t2*FG:(t2+1)*FG, :,:]   # (B,FG,C,H,W)  # torch.float32, cuda, False
                 
-                if not self.pm.doubleZeus:                
+                if not self.pm.doubleZeus or (self.pm.doubleZeus and self.pm.multi_gpu):                
                     with autocast(device_type=self.device_type, dtype=torch.bfloat16):
                         pred = pred.detach()
                         with torch.set_grad_enabled(trainable):
@@ -614,7 +638,7 @@ class Train():
                         if trainable:
                             loss = loss     # Do not divide by T2.
                             loss.backward()
-                else:
+                elif self.pm.doubleZeus and not self.pm.multi_gpu:
                     loss, rmse = self.model.single_gpu_forth_and_back(pred, target, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars)
 
                 step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
@@ -622,10 +646,9 @@ class Train():
                     
             if trainable: 
                 self.optimizer.step()
-                self.optimizer.zero_grad()
-                
-            # self.compare_save_load()     # All True.
-            self.scheduler.step()   # Our scheduler is OneCycleLR, which is a per-batch scheduler
+                self.optimizer.zero_grad()    
+                # self.compare_save_load()     # All True.
+                self.scheduler.step()   # Our scheduler is OneCycleLR, which is a per-batch scheduler
             step_loss = torch.tensor(step_loss).mean()   # (,)
             step_rmses = torch.stack(step_rmses, dim=0).mean(dim=0)   # (C,)
             strC = ", ".join(f"{x:.3f}" for x in step_rmses.ravel().tolist())

@@ -572,18 +572,6 @@ class DoubleZeus(nn.Module):
         # 2) Recompute previous modules in reverse
         for i in reversed(range(len(self.modules)-1)):
             if i < nFirstFrozenModules: continue
-            
-            # Comment out this block, as modules[i] is not frozen now.
-            # if not any(p.requires_grad for p in modules[i].parameters()):
-            #     # frozen: recompute output without tracking grads
-            #     with torch.no_grad():
-            #         out = module(prev_act.to("cuda:0"))
-            #     # propagate gradient to input
-            #     prev_act.requires_grad_(True)
-            #     out.backward(grad_next.to(out.device))
-            #     grad_next = prev_act.grad.detach().cpu()
-            #     del out, prev_act            
-            #     continue
 
             module = self.modules[i]
             module.to("cuda:0")
