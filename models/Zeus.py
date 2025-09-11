@@ -435,14 +435,15 @@ class Zeus(nn.Module):
         # all_find_device_0: move layers and data to cuda:0
         
         if self.compute_place == 'all_find_device_0':
-            x = x.to(self.device_type + ':0')
+            device = self.device_type + ':0'
+            x = x.to(device)
             
         modules = self.get_modules()
         for module in modules:
             if self.compute_place == 'data_find_layer':
                 device = next(module.parameters()).device
                 x = x.to(device, non_blocking=True)
-                x = self.module(x)  # (B, T1FG, H/p * W/p, self.patch_dim = p * p * C) -> (B, T1FG, H/p * W/p, dim)
+                x = module(x)  # (B, T1FG, H/p * W/p, self.patch_dim = p * p * C) -> (B, T1FG, H/p * W/p, dim)
                 torch.cuda.empty_cache()    # free the space where x was.
             elif self.compute_place == 'all_find_device_0':
                 module.to(x.device)  # layer is not a copy.

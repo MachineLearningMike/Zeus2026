@@ -55,8 +55,8 @@ class Train():
 
         try:
             if not self.pm.doubleZeus:
-                self.model = Zeus(config, self.nDevices, device_type=self.device_type, layers_home='device', compute_place='data_find_layer').float()
-                # self.model = Zeus(config, self.nDevices, device_type=self.device_type, layers_home='cpu', compute_place='all_find_device_0').float()
+                # self.model = Zeus(config, self.nDevices, device_type=self.device_type, layers_home='device', compute_place='data_find_layer').float()
+                self.model = Zeus(config, self.nDevices, device_type=self.device_type, layers_home='cpu', compute_place='all_find_device_0').float()
                 logging.info("Zeus model created.")
             else:
                 self.model = DoubleZeus(config, self.pm.multi_gpu, self.nDevices, device_type=self.device_type, trainable=self.trainable, freeze_1st_half=self.pm.freeze_1st_half)

@@ -65,7 +65,7 @@ if platform.system() == "Windows":
     config['epochs'] = 3
     config['steps_to_save'] = 5
     config['multi_gpu'] = False
-    config['doubleZeus'] = True
+    config['doubleZeus'] = False
 else:   
     root_path = Path("/mnt/Data/Zeus_Data")
 
