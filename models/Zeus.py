@@ -433,64 +433,22 @@ class Zeus(nn.Module):
         # compute_place: data_find_layer, all_find_device_0
         # data_find_layer: move data to layers' device
         # all_find_device_0: move layers and data to cuda:0
-        B, T1FG, C, H, W = x.shape
         
         if self.compute_place == 'all_find_device_0':
             x = x.to(self.device_type + ':0')
             
-        if self.compute_place == 'data_find_layer':
-            device = next(self.patch_module.parameters()).device
-            x = x.to(device, non_blocking=True)
-            x = self.patch_module(x)  # (B, T1FG, H/p * W/p, self.patch_dim = p * p * C) -> (B, T1FG, H/p * W/p, dim)
-            torch.cuda.empty_cache()    # free the space where x was.
-        elif self.compute_place == 'all_find_device_0':
-            layer = self.patch_module.to(x.device)  # layer is not a copy.
-            x = layer(x)
-            layer.to('cpu:0')
-            torch.cuda.empty_cache()    # free the space where layer was if there are multiple GPUs
-        else: pass
-
-        for idx, layer in enumerate(self.zeusLayers):
-            # !!! This line fails to mitigate memory peak !!!
-            # x = checkpoint(layer.forward, x, use_reentrant=False)          # (B, T1FG, H/p * W/p, dim)
-            # x = layer(x)          # (B, T1FG, H/p * W/p, dim)
+        modules = self.get_modules()
+        for module in modules:
             if self.compute_place == 'data_find_layer':
-                device = next(layer.parameters()).device
+                device = next(module.parameters()).device
                 x = x.to(device, non_blocking=True)
-                x = layer(x)
+                x = self.module(x)  # (B, T1FG, H/p * W/p, self.patch_dim = p * p * C) -> (B, T1FG, H/p * W/p, dim)
                 torch.cuda.empty_cache()    # free the space where x was.
             elif self.compute_place == 'all_find_device_0':
-                layer.to(x.device)
-                x = layer(x)
-                layer.to('cpu:0')
-                torch.cuda.empty_cache()    # free the space where layer was if there are multiple GPUs
-            else: pass
- 
-        # # Reduce frames
-        # if self.pm.nFramesIn != self.pm.nFramesOut:
-        #     if self.compute_place == 'data_find_layer':
-        #         device = next(self.reduce_frames.parameters()).device
-        #         x = x.to(device)
-        #         x = self.reduce_frames(x)   # (B, FG, H/p * W/p, dim)
-        #         torch.cuda.empty_cache()    # free the space where x was.
-        #     elif self.compute_place == 'all_find_device_0':
-        #         layer = self.reduce_frames.to(inference_device)
-        #         x = layer(x)
-        #         layer.to('cpu:0')
-        #         torch.cuda.empty_cache()    # free the space where layer was if there are multiple GPUs
-                
-        # MLP head
-        if self.compute_place == 'data_find_layer':
-            device = next(self.mlp_head.parameters()).device
-            x = x.to(device, non_blocking=True)
-            x = self.mlp_head(x)
-            torch.cuda.empty_cache()    # free the space where x was.
-        elif self.compute_place == 'all_find_device_0':
-            layer = self.mlp_head.to(x.device)
-            x = layer(x)
-            layer.to('cpu:0')
-            torch.cuda.empty_cache()    # free the space where layer was if there are multiple GPUs
-        else: pass
+                module.to(x.device)  # layer is not a copy.
+                x = module(x)
+                module.to('cpu:0')
+                torch.cuda.empty_cache()    # free the space where layer was if there are multiple GPUs   
 
         return x    # (B,FG,C,H,W)
     

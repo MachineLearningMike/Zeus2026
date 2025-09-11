@@ -50,8 +50,10 @@ class Trainer():
     def run_train(self, start_epoch=0, step_state=None):
         keep_go_next_epoch = True
         best_rmse_yet = 1e10
+        run = False
 
         for epoch in range(start_epoch, self.pm.epochs):
+            run = True
             print("---------- epoch {} ------------".format(epoch))
                         
             train_loss, train_metrics = self.train.run_epoch(epoch, "train_set", trainable=True, step_state=step_state)   # (,), (C,)
@@ -67,8 +69,9 @@ class Trainer():
 
             if not keep_go_next_epoch: break
 
-        self.train.save_state(train_finished=True)  # Train_save. Save no step_state. Do not take care of validate()
-        logging.info("Train finishes or breaks after epoch: {}".format(epoch))
+        if run:
+            self.train.save_state(train_finished=True)  # Train_save. Save no step_state. Do not take care of validate()
+            logging.info("Train finishes or breaks after epoch: {}".format(epoch))
 
         return - best_rmse_yet
 
