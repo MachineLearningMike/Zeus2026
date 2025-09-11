@@ -327,7 +327,7 @@ class PatchReconstruct(nn.Module):
         self.W = W
 
     def forward(self, x):
-        B = x.size(0)
+        B = x.numel() // (self.nFramesOut * self.nPatches_h * self.nPatches_w * self.C * self.patch_size * self.patch_size)
         # Step 1: view into patch blocks
         x = x.view(B, self.nFramesOut, self.nPatches_h, self.nPatches_w, self.C, self.patch_size, self.patch_size)
         # Step 2: permute and merge patches back into H x W
