@@ -312,6 +312,17 @@ class PatchEmbedWithPos(nn.Module):
         x = self.to_patch_embedding(x)
         x = x + self.pos_embedding
         return x
+
+class ReshapeForMLP(nn.Module):
+    # x = x.view(B, self.pm.nFramesOut, self.pm.nPatches_h, self.pm.nPatches_w, C, self.pm.patch_size, self.pm.patch_size)
+    # x = x.permute(0, 1, 4, 2, 5, 3, 6).reshape(B, self.pm.nFramesOut, C, H, W)
+    def __init__(self, dim):
+        super().__init__()
+        self.dim = dim
+        
+    def forward(self, x):
+        x = x.reshape(-1, self.dim)
+        return x
     
 class PatchReconstruct(nn.Module):
     # x = x.view(B, self.pm.nFramesOut, self.pm.nPatches_h, self.pm.nPatches_w, C, self.pm.patch_size, self.pm.patch_size)
@@ -399,12 +410,14 @@ class Zeus(nn.Module):
         #         self.reduce_frames = self.reduce_frames.to(dstring(self.device_type, self.base_device + min(self.nDevices - 1, self.pm.zeusLayers-1))) # to the last device
 
         #--------------- ffn --------------------------------
+        reshapeForMlp = ReshapeForMLP(self.pm.dim)
         reconstruct = PatchReconstruct(
             nFramesOut=self.pm.nFramesOut, nPatches_h=self.pm.nPatches_h, nPatches_w=self.pm.nPatches_w, patch_size=self.pm.patch_size,
             C=self.pm.nChannels, H=self.pm.image_height, W=self.pm.image_width
         )       
         
         self.mlp_head = nn.Sequential(
+            reshapeForMlp,
             nn.LayerNorm(self.pm.dim),
             nn.Linear(self.pm.dim, self.pm.nChannels * self.pm.patch_size ** 2),
             reconstruct
@@ -470,11 +483,10 @@ class Zeus(nn.Module):
         if self.compute_place == 'data_find_layer':
             device = next(self.mlp_head.parameters()).device
             x = x.to(device, non_blocking=True)
-            x = self.mlp_head(x.reshape(-1, self.pm.dim))
+            x = self.mlp_head(x)
             torch.cuda.empty_cache()    # free the space where x was.
         elif self.compute_place == 'all_find_device_0':
             layer = self.mlp_head.to(x.device)
-            x = x.reshape(-1, self.pm.dim)
             x = layer(x)
             layer.to('cpu:0')
             torch.cuda.empty_cache()    # free the space where layer was if there are multiple GPUs

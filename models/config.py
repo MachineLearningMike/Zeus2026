@@ -50,7 +50,8 @@ config = {
     'bayesProject' : 'production_0823_18' #'production_0823-18' #31_12',  #23-18  # Represents an instance of a whole bayesian miximization. Mike!!!
 }
 
-# 'multi_gpu' : False, 'doubleZeus' : True, 'freeze_1st_half' : True -------------- works on 1-GPU Windows and 1-GPU VM.
+# 'multi_gpu' : False, 'doubleZeus' : True,  'freeze_1st_half' : True -------------- works on 1-GPU Windows and 1-GPU VM.
+# 'multi_gpu' : False, 'doubleZeus' : False, 'freeze_1st_half' : True -------------- works on 1-GPU Windows
 
 
 from pathlib import Path
@@ -64,7 +65,7 @@ if platform.system() == "Windows":
     config['epochs'] = 3
     config['steps_to_save'] = 5
     config['multi_gpu'] = False
-    config['doubleZeus'] = False
+    config['doubleZeus'] = True
 else:   
     root_path = Path("/mnt/Data/Zeus_Data")
 
