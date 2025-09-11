@@ -434,7 +434,7 @@ class Zeus(nn.Module):
             layer = self.patch_module.to(x.device)  # layer is not a copy.
             x = layer(x)
             layer.to('cpu:0')
-            torch.cuda.empty_cache()    # free the space where layer was
+            torch.cuda.empty_cache()    # free the space where layer was if there are multiple GPUs
         else: pass
 
         for idx, layer in enumerate(self.zeusLayers):
@@ -450,7 +450,7 @@ class Zeus(nn.Module):
                 layer.to(x.device)
                 x = layer(x)
                 layer.to('cpu:0')
-                torch.cuda.empty_cache()    # free the space where layer was
+                torch.cuda.empty_cache()    # free the space where layer was if there are multiple GPUs
             else: pass
  
         # # Reduce frames
@@ -464,7 +464,7 @@ class Zeus(nn.Module):
         #         layer = self.reduce_frames.to(inference_device)
         #         x = layer(x)
         #         layer.to('cpu:0')
-        #         torch.cuda.empty_cache()    # free the space where layer was
+        #         torch.cuda.empty_cache()    # free the space where layer was if there are multiple GPUs
                 
         # MLP head
         if self.compute_place == 'data_find_layer':
@@ -477,7 +477,7 @@ class Zeus(nn.Module):
             x = x.reshape(-1, self.pm.dim)
             x = layer(x)
             layer.to('cpu:0')
-            torch.cuda.empty_cache()    # free the space where layer was
+            torch.cuda.empty_cache()    # free the space where layer was if there are multiple GPUs
         else: pass
 
         return x    # (B,FG,C,H,W)
@@ -499,7 +499,7 @@ class DoubleZeus(nn.Module):
                 self.zeus2 = Zeus(config, nDevices=nDevices//2, device_type=device_type, base_device=nDevices//2, layers_home='device', compute_place='data_find_layer')
             else:
                 raise Exception("DoubleZeus cannot be created in multi_gpu mode with less than 2 GPUs")
-        else:
+        else:   #------------------------------------------------------- works on 1-GPU Windows and 1-GPU VM ---------------------
             if self.device_type == 'cuda' and self.nDevices == 1:
                 # goal: deployed on [cpu], for sinlge-gpu offload parallel inference and train
                 self.zeus1 = Zeus(config, nDevices=1, device_type=device_type, base_device=0, layers_home='cpu', compute_place='all_find_device_0')
