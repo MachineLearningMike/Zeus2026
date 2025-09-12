@@ -436,7 +436,7 @@ class Zeus(nn.Module):
         return x    # (B,FG,C,H,W)
 
     
-    def sigle_GPU_forward_with_gradient(self, data, target, loss_fn, denormal_fn, batch_diff, era5_data_vars):        
+    def sigle_GPU_forward_for_gradient(self, data, target, loss_fn, denormal_fn, batch_diff, era5_data_vars):        
         # data, target = data.to("cpu"), target.to("cpu")
         acts_cpu = []
         x = data.to("cuda:0")  # input on GPU
@@ -528,7 +528,8 @@ class DoubleZeus(nn.Module):
     
     def forward(self, x):
         x = self.zeus1(x)
-        x = self.zeus2(x)
+        if not self.pm.freeze_1st_half:
+            x = self.zeus2(x)
         return x
     
     def single_gpu_inference(self, x):        
@@ -542,7 +543,7 @@ class DoubleZeus(nn.Module):
                 torch.cuda.empty_cache()
         return x.to("cpu:0")
     
-    def sigle_GPU_forward_with_gradient(self, data, target, loss_fn, denormal_fn, batch_diff, era5_data_vars):
+    def sigle_GPU_forward_for_gradient(self, data, target, loss_fn, denormal_fn, batch_diff, era5_data_vars):
         nFirstFrozenModules = len(self.modules) // 2 if self.pm.freeze_1st_half else 0
         
         # data, target = data.to("cpu"), target.to("cpu")

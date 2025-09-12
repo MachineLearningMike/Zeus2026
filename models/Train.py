@@ -644,7 +644,7 @@ class Train():
             for t2 in range(1): # range(T2):    Mike!!!
                 target = batch_y[:, t2*FG:(t2+1)*FG, :,:]   # (B,FG,C,H,W)  # torch.float32, cuda, False
                 
-                if self.pm.abundant_GPUs:                
+                if self.pm.abundant_GPUs or (not self.pm.abundant_GPUs and not trainable):   
                     with autocast(device_type=self.device_type, dtype=torch.bfloat16):
                         pred = pred.detach()
                         with torch.set_grad_enabled(trainable):
@@ -656,8 +656,8 @@ class Train():
                         if trainable:
                             loss = loss     # Do not divide by T2.
                             loss.backward()
-                elif not self.pm.abundant_GPUs:
-                    loss, rmse = self.model.sigle_GPU_forward_with_gradient(pred, target, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars)
+                elif not self.pm.abundant_GPUs and trainable:
+                    loss, rmse = self.model.sigle_GPU_forward_for_gradient(pred, target, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars)
 
                 step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
                 step_rmses.append(rmse.detach().cpu())      # (C,) - list.  If no cpu(), their stack results in cuda

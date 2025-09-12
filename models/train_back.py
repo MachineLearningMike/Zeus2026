@@ -639,7 +639,7 @@ class Train():
                             loss = loss     # Do not divide by T2.
                             loss.backward()
                 elif not self.pm.abundant_GPUs:
-                    loss, rmse = self.model.sigle_GPU_forward_with_gradient(pred, target, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars)
+                    loss, rmse = self.model.sigle_GPU_forward_for_gradient(pred, target, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars)
 
                 step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
                 step_rmses.append(rmse.detach().cpu())      # (C,) - list.  If no cpu(), their stack results in cuda
