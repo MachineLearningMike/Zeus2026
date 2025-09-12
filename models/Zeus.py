@@ -346,17 +346,13 @@ class PatchReconstruct(nn.Module):
         return x
 
 class Zeus(nn.Module):
-    def __init__(self, config, nDevices, device_type='cuda', base_device=0, layers_home='device', compute_place='data_find_layer'):
-    # layers_home: gpu, cpu
-    # layers on gpu
-    # layers on cpu
+    def __init__(self, config, nDevices, device_type='cuda', base_device=0, abundant_GPUs=True):
         super().__init__()
         self.pm = Params(config)
         self.nDevices = nDevices
         self.device_type = device_type
         self.base_device = base_device
-        self.layers_home = layers_home
-        self.compute_place = compute_place
+        self.abundant_GPUs = abundant_GPUs
 
         def dstring(device_type, id):
             return device_type + ':' + str(id)
@@ -376,9 +372,9 @@ class Zeus(nn.Module):
         
         self.patch_module = PatchEmbedWithPos(to_patch_embedding, pos_embedding)
 
-        if self.layers_home == 'device':
+        if self.abundant_GPUs:
             self.patch_module = self.patch_module.to(dstring(self.device_type, self.base_device))  # from the defalut devoce to the 1st device.
-        elif self.layers_home == 'cpu': pass
+        elif not self.abundant_GPUs: pass
 
         #-------------- zeus layers -------------------------
         if self.nDevices > 1: 
@@ -387,27 +383,10 @@ class Zeus(nn.Module):
             ZeusLayer(self.pm)
             for i in range(self.pm.zeusLayers)
         ])
-        if self.layers_home == 'device':
+        if self.abundant_GPUs:
             for idx, layer in enumerate(self.zeusLayers):
                 layer = layer.to(dstring(self.device_type, self.base_device + min(self.nDevices - 1, idx)))  # to the i-th device
-        elif self.layers_home == 'cpu': pass
-            
-        # self.reduce_frames = nn.Sequential(
-        #     Rearrange('b t p d -> b p d t'),
-        #     nn.Linear(self.pm.nFramesIn, self.pm.nFramesOut),       # (B, H/p * W/p, dim, FG)
-        #     Rearrange('b p d t -> b t p d')
-        # )
-        
-        assert self.pm.nFramesIn == self.pm.nFramesOut
-        # #--------------- reduce -----------------------------
-        # if self.pm.nFramesIn != self.pm.nFramesOut:
-        #     self.reduce_frames = nn.Sequential(
-        #         Rearrange('b t (h w) d -> (b d) t h w', h=self.pm.nPatches_h),
-        #         nn.Conv2d(self.pm.nFramesIn, self.pm.nFramesOut, 3, 1, 1),       # (B, H/p * W/p, dim, 1FG)
-        #         Rearrange('(b d) t h w -> b t (h w) d', d=self.pm.dim)
-        #     )
-        #     if self.layers_home == 'device':
-        #         self.reduce_frames = self.reduce_frames.to(dstring(self.device_type, self.base_device + min(self.nDevices - 1, self.pm.zeusLayers-1))) # to the last device
+        elif not self.abundant_GPUs: pass
 
         #--------------- ffn --------------------------------
         reshapeForMlp = ReshapeForMLP(self.pm.dim)
@@ -422,9 +401,11 @@ class Zeus(nn.Module):
             nn.Linear(self.pm.dim, self.pm.nChannels * self.pm.patch_size ** 2),
             reconstruct
         )
-        if self.layers_home == 'device':
+        if self.abundant_GPUs:
             self.mlp_head = self.mlp_head.to(dstring(self.device_type, self.base_device + min(self.nDevices - 1, self.pm.zeusLayers-1)))    # to the last device
-        elif self.layers_home == 'cpu': pass
+        elif not self.abundant_GPUs: pass
+        
+        self.modules = self.get_modules()
         
     def get_modules(self):
         return [self.patch_module] + list(self.zeusLayers) + [self.mlp_head]
@@ -434,49 +415,106 @@ class Zeus(nn.Module):
         # data_find_layer: move data to layers' device
         # all_find_device_0: move layers and data to cuda:0
         
-        if self.compute_place == 'all_find_device_0':
+        if not self.abundant_GPUs:
             device = self.device_type + ':0'
             x = x.to(device)
-            
-        modules = self.get_modules()
-        for module in modules:
-            if self.compute_place == 'data_find_layer':
+        
+        for module in self.modules:                 #========================= both training and inference
+            if self.abundant_GPUs:
                 device = next(module.parameters()).device
                 x = x.to(device, non_blocking=True)
                 x = module(x)  # (B, T1FG, H/p * W/p, self.patch_dim = p * p * C) -> (B, T1FG, H/p * W/p, dim)
+                # backwarding is possible, because module is on the device it was forwarded on.
                 torch.cuda.empty_cache()    # free the space where x was.
-            elif self.compute_place == 'all_find_device_0':
+            elif not self.abundant_GPUs:       #========================== inference only
                 module.to(x.device)  # layer is not a copy.
                 x = module(x)
                 module.to('cpu:0')
-                torch.cuda.empty_cache()    # free the space where layer was if there are multiple GPUs   
+                # backwarding is NOT possible, because module NOT is on the device it was forwarded on.
+                torch.cuda.empty_cache()    # free the space where layer was if there are multiple GPUs 
 
         return x    # (B,FG,C,H,W)
+
+    
+    def sigle_GPU_forward_with_gradient(self, data, target, loss_fn, denormal_fn, batch_diff, era5_data_vars):        
+        # data, target = data.to("cpu"), target.to("cpu")
+        acts_cpu = []
+        x = data.to("cuda:0")  # input on GPU
+        
+        # ---------------- Forward Pass ----------------
+        for i, module in enumerate(self.get_modules()):
+            module.to("cuda:0")
+
+            if i < len(self.modules) - 1:
+                with torch.no_grad():
+                    x = module(x)       # intermediate module, no grad
+                x = x.detach()          # safe, disconnect from graph
+                acts_cpu.append(x.cpu())  # save for recomputation
+                module.to("cpu")
+                torch.cuda.empty_cache()
+            else:
+                # Last module
+                final_input = x
+                final_module = module
+                final_input.requires_grad_(True)   # leaf tensor
+                final_out = final_module(final_input)    # compute output with grad
+
+        # ---------------- Backward Pass ----------------
+        # 1) Last module and loss
+        target = target.to('cuda:0')
+        final_out = denormal_fn(final_out)
+        target = denormal_fn(target)
+        lossAndMetrics = loss_fn(final_out, target, batch_diff, era5_data_vars)     
+        loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
+        loss.backward()                         # grads for last module & final_input
+        final_module.to("cpu")                  # Safe place to move back.
+        grad_next = final_input.grad.detach().cpu()
+
+        # 2) Recompute previous modules in reverse
+        for i in reversed(range(len(self.modules)-1)):
+
+            module = self.modules[i]
+            module.to("cuda:0")
+
+            prev_act = acts_cpu[i-1].to("cuda:0") if i > 0 else data.to("cuda:0")
+            prev_act.requires_grad_(True)
+
+            with torch.set_grad_enabled(True):
+                out = module(prev_act)
+                if grad_next is None:
+                    grad_next = torch.ones_like(out)
+                out.backward(grad_next.to(out.device))
+
+            grad_next = prev_act.grad.detach().cpu()
+            del out, prev_act
+            torch.cuda.empty_cache()
+            module.to("cpu")
+            
+        return lossAndMetrics
     
 class DoubleZeus(nn.Module):
-    def __init__(self, config, multi_gpu, nDevices, device_type='cuda', trainable=True, freeze_1st_half=True):
+    def __init__(self, config, nDevices, device_type='cuda', abundant_GPUs=True, freeze_1st_half=True):
         super().__init__()
         self.pm = Params(config)
-        self.multi_gpu = multi_gpu
         self.nDevices = nDevices
         self.device_type = device_type
-        self.trainable = trainable
+        self.abundant_GPUs = abundant_GPUs
         self.freeze_1st_half = freeze_1st_half
         
-        if self.multi_gpu:
+        if self.abundant_GPUs:
             if self.device_type == 'cuda' and self.nDevices >= 2:
                 # goal: deployed on [gpus + gpus if trainable else cpu]
-                self.zeus1 = Zeus(config, nDevices=nDevices//2, device_type=device_type, base_device=0, layers_home='device', compute_place='data_find_layer')
-                self.zeus2 = Zeus(config, nDevices=nDevices//2, device_type=device_type, base_device=nDevices//2, layers_home='device', compute_place='data_find_layer')
+                self.zeus1 = Zeus(config, nDevices=nDevices//2, device_type=device_type, base_device=0, abundant_GPUs=self.abundant_GPUs)
+                self.zeus2 = Zeus(config, nDevices=nDevices//2, device_type=device_type, base_device=nDevices//2, abundant_GPUs=self.abundant_GPUs)
             else:
-                raise Exception("DoubleZeus cannot be created in multi_gpu mode with less than 2 GPUs")
+                raise Exception("DoubleZeus cannot be created in abundance_GPU mode with less than 2 GPUs")
         else:   #------------------------------------------------------- works on 1-GPU Windows and 1-GPU VM ---------------------
             if self.device_type == 'cuda' and self.nDevices == 1:
                 # goal: deployed on [cpu], for sinlge-gpu offload parallel inference and train
-                self.zeus1 = Zeus(config, nDevices=1, device_type=device_type, base_device=0, layers_home='cpu', compute_place='all_find_device_0')
-                self.zeus2 = Zeus(config, nDevices=1, device_type=device_type, base_device=0, layers_home='cpu', compute_place='all_find_device_0')      
+                self.zeus1 = Zeus(config, nDevices=1, device_type=device_type, base_device=0, abundant_GPUs=self.abundant_GPUs)
+                self.zeus2 = Zeus(config, nDevices=1, device_type=device_type, base_device=0, abundant_GPUs=self.abundant_GPUs)      
             else:
-                raise Exception("DoubleZeus cannot be created withoug GPU")    
+                raise Exception("DoubleZeus cannot be created without GPU")    
         
         self.modules = self.get_modules()
         
@@ -504,7 +542,7 @@ class DoubleZeus(nn.Module):
                 torch.cuda.empty_cache()
         return x.to("cpu:0")
     
-    def single_gpu_forth_and_back(self, data, target, loss_fn, denormal_fn, batch_diff, era5_data_vars):
+    def sigle_GPU_forward_with_gradient(self, data, target, loss_fn, denormal_fn, batch_diff, era5_data_vars):
         nFirstFrozenModules = len(self.modules) // 2 if self.pm.freeze_1st_half else 0
         
         # data, target = data.to("cpu"), target.to("cpu")

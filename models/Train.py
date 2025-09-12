@@ -55,12 +55,11 @@ class Train():
 
         try:
             if not self.pm.doubleZeus:
-                # self.model = Zeus(config, self.nDevices, device_type=self.device_type, layers_home='device', compute_place='data_find_layer').float()
-                self.model = Zeus(config, self.nDevices, device_type=self.device_type, layers_home='cpu', compute_place='all_find_device_0').float()
+                self.model = Zeus(config, self.nDevices, device_type=self.device_type, abundant_GPUs=self.pm.abundant_GPUs).float()                
                 logging.info("Zeus model created.")
             else:
-                self.model = DoubleZeus(config, self.pm.multi_gpu, self.nDevices, device_type=self.device_type, trainable=self.trainable, freeze_1st_half=self.pm.freeze_1st_half)
-                logging.info("DoubleZeus model created. multi_gpu: {}, nDevices: {}, trainable: {}".format(self.pm.multi_gpu, self.nDevices, trainable))
+                self.model = DoubleZeus(config, self.nDevices, device_type=self.device_type, abundant_GPUs=self.pm.abundant_GPUs, freeze_1st_half=self.pm.freeze_1st_half)
+                logging.info("DoubleZeus model created. nDevices: {}, trainable: {}".format(self.nDevices, trainable))
 
         except Exception as e:
             logging.info(str(e))
@@ -341,17 +340,36 @@ class Train():
 
                 state_dict = checkpoint['model']
                 strict = True
+                
+                # names = [
+                #     "zeus1.mlp_head.1.weight",
+                #     "zeus1.mlp_head.1.bias",
+                #     "zeus1.mlp_head.2.weight",
+                #     "zeus1.mlp_head.2.bias",
+                #     "zeus2.mlp_head.1.weight",
+                #     "zeus2.mlp_head.1.bias",
+                #     "zeus2.mlp_head.2.weight",
+                #     "zeus2.mlp_head.2.bias",
+                # ]
+                
                 # Remap each tensor to match the device of the new model's parameter
                 new_state_dict = {}
-                for name, param in self.model.state_dict().items():
-                    if name in state_dict:
-                        new_state_dict[name] = state_dict[name].to(param.device, non_blocking=True)
-                    elif strict:
-                        raise KeyError(f"Missing key {name} in model checkpoint")
-                    else:
-                        print(f"⚠️ Skipping {name}, not found in checkpoint")
-                self.model.load_state_dict(new_state_dict, strict=False)                
-                logging.info("Model loaded with saved state")
+                for param_name, param in self.model.state_dict().items():
+                    try:                
+                        if param_name in state_dict:
+                            assert param.shape == state_dict[param_name].shape, "Parameter shape mismatch. name {}, shape1 {}, shape2 {}".format(param_name, param.shape, state_dict[param_name].shape)
+                            new_state_dict[param_name] = state_dict[param_name].to(param.device, non_blocking=True)
+                        elif strict:
+                            raise KeyError(f"Missing key {param_name} in model checkpoint")
+                        else:
+                            print(f"⚠️ Skipping {param_name}, not found in checkpoint")
+                    except Exception as e:
+                        logging.info(str(e))
+                try:
+                    self.model.load_state_dict(new_state_dict, strict=False)                
+                    logging.info("Model loaded with saved state")
+                except Exception as e:
+                    logging.info(str(e))
                 
                 step_state = None
                 if self.trainable:
@@ -626,7 +644,7 @@ class Train():
             for t2 in range(1): # range(T2):    Mike!!!
                 target = batch_y[:, t2*FG:(t2+1)*FG, :,:]   # (B,FG,C,H,W)  # torch.float32, cuda, False
                 
-                if not self.pm.doubleZeus or (self.pm.doubleZeus and self.pm.multi_gpu):                
+                if self.pm.abundant_GPUs:                
                     with autocast(device_type=self.device_type, dtype=torch.bfloat16):
                         pred = pred.detach()
                         with torch.set_grad_enabled(trainable):
@@ -638,8 +656,8 @@ class Train():
                         if trainable:
                             loss = loss     # Do not divide by T2.
                             loss.backward()
-                elif self.pm.doubleZeus and not self.pm.multi_gpu:
-                    loss, rmse = self.model.single_gpu_forth_and_back(pred, target, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars)
+                elif not self.pm.abundant_GPUs:
+                    loss, rmse = self.model.sigle_GPU_forward_with_gradient(pred, target, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars)
 
                 step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
                 step_rmses.append(rmse.detach().cpu())      # (C,) - list.  If no cpu(), their stack results in cuda

@@ -59,8 +59,8 @@ class Train():
                 self.model = Zeus(config, self.nDevices, device_type=self.device_type, layers_home='cpu', compute_place='all_find_device_0').float()
                 logging.info("Zeus model created.")
             else:
-                self.model = DoubleZeus(config, self.pm.multi_gpu, self.nDevices, device_type=self.device_type, trainable=self.trainable, freeze_1st_half=self.pm.freeze_1st_half)
-                logging.info("DoubleZeus model created. multi_gpu: {}, nDevices: {}, trainable: {}".format(self.pm.multi_gpu, self.nDevices, trainable))
+                self.model = DoubleZeus(config, self.nDevices, device_type=self.device_type, trainable=self.trainable, freeze_1st_half=self.pm.freeze_1st_half)
+                logging.info("DoubleZeus model created. nDevices: {}, trainable: {}".format(self.nDevices, trainable))
 
         except Exception as e:
             logging.info(str(e))
@@ -626,7 +626,7 @@ class Train():
             for t2 in range(1): # range(T2):    Mike!!!
                 target = batch_y[:, t2*FG:(t2+1)*FG, :,:]   # (B,FG,C,H,W)  # torch.float32, cuda, False
                 
-                if not self.pm.doubleZeus or (self.pm.doubleZeus and not self.pm.multi_gpu):                
+                if self.pm.abundant_GPUs:                
                     with autocast(device_type=self.device_type, dtype=torch.bfloat16):
                         pred = pred.detach()
                         with torch.set_grad_enabled(trainable):
@@ -638,8 +638,8 @@ class Train():
                         if trainable:
                             loss = loss     # Do not divide by T2.
                             loss.backward()
-                else: # self.pm.doubleZeus and self.pm.multi_gpu
-                    loss, rmse = self.model.single_gpu_forth_and_back(pred, target, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars)
+                elif not self.pm.abundant_GPUs:
+                    loss, rmse = self.model.sigle_GPU_forward_with_gradient(pred, target, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars)
 
                 step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
                 step_rmses.append(rmse.detach().cpu())      # (C,) - list.  If no cpu(), their stack results in cuda
