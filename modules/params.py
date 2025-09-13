@@ -74,6 +74,7 @@ class Params:
         
         self.doubleZeus = config['doubleZeus']
         self.freeze_1st_half = config['freeze_1st_half']
+        self.skip_2nd_half = config['skip_2nd_half']
         
         if self.image_height % self.patch_size != 0:
             raise Exception("Image height must be divisible by the patch size: {}, {}".format(self.image_height, self.patch_size))

@@ -448,7 +448,7 @@ class Train():
         torch.cuda.empty_cache()
 
         if step_state is not None:
-            logging.info("Contiuing saved epoch...")
+            logging.info("Continuing saved epoch...")
         else:
             self.dataset.refresh_x_set(x_set_label, seed=self.pm.seed)
             logging.info("{} refreshed.".format(x_set_label))
@@ -583,7 +583,7 @@ class Train():
         self.model.train(trainable)
        
         if step_state is not None:
-            logging.info("Contiuing saved epoch...")
+            logging.info("Continuing saved epoch...")
         else:
             self.dataset.refresh_x_set(x_set_label, seed=self.pm.seed)
             logging.info("{} refreshed.".format(x_set_label))

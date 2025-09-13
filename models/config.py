@@ -46,6 +46,7 @@ config = {
     'doubleZeus' : True,
 
     'freeze_1st_half' : True,
+    'skip_2nd_half' : True,
 
     'seed': 523,
     'bayesProject' : 'production_0823_18' #'production_0823-18' #31_12',  #23-18  # Represents an instance of a whole bayesian miximization. Mike!!!

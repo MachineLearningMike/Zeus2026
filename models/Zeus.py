@@ -28,8 +28,10 @@ class SwiGLU(nn.Module):
             norm_layer=None,
             bias=True,
             drop=0.,
+            skip=False
     ):
         super().__init__()
+        
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
         bias = to_2tuple(bias)
@@ -41,6 +43,9 @@ class SwiGLU(nn.Module):
         self.drop1 = nn.Dropout(drop_probs[0])
         self.norm = norm_layer(hidden_features) if norm_layer is not None else nn.Identity()
         self.fc2 = nn.Linear(hidden_features, out_features, bias=bias[1])
+        if skip:
+            nn.init.constant_(self.fc2.weight, 0.0)
+            nn.init.constant_(self.fc2.bias, 0.0)    
         self.drop2 = nn.Dropout(drop_probs[1])
 
     def init_weights(self):
@@ -81,7 +86,7 @@ class FeedForward(nn.Module):
         return self.net(x)
      
 class Attention(nn.Module):     # (b, n, dim)  -> (b, n, dim)
-    def __init__(self, dim, heads=8, dim_head=64, dropout=0.):
+    def __init__(self, dim, heads=8, dim_head=64, dropout=0., skip=False):
         super().__init__()
         
         inner_dim = dim_head * heads
@@ -98,6 +103,14 @@ class Attention(nn.Module):     # (b, n, dim)  -> (b, n, dim)
             nn.Dropout(dropout)
         ) if project_out else nn.Identity()
         
+        if skip:
+            if project_out:
+                nn.init.constant_(self.to_out[0].weight, 0.0)
+                nn.init.constant_(self.to_out[0].bias, 0.0)
+            else:
+                nn.init.constant_(self.to_out.weight, 0.0)
+                nn.init.constant_(self.to_out.bias, 0.0)
+                
     def efficient_attention(self, q, k, scale, query_chunk_size=128):
         """
         q: (b, h, i, d)
@@ -133,6 +146,7 @@ class Attention(nn.Module):     # (b, n, dim)  -> (b, n, dim)
         return dots
 
     def forward(self, x):                   # (b, n, dim)  -> (b, n, dim)
+        # return zeros initially
         b, n, dim, h = *x.shape, self.heads
         qkv = self.to_qkv(x).chunk(3, dim=-1)                                   # (b, n, dim_head * heads) x 3
         q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=h), qkv) # (b, heads, n, dim_head) x 3
@@ -212,8 +226,9 @@ class GatedTemporalAttention(nn.Module):      # ((b n), t, dim) -> ((b n), t, di
 
 
 class GatedAttention(nn.Module):      # (b, n, dim) -> (b, n, dim)
-    def __init__(self, pm):
+    def __init__(self, pm, skip):
         super().__init__()
+        self.skip = skip
 
         dim = pm.dim
         layers = pm.attLayers
@@ -229,8 +244,8 @@ class GatedAttention(nn.Module):      # (b, n, dim) -> (b, n, dim)
 
         for _ in range(layers):
             self.layers.append(nn.ModuleList([
-                PreNorm(dim, Attention(dim, heads=nHeads, dim_head=dim_head, dropout=attn_dropout)),
-                PreNorm(dim, SwiGLU(dim, mlp_dim, drop=dropout)),
+                PreNorm(dim, Attention(dim, heads=nHeads, dim_head=dim_head, dropout=attn_dropout, skip=self.skip)),
+                PreNorm(dim, SwiGLU(dim, mlp_dim, drop=dropout, skip=self.skip)),
                 DropPath(drop_path) if drop_path > 0. else nn.Identity(),
                 DropPath(drop_path) if drop_path > 0. else nn.Identity()
             ]))
@@ -247,18 +262,23 @@ class GatedAttention(nn.Module):      # (b, n, dim) -> (b, n, dim)
             nn.init.constant_(m.weight, 1.0)       
             
     def forward(self, x):
+        # return intact x initially
         for attn, ff, drop_path1, drop_path2 in self.layers:
-            x = x + drop_path1(attn(x))
-            x = x + drop_path2(ff(x))
+            x = x + drop_path1(attn(x))     # x + zeros (initially)
+            x = x + drop_path2(ff(x))       # x + zeors (initially)
         return self.norm(x)
     
 class SpatialConvolution(nn.Module):
-    def __init__(self, pm):
+    def __init__(self, pm, skip=False):
         self.pm = pm
         super(SpatialConvolution, self).__init__()
         self.convolve = nn.Conv2d(pm.nFramesIn, pm.nFramesIn, 3, 1, 1)  # preserve shape
+        if skip:
+            nn.init.constant_(self.convolve.weight, 0.0)
+            nn.init.constant_(self.convolve.bias, 0.0)
 
     def forward(self, x):   # (B, T1FG, H/p * W/p, dim) -> preserve shape
+        # return zero initially
         x = rearrange(x, 'b t n d -> (b d) t n')
         x = rearrange(x, 'B t (h w) -> B t h w', h=self.pm.nPatches_h)
         x = self.convolve(x)    # preserves shape
@@ -267,20 +287,24 @@ class SpatialConvolution(nn.Module):
         return x
 
 class ZeusLayer(nn.Module):
-    def __init__(self, pm):
+    def __init__(self, pm, skip=False):
         super(ZeusLayer, self).__init__()
         self.pm = pm
+        self.skip = skip
 
-        self.spatial_colvolution_1 = SpatialConvolution(pm)
-        self.temporal_transformer_1 = GatedAttention(pm)
+        self.spatial_colvolution_1 = SpatialConvolution(pm, skip=self.skip)  # zero initially
+        self.temporal_transformer_1 = GatedAttention(pm, skip=self.skip)     # identity initially
 
-        self.space_transformer_1 = GatedAttention(pm)
-        self.space_transformer_2 = GatedAttention(pm)
+        self.space_transformer_1 = GatedAttention(pm, skip=self.skip)         # identity initially
+        self.space_transformer_2 = GatedAttention(pm, skip=self.skip)         # identity initially
         
-        self.spacial_colvolution_2 = SpatialConvolution(pm)
-        self.temporal_transformer_2 = GatedAttention(pm)
+        self.spacial_colvolution_2 = SpatialConvolution(pm, skip=self.skip)  # zero initially
+        self.temporal_transformer_2 = GatedAttention(pm, skip=self.skip)      # identity initially
 
     def forward(self, x):   # (B, T, N, dim) -> (B, T, N, dim)      # (B, T1FG, H/p * W/p, dim)
+        # returns x initially
+        if self.skip: x_skip = x
+        
         b, t, n, dim = x.shape                  # (B, T, N, dim), or (B, T1FG, H/p * W/p, dim)
         
         x = self.spatial_colvolution_1(x)   # (B, T, N, dim) -> (B, T, N, dim)
@@ -298,6 +322,8 @@ class ZeusLayer(nn.Module):
 
         # output
         x = rearrange(x, '(b n) t d -> b t n d', b=b)         # (B, T, N, dim)
+        
+        if self.skip: x = x + x_skip
         
         return x
     
@@ -321,7 +347,8 @@ class ReshapeForMLP(nn.Module):
         self.dim = dim
         
     def forward(self, x):
-        x = x.reshape(-1, self.dim)
+        # b t (h w) (p1 p2 c)
+        x = x.reshape(-1, self.dim)     # ((b t h w) (p1 p2 c))
         return x
     
 class PatchReconstruct(nn.Module):
@@ -340,6 +367,7 @@ class PatchReconstruct(nn.Module):
     def forward(self, x):
         B = x.numel() // (self.nFramesOut * self.nPatches_h * self.nPatches_w * self.C * self.patch_size * self.patch_size)
         # Step 1: view into patch blocks
+        # ((b t h w) (p1 p2 c))
         x = x.view(B, self.nFramesOut, self.nPatches_h, self.nPatches_w, self.C, self.patch_size, self.patch_size)
         # Step 2: permute and merge patches back into H x W
         x = x.permute(0, 1, 4, 2, 5, 3, 6).reshape(B, self.nFramesOut, self.C, self.H, self.W)
@@ -359,14 +387,14 @@ class Zeus(nn.Module):
 
         #--------------- token embedding ---------------
         # We need to enable more complex non-linearity here.
-        to_patch_embedding = nn.Sequential(
+        to_patch_embedding = nn.Sequential(             # Mike!!! (p1, p2, c) is wrong. should be (c, p1, p2). No touch, as we have learned parameters.
             Rearrange('b t c (h p1) (w p2) -> b t (h w) (p1 p2 c)', p1=self.pm.patch_size, p2=self.pm.patch_size),
             nn.Linear(self.pm.patch_dim, 2 * self.pm.dim),
             nn.Tanh(),
             nn.Linear(2 * self.pm.dim, self.pm.dim),
             )
         #-------------- positional embedding ----------------
-        # pe: (self.pm.nFramesId, self.pm.nPatches_h, self.pm.nPatches_w, self.pm.dim)
+        # pe: (self.pm.nFramesId * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.dim)
         pe = sinusoidal_embedding(self.pm.nFramesIn * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.dim)
         pos_embedding = rearrange(pe, '(t n) dim -> 1 t n dim', t=self.pm.nFramesIn)
         
@@ -435,6 +463,134 @@ class Zeus(nn.Module):
 
         return x    # (B,FG,C,H,W)
 
+class PatchEmbedWithPos_Skip(nn.Module):
+    def __init__(self, pm):
+        super().__init__()
+        self.pm = pm
+        #--------------- token embedding ---------------
+        # We need to enable more complex non-linearity here.
+        to_patch_embedding = nn.Sequential(
+            Rearrange('b t c (h p1) (w p2) -> b t (h w) (c p1 p2)', p1=self.pm.patch_size, p2=self.pm.patch_size),
+            nn.Linear(self.pm.patch_dim, 2 * self.pm.dim),
+            nn.Tanh(),
+            nn.Linear(2 * self.pm.dim, self.pm.dim),
+            )
+        nn.init.constant_(to_patch_embedding[3].weight, 0.0)
+        nn.init.constant_(to_patch_embedding[3].bias, 0.0)
+        
+        #-------------- positional embedding ----------------
+        # pe: (self.pm.nFrames * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.dim)
+        pe = torch.zeros(self.pm.nFramesIn * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.dim)
+        # pe = sinusoidal_embedding(self.pm.nFramesIn * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.dim)
+        pos_embedding = rearrange(pe, '(t n) dim -> 1 t n dim', t=self.pm.nFramesIn)
+                
+        # Assign with the name you want in state_dict
+        self.to_patch_embedding = to_patch_embedding  # nn.Linear
+        self.pos_embedding = nn.Parameter(pos_embedding)    # trainable
+
+    def forward(self, x):
+        # Assuming self.pm.patch_dim == self.pm.dim
+        # returns x initially
+        # (b t c H W)
+        x_skip = rearrange(x, 'b t c (h p1) (w p2) -> b t (h w) (c p1 p2)', p1=self.pm.patch_size, p2=self.pm.patch_size)
+        x = self.to_patch_embedding(x)  # zero
+        x = x + self.pos_embedding      # zero
+        x = x + x_skip
+        return x
+    
+class MLP_Skip(nn.Module):
+    def __init__(self, pm):
+        super().__init__()
+        self.pm = pm
+    
+        self.reshapeForMlp = ReshapeForMLP(self.pm.dim)
+        self.reconstruct = PatchReconstruct(
+            nFramesOut=self.pm.nFramesOut, nPatches_h=self.pm.nPatches_h, nPatches_w=self.pm.nPatches_w, patch_size=self.pm.patch_size,
+            C=self.pm.nChannels, H=self.pm.image_height, W=self.pm.image_width
+        )
+        self.mlp_head = nn.Sequential(
+            self.reshapeForMlp,
+            nn.LayerNorm(self.pm.dim),
+            nn.Linear(self.pm.dim, self.pm.nChannels * self.pm.patch_size ** 2),
+            self.reconstruct
+        )
+        nn.init.constant_(self.mlp_head[2].weight, 0.0)
+        nn.init.constant_(self.mlp_head[2].bias, 0.0)
+        
+    def forward(self, x):
+        # Assuing self.pm.dim == self.pm.nChannels * self.pm.patch_size ** 2
+        x_skip = self.reconstruct(self.reshapeForMlp(x))
+        x = self.mlp_head(x)
+        x = x + x_skip
+        return x
+        
+class Zeus_Skip(nn.Module):
+    def __init__(self, config, nDevices, device_type='cuda', base_device=0, abundant_GPUs=True):
+        super().__init__()
+        self.pm = Params(config)
+        self.nDevices = nDevices
+        self.device_type = device_type
+        self.base_device = base_device
+        self.abundant_GPUs = abundant_GPUs
+
+        def dstring(device_type, id):
+            return device_type + ':' + str(id)
+
+        #--------------- patch embedding with position ---------------        
+        self.patch_module = PatchEmbedWithPos_Skip(self.pm)
+
+        if self.abundant_GPUs:
+            self.patch_module = self.patch_module.to(dstring(self.device_type, self.base_device))  # from the defalut devoce to the 1st device.
+        elif not self.abundant_GPUs: pass
+
+        #-------------- zeus layers -------------------------
+        if self.nDevices > 1: 
+            assert self.nDevices >= self.pm.zeusLayers, "The numbers of devices and zeud layers must be the same if nDevices > 1"
+        self.zeusLayers = nn.ModuleList([       # (B, T, N, dim) -> (B, T, N, dim)
+            ZeusLayer(self.pm, skip=True)
+            for i in range(self.pm.zeusLayers)
+        ])
+        if self.abundant_GPUs:
+            for idx, layer in enumerate(self.zeusLayers):
+                layer = layer.to(dstring(self.device_type, self.base_device + min(self.nDevices - 1, idx)))  # to the i-th device
+        elif not self.abundant_GPUs: pass
+
+        #--------------- ffn --------------------------------
+        self.mlp_head = MLP_Skip(self.pm)
+        
+        if self.abundant_GPUs:
+            self.mlp_head = self.mlp_head.to(dstring(self.device_type, self.base_device + min(self.nDevices - 1, self.pm.zeusLayers-1)))    # to the last device
+        elif not self.abundant_GPUs: pass
+        
+        self.modules = self.get_modules()
+        
+    def get_modules(self):
+        return [self.patch_module] + list(self.zeusLayers) + [self.mlp_head]
+
+    def forward(self, x):
+        # compute_place: data_find_layer, all_find_device_0
+        # data_find_layer: move data to layers' device
+        # all_find_device_0: move layers and data to cuda:0
+        
+        if not self.abundant_GPUs:
+            device = self.device_type + ':0'
+            x = x.to(device)
+        
+        for module in self.modules:                 #========================= both training and inference
+            if self.abundant_GPUs:
+                device = next(module.parameters()).device
+                x = x.to(device, non_blocking=True)
+                x = module(x)  # (B, T1FG, H/p * W/p, self.patch_dim = p * p * C) -> (B, T1FG, H/p * W/p, dim)
+                # backwarding is possible, because module is on the device it was forwarded on.
+                torch.cuda.empty_cache()    # free the space where x was.
+            elif not self.abundant_GPUs:       #========================== inference only
+                module.to(x.device)  # layer is not a copy.
+                x = module(x)
+                module.to('cpu:0')
+                # backwarding is NOT possible, because module NOT is on the device it was forwarded on.
+                torch.cuda.empty_cache()    # free the space where layer was if there are multiple GPUs 
+
+        return x    # (B,FG,C,H,W)
     
     def sigle_GPU_forward_for_gradient(self, data, target, loss_fn, denormal_fn, batch_diff, era5_data_vars):        
         # data, target = data.to("cpu"), target.to("cpu")
@@ -512,11 +668,16 @@ class DoubleZeus(nn.Module):
             if self.device_type == 'cuda' and self.nDevices == 1:
                 # goal: deployed on [cpu], for sinlge-gpu offload parallel inference and train
                 self.zeus1 = Zeus(config, nDevices=1, device_type=device_type, base_device=0, abundant_GPUs=self.abundant_GPUs)
-                self.zeus2 = Zeus(config, nDevices=1, device_type=device_type, base_device=0, abundant_GPUs=self.abundant_GPUs)      
+                if not self.pm.skip_2nd_half:
+                    self.zeus2 = Zeus(config, nDevices=1, device_type=device_type, base_device=0, abundant_GPUs=self.abundant_GPUs)
+                else:
+                    self.zeus2 = Zeus_Skip(config, nDevices=1, device_type=device_type, base_device=0, abundant_GPUs=self.abundant_GPUs)      
             else:
                 raise Exception("DoubleZeus cannot be created without GPU")    
         
         self.modules = self.get_modules()
+        self.modules1 = self.zeus1.get_modules()
+        self.modules2 = self.zeus2.get_modules()
         
         if freeze_1st_half:
             self.zeus1.eval()
@@ -528,8 +689,8 @@ class DoubleZeus(nn.Module):
     
     def forward(self, x):
         x = self.zeus1(x)
-        if not self.pm.freeze_1st_half:
-            x = self.zeus2(x)
+        # if not self.pm.freeze_1st_half:
+        # x = self.zeus2(x)
         return x
     
     def single_gpu_inference(self, x):        
@@ -550,11 +711,13 @@ class DoubleZeus(nn.Module):
         acts_cpu = []
         x = data.to("cuda:0")  # input on GPU
         
+        x = self.zeus1(x)
+        
         # ---------------- Forward Pass ----------------
-        for i, module in enumerate(self.modules):
+        for i, module in enumerate(self.modules2):
             module.to("cuda:0")
 
-            if i < len(self.modules) - 1:
+            if i < len(self.modules2) - 1:
                 with torch.no_grad():
                     x = module(x)       # intermediate module, no grad
                 x = x.detach()          # safe, disconnect from graph
@@ -580,8 +743,7 @@ class DoubleZeus(nn.Module):
         grad_next = final_input.grad.detach().cpu()
 
         # 2) Recompute previous modules in reverse
-        for i in reversed(range(len(self.modules)-1)):
-            if i < nFirstFrozenModules: continue
+        for i in reversed(range(len(self.modules2)-1)):
 
             module = self.modules[i]
             module.to("cuda:0")
