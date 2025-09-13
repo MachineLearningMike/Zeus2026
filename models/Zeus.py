@@ -710,8 +710,8 @@ class DoubleZeus(nn.Module):
         # data, target = data.to("cpu"), target.to("cpu")
         acts_cpu = []
         x = data.to("cuda:0")  # input on GPU
-        
-        x = self.zeus1(x)
+        data = self.zeus1(x)
+        x = data
         
         # ---------------- Forward Pass ----------------
         for i, module in enumerate(self.modules2):
