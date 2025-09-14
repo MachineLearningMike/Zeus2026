@@ -717,14 +717,15 @@ class DoubleZeus(nn.Module):
         for i, module in enumerate(self.modules2):
             module.to("cuda:0")
 
-            if i < len(self.modules2) - 1:
+            if i < len(self.modules2) - 1:      # 0, 1, 2, ..., n-2
                 with torch.no_grad():
                     x = module(x)       # intermediate module, no grad
                 x = x.detach()          # safe, disconnect from graph
-                acts_cpu.append(x.cpu())  # save for recomputation
+                if i < len(self.modules2) - 2:      # 0, 1, ..., n-3
+                    acts_cpu.append(x.cpu())  # save for recomputation
                 module.to("cpu")
                 torch.cuda.empty_cache()
-            else:
+            else:                               # 3 = n-1
                 # Last module
                 final_input = x
                 final_module = module
@@ -742,13 +743,15 @@ class DoubleZeus(nn.Module):
         final_module.to("cpu")                  # Safe place to move back.
         grad_next = final_input.grad.detach().cpu()
 
-        # 2) Recompute previous modules in reverse
-        for i in reversed(range(len(self.modules2)-1)):
+        # act_cpu = [m0.out, m1.out, m2.out]
 
-            module = self.modules[i]
+        # 2) Recompute previous modules in reverse
+        for i in reversed(range(len(self.modules2)-1)):     # n-2, ...,  2, 1, 0
+
+            module = self.modules2[i]
             module.to("cuda:0")
 
-            prev_act = acts_cpu[i-1].to("cuda:0") if i > 0 else data.to("cuda:0")
+            prev_act = acts_cpu[i-1].to("cuda:0") if i > 0 else data.to("cuda:0")   # act_cpu: n-3, ...  1, 0, -1 = data
             prev_act.requires_grad_(True)
 
             with torch.set_grad_enabled(True):
