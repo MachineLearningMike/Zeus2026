@@ -358,32 +358,36 @@ class Train():
                 #     if param_name.startswith('zeus2'):
                 #         zeus2_param[param_name] = param
 
-                new_state_dict = {}
-                for param_name, param in self.model.state_dict().items():
-                    if param_name.startswith('zeus2'): continue
-                    if param_name.count('mlp_head.') == 2:
-                        old_name = param_name.replace('mlp_head.', '', 1)
-                    else:
-                        old_name = param_name
+                # new_state_dict = {}
+                # for param_name, param in self.model.state_dict().items():
+                #     # if param_name.startswith('zeus2'): continue
+                #     # if param_name.count('mlp_head.') == 2:
+                #     #     old_name = param_name.replace('mlp_head.', '', 1)
+                #     # else:
+                #     old_name = param_name
                     
-                    try:
-                        if old_name in state_dict:
-                            assert param.shape == state_dict[old_name].shape, "Parameter shape mismatch. name {}, shape1 {}, shape2 {}".format(param_name, param.shape, state_dict[old_name].shape)
-                            param_name = ".".join(param_name.split(".")[1:])    # Mike!!! I give up and add this line after 10 hours of struggle.
-                            new_state_dict[param_name] = state_dict[old_name].to(param.device, non_blocking=True)
-                        elif strict:
-                            raise KeyError(f"Missing key {old_name} in model checkpoint")
-                        else:
-                            print(f"⚠️ Skipping {old_name}, not found in checkpoint")
-                    except Exception as e:
-                        logging.info(str(e))
-                try:
-                    missing_keys, unexpected_keys = self.model.load_state_dict(new_state_dict, strict=False)                
-                    logging.info("Model loaded with saved state: \nmissing_keys: {}, \nunexpected_keys: {}".format(missing_keys, unexpected_keys))
-                    # missing_keys, unexpected_keys = self.model.load_state_dict(zeus2_param, strict=False)
-                    # logging.info("Model loaded with its own state :): unexpected_keys: {}".format(unexpected_keys))      
-                except Exception as e:
-                    logging.info(str(e))
+                #     try:
+                #         if old_name in state_dict:
+                #             assert param.shape == state_dict[old_name].shape, "Parameter shape mismatch. name {}, shape1 {}, shape2 {}".format(param_name, param.shape, state_dict[old_name].shape)
+                #             param_name = ".".join(param_name.split(".")[1:])    # Mike!!! I give up and add this line after 10 hours of struggle.
+                #             new_state_dict[param_name] = state_dict[old_name].to(param.device, non_blocking=True)
+                #         elif strict:
+                #             raise KeyError(f"Missing key {old_name} in model checkpoint")
+                #         else:
+                #             print(f"⚠️ Skipping {old_name}, not found in checkpoint")
+                #     except Exception as e:
+                #         logging.info(str(e))
+                # try:
+                #     missing_keys, unexpected_keys = self.model.load_state_dict(new_state_dict, strict=False)
+                #     logging.info("Model loaded with saved state: \nmissing_keys: {}, \nunexpected_keys: {}".format(missing_keys, unexpected_keys))
+                #     # missing_keys, unexpected_keys = self.model.load_state_dict(zeus2_param, strict=False)
+                #     # logging.info("Model loaded with its own state :): unexpected_keys: {}".format(unexpected_keys))      
+                # except Exception as e:
+                    # logging.info(str(e))
+                               
+                               
+                missing_keys, unexpected_keys = self.model.load_state_dict(state_dict, strict=True)
+                logging.info("Model loaded with saved state: \nmissing_keys: {}, \nunexpected_keys: {}".format(missing_keys, unexpected_keys))
                                
                 step_state = None
                 if self.trainable:

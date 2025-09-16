@@ -610,21 +610,21 @@ class Zeus_Skip(nn.Module):
                 torch.cuda.empty_cache()
             else:
                 # Last module
-                final_input = x
-                final_module = module
-                final_input.requires_grad_(True)   # leaf tensor
-                final_out = final_module(final_input)    # compute output with grad
+                last_input = x
+                last_module = module
+                last_input.requires_grad_(True)   # leaf tensor
+                last_out = last_module(last_input)    # compute output with grad
 
         # ---------------- Backward Pass ----------------
         # 1) Last module and loss
         target = target.to('cuda:0')
-        final_out = denormal_fn(final_out)
+        last_out = denormal_fn(last_out)
         target = denormal_fn(target)
-        lossAndMetrics = loss_fn(final_out, target, batch_diff, era5_data_vars)     
+        lossAndMetrics = loss_fn(last_out, target, batch_diff, era5_data_vars)     
         loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
-        loss.backward()                         # grads for last module & final_input
-        final_module.to("cpu")                  # Safe place to move back.
-        grad_next = final_input.grad.detach().cpu()
+        loss.backward()                         # grads for last module & last_input
+        last_module.to("cpu")                  # Safe place to move back.
+        grad_next = last_input.grad.detach().cpu()
 
         # 2) Recompute previous modules in reverse
         for i in reversed(range(len(self.modules)-1)):
@@ -690,7 +690,7 @@ class DoubleZeus(nn.Module):
     def forward(self, x):
         x = self.zeus1(x)
         # if not self.pm.freeze_1st_half:
-        # x = self.zeus2(x)
+        x = self.zeus2(x)
         return x
     
     def single_gpu_inference(self, x):        
@@ -717,37 +717,38 @@ class DoubleZeus(nn.Module):
         for i, module in enumerate(self.modules2):
             module.to("cuda:0")
 
-            if i < len(self.modules2) - 1:      # 0, 1, 2, ..., n-2
+            if i < len(self.modules2) - 1:      # 0, 1, 2, ..., n-2: all except the last module n-1
                 with torch.no_grad():
                     x = module(x)       # intermediate module, no grad
-                x = x.detach()          # safe, disconnect from graph
+                # x = x.detach()          # safe, disconnect from graph
                 if i < len(self.modules2) - 2:      # 0, 1, ..., n-3
                     acts_cpu.append(x.cpu())  # save for recomputation
                 module.to("cpu")
                 torch.cuda.empty_cache()
             else:                               # 3 = n-1
                 # Last module
-                final_input = x
-                final_module = module
-                final_input.requires_grad_(True)   # leaf tensor
-                final_out = final_module(final_input)    # compute output with grad
+                last_input = x
+                last_module = module
+                last_input.requires_grad_(True)   # leaf tensor
+                with torch.set_grad_enabled(True):  # safe
+                    last_out = last_module(last_input)    # compute output with grad
 
         # ---------------- Backward Pass ----------------
         # 1) Last module and loss
         target = target.to('cuda:0')
-        final_out = denormal_fn(final_out)
         target = denormal_fn(target)
-        lossAndMetrics = loss_fn(final_out, target, batch_diff, era5_data_vars)     
+        with torch.set_grad_enabled(True):
+            last_out = denormal_fn(last_out)
+            lossAndMetrics = loss_fn(last_out, target, batch_diff, era5_data_vars)     
         loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
-        loss.backward()                         # grads for last module & final_input
-        final_module.to("cpu")                  # Safe place to move back.
-        grad_next = final_input.grad.detach().cpu()
+        loss.backward()                         # grads for last module & last_input
+        last_module.to("cpu")                  # After backward(), safe place to move back.
+        grad_next = last_input.grad.detach() #.cpu() in the hope for speed ============
 
         # act_cpu = [m0.out, m1.out, m2.out]
 
-        # 2) Recompute previous modules in reverse
+        # 2) Recompute previous modules in reverse. n-1 is already done.
         for i in reversed(range(len(self.modules2)-1)):     # n-2, ...,  2, 1, 0
-
             module = self.modules2[i]
             module.to("cuda:0")
 
@@ -758,9 +759,9 @@ class DoubleZeus(nn.Module):
                 out = module(prev_act)
                 if grad_next is None:
                     grad_next = torch.ones_like(out)
-                out.backward(grad_next.to(out.device))
+                out.backward(grad_next) #.to(out.device)) in the hope for speed ============
 
-            grad_next = prev_act.grad.detach().cpu()
+            grad_next = prev_act.grad.detach() #.cpu() in the hope for speed ============
             del out, prev_act
             torch.cuda.empty_cache()
             module.to("cpu")
