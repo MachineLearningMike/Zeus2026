@@ -384,11 +384,17 @@ class Train():
                 #     # logging.info("Model loaded with its own state :): unexpected_keys: {}".format(unexpected_keys))      
                 # except Exception as e:
                     # logging.info(str(e))
+                    
+                zeus1_state = {key : value for key, value in state_dict.items() if key.startswith('zeus1')}
+                zeus2_state = {key : value for key, value in state_dict.items() if key.startswith('zeus2')}
+                # zeus2_state = {(key.replace("mlp_head.", "", 1) if key.count("mlp_head.") > 1 else key) : value for key, value in zeus2_state.items()}
                                
-                               
-                missing_keys, unexpected_keys = self.model.load_state_dict(state_dict, strict=True)
-                logging.info("Model loaded with saved state: \nmissing_keys: {}, \nunexpected_keys: {}".format(missing_keys, unexpected_keys))
-                               
+                missing_keys, unexpected_keys = self.model.load_state_dict(zeus1_state, strict=True)
+                logging.info("Model loaded with saved zeus1 state: \nmissing_keys: {}, \nunexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
+
+                # missing_keys, unexpected_keys = self.model.load_state_dict(zeus2_state, strict=True)
+                # logging.info("Model loaded with saved zeus2 state: \nmissing_keys: {}, \nunexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
+
                 step_state = None
                 if self.trainable:
                     
@@ -659,6 +665,8 @@ class Train():
             pred = batch_x
             step_loss = []; step_rmses = []
 
+            if trainable: self.optimizer.zero_grad() 
+
             for t2 in range(1): # range(T2):    Mike!!!
                 target = batch_y[:, t2*FG:(t2+1)*FG, :,:]   # (B,FG,C,H,W)  # torch.float32, cuda, False
                 
@@ -680,10 +688,17 @@ class Train():
                 step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
                 step_rmses.append(rmse.detach().cpu())      # (C,) - list.  If no cpu(), their stack results in cuda
                     
-            if trainable: 
+            if trainable:
+                # param_before = {name: p.clone() for name, p in self.model.named_parameters()}
+                                
                 self.optimizer.step()
-                self.optimizer.zero_grad()    
-                # self.compare_save_load()     # All True.
+                
+                # for name, p in self.model.named_parameters():
+                #     if not torch.allclose(p, param_before[name]):
+                #         print(f"Updated: {name}")
+                #     else:
+                #         print(f"Not updated: {name}")                                                
+
                 self.scheduler.step()   # Our scheduler is OneCycleLR, which is a per-batch scheduler
             step_loss = torch.tensor(step_loss).mean()   # (,)
             step_rmses = torch.stack(step_rmses, dim=0).mean(dim=0)   # (C,)

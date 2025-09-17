@@ -29,12 +29,12 @@ config = {
     'seed' : 523,
     'include_difficulty' : False,
     'epochs': 50,
-    'steps_to_save' : 100,
+    'steps_to_save' : 50,
     'batch_size' : 1,
     'log_step': 10,
     'optimizer': 'adam',    # 'adamw' takes more momory for optimizer.
-    'lr' : 1e-7,    # -7 normal
-    'max_lr' : 2e-7,
+    'lr' : 1e-12,    # -7 normal
+    'max_lr' : 2e-12,
     'weight_decay': 0.0,    # disable weight_decay, in AdamW
     'pct_start' : 0.3,
     'anneal_strategy' : 'linear',   # 'cos'

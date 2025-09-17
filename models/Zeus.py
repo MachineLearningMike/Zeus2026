@@ -704,80 +704,144 @@ class DoubleZeus(nn.Module):
                 torch.cuda.empty_cache()
         return x.to("cpu:0")
     
+    
     def sigle_GPU_forward_for_gradient(self, data, target, loss_fn, denormal_fn, batch_diff, era5_data_vars):
         nFirstFrozenModules = len(self.modules) // 2 if self.pm.freeze_1st_half else 0
+        acts_on_cpu = False
         
         # data, target = data.to("cpu"), target.to("cpu")
-        acts_cpu = []
-        x = data.to("cuda:0")  # input on GPU
-        data = self.zeus1(x)
+        data = self.zeus1(data.to("cuda:0"))
+
+        if acts_on_cpu:
+            acts = [data.cpu()]     # module[-1].act, or act[-1]
+        else:
+            acts = [data]
         x = data
-        
+                
         # ---------------- Forward Pass ----------------
         for i, module in enumerate(self.modules2):
             module.to("cuda:0")
 
             if i < len(self.modules2) - 1:      # 0, 1, 2, ..., n-2: all except the last module n-1
                 with torch.no_grad():
-                    x = module(x)       # intermediate module, no grad
-                # x = x.detach()          # safe, disconnect from graph
+                    x = module(x)       # 0, 1, ..., n-2
                 if i < len(self.modules2) - 2:      # 0, 1, ..., n-3
-                    acts_cpu.append(x.cpu())  # save for recomputation
+                    if acts_on_cpu:
+                        acts.append(x.cpu())  # 0, 1, ..., n-3
+                    else:
+                        acts.append(x)  # 0, 1, ..., n-3
                 module.to("cpu")
                 torch.cuda.empty_cache()
             else:                               # 3 = n-1
-                # Last module
-                last_input = x
-                last_module = module
-                last_input.requires_grad_(True)   # leaf tensor
-                with torch.set_grad_enabled(True):  # safe
-                    last_out = last_module(last_input)    # compute output with grad
+                act_n_2 = x                  # act[n-2]. no save as it's used now
+                module_n_1 = module
+                act_n_2.requires_grad_(True)   # act[n-2] as a leaf tensor
+                act_n_2.retain_grad()
+                act_n_1 = module_n_1(act_n_2)    # act[n-1], no save as it's used now
 
         # ---------------- Backward Pass ----------------
         # 1) Last module and loss
-        target = target.to('cuda:0')
+        # target = target.to('cuda:0')
         target = denormal_fn(target)
-        with torch.set_grad_enabled(True):
-            last_out = denormal_fn(last_out)
-            lossAndMetrics = loss_fn(last_out, target, batch_diff, era5_data_vars)     
+        pred = denormal_fn(act_n_1)
+        lossAndMetrics = loss_fn(target, pred, batch_diff, era5_data_vars)     
         loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
-        loss.backward()                         # grads for last module & last_input
-        last_module.to("cpu")                  # After backward(), safe place to move back.
-        grad_next = last_input.grad.detach() #.cpu() in the hope for speed ============
+        loss.backward()             # grads for last_input (i.e. act[n-2]) -> last_module -> act[n-1] -> loss_fn -> loss.
 
-        # act_cpu = [m0.out, m1.out, m2.out]
+        # metrics = lossAndMetrics[1] if isinstance(lossAndMetrics, (tuple, list)) else None
+        # if metrics is not None: metrics = metrics.detach()
+        # loss = loss.detach()
+        
+        grad_next = act_n_2.grad    # No need to move to cpu, if memory is enough.
+        module_n_1.to("cpu")        # After backward(), safe place to move back.       
 
         # 2) Recompute previous modules in reverse. n-1 is already done.
-        for i in reversed(range(len(self.modules2)-1)):     # n-2, ...,  2, 1, 0
-            module = self.modules2[i]
+        for module in reversed(self.modules2[0 : -1]):     # n-2, ...,  2, 1, 0
             module.to("cuda:0")
-
-            prev_act = acts_cpu[i-1].to("cuda:0") if i > 0 else data.to("cuda:0")   # act_cpu: n-3, ...  1, 0, -1 = data
+            prev_act = acts.pop()  # acts: n-3, ...  1, 0, -1
+            if acts_on_cpu:
+                prev_act = prev_act.to("cuda:0")  # acts: n-3, ...  1, 0, -1
             prev_act.requires_grad_(True)
+            prev_act.retain_grad()
+            out = module(prev_act)
 
-            with torch.set_grad_enabled(True):
-                out = module(prev_act)
-                if grad_next is None:
-                    grad_next = torch.ones_like(out)
-                out.backward(grad_next) #.to(out.device)) in the hope for speed ============
-
-            grad_next = prev_act.grad.detach() #.cpu() in the hope for speed ============
+            out.backward(grad_next)     # grad_next is on cuda.
+            grad_next = prev_act.grad   # 
+                                   
+            module.to("cpu")
             del out, prev_act
             torch.cuda.empty_cache()
-            module.to("cpu")
             
         return lossAndMetrics
 
+
+    def sigle_GPU_forward_for_gradient_old(self, data, target, loss_fn, denormal_fn, batch_diff, era5_data_vars):
+        n_modules = len(self.modules2)
+        acts_on_cpu = False
+
+        # Forward through zeus1
+        x = self.zeus1(data.to("cuda:0"))
+        acts = [x.cpu()] if acts_on_cpu else [x]
+
+        # ---------------- Forward Pass ----------------
+        for i, module in enumerate(self.modules2):
+            module.to("cuda:0")
+
+            if i < n_modules - 1:  # all except last module
+                with torch.no_grad():
+                    x = module(x)
+                if i < n_modules - 2:  # store intermediate activations
+                    acts.append(x.cpu() if acts_on_cpu else x)
+                module.to("cpu")
+                torch.cuda.empty_cache()
+            else:  # last module
+                act_prev = x
+                act_prev.requires_grad_(True)
+                act_prev.retain_grad()  # important for non-leaf tensors
+                x = checkpoint(lambda inp: module(inp), act_prev, use_reentrant=False)
+                module_last = module
+
+        # ---------------- Loss & Backward ----------------
+        target = denormal_fn(target.to(x.device))
+        pred = denormal_fn(x)
+        loss_and_metrics = loss_fn(target, pred, batch_diff, era5_data_vars)
+        loss = loss_and_metrics[0] if isinstance(loss_and_metrics, (tuple, list)) else loss_and_metrics
+        loss.backward()  # grads for last module & last input
+        grad_next = act_prev.grad
+        module_last.to("cpu")
+
+        # ---------------- Backward through previous modules ----------------
+        for module in reversed(self.modules2[:-1]):
+            module.to("cuda:0")
+
+            prev_act = acts.pop()
+            if acts_on_cpu:
+                prev_act = prev_act.to("cuda:0")
+            prev_act.requires_grad_(True)
+            prev_act.retain_grad()
+
+            out = checkpoint(lambda inp: module(inp), prev_act, use_reentrant=False)
+
+            if grad_next is None:
+                grad_next = torch.ones_like(out)
+            out.backward(grad_next)
+            grad_next = prev_act.grad
+
+            module.to("cpu")
+            del out, prev_act
+            torch.cuda.empty_cache()
+
+        return loss_and_metrics
     
     def load_state_dict(self, state_dict, strict=True):
         # Detect if state_dict belongs to a single Zeus model
-        sample_keys = list(state_dict.keys())
-        if sample_keys and all(not k.startswith("zeus2") for k in sample_keys):
-            # assume it's a single Zeus, load into zeus1
-            return self.zeus1.load_state_dict(state_dict, strict=strict)
-        else:
-            # default behavior: load as usual
-            return super().load_state_dict(state_dict, strict=strict)
+        # sample_keys = list(state_dict.keys())
+        # if sample_keys and all(not k.startswith("zeus2") for k in sample_keys):
+        #     # assume it's a single Zeus, load into zeus1
+        #     return self.zeus1.load_state_dict(state_dict, strict=strict)
+        # else:
+        #     # default behavior: load as usual
+        return super().load_state_dict(state_dict, strict=strict)
         
 
 if __name__ == "__main__":
