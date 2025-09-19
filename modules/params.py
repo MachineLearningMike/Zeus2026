@@ -73,8 +73,8 @@ class Params:
         self.abundant_GPUs = config['abundant_GPUs']
         
         self.doubleZeus = config['doubleZeus']
-        self.freeze_1st_half = config['freeze_1st_half']
-        self.skip_2nd_half = config['skip_2nd_half']
+        self.freeze_zeus1 = config['freeze_zeus1']
+        self.skip_net_for_zeus2 = config['skip_net_for_zeus2']
         
         if self.image_height % self.patch_size != 0:
             raise Exception("Image height must be divisible by the patch size: {}, {}".format(self.image_height, self.patch_size))

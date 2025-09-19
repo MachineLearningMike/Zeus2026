@@ -402,7 +402,7 @@ class Zeus(nn.Module):
 
         if self.abundant_GPUs:
             self.patch_module = self.patch_module.to(dstring(self.device_type, self.base_device))  # from the defalut devoce to the 1st device.
-        elif not self.abundant_GPUs: pass
+        elif not self.abundant_GPUs: self.patch_module
 
         #-------------- zeus layers -------------------------
         if self.nDevices > 1: 
@@ -649,13 +649,13 @@ class Zeus_Skip(nn.Module):
         return lossAndMetrics
     
 class DoubleZeus(nn.Module):
-    def __init__(self, config, nDevices, device_type='cuda', abundant_GPUs=True, freeze_1st_half=True):
+    def __init__(self, config, nDevices, device_type='cuda', abundant_GPUs=True, freeze_zeus1=True):
         super().__init__()
         self.pm = Params(config)
         self.nDevices = nDevices
         self.device_type = device_type
         self.abundant_GPUs = abundant_GPUs
-        self.freeze_1st_half = freeze_1st_half
+        self.freeze_zeus1 = freeze_zeus1
         
         if self.abundant_GPUs:
             if self.device_type == 'cuda' and self.nDevices >= 2:
@@ -668,7 +668,7 @@ class DoubleZeus(nn.Module):
             if self.device_type == 'cuda' and self.nDevices == 1:
                 # goal: deployed on [cpu], for sinlge-gpu offload parallel inference and train
                 self.zeus1 = Zeus(config, nDevices=1, device_type=device_type, base_device=0, abundant_GPUs=self.abundant_GPUs)
-                if not self.pm.skip_2nd_half:
+                if not self.pm.skip_net_for_zeus2:
                     self.zeus2 = Zeus(config, nDevices=1, device_type=device_type, base_device=0, abundant_GPUs=self.abundant_GPUs)
                 else:
                     self.zeus2 = Zeus_Skip(config, nDevices=1, device_type=device_type, base_device=0, abundant_GPUs=self.abundant_GPUs)      
@@ -679,7 +679,7 @@ class DoubleZeus(nn.Module):
         self.modules1 = self.zeus1.get_modules()
         self.modules2 = self.zeus2.get_modules()
         
-        if freeze_1st_half:
+        if freeze_zeus1:
             self.zeus1.eval()
             for param in self.zeus1.parameters():
                 param.requires_grad = False
@@ -689,7 +689,7 @@ class DoubleZeus(nn.Module):
     
     def forward(self, x):
         x = self.zeus1(x)
-        # if not self.pm.freeze_1st_half:
+        # if not self.pm.freeze_zeus1:
         x = self.zeus2(x)
         return x
     
@@ -706,32 +706,36 @@ class DoubleZeus(nn.Module):
     
     
     def sigle_GPU_forward_for_gradient(self, data, target, loss_fn, denormal_fn, batch_diff, era5_data_vars):
-        nFirstFrozenModules = len(self.modules) // 2 if self.pm.freeze_1st_half else 0
         acts_on_cpu = False
         
-        # data, target = data.to("cpu"), target.to("cpu")
-        data = self.zeus1(data.to("cuda:0"))
+        if self.pm.freeze_zeus1:
+            data, target = data.to("cpu"), target.to("cpu")
+            data = self.zeus1(data.to("cuda:0"))
+            self.modules = self.modules2
+        else:
+            self.modules = self.modules
 
         if acts_on_cpu:
             acts = [data.cpu()]     # module[-1].act, or act[-1]
         else:
-            acts = [data]
-        x = data
+            acts = [data.to('cuda:0')]
+            
+        x = data.to("cuda:0")
                 
         # ---------------- Forward Pass ----------------
-        for i, module in enumerate(self.modules2):
+        for i, module in enumerate(self.modules):
             module.to("cuda:0")
 
-            if i < len(self.modules2) - 1:      # 0, 1, 2, ..., n-2: all except the last module n-1
+            if i < len(self.modules) - 1:      # 0, 1, 2, ..., n-2: all except the last module n-1
                 with torch.no_grad():
                     x = module(x)       # 0, 1, ..., n-2
-                if i < len(self.modules2) - 2:      # 0, 1, ..., n-3
+                if i < len(self.modules) - 2:      # 0, 1, ..., n-3
                     if acts_on_cpu:
                         acts.append(x.cpu())  # 0, 1, ..., n-3
                     else:
                         acts.append(x)  # 0, 1, ..., n-3
                 module.to("cpu")
-                torch.cuda.empty_cache()
+                # torch.cuda.empty_cache()
             else:                               # 3 = n-1
                 act_n_2 = x                  # act[n-2]. no save as it's used now
                 module_n_1 = module
@@ -753,10 +757,13 @@ class DoubleZeus(nn.Module):
         # loss = loss.detach()
         
         grad_next = act_n_2.grad    # No need to move to cpu, if memory is enough.
-        module_n_1.to("cpu")        # After backward(), safe place to move back.       
+        module_n_1.to("cpu")        # After backward(), safe place to move back. 
+        
+        del act_n_2, act_n_1, target, pred
+        torch.cuda.empty_cache()
 
         # 2) Recompute previous modules in reverse. n-1 is already done.
-        for module in reversed(self.modules2[0 : -1]):     # n-2, ...,  2, 1, 0
+        for module in reversed(self.modules[0 : -1]):     # n-2, ...,  2, 1, 0
             module.to("cuda:0")
             prev_act = acts.pop()  # acts: n-3, ...  1, 0, -1
             if acts_on_cpu:

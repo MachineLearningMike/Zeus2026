@@ -33,8 +33,8 @@ config = {
     'batch_size' : 1,
     'log_step': 10,
     'optimizer': 'adam',    # 'adamw' takes more momory for optimizer.
-    'lr' : 1e-12,    # -7 normal
-    'max_lr' : 2e-12,
+    'lr' : 1e-7,    # -7 normal
+    'max_lr' : 2e-7,
     'weight_decay': 0.0,    # disable weight_decay, in AdamW
     'pct_start' : 0.3,
     'anneal_strategy' : 'linear',   # 'cos'
@@ -45,8 +45,8 @@ config = {
     'abundant_GPUs' : False,
     'doubleZeus' : True,
 
-    'freeze_1st_half' : True,
-    'skip_2nd_half' : True,
+    'freeze_zeus1' : False,
+    'skip_net_for_zeus2' : True,
 
     'seed': 523,
     'bayesProject' : 'production_0823_18' #'production_0823-18' #31_12',  #23-18  # Represents an instance of a whole bayesian miximization. Mike!!!

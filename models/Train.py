@@ -58,7 +58,7 @@ class Train():
                 self.model = Zeus(config, self.nDevices, device_type=self.device_type, abundant_GPUs=self.pm.abundant_GPUs).float()                
                 logging.info("Zeus model created.")
             else:
-                self.model = DoubleZeus(config, self.nDevices, device_type=self.device_type, abundant_GPUs=self.pm.abundant_GPUs, freeze_1st_half=self.pm.freeze_1st_half)
+                self.model = DoubleZeus(config, self.nDevices, device_type=self.device_type, abundant_GPUs=self.pm.abundant_GPUs, freeze_zeus1=self.pm.freeze_zeus1)
                 logging.info("DoubleZeus model created. nDevices: {}, trainable: {}".format(self.nDevices, trainable))
 
         except Exception as e:
@@ -389,28 +389,28 @@ class Train():
                 zeus2_state = {key : value for key, value in state_dict.items() if key.startswith('zeus2')}
                 # zeus2_state = {(key.replace("mlp_head.", "", 1) if key.count("mlp_head.") > 1 else key) : value for key, value in zeus2_state.items()}
                                
-                missing_keys, unexpected_keys = self.model.load_state_dict(zeus1_state, strict=True)
+                missing_keys, unexpected_keys = self.model.load_state_dict(zeus1_state, strict=False)
                 logging.info("Model loaded with saved zeus1 state: \nmissing_keys: {}, \nunexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
 
-                # missing_keys, unexpected_keys = self.model.load_state_dict(zeus2_state, strict=True)
-                # logging.info("Model loaded with saved zeus2 state: \nmissing_keys: {}, \nunexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
+                missing_keys, unexpected_keys = self.model.load_state_dict(zeus2_state, strict=False)
+                logging.info("Model loaded with saved zeus2 state: \nmissing_keys: {}, \nunexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
 
                 step_state = None
                 if self.trainable:
                     
                     try:                       
                         # Restore optimizer
-                        if self.optimizer is not None and "optimizer" in checkpoint:
-                            self.optimizer.load_state_dict(checkpoint["optimizer"])
+                        # if self.optimizer is not None and "optimizer" in checkpoint:
+                        #     self.optimizer.load_state_dict(checkpoint["optimizer"])
 
-                            # Move optimizer state tensors to the same device as their parameters
-                            for group in self.optimizer.param_groups:
-                                for p in group["params"]:
-                                    if p in self.optimizer.state:
-                                        for k, v in self.optimizer.state[p].items():
-                                            if torch.is_tensor(v):
-                                                self.optimizer.state[p][k] = v.to(p.device, non_blocking=True)                       
-                        logging.info("Optimizer loaded with saved state")
+                        #     # Move optimizer state tensors to the same device as their parameters
+                        #     for group in self.optimizer.param_groups:
+                        #         for p in group["params"]:
+                        #             if p in self.optimizer.state:
+                        #                 for k, v in self.optimizer.state[p].items():
+                        #                     if torch.is_tensor(v):
+                        #                         self.optimizer.state[p][k] = v.to(p.device, non_blocking=True)                       
+                        # logging.info("Optimizer loaded with saved state")
 
                         self.scheduler.load_state_dict(checkpoint['scheduler'])
                         logging.info("Scheduler loaded with saved state")

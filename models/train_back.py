@@ -59,7 +59,7 @@ class Train():
                 self.model = Zeus(config, self.nDevices, device_type=self.device_type, layers_home='cpu', compute_place='all_find_device_0').float()
                 logging.info("Zeus model created.")
             else:
-                self.model = DoubleZeus(config, self.nDevices, device_type=self.device_type, trainable=self.trainable, freeze_1st_half=self.pm.freeze_1st_half)
+                self.model = DoubleZeus(config, self.nDevices, device_type=self.device_type, trainable=self.trainable, freeze_zeus1=self.pm.freeze_zeus1)
                 logging.info("DoubleZeus model created. nDevices: {}, trainable: {}".format(self.nDevices, trainable))
 
         except Exception as e:
