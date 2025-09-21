@@ -7,9 +7,9 @@ config = {
     'width': 1440,
     # video length in and out
     'variables': variables,
-    'T1': 1,    #
+    'T1': 6,    #
     'maxT2': 6,
-    'FG': 24, #24,   # frames in a frame group
+    'FG': 1, #24,   # frames in a frame group
     # data split
     'train_pct': 75,
     'vali_pct': 25,

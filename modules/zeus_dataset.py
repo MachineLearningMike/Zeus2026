@@ -679,6 +679,14 @@ class Zeus_Dataset(Dataset):
             return data
         except:
             raise Exception("No data found for {}".format(day))
+        
+    def load_hours_all_data_npy(self, day, start_hour, hours):
+        try:
+            day_data = self.load_day_all_data_npy(day)
+            data = day_data[start_hour : start_hour + hours]
+            return data
+        except:
+            raise Exception("No data found for {}, start_hour {}, hours {}".format(day, start_hour, hours))
 
     def remove_day_vdata(self, day):
         day_data = []
