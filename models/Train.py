@@ -308,92 +308,98 @@ class Train():
             try:
                 # Load model parameters
                 epoch = checkpoint['epoch']
-
-                # old_ckpt = checkpoint['model']
-                # new_state_dict = self.model.state_dict()
-                # keys_to_prefix = ["to_patch_embedding",
-                #                 "pos_embedding"]
-                # prefix1 = "zeus1.patch_module."
-                # prefic2 = "zeus1."
                 
-                # remapped_ckpt = {}       
-                # for k, v in old_ckpt.items():
-                #     target = False
-                #     for key in keys_to_prefix:
-                #         if k.startswith(key):
-                #             target = True; break                    
-                #     if target:
-                #         new_key = prefix1 + k
-                #     else:
-                #         new_key = prefic2 + k
-                #     target = False
-                #     for key in new_state_dict.keys():
-                #         if key.startswith(new_key):
-                #             target = True; break
-                #     if target:        
-                #         remapped_ckpt[new_key] = v
-                #     else:
-                #         print(f"Skipping {new_key}, not found in model")
-                
-                # new_state_dict.update(remapped_ckpt)
-                # self.model.load_state_dict(new_state_dict)
-
                 state_dict = checkpoint['model']
                 strict = True
                 
-                # names = [
-                #     "zeus1.mlp_head.1.weight",
-                #     "zeus1.mlp_head.1.bias",
-                #     "zeus1.mlp_head.2.weight",
-                #     "zeus1.mlp_head.2.bias",
-                #     "zeus2.mlp_head.1.weight",
-                #     "zeus2.mlp_head.1.bias",
-                #     "zeus2.mlp_head.2.weight",
-                #     "zeus2.mlp_head.2.bias",
-                # ]
-                
-                # Remap each tensor to match the device of the new model's parameter
-                # zeus2_param = {}
-                # for param_name, param in self.model.state_dict().items():
-                #     if param_name.startswith('zeus2'):
-                #         zeus2_param[param_name] = param
+                if self.pm.doubleZeus:
 
-                # new_state_dict = {}
-                # for param_name, param in self.model.state_dict().items():
-                #     # if param_name.startswith('zeus2'): continue
-                #     # if param_name.count('mlp_head.') == 2:
-                #     #     old_name = param_name.replace('mlp_head.', '', 1)
-                #     # else:
-                #     old_name = param_name
+                    # old_ckpt = checkpoint['model']
+                    # new_state_dict = self.model.state_dict()
+                    # keys_to_prefix = ["to_patch_embedding",
+                    #                 "pos_embedding"]
+                    # prefix1 = "zeus1.patch_module."
+                    # prefic2 = "zeus1."
                     
-                #     try:
-                #         if old_name in state_dict:
-                #             assert param.shape == state_dict[old_name].shape, "Parameter shape mismatch. name {}, shape1 {}, shape2 {}".format(param_name, param.shape, state_dict[old_name].shape)
-                #             param_name = ".".join(param_name.split(".")[1:])    # Mike!!! I give up and add this line after 10 hours of struggle.
-                #             new_state_dict[param_name] = state_dict[old_name].to(param.device, non_blocking=True)
-                #         elif strict:
-                #             raise KeyError(f"Missing key {old_name} in model checkpoint")
-                #         else:
-                #             print(f"⚠️ Skipping {old_name}, not found in checkpoint")
-                #     except Exception as e:
-                #         logging.info(str(e))
-                # try:
-                #     missing_keys, unexpected_keys = self.model.load_state_dict(new_state_dict, strict=False)
-                #     logging.info("Model loaded with saved state: \nmissing_keys: {}, \nunexpected_keys: {}".format(missing_keys, unexpected_keys))
-                #     # missing_keys, unexpected_keys = self.model.load_state_dict(zeus2_param, strict=False)
-                #     # logging.info("Model loaded with its own state :): unexpected_keys: {}".format(unexpected_keys))      
-                # except Exception as e:
-                    # logging.info(str(e))
+                    # remapped_ckpt = {}       
+                    # for k, v in old_ckpt.items():
+                    #     target = False
+                    #     for key in keys_to_prefix:
+                    #         if k.startswith(key):
+                    #             target = True; break                    
+                    #     if target:
+                    #         new_key = prefix1 + k
+                    #     else:
+                    #         new_key = prefic2 + k
+                    #     target = False
+                    #     for key in new_state_dict.keys():
+                    #         if key.startswith(new_key):
+                    #             target = True; break
+                    #     if target:        
+                    #         remapped_ckpt[new_key] = v
+                    #     else:
+                    #         print(f"Skipping {new_key}, not found in model")
                     
-                zeus1_state = {key : value for key, value in state_dict.items() if key.startswith('zeus1')}
-                zeus2_state = {key : value for key, value in state_dict.items() if key.startswith('zeus2')}
-                # zeus2_state = {(key.replace("mlp_head.", "", 1) if key.count("mlp_head.") > 1 else key) : value for key, value in zeus2_state.items()}
-                               
-                missing_keys, unexpected_keys = self.model.load_state_dict(zeus1_state, strict=False)
-                logging.info("Model loaded with saved zeus1 state: \nmissing_keys: {}, \nunexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
+                    # new_state_dict.update(remapped_ckpt)
+                    # self.model.load_state_dict(new_state_dict)
+                    
+                    # names = [
+                    #     "zeus1.mlp_head.1.weight",
+                    #     "zeus1.mlp_head.1.bias",
+                    #     "zeus1.mlp_head.2.weight",
+                    #     "zeus1.mlp_head.2.bias",
+                    #     "zeus2.mlp_head.1.weight",
+                    #     "zeus2.mlp_head.1.bias",
+                    #     "zeus2.mlp_head.2.weight",
+                    #     "zeus2.mlp_head.2.bias",
+                    # ]
+                    
+                    # Remap each tensor to match the device of the new model's parameter
+                    # zeus2_param = {}
+                    # for param_name, param in self.model.state_dict().items():
+                    #     if param_name.startswith('zeus2'):
+                    #         zeus2_param[param_name] = param
 
-                missing_keys, unexpected_keys = self.model.load_state_dict(zeus2_state, strict=False)
-                logging.info("Model loaded with saved zeus2 state: \nmissing_keys: {}, \nunexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
+                    # new_state_dict = {}
+                    # for param_name, param in self.model.state_dict().items():
+                    #     # if param_name.startswith('zeus2'): continue
+                    #     # if param_name.count('mlp_head.') == 2:
+                    #     #     old_name = param_name.replace('mlp_head.', '', 1)
+                    #     # else:
+                    #     old_name = param_name
+                        
+                    #     try:
+                    #         if old_name in state_dict:
+                    #             assert param.shape == state_dict[old_name].shape, "Parameter shape mismatch. name {}, shape1 {}, shape2 {}".format(param_name, param.shape, state_dict[old_name].shape)
+                    #             param_name = ".".join(param_name.split(".")[1:])    # Mike!!! I give up and add this line after 10 hours of struggle.
+                    #             new_state_dict[param_name] = state_dict[old_name].to(param.device, non_blocking=True)
+                    #         elif strict:
+                    #             raise KeyError(f"Missing key {old_name} in model checkpoint")
+                    #         else:
+                    #             print(f"⚠️ Skipping {old_name}, not found in checkpoint")
+                    #     except Exception as e:
+                    #         logging.info(str(e))
+                    # try:
+                    #     missing_keys, unexpected_keys = self.model.load_state_dict(new_state_dict, strict=False)
+                    #     logging.info("Model loaded with saved state: \nmissing_keys: {}, \nunexpected_keys: {}".format(missing_keys, unexpected_keys))
+                    #     # missing_keys, unexpected_keys = self.model.load_state_dict(zeus2_param, strict=False)
+                    #     # logging.info("Model loaded with its own state :): unexpected_keys: {}".format(unexpected_keys))      
+                    # except Exception as e:
+                        # logging.info(str(e))
+                        
+                    zeus1_state = {key : value for key, value in state_dict.items() if key.startswith('zeus1')}
+                    zeus2_state = {key : value for key, value in state_dict.items() if key.startswith('zeus2')}
+                    # zeus2_state = {(key.replace("mlp_head.", "", 1) if key.count("mlp_head.") > 1 else key) : value for key, value in zeus2_state.items()}
+                                
+                    missing_keys, unexpected_keys = self.model.load_state_dict(zeus1_state, strict=False)
+                    logging.info("Model loaded with saved zeus1 state: \nmissing_keys: {}, \nunexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
+
+                    missing_keys, unexpected_keys = self.model.load_state_dict(zeus2_state, strict=False)
+                    logging.info("Model loaded with saved zeus2 state: \nmissing_keys: {}, \nunexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
+
+                else:
+                    missing_keys, unexpected_keys = self.model.load_state_dict(state_dict, strict=False)
+                    logging.info("Model loaded with saved state: \nmissing_keys: {}, \nunexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
 
                 step_state = None
                 if self.trainable:

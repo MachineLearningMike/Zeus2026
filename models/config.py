@@ -14,7 +14,7 @@ config = {
     'train_pct': 75,
     'vali_pct': 25,
     # patch size
-    'patch_size': 12, #16, # 8
+    'patch_size': 16, #16, # 8
     # transformer
     'heads': 4, #8,     # 8
     'dropout': 0.0,
@@ -23,7 +23,7 @@ config = {
     'dim_to_mlp_dim': 2,
     # layers:   max (2, 3) on laptop
     'attLayers' : 4,
-    'zeusLayers': 4,
+    'zeusLayers': 8,
     # training
     'hypers' : {},
     'seed' : 523,
@@ -33,8 +33,8 @@ config = {
     'batch_size' : 1,
     'log_step': 10,
     'optimizer': 'adam',    # 'adamw' takes more momory for optimizer.
-    'lr' : 1e-7,    # -7 normal
-    'max_lr' : 2e-7,
+    'lr' : 1e-6,    # -7 normal
+    'max_lr' : 1e-6,
     'weight_decay': 0.0,    # disable weight_decay, in AdamW
     'pct_start' : 0.3,
     'anneal_strategy' : 'linear',   # 'cos'
@@ -43,13 +43,13 @@ config = {
     'epoch_patience' : 3,       # Mike!!!
     
     'abundant_GPUs' : False,
-    'doubleZeus' : True,
+    'doubleZeus' : False,
 
     'freeze_zeus1' : False,
     'skip_net_for_zeus2' : True,
 
     'seed': 523,
-    'bayesProject' : 'production_0823_18' #'production_0823-18' #31_12',  #23-18  # Represents an instance of a whole bayesian miximization. Mike!!!
+    'bayesProject' : 'production_0919_22' #'production_0823-18' #31_12',  #23-18  # Represents an instance of a whole bayesian miximization. Mike!!!
 }
 
 

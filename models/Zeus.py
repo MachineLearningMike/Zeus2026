@@ -292,13 +292,13 @@ class ZeusLayer(nn.Module):
         self.pm = pm
         self.skip = skip
 
-        self.spatial_colvolution_1 = SpatialConvolution(pm, skip=self.skip)  # zero initially
+        # self.spatial_colvolution_1 = SpatialConvolution(pm, skip=self.skip)  # zero initially
         self.temporal_transformer_1 = GatedAttention(pm, skip=self.skip)     # identity initially
 
         self.space_transformer_1 = GatedAttention(pm, skip=self.skip)         # identity initially
         self.space_transformer_2 = GatedAttention(pm, skip=self.skip)         # identity initially
         
-        self.spacial_colvolution_2 = SpatialConvolution(pm, skip=self.skip)  # zero initially
+        # self.spacial_colvolution_2 = SpatialConvolution(pm, skip=self.skip)  # zero initially
         self.temporal_transformer_2 = GatedAttention(pm, skip=self.skip)      # identity initially
 
     def forward(self, x):   # (B, T, N, dim) -> (B, T, N, dim)      # (B, T1FG, H/p * W/p, dim)
@@ -307,7 +307,7 @@ class ZeusLayer(nn.Module):
         
         b, t, n, dim = x.shape                  # (B, T, N, dim), or (B, T1FG, H/p * W/p, dim)
         
-        x = self.spatial_colvolution_1(x)   # (B, T, N, dim) -> (B, T, N, dim)
+        # x = self.spatial_colvolution_1(x)   # (B, T, N, dim) -> (B, T, N, dim)
         x = rearrange(x, 'b t n d -> (b n) t d')  # (B*N, T, dim)
         x = self.temporal_transformer_1(x)       # (B*N, T, dim)
         
@@ -316,7 +316,7 @@ class ZeusLayer(nn.Module):
         x = self.space_transformer_2(x)                      # (B*T, N, dim)
         
         x = rearrange(x, '(b t) n d -> b t n d', b=b)       # (B, T, N, dim)
-        x = self.spacial_colvolution_2(x)                   # (B, T, N, dim)
+        # x = self.spacial_colvolution_2(x)                   # (B, T, N, dim)
         x = rearrange(x, 'b t n d -> (b n) t d')        # (B*N, T, dim)
         x = self.temporal_transformer_2(x)                   # (B*N, T, dim)
 
@@ -462,6 +462,77 @@ class Zeus(nn.Module):
                 torch.cuda.empty_cache()    # free the space where layer was if there are multiple GPUs 
 
         return x    # (B,FG,C,H,W)
+    
+    def sigle_GPU_forward_for_gradient(self, data, target, loss_fn, denormal_fn, batch_diff, era5_data_vars):
+        acts_on_cpu = False
+                
+        if acts_on_cpu:
+            acts = [data.cpu()]     # module[-1].act, or act[-1]
+        else:
+            acts = [data.to('cuda:0')]
+            
+        x = data.to("cuda:0")
+        
+        self.modules = self.get_modules()
+                
+        # ---------------- Forward Pass ----------------
+        for i, module in enumerate(self.modules):
+            module.to("cuda:0")
+
+            if i < len(self.modules) - 1:      # 0, 1, 2, ..., n-2: all except the last module n-1
+                with torch.no_grad():
+                    x = module(x)       # 0, 1, ..., n-2
+                if i < len(self.modules) - 2:      # 0, 1, ..., n-3
+                    if acts_on_cpu:
+                        acts.append(x.cpu())  # 0, 1, ..., n-3
+                    else:
+                        acts.append(x)  # 0, 1, ..., n-3
+                module.to("cpu")
+                # torch.cuda.empty_cache()
+            else:                               # 3 = n-1
+                act_n_2 = x                  # act[n-2]. no save as it's used now
+                module_n_1 = module
+                act_n_2.requires_grad_(True)   # act[n-2] as a leaf tensor
+                act_n_2.retain_grad()
+                act_n_1 = module_n_1(act_n_2)    # act[n-1], no save as it's used now
+
+        # ---------------- Backward Pass ----------------
+        # 1) Last module and loss
+        # target = target.to('cuda:0')
+        target = denormal_fn(target)
+        pred = denormal_fn(act_n_1)
+        lossAndMetrics = loss_fn(target, pred, batch_diff, era5_data_vars)     
+        loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
+        loss.backward()             # grads for last_input (i.e. act[n-2]) -> last_module -> act[n-1] -> loss_fn -> loss.
+
+        # metrics = lossAndMetrics[1] if isinstance(lossAndMetrics, (tuple, list)) else None
+        # if metrics is not None: metrics = metrics.detach()
+        # loss = loss.detach()
+        
+        grad_next = act_n_2.grad    # No need to move to cpu, if memory is enough.
+        module_n_1.to("cpu")        # After backward(), safe place to move back. 
+        
+        del act_n_2, act_n_1, target, pred
+        torch.cuda.empty_cache()
+
+        # 2) Recompute previous modules in reverse. n-1 is already done.
+        for module in reversed(self.modules[0 : -1]):     # n-2, ...,  2, 1, 0
+            module.to("cuda:0")
+            prev_act = acts.pop()  # acts: n-3, ...  1, 0, -1
+            if acts_on_cpu:
+                prev_act = prev_act.to("cuda:0")  # acts: n-3, ...  1, 0, -1
+            prev_act.requires_grad_(True)
+            prev_act.retain_grad()
+            out = module(prev_act)
+
+            out.backward(grad_next)     # grad_next is on cuda.
+            grad_next = prev_act.grad   # 
+                                   
+            module.to("cpu")
+            del out, prev_act
+            torch.cuda.empty_cache()
+            
+        return lossAndMetrics
 
 class PatchEmbedWithPos_Skip(nn.Module):
     def __init__(self, pm):
