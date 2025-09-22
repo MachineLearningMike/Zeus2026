@@ -5,14 +5,16 @@ config = {
     # image h w c
     'height': 720,
     'width': 1440,
-    'T1': 3,    # 2, 3, 4, 6, 12, ----------------------
     'FG': 1, # not 24, for a better granularity control   # frames in a frame group
     'variables': variables,
     
-    'patch_size':   16, #16, # 8  ------------------------
-    'heads':        256, #8,     # 8   ------------------------
-    'attLayers' :   1,    #           ----------------------
-    'zeusLayers':   8,    #           ----------------------
+    # Mode.3
+    'T1':           3,
+    'patch_size':   16, #16, # 8        ----------------------
+    'heads':        512, #8,     # 8    ----------------------
+    
+    'attLayers' :   1,    #             ----------------------
+    'zeusLayers':   8,    #             ----------------------
 
     'dropout':      0.0,
     'attn_dropout': 0.0,
