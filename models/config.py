@@ -5,25 +5,26 @@ config = {
     # image h w c
     'height': 720,
     'width': 1440,
-    # video length in and out
-    'variables': variables,
     'T1': 3,    # 2, 3, 4, 6, 12, ----------------------
-    'maxT2': 6,
     'FG': 1, # not 24, for a better granularity control   # frames in a frame group
+    'variables': variables,
+    
+    'patch_size':   16, #16, # 8  ------------------------
+    'heads':        256, #8,     # 8   ------------------------
+    'attLayers' :   1,    #           ----------------------
+    'zeusLayers':   8,    #           ----------------------
+
+    'dropout':      0.0,
+    'attn_dropout': 0.0,
+    'drop_path':    0.0,
+    'dim_to_mlp_dim': 4,
+
+    # video length in and out
+    'maxT2': 6,
     # data split
     'train_pct': 75,
     'vali_pct': 25,
-    # patch size
-    'patch_size': 16, #16, # 8  ------------------------
-    # transformer
-    'heads': 256, #8,     # 8   ------------------------
-    'dropout': 0.0,
-    'attn_dropout': 0.0,
-    'drop_path': 0.0,
-    'dim_to_mlp_dim': 2,
-    # layers:   max (2, 3) on laptop
-    'attLayers' : 1,    #           ----------------------
-    'zeusLayers': 8,    #           ----------------------
+
     # training
     'hypers' : {},
     'seed' : 523,
@@ -59,8 +60,9 @@ if platform.system() == "Windows":
     root_path = Path("D:/Zeus_Data")
     config['height'] = 72 * 2
     config['width'] = 144
+    config['patch_size'] = 16
     config['attLayers'] = 1
-    config['zeusLayers'] = 4
+    config['zeusLayers'] = 2
     config['epochs'] = 3
     config['steps_to_save'] = 5
     config['abundant_GPUs'] = False

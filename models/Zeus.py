@@ -113,7 +113,7 @@ class Attention(nn.Module):     # (b, n, dim)  -> (b, n, dim)
 
     def forward(self, x):                   # (b, n, dim)  -> (b, n, dim)
         # return zeros initially
-        b, n, dim, h = *x.shape, self.heads
+        h = self.heads
         qkv = self.to_qkv(x).chunk(3, dim=-1)                                   # (b, n, dim_head * heads) x 3
         q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=h), qkv) # (b, heads, n, dim_head) x 3
         
@@ -256,8 +256,11 @@ class ZeusLayer(nn.Module):
         super(ZeusLayer, self).__init__()
         self.pm = pm
         self.skip = skip
-        
+
         self.only_transformer = GatedAttention(pm, skip=self.skip)
+        
+        # self.height_transformer = GatedAttention(pm, skip=self.skip)
+        # self.width_transformer = GatedAttention(pm, skip=self.skip)
 
         # # self.spatial_colvolution_1 = SpatialConvolution(pm, skip=self.skip)  # zero initially
         # self.temporal_transformer_1 = GatedAttention(pm, skip=self.skip)     # identity initially
@@ -272,19 +275,30 @@ class ZeusLayer(nn.Module):
         # returns x initially
         if self.skip: x_skip = x
         
-        t = x.shape[1]
         x = rearrange(x, 'b t n d -> b (t n) d')
         x = self.only_transformer(x)
-        x = rearrange(x, 'b (t n) d -> b t n d', t=t)
+        x = rearrange(x, 'b (t n) d -> b t n d', n=self.pm.nPatches_h * self.pm.nPatches_w)
+        
+        # x = rearrange(x, 'b t (h w) d -> b t h w d', h=self.pm.nPatches_h)
+        # x = rearrange(x, 'b t h w d -> b h t w d')
+        # x = rearrange(x, 'b h t w d -> (b h) (t w) d')
+        # x = self.width_transformer(x)       # ((b h) (t w) d)
+        # x = rearrange(x, '(b h) (t w) d -> b h t w d', h=self.pm.nPatches_h, w=self.pm.nPatches_w)
+        # x = rearrange(x, 'b h t w d -> b w h t d')
+        # x = rearrange(x, 'b w h t d -> b w t h d')
+        # x = rearrange(x, 'b w t h d -> (b w) (t h) d')
+        # x = self.height_transformer(x)      # ((b w) (t h) d)
+        # x = rearrange(x, '(b w) (t h) d -> b w t h d', w=self.pm.nPatches_w, h=self.pm.nPatches_h)
+        # x = rearrange(x, 'b w t h d -> b t w h d')
+        # x = rearrange(x, 'b t w h d -> b t h w d')
+        # x = rearrange(x, 'b t h w d -> b t (h w) d')       
         
         # # x = self.spatial_colvolution_1(x)   # (B, T, N, dim) -> (B, T, N, dim)
         # x = rearrange(x, 'b t n d -> (b n) t d')  # (B*N, T, dim)
         # x = self.temporal_transformer_1(x)       # (B*N, T, dim)
-        
         # x = rearrange(x, '(b n) t d -> (b t) n d', b=b)       # (B*T, N, dim)
         # x = self.space_transformer_1(x)                      # (B*T, N, dim)
         # x = self.space_transformer_2(x)                      # (B*T, N, dim)
-        
         # x = rearrange(x, '(b t) n d -> b t n d', b=b)       # (B, T, N, dim)
         # # x = self.spacial_colvolution_2(x)                   # (B, T, N, dim)
         # x = rearrange(x, 'b t n d -> (b n) t d')        # (B*N, T, dim)
