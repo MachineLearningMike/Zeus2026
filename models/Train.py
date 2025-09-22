@@ -493,10 +493,11 @@ class Train():
         return epoch_loss, epoch_rmses
     
     def create_slave_models(self, devices):
-        if self.pm.abundant_GPUs:
-            slave_models = {device : copy.deepcopy(self.model).to(device) for device in devices}        
-        else:
-            slave_models = {device : copy.deepcopy(self.model).to('cpu') for device in devices}
+        slave_models = {device : copy.deepcopy(self.model) for device in devices}
+        # if self.pm.abundant_GPUs:
+        #     slave_models = {device : copy.deepcopy(self.model).to(device) for device in devices}        
+        # else:
+        #     slave_models = {device : copy.deepcopy(self.model).to('cpu') for device in devices}
         return slave_models
     
     def average_gradients(self, master_model, grads_list):
@@ -529,6 +530,8 @@ class Train():
         if trainable: self.optimizer.zero_grad()                     # trainable
         pbar = zeus_tqdm(self.dataset)
         pbar.start_prefetch_thread()
+
+        if self.nDevices > 1: executor = ThreadPoolExecutor(max_workers=len(self.devices))
         
         if not pbar.no_more_data():  pbar.prefetch(x_set_label)        # Fetch one batch asynchronously
         step = 0
@@ -577,19 +580,18 @@ class Train():
                     for device in range(self.devices):
                         self.slave_models[device].load_state_dict(self.model.state_dict())
                     
-                    with ThreadPoolExecutor(max_workers=self.nDevices) as executor:
-                        futures = [
-                            executor.submit(
-                                self.slave_models[self.devices[i]].sigle_GPU_forward_for_gradient, mb_x, mb_y, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars
-                            )
-                            for i, (mb_x, mb_y) in enumerate(zip(chunks_x, chunks_y))                        
-                        ]
-                        grads_list = []
-                        for fut in futures:
-                            grads, loss, rmse = fut.result()
-                            grads_list.append(grads)
-                            step_loss.append(loss)
-                            step_rmses.append(rmse)
+                    futures = [
+                        executor.submit(
+                            self.slave_models[self.devices[i]].sigle_GPU_forward_for_gradient, mb_x, mb_y, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars
+                        )
+                        for i, (mb_x, mb_y) in enumerate(zip(chunks_x, chunks_y))                        
+                    ]   # returns immediately.
+                    grads_list = []
+                    for fut in futures:
+                        grads, (loss, rmse) = fut.result()  # blocks until the single future is done.
+                        grads_list.append(grads)
+                        step_loss.append(loss)
+                        step_rmses.append(rmse)
                     
                     self.average_gradients(self.model, grads_list)
                     
@@ -616,8 +618,9 @@ class Train():
         pbar.set_description('Loss: {:.3f}, rmses: {}'.format(_epoch_loss.item(), strC))
         pbar.stop_prefetch_thread()
         
-        if trainable is True: 
-            self.save_state()   # Epoch_save. No step_state saved.
+        if trainable is True: self.save_state()   # Epoch_save. No step_state saved.
+        if self.nDevices > 1: executor.shutdown()
+
         return _epoch_loss, _epoch_rmses  # (,), (C,)
     
     

@@ -510,7 +510,9 @@ class Zeus(nn.Module):
             del out, prev_act
             torch.cuda.empty_cache()
             
-        return lossAndMetrics
+        grads = [p.grad.detach().cpu().clone() for p in self.model.parameters()]
+            
+        return grads, lossAndMetrics
 
 class PatchEmbedWithPos_Skip(nn.Module):
     def __init__(self, pm):

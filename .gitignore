@@ -42,3 +42,6 @@ dist/
 
 # saved numpy array
 *.npy
+
+#
+~*
