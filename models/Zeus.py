@@ -252,15 +252,17 @@ class SpatialConvolution(nn.Module):
         return x
 
 class ZeusLayer(nn.Module):
-    def __init__(self, pm, skip=False):
+    def __init__(self, pm, cross=True, skip=False):
         super(ZeusLayer, self).__init__()
         self.pm = pm
+        self.cross = cross
         self.skip = skip
 
-        self.only_transformer = GatedAttention(pm, skip=self.skip)
-        
-        # self.height_transformer = GatedAttention(pm, skip=self.skip)
-        # self.width_transformer = GatedAttention(pm, skip=self.skip)
+        if self.cross:
+            self.height_transformer = GatedAttention(pm, skip=self.skip)
+            self.width_transformer = GatedAttention(pm, skip=self.skip)            
+        else:
+            self.only_transformer = GatedAttention(pm, skip=self.skip)
 
         # # self.spatial_colvolution_1 = SpatialConvolution(pm, skip=self.skip)  # zero initially
         # self.temporal_transformer_1 = GatedAttention(pm, skip=self.skip)     # identity initially
@@ -274,25 +276,18 @@ class ZeusLayer(nn.Module):
     def forward(self, x):   # (B, T, N, dim) -> (B, T, N, dim)      # (B, T1FG, H/p * W/p, dim)
         # returns x initially
         if self.skip: x_skip = x
-        
-        x = rearrange(x, 'b t n d -> b (t n) d')
-        x = self.only_transformer(x)
-        x = rearrange(x, 'b (t n) d -> b t n d', n=self.pm.nPatches_h * self.pm.nPatches_w)
-        
-        # x = rearrange(x, 'b t (h w) d -> b t h w d', h=self.pm.nPatches_h)
-        # x = rearrange(x, 'b t h w d -> b h t w d')
-        # x = rearrange(x, 'b h t w d -> (b h) (t w) d')
-        # x = self.width_transformer(x)       # ((b h) (t w) d)
-        # x = rearrange(x, '(b h) (t w) d -> b h t w d', h=self.pm.nPatches_h, w=self.pm.nPatches_w)
-        # x = rearrange(x, 'b h t w d -> b w h t d')
-        # x = rearrange(x, 'b w h t d -> b w t h d')
-        # x = rearrange(x, 'b w t h d -> (b w) (t h) d')
-        # x = self.height_transformer(x)      # ((b w) (t h) d)
-        # x = rearrange(x, '(b w) (t h) d -> b w t h d', w=self.pm.nPatches_w, h=self.pm.nPatches_h)
-        # x = rearrange(x, 'b w t h d -> b t w h d')
-        # x = rearrange(x, 'b t w h d -> b t h w d')
-        # x = rearrange(x, 'b t h w d -> b t (h w) d')       
-        
+
+        if self.cross:
+            x = rearrange(x, 'b t (h w) d -> (b h) (t w) d', h=self.pm.nPatches_h)
+            x = self.width_transformer(x)       # ((b h) (t w) d)
+            x = rearrange(x, '(b h) (t w) d -> (b w) (t h) d', h=self.pm.nPatches_h, w=self.pm.nPatches_w)
+            x = self.height_transformer(x)      # ((b w) (t h) d)
+            x = rearrange(x, '(b w) (t h) d -> b t (h w) d', w=self.pm.nPatches_w, h=self.pm.nPatches_h)     
+        else:
+            x = rearrange(x, 'b t n d -> b (t n) d')
+            x = self.only_transformer(x)
+            x = rearrange(x, 'b (t n) d -> b t n d', n=self.pm.nPatches_h * self.pm.nPatches_w)
+                
         # # x = self.spatial_colvolution_1(x)   # (B, T, N, dim) -> (B, T, N, dim)
         # x = rearrange(x, 'b t n d -> (b n) t d')  # (B*N, T, dim)
         # x = self.temporal_transformer_1(x)       # (B*N, T, dim)
@@ -371,8 +366,11 @@ class Zeus(nn.Module):
 
         #--------------- token embedding ---------------
         # We need to enable more complex non-linearity here.
-        to_patch_embedding = nn.Sequential(             # Mike!!! (p1, p2, c) is wrong. should be (c, p1, p2). No touch, as we have learned parameters.
-            Rearrange('b t c (h p1) (w p2) -> b t (h w) (p1 p2 c)', p1=self.pm.patch_size, p2=self.pm.patch_size),
+        to_patch_embedding = nn.Sequential(
+            # (c p1 p2) and (p1 p2 c) are equivalently for the whole Zues, 
+            # as they immediately undergo a linear transformation by the multi-head attention,
+            # before taken care of by attention headers.
+            Rearrange('b t c (h p1) (w p2) -> b t (h w) (c p1 p2)', p1=self.pm.patch_size, p2=self.pm.patch_size),
             nn.Linear(self.pm.patch_dim, 2 * self.pm.dim),
             nn.Tanh(),
             nn.Linear(2 * self.pm.dim, self.pm.dim),
@@ -401,14 +399,12 @@ class Zeus(nn.Module):
         elif not self.abundant_GPUs: pass
 
         #--------------- ffn --------------------------------
-        reshapeForMlp = ReshapeForMLP(self.pm.dim)
         reconstruct = PatchReconstruct(
             nFramesOut=self.pm.nFramesOut, nPatches_h=self.pm.nPatches_h, nPatches_w=self.pm.nPatches_w, patch_size=self.pm.patch_size,
             C=self.pm.nChannels, H=self.pm.image_height, W=self.pm.image_width
         )       
         
         self.mlp_head = nn.Sequential(
-            reshapeForMlp,
             nn.LayerNorm(self.pm.dim),
             nn.Linear(self.pm.dim, self.pm.nChannels * self.pm.patch_size ** 2),
             reconstruct
@@ -456,9 +452,7 @@ class Zeus(nn.Module):
             acts = [data.to('cuda:0')]
             
         x = data.to("cuda:0")
-        
-        self.modules = self.get_modules()
-                
+                        
         # ---------------- Forward Pass ----------------
         for i, module in enumerate(self.modules):
             module.to("cuda:0")

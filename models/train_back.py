@@ -1,5 +1,6 @@
 import torch
 import json, tzlocal
+from concurrent.futures import ThreadPoolExecutor
 from torch.amp import autocast, GradScaler
 from einops import rearrange
 from pathlib import Path
@@ -310,35 +311,6 @@ class Train():
                 # Load model parameters
                 epoch = checkpoint['epoch']
 
-                # old_ckpt = checkpoint['model']
-                # new_state_dict = self.model.state_dict()
-                # keys_to_prefix = ["to_patch_embedding",
-                #                 "pos_embedding"]
-                # prefix1 = "zeus1.patch_module."
-                # prefic2 = "zeus1."
-                
-                # remapped_ckpt = {}       
-                # for k, v in old_ckpt.items():
-                #     target = False
-                #     for key in keys_to_prefix:
-                #         if k.startswith(key):
-                #             target = True; break                    
-                #     if target:
-                #         new_key = prefix1 + k
-                #     else:
-                #         new_key = prefic2 + k
-                #     target = False
-                #     for key in new_state_dict.keys():
-                #         if key.startswith(new_key):
-                #             target = True; break
-                #     if target:        
-                #         remapped_ckpt[new_key] = v
-                #     else:
-                #         print(f"Skipping {new_key}, not found in model")
-                
-                # new_state_dict.update(remapped_ckpt)
-                # self.model.load_state_dict(new_state_dict)
-
                 state_dict = checkpoint['model']
                 strict = True
                 # Remap each tensor to match the device of the new model's parameter
@@ -440,7 +412,12 @@ class Train():
             epoch_rmses = [torch.tensor(v) for v in data["epoch_rmses"]]
         return epoch_loss, epoch_rmses
     
-  
+   
+    def average_gradients(self, master_model, grads_list):
+        with torch.no_grad():
+            for idx, param in enumerate(master_model.parameters()):
+                stacked = torch.stack([g[idx] for g in grads_list])
+                param.grad = stacked.mean(dim=0)
     
     def run_epoch(self, epoch, x_set_label, trainable=False, step_state=None):
         self.epoch = epoch
@@ -481,41 +458,61 @@ class Train():
             if self.pm.include_difficulty:
                 batch_diff = batch_diff[:, :, :self.pm.image_height, :self.pm.image_width]
 
-            T2 = (batch_y.shape)[1] // FG
+            # T2 = (batch_y.shape)[1] // FG
             # batch_x = batch_x.to(self.device, non_blocking=True)               # torch.float32, cuda
             # batch_y = batch_y.float().to(self.device_type + ':' + str(self.nDevices-1), non_blocking=True)       # torch.float32, cuda
             # era5_data_vars = era5_data_vars.to(self.device_type + ':' + str(self.nDevices-1), non_blocking=True) # torch.float32, cuda
 
-            (B, T1FG, C, H, W) = batch_x.shape
-            pred = batch_x
             step_loss = []; step_rmses = []
 
-            for t2 in range(1): # range(T2):    Mike!!!
-                target = batch_y[:, t2*FG:(t2+1)*FG, :,:]   # (B,FG,C,H,W)  # torch.float32, cuda, False
-                
-                if self.pm.abundant_GPUs:                
-                    with autocast(device_type=self.device_type, dtype=torch.bfloat16):
-                        pred = pred.detach()
-                        with torch.set_grad_enabled(trainable):
-                            pred = self.model(pred)
-                        pred = self.dataset.unnormalize(pred)   # torch.float32 !!!, cuda, True !!!
-                        target = self.dataset.unnormalize(target)   # torch.float32, cuda, False
-                        loss, rmse = self.loss(target, pred, batch_diff, era5_data_vars)  # (,), (C,), torch.float32, cuda, True !!!
+            if self.pm.abundant_GPUs:                
+                with autocast(device_type=self.device_type, dtype=torch.bfloat16):
+                    with torch.set_grad_enabled(trainable):
+                        pred = self.model(batch_x)
+                    pred = self.dataset.unnormalize(pred)   # torch.float32 !!!, cuda, True !!!
+                    batch_y = self.dataset.unnormalize(batch_y)   # torch.float32, cuda, False
+                    loss, rmse = self.loss(batch_y, pred, batch_diff, era5_data_vars)  # (,), (C,), torch.float32, cuda, True !!!
 
-                        if trainable:
-                            loss = loss     # Do not divide by T2.
-                            loss.backward()
-                elif not self.pm.abundant_GPUs:
-                    loss, rmse = self.model.sigle_GPU_forward_for_gradient(pred, target, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars)
+                if trainable:
+                    loss.backward()
 
                 step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
                 step_rmses.append(rmse.detach().cpu())      # (C,) - list.  If no cpu(), their stack results in cuda
+
+            elif not self.pm.abundant_GPUs:
+                chunks_x = batch_x.chunk(len(self.nDevices))
+                chunks_y = batch_y.chunk(len(self.nDevices))
+                
+                for sm in self.slave_models:  sm.load_state_dict(self.model.state_dict())
+                
+                with ThreadPoolExecutor(max_workers=self.nDevices) as executor:
+                    futures = [
+                        executor.submit(self.slave_models[i].sigle_GPU_forward_for_gradient, mb_x, mb_y, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars)
+                        for i, (mb_x, mb_y) in enumerate(zip(chunks_x, chunks_y))
+                    ]
+
+                    grads_list = []
+                    for fut in futures:
+                        grads, loss, rmse = fut.result()
+                        grads_list.append(grads)
+                        step_loss.append(loss)
+                        step_rmses.append(rmse)
+                        
+                self.average_gradients(self.model, grads_list)
+
+                # loss, rmse = self.model.sigle_GPU_forward_for_gradient(batch_x, batch_y, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars)
+                # step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
+                # step_rmses.append(rmse.detach().cpu())      # (C,) - list.  If no cpu(), their stack results in cuda
                     
             if trainable: 
                 self.optimizer.step()
                 self.optimizer.zero_grad()    
                 # self.compare_save_load()     # All True.
                 self.scheduler.step()   # Our scheduler is OneCycleLR, which is a per-batch scheduler
+            
+            # if not self.pm.abundant_GPUs: 
+            #     for sm in self.slave_models:  sm.load_state_dict(self.model.state_dict())
+                                
             step_loss = torch.tensor(step_loss).mean()   # (,)
             step_rmses = torch.stack(step_rmses, dim=0).mean(dim=0)   # (C,)
             strC = ", ".join(f"{x:.3f}" for x in step_rmses.ravel().tolist())

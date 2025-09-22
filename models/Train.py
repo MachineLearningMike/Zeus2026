@@ -1,11 +1,12 @@
 import torch
 import json, tzlocal
 from torch.amp import autocast, GradScaler
+from concurrent.futures import ThreadPoolExecutor
 from einops import rearrange
 from pathlib import Path
 import logging
 from datetime import datetime
-import sys, gc
+import sys, gc, copy
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
@@ -34,6 +35,7 @@ class Train():
         self.dataset = Zeus_Dataset(config, root_path)
         logging.info("Zeus_Dataset created.")
         self.device_type, self.nDevices, self.device = self._acquire_device()
+        self.devices = [ self.device_type + ':' + str(id) for id in range(self.nDevices)]
         # if self.trainable: assert self.nDevices == self.pm.zeusLayers
         
         #---------- Loss ----------------
@@ -57,6 +59,8 @@ class Train():
             if not self.pm.doubleZeus:
                 self.model = Zeus(config, self.nDevices, device_type=self.device_type, abundant_GPUs=self.pm.abundant_GPUs).float()                
                 logging.info("Zeus model created.")
+                if self.nDevices > 1:
+                    self.slave_models = self.create_slave_models(self.devices)
             else:
                 self.model = DoubleZeus(config, self.nDevices, device_type=self.device_type, abundant_GPUs=self.pm.abundant_GPUs, freeze_zeus1=self.pm.freeze_zeus1)
                 logging.info("DoubleZeus model created. nDevices: {}, trainable: {}".format(self.nDevices, trainable))
@@ -488,6 +492,19 @@ class Train():
             epoch_rmses = [torch.tensor(v) for v in data["epoch_rmses"]]
         return epoch_loss, epoch_rmses
     
+    def create_slave_models(self, devices):
+        if self.pm.abundant_GPUs:
+            slave_models = {device : copy.deepcopy(self.model).to(device) for device in devices}        
+        else:
+            slave_models = {device : copy.deepcopy(self.model).to('cpu') for device in devices}
+        return slave_models
+    
+    def average_gradients(self, master_model, grads_list):
+        with torch.no_grad():
+            for idx, param in enumerate(master_model.parameters()):
+                stacked = torch.stack([g[idx] for g in grads_list])
+                param.grad = stacked.mean(dim=0)
+                
     
     def run_epoch(self, epoch, x_set_label, trainable=False, step_state=None):
         self.epoch = epoch
@@ -532,9 +549,6 @@ class Train():
             # batch_y = batch_y.float().to(self.device_type + ':' + str(self.nDevices-1), non_blocking=True)       # torch.float32, cuda
             # era5_data_vars = era5_data_vars.to(self.device_type + ':' + str(self.nDevices-1), non_blocking=True) # torch.float32, cuda
 
-            pred = batch_x  # (B,T1FG,C,H,W)
-            target = batch_y   # (B,T1FG,C,H,W)  # torch.float32, cuda, False
-
             step_loss = []; step_rmses = []
 
             if trainable: self.optimizer.zero_grad() 
@@ -542,17 +556,42 @@ class Train():
             if self.pm.abundant_GPUs or (not self.pm.abundant_GPUs and not trainable):
                 with autocast(device_type=self.device_type, dtype=torch.bfloat16):
                     with torch.set_grad_enabled(trainable):
-                        pred = self.model(pred)
+                        pred = self.model(batch_x)
                     pred = self.dataset.unnormalize(pred)   # torch.float32 !!!, cuda, True !!!
-                    target = self.dataset.unnormalize(target)   # torch.float32, cuda, False
+                    target = self.dataset.unnormalize(batch_y)   # torch.float32, cuda, False
                     loss, rmse = self.loss(target, pred, batch_diff, era5_data_vars)  # (,), (C,), torch.float32, cuda, True !!!
                     if trainable:
                         loss.backward()
-            elif not self.pm.abundant_GPUs and trainable:
-                loss, rmse = self.model.sigle_GPU_forward_for_gradient(pred, target, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars)
+                step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
+                step_rmses.append(rmse.detach().cpu())      # (C,) - list.  If no cpu(), their stack results in cuda
 
-            step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
-            step_rmses.append(rmse.detach().cpu())      # (C,) - list.  If no cpu(), their stack results in cuda
+            elif not self.pm.abundant_GPUs and trainable:
+                if self.nDevices <= 1:
+                    loss, rmse = self.model.sigle_GPU_forward_for_gradient(batch_x, batch_y, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars)
+                    step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
+                    step_rmses.append(rmse.detach().cpu())      # (C,) - list.  If no cpu(), their stack results in cuda
+                else:
+                    chunks_x = batch_x.chunk(self.nDevices)
+                    chunks_y = batch_y.chunk(self.nDevices)
+                    
+                    for device in range(self.devices):
+                        self.slave_models[device].load_state_dict(self.model.state_dict())
+                    
+                    with ThreadPoolExecutor(max_workers=self.nDevices) as executor:
+                        futures = [
+                            executor.submit(
+                                self.slave_models[self.devices[i]].sigle_GPU_forward_for_gradient, mb_x, mb_y, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars
+                            )
+                            for i, (mb_x, mb_y) in enumerate(zip(chunks_x, chunks_y))                        
+                        ]
+                        grads_list = []
+                        for fut in futures:
+                            grads, loss, rmse = fut.result()
+                            grads_list.append(grads)
+                            step_loss.append(loss)
+                            step_rmses.append(rmse)
+                    
+                    self.average_gradients(self.model, grads_list)
                     
             if trainable:
                 self.optimizer.step()                

@@ -10,11 +10,11 @@ config = {
     
     # Mode.3
     'T1':           3,
-    'patch_size':   16, #16, # 8        ----------------------
-    'heads':        512, #8,     # 8    ----------------------
+    'patch_size':   16, #16, # 8        ---------------------- optimization param
+    'heads':        512, #8,     # 8    ---------------------- optimization param
     
-    'attLayers' :   1,    #             ----------------------
-    'zeusLayers':   8,    #             ----------------------
+    'attLayers' :   1,    #             ---------------------- optimization param
+    'zeusLayers':   8,    #             ---------------------- optimization param
 
     'dropout':      0.0,
     'attn_dropout': 0.0,
@@ -35,6 +35,7 @@ config = {
     'steps_to_save' : 50,
     'batch_size' : 1,
     'log_step': 10,
+
     'optimizer': 'adam',    # 'adamw' takes more momory for optimizer.
     'lr' : 1e-6,    # -7 normal
     'max_lr' : 1e-6,
@@ -43,11 +44,13 @@ config = {
     'anneal_strategy' : 'linear',   # 'cos'
     'div_factor' : 10.0,
     'final_div_factor' : 10,
+
     'epoch_patience' : 3,       # Mike!!!
     
     'abundant_GPUs' : False,
     'doubleZeus' : False,
 
+    # for 'doubleZeus' == True
     'freeze_zeus1' : False,
     'skip_net_for_zeus2' : True,
 
