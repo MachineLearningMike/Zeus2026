@@ -7,23 +7,23 @@ config = {
     'width': 1440,
     # video length in and out
     'variables': variables,
-    'T1': 6,    #
+    'T1': 3,    # 2, 3, 4, 6, 12, ----------------------
     'maxT2': 6,
-    'FG': 1, #24,   # frames in a frame group
+    'FG': 1, # not 24, for a better granularity control   # frames in a frame group
     # data split
     'train_pct': 75,
     'vali_pct': 25,
     # patch size
-    'patch_size': 16, #16, # 8
+    'patch_size': 16, #16, # 8  ------------------------
     # transformer
-    'heads': 4, #8,     # 8
+    'heads': 256, #8,     # 8   ------------------------
     'dropout': 0.0,
     'attn_dropout': 0.0,
     'drop_path': 0.0,
     'dim_to_mlp_dim': 2,
     # layers:   max (2, 3) on laptop
-    'attLayers' : 4,
-    'zeusLayers': 8,
+    'attLayers' : 1,    #           ----------------------
+    'zeusLayers': 8,    #           ----------------------
     # training
     'hypers' : {},
     'seed' : 523,
@@ -49,7 +49,7 @@ config = {
     'skip_net_for_zeus2' : True,
 
     'seed': 523,
-    'bayesProject' : 'production_0919_22' #'production_0823-18' #31_12',  #23-18  # Represents an instance of a whole bayesian miximization. Mike!!!
+    'bayesProject' : 'production_0922_12' #'production_0823-18' #31_12',  #23-18  # Represents an instance of a whole bayesian miximization. Mike!!!
 }
 
 

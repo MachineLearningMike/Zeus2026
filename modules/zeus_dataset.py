@@ -37,7 +37,7 @@ class Zeus_Dataset(Dataset):
         self.cds_folder.mkdir(parents=True, exist_ok=True)
         
         self.param_path = root_path / 'dataset_params.json'
-        self.split_dates_path = root_path / 'split_dates.json'
+        self.split_hours_path = root_path / 'split_hours.json'
         
         self.difficulties = None
         self.era5_data_vars = None
@@ -58,7 +58,7 @@ class Zeus_Dataset(Dataset):
         self.load_dataset_params()
         if self.pm.include_difficulty: self.load_difficulties()
         self.load_era5_data_vars()
-        self.split_data_dates(seed=self.pm.seed)
+        self.split_data_hours(seed=self.pm.seed)
         return
     
     def start_prefetch_thread(self):
@@ -529,7 +529,7 @@ class Zeus_Dataset(Dataset):
 
         return t2
     
-    def split_data_dates(self, renew=False, seed=None):
+    def split_data_hours(self, renew=False, seed=None):
         total_days, start_day, end_day, complete, data_dates = self.count_data_days()
 
         train_pct = self.pm.train_pct; vali_pct = self.pm.vali_pct
@@ -537,88 +537,74 @@ class Zeus_Dataset(Dataset):
         try:
             assert renew == False
             # print("Loading data dates...")
-            with open(self.split_dates_path, "r") as f:
+            with open(self.split_hours_path, "r") as f:
                 data = json.load(f)
 
-            self.train_dates = [datetime.fromisoformat(d).date() for d in data["train_dates"]]
-            self.vali_dates = [datetime.fromisoformat(d).date() for d in data["vali_dates"]]
-            self.test_dates = [datetime.fromisoformat(d).date() for d in data["test_dates"]]
+            self.train_hours = [(datetime.fromisoformat(d).date(), h) for (d, h) in data["train_hours"]]
+            self.vali_hours = [(datetime.fromisoformat(d).date(), h) for (d, h) in data["vali_hours"]]
+            self.test_hours = [(datetime.fromisoformat(d).date(), h) for (d, h) in data["test_hours"]]
         except:
-            print("Loading failed. Creating data dates...")
+            print("Loading failed. Creating data hours...")
 
             T1 = self.pm.T1
             maxT2 = self.pm.maxT2                      #------------- This is an implicit dependency
-            data_dates = data_dates[: -(T1 + maxT2)]    # latest days cannot be a start date.
+            data_dates = data_dates[:-1]    # Remove the last day for safety.
+            
+            data_hours = []
+            for day in data_dates:
+                data_hours += [(day, hour) for hour in range(24)]
 
             if seed is not None: random.seed(seed)
 
-            shuffled_dates = data_dates[:]
-            random.shuffle(shuffled_dates)
-            n = len(shuffled_dates)
+            shuffled_hours = data_hours[:]
+            random.shuffle(shuffled_hours)
+            n = len(shuffled_hours)
             train_size = int(n * train_pct / 100)
             vali_size = int(n * vali_pct / 100)
-            self.train_dates = shuffled_dates[:train_size]
-            self.vali_dates = shuffled_dates[train_size : train_size + vali_size]
-            self.test_dates = shuffled_dates[train_size + vali_size :]
+            self.train_hours = shuffled_hours[:train_size]
+            self.vali_hours = shuffled_hours[train_size : train_size + vali_size]
+            self.test_hours = shuffled_hours[train_size + vali_size :]
 
             data = {
-                "train_dates":  [d.isoformat() for d in self.train_dates],
-                "vali_dates":   [d.isoformat() for d in self.vali_dates],
-                "test_dates":   [d.isoformat() for d in self.test_dates],
+                "train_hours":  [(d.isoformat(), h) for (d, h) in self.train_hours],
+                "vali_hours":   [(d.isoformat(), h) for (d, h) in self.vali_hours],
+                "test_hours":   [(d.isoformat(), h) for (d, h) in self.test_hours],
             }
-            with open(self.split_dates_path, "w") as f:
+            with open(self.split_hours_path, "w") as f:
                 json.dump(data, f, indent=2)
         
-        return self.train_dates, self.vali_dates, self.test_dates
+        return self.train_hours, self.vali_hours, self.test_hours
 
 
-    def generate_x_sets(self, seed=None):
+    def generate_x_hours(self, seed=None):
         if seed is not None: random.seed(seed)
 
-        if self.train_dates is None or self.vali_dates is None or self.test_dates is None:
-            print("Call split_data_dates first")
+        if self.train_hours is None or self.vali_hours is None or self.test_hours is None:
+            print("Call split_data_hours first")
             return None, None, None
 
-        random.shuffle(self.train_dates)
-        random.shuffle(self.vali_dates)
-        random.shuffle(self.test_dates)
-
-        def get_t2s(n):
-            t2s = []
-            while True:
-                # t2 = self.get_T2()    # Mike!!!
-                t2 = 1
-                if t2 <= self.pm.maxT2: t2s.append(t2)
-                if len(t2s) >= n: break
-            return t2s
-
-        t2s = get_t2s(len(self.train_dates))
-        train_set = [(day, t2) for (day, t2) in zip(self.train_dates, t2s)]
-        t2s = get_t2s(len(self.vali_dates))
-        vali_set = [(day, t2) for (day, t2) in zip(self.vali_dates, t2s)]
-        t2s = get_t2s(len(self.test_dates))
-        test_set = [(day, t2) for (day, t2) in zip(self.test_dates, t2s)]
-
-        self.train_set, self.vali_set, self.test_set = train_set, vali_set, test_set
-
-        return train_set, vali_set, test_set
+        random.shuffle(self.train_hours)
+        random.shuffle(self.vali_hours)
+        random.shuffle(self.test_hours)
+        
+        return self.train_hours, self.vali_hours, self.test_hours
     
     def get_steps_per_epoch(self):
-        return math.ceil(len(self.train_dates) / self.pm.batch_size)
+        return math.ceil(len(self.train_hours) / self.pm.batch_size)
 
     def refresh_x_set(self, x_label, seed=None):
-        self.generate_x_sets(seed=seed)
+        self.generate_x_hours(seed=seed)
 
         # Mike!!! remove [:2]
         # No need to copy.copy(), as self.x_sets are re-generated above.
         if platform.system() == "Windows": 
-            self.x_set = self.train_set[:20] if x_label=='train_set' \
-                else self.vali_set[:5] if x_label=='vali_set' \
-                else self.test_set[:5] if x_label=='test_set' else None
+            self.x_set = self.train_hours[:20] if x_label=='train_set' \
+                else self.vali_hours[:5] if x_label=='vali_set' \
+                else self.test_hours[:5] if x_label=='test_set' else None
         else:
-            self.x_set = self.train_set if x_label=='train_set' \
-                else self.vali_set if x_label=='vali_set' \
-                else self.test_set if x_label=='test_set' else None            
+            self.x_set = self.train_hours if x_label=='train_set' \
+                else self.vali_hours if x_label=='vali_set' \
+                else self.test_hours if x_label=='test_set' else None            
         
         random.shuffle(self.x_set)
 
@@ -682,9 +668,20 @@ class Zeus_Dataset(Dataset):
         
     def load_hours_all_data_npy(self, day, start_hour, hours):
         try:
+            assert isinstance(start_hour, int)
+            assert isinstance(hours, int)
+            assert 0 <= start_hour and start_hour < 24 and 0 < hours and hours <= 24
+
             day_data = self.load_day_all_data_npy(day)
             data = day_data[start_hour : start_hour + hours]
-            return data
+            if start_hour + hours <= 24:
+                return data
+            else:
+                day2 = day + timedelta(days=1)
+                day_data = self.load_day_all_data_npy(day2)
+                data2 = day_data[: start_hour + hours - 24]
+                data = np.concatenate([data, data2], axis=0)
+                return data
         except:
             raise Exception("No data found for {}, start_hour {}, hours {}".format(day, start_hour, hours))
 
@@ -746,14 +743,8 @@ class Zeus_Dataset(Dataset):
     def take_batch(self):
         if len(self.x_set) <= 0: return None
 
-        _, T2 = self.x_set[0]
-
-        taken = []
-        cursor = len(self.x_set) - 1
-        while cursor >= 0 and len(taken) < self.pm.batch_size:
-            if self.x_set[cursor][1] == T2:                   # x_set[0][1] == T2, at least.
-                taken.append(self.x_set.pop(cursor))          # This way, self.train_set, self.vali_set, and self.test_set diminish.
-            cursor -= 1
+        taken = self.x_set[:self.pm.batch_size]
+        self.x_set = self.x_set[self.pm.batch_size:]
         assert len(taken) > 0
 
         B, C, T1, FG, H, W = len(taken), len(self.pm.variables), self.pm.T1, self.pm.FG, self.pm.image_height, self.pm.image_width
@@ -763,24 +754,13 @@ class Zeus_Dataset(Dataset):
 
         months = []
         for b in range(B):
-            start_date = taken[b][0]
-            months.append(start_date.month)
+            day, start_hour = taken[b]
+            months.append(day.month)
 
-            days_data_x = []
-            for t1 in range(T1):
-                day = start_date + timedelta(days=t1)
-                day_data = self.load_day_all_data_npy(day)                    # (24, C, H, W)
-                days_data_x.append(day_data)
-            days_data_x = torch.cat(days_data_x, dim=0)      # (T1*24, C, H, W)
-            batch_x.append(days_data_x)
-
-            days_data_y = []
-            for t2 in range(T2):
-                day = start_date + timedelta(days=T1+t2) 
-                day_data = self.load_day_all_data_npy(day)                    # (24, C, H, W)
-                days_data_y.append(day_data)
-            days_data_y = torch.cat(days_data_y, dim=0)      # (T2*24, C, H, W)
-            batch_y.append(days_data_y)
+            hours = self.pm.T1 * self.pm.FG
+            data = self.load_hours_all_data_npy(day, start_hour, 2 * hours)                    # (2 * T1FG, C, H, W)
+            batch_x.append(torch.tensor(data[:hours]))
+            batch_y.append(torch.tensor(data[hours:]))
 
         batch_x = torch.stack(batch_x, dim=0)     # (B, T1FG, C, H, W)
         batch_y = torch.stack(batch_y, dim=0)     # (B, T2FG, C, H, W)        

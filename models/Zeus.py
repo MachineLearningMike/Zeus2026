@@ -110,40 +110,6 @@ class Attention(nn.Module):     # (b, n, dim)  -> (b, n, dim)
             else:
                 nn.init.constant_(self.to_out.weight, 0.0)
                 nn.init.constant_(self.to_out.bias, 0.0)
-                
-    def efficient_attention(self, q, k, scale, query_chunk_size=128):
-        """
-        q: (b, h, i, d)
-        k: (b, h, j, d)
-        scale: scalar to scale attention scores
-        query_chunk_size: chunk size along query dimension
-        """
-        b, h, i, d = q.shape
-        _, _, j, _ = k.shape
-
-        dots_chunks = []
-
-        for start in range(0, i, query_chunk_size):
-            end = min(start + query_chunk_size, i)
-            q_chunk = q[:, :, start:end, :]  # (b, h, chunk_size, d)
-
-            # Compute attention scores head by head for this chunk
-            dot_chunk = []
-            for head in range(h):
-                # einsum: (b, chunk_size, d) x (b, j, d) -> (b, chunk_size, j)
-                dot_head = torch.einsum('bid,bjd->bij', q_chunk[:, head], k[:, head])
-                dot_chunk.append(dot_head.unsqueeze(1))  # restore head dim
-
-            # concat heads for this chunk: (b, h, chunk_size, j)
-            dot_chunk = torch.cat(dot_chunk, dim=1)
-            dots_chunks.append(dot_chunk)
-
-        # concat all chunks along query dimension: (b, h, i, j)
-        dots = torch.cat(dots_chunks, dim=2)
-
-        # apply scaling
-        dots = dots * scale
-        return dots
 
     def forward(self, x):                   # (b, n, dim)  -> (b, n, dim)
         # return zeros initially
@@ -153,7 +119,6 @@ class Attention(nn.Module):     # (b, n, dim)  -> (b, n, dim)
         
         # This is the notorious attention memory bottleneck. Replace it!
         dots = einsum('b h i d, b h j d -> b h i j', q, k) * self.scale         # (b, heads, n, n)
-        # dots = self.efficient_attention(q, k, self.scale)     # !!! This doesn't mitigate memory peak !!!
 
         attn = dots.softmax(dim=-1)                                             # (b, heads, n, n)
         out = einsum('b h i j, b h j d -> b h i d', attn, v)                    # (b, heads, n, dim_head)
@@ -291,37 +256,42 @@ class ZeusLayer(nn.Module):
         super(ZeusLayer, self).__init__()
         self.pm = pm
         self.skip = skip
-
-        # self.spatial_colvolution_1 = SpatialConvolution(pm, skip=self.skip)  # zero initially
-        self.temporal_transformer_1 = GatedAttention(pm, skip=self.skip)     # identity initially
-
-        self.space_transformer_1 = GatedAttention(pm, skip=self.skip)         # identity initially
-        self.space_transformer_2 = GatedAttention(pm, skip=self.skip)         # identity initially
         
-        # self.spacial_colvolution_2 = SpatialConvolution(pm, skip=self.skip)  # zero initially
-        self.temporal_transformer_2 = GatedAttention(pm, skip=self.skip)      # identity initially
+        self.only_transformer = GatedAttention(pm, skip=self.skip)
+
+        # # self.spatial_colvolution_1 = SpatialConvolution(pm, skip=self.skip)  # zero initially
+        # self.temporal_transformer_1 = GatedAttention(pm, skip=self.skip)     # identity initially
+
+        # self.space_transformer_1 = GatedAttention(pm, skip=self.skip)         # identity initially
+        # self.space_transformer_2 = GatedAttention(pm, skip=self.skip)         # identity initially
+        
+        # # self.spacial_colvolution_2 = SpatialConvolution(pm, skip=self.skip)  # zero initially
+        # self.temporal_transformer_2 = GatedAttention(pm, skip=self.skip)      # identity initially
 
     def forward(self, x):   # (B, T, N, dim) -> (B, T, N, dim)      # (B, T1FG, H/p * W/p, dim)
         # returns x initially
         if self.skip: x_skip = x
         
-        b, t, n, dim = x.shape                  # (B, T, N, dim), or (B, T1FG, H/p * W/p, dim)
+        t = x.shape[1]
+        x = rearrange(x, 'b t n d -> b (t n) d')
+        x = self.only_transformer(x)
+        x = rearrange(x, 'b (t n) d -> b t n d', t=t)
         
-        # x = self.spatial_colvolution_1(x)   # (B, T, N, dim) -> (B, T, N, dim)
-        x = rearrange(x, 'b t n d -> (b n) t d')  # (B*N, T, dim)
-        x = self.temporal_transformer_1(x)       # (B*N, T, dim)
+        # # x = self.spatial_colvolution_1(x)   # (B, T, N, dim) -> (B, T, N, dim)
+        # x = rearrange(x, 'b t n d -> (b n) t d')  # (B*N, T, dim)
+        # x = self.temporal_transformer_1(x)       # (B*N, T, dim)
         
-        x = rearrange(x, '(b n) t d -> (b t) n d', b=b)       # (B*T, N, dim)
-        x = self.space_transformer_1(x)                      # (B*T, N, dim)
-        x = self.space_transformer_2(x)                      # (B*T, N, dim)
+        # x = rearrange(x, '(b n) t d -> (b t) n d', b=b)       # (B*T, N, dim)
+        # x = self.space_transformer_1(x)                      # (B*T, N, dim)
+        # x = self.space_transformer_2(x)                      # (B*T, N, dim)
         
-        x = rearrange(x, '(b t) n d -> b t n d', b=b)       # (B, T, N, dim)
-        # x = self.spacial_colvolution_2(x)                   # (B, T, N, dim)
-        x = rearrange(x, 'b t n d -> (b n) t d')        # (B*N, T, dim)
-        x = self.temporal_transformer_2(x)                   # (B*N, T, dim)
+        # x = rearrange(x, '(b t) n d -> b t n d', b=b)       # (B, T, N, dim)
+        # # x = self.spacial_colvolution_2(x)                   # (B, T, N, dim)
+        # x = rearrange(x, 'b t n d -> (b n) t d')        # (B*N, T, dim)
+        # x = self.temporal_transformer_2(x)                   # (B*N, T, dim)
 
-        # output
-        x = rearrange(x, '(b n) t d -> b t n d', b=b)         # (B, T, N, dim)
+        # # output
+        # x = rearrange(x, '(b n) t d -> b t n d', b=b)         # (B, T, N, dim)
         
         if self.skip: x = x + x_skip
         

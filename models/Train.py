@@ -528,50 +528,36 @@ class Train():
             if self.pm.include_difficulty:
                 batch_diff = batch_diff[:, :, :self.pm.image_height, :self.pm.image_width]
 
-            T2 = (batch_y.shape)[1] // FG
             # batch_x = batch_x.to(self.device, non_blocking=True)               # torch.float32, cuda
             # batch_y = batch_y.float().to(self.device_type + ':' + str(self.nDevices-1), non_blocking=True)       # torch.float32, cuda
             # era5_data_vars = era5_data_vars.to(self.device_type + ':' + str(self.nDevices-1), non_blocking=True) # torch.float32, cuda
 
-            (B, T1FG, C, H, W) = batch_x.shape
-            pred = batch_x
+            pred = batch_x  # (B,T1FG,C,H,W)
+            target = batch_y   # (B,T1FG,C,H,W)  # torch.float32, cuda, False
+
             step_loss = []; step_rmses = []
 
             if trainable: self.optimizer.zero_grad() 
+            
+            if self.pm.abundant_GPUs or (not self.pm.abundant_GPUs and not trainable):
+                with autocast(device_type=self.device_type, dtype=torch.bfloat16):
+                    with torch.set_grad_enabled(trainable):
+                        pred = self.model(pred)
+                    pred = self.dataset.unnormalize(pred)   # torch.float32 !!!, cuda, True !!!
+                    target = self.dataset.unnormalize(target)   # torch.float32, cuda, False
+                    loss, rmse = self.loss(target, pred, batch_diff, era5_data_vars)  # (,), (C,), torch.float32, cuda, True !!!
+                    if trainable:
+                        loss.backward()
+            elif not self.pm.abundant_GPUs and trainable:
+                loss, rmse = self.model.sigle_GPU_forward_for_gradient(pred, target, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars)
 
-            for t2 in range(1): # range(T2):    Mike!!!
-                target = batch_y[:, t2*FG:(t2+1)*FG, :,:]   # (B,FG,C,H,W)  # torch.float32, cuda, False
-                
-                if self.pm.abundant_GPUs or (not self.pm.abundant_GPUs and not trainable):   
-                    with autocast(device_type=self.device_type, dtype=torch.bfloat16):
-                        pred = pred.detach()
-                        with torch.set_grad_enabled(trainable):
-                            pred = self.model(pred)
-                        pred = self.dataset.unnormalize(pred)   # torch.float32 !!!, cuda, True !!!
-                        target = self.dataset.unnormalize(target)   # torch.float32, cuda, False
-                        loss, rmse = self.loss(target, pred, batch_diff, era5_data_vars)  # (,), (C,), torch.float32, cuda, True !!!
-
-                        if trainable:
-                            loss = loss     # Do not divide by T2.
-                            loss.backward()
-                elif not self.pm.abundant_GPUs and trainable:
-                    loss, rmse = self.model.sigle_GPU_forward_for_gradient(pred, target, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars)
-
-                step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
-                step_rmses.append(rmse.detach().cpu())      # (C,) - list.  If no cpu(), their stack results in cuda
+            step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
+            step_rmses.append(rmse.detach().cpu())      # (C,) - list.  If no cpu(), their stack results in cuda
                     
             if trainable:
-                # param_before = {name: p.clone() for name, p in self.model.named_parameters()}
-                                
-                self.optimizer.step()
-                
-                # for name, p in self.model.named_parameters():
-                #     if not torch.allclose(p, param_before[name]):
-                #         print(f"Updated: {name}")
-                #     else:
-                #         print(f"Not updated: {name}")                                                
-
+                self.optimizer.step()                
                 self.scheduler.step()   # Our scheduler is OneCycleLR, which is a per-batch scheduler
+
             step_loss = torch.tensor(step_loss).mean()   # (,)
             step_rmses = torch.stack(step_rmses, dim=0).mean(dim=0)   # (C,)
             strC = ", ".join(f"{x:.3f}" for x in step_rmses.ravel().tolist())
