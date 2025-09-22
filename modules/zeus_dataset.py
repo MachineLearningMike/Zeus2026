@@ -675,12 +675,14 @@ class Zeus_Dataset(Dataset):
             day_data = self.load_day_all_data_npy(day)
             data = day_data[start_hour : start_hour + hours]
             if start_hour + hours <= 24:
+                # print(day, start_hour)
                 return data
             else:
                 day2 = day + timedelta(days=1)
                 day_data = self.load_day_all_data_npy(day2)
                 data2 = day_data[: start_hour + hours - 24]
                 data = np.concatenate([data, data2], axis=0)
+                # print(day, start_hour, day2, start_hour + hours - 24)
                 return data
         except:
             raise Exception("No data found for {}, start_hour {}, hours {}".format(day, start_hour, hours))
