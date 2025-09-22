@@ -141,12 +141,17 @@ if __name__ == "__main__":
             "attLayers": (1, 1, int),
             "zeusLayers": (1, 1, int),
         }
-    else:   
+    else:
+        patch_size = config['patch_size']
+        heads = config['heads']
+        attLayers = config['attLayers']
+        zeusLayers = config['zeusLayers']
+        
         pbounds = {     # Mike!!!
-            "patch_size": (16, 16, int),
-            "heads": (4, 4, int),
-            "attLayers": (4, 4, int),
-            "zeusLayers": (8, 8, int),
+            "patch_size": (patch_size, patch_size, int),
+            "heads": (heads, heads, int),
+            "attLayers": (attLayers, attLayers, int),
+            "zeusLayers": (zeusLayers, zeusLayers, int),
         }
         
     bayes = MLBayesianOptimizer(config, root_path, pbounds, random_state=523)
