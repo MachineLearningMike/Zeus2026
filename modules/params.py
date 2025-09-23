@@ -65,6 +65,8 @@ class Params:
         self.div_factor = config['div_factor']
         self.final_div_factor = config['final_div_factor']
         self.epoch_patience = config['epoch_patience']
+        
+        self.data_last_years = config['data_last_years']
 
         self.hypers = config['hypers']
         self.seed = config['seed']

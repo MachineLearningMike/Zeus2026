@@ -577,12 +577,13 @@ class Train():
                     chunks_x = batch_x.chunk(self.nDevices)
                     chunks_y = batch_y.chunk(self.nDevices)
                     
-                    for device in range(self.devices):
+                    for device in self.devices:
                         self.slave_models[device].load_state_dict(self.model.state_dict())
                     
                     futures = [
                         executor.submit(
-                            self.slave_models[self.devices[i]].sigle_GPU_forward_for_gradient, mb_x, mb_y, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars
+                            self.slave_models[self.devices[i]].sigle_GPU_forward_for_gradient, mb_x, mb_y, self.loss, self.dataset.unnormalize, 
+                            batch_diff, era5_data_vars, self.devices[i]
                         )
                         for i, (mb_x, mb_y) in enumerate(zip(chunks_x, chunks_y))                        
                     ]   # returns immediately.
@@ -590,8 +591,8 @@ class Train():
                     for fut in futures:
                         grads, (loss, rmse) = fut.result()  # blocks until the single future is done.
                         grads_list.append(grads)
-                        step_loss.append(loss)
-                        step_rmses.append(rmse)
+                        step_loss.append(loss.detach().to('cpu'))
+                        step_rmses.append(rmse.detach().to('cpu'))
                     
                     self.average_gradients(self.model, grads_list)
                     

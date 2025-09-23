@@ -189,7 +189,7 @@ class Zeus_Dataset(Dataset):
         start, end = None, None
         missing = False
         total_days = 0
-        for year_dir in sorted(self.cds_folder.iterdir()):
+        for year_dir in sorted(self.cds_folder.iterdir())[ - self.pm.data_last_years : ]:
             if not year_dir.is_dir():
                 continue
             for month_dir in sorted(year_dir.iterdir()):

@@ -261,6 +261,10 @@ class ZeusLayer(nn.Module):
         if self.cross:
             self.height_transformer = GatedAttention(pm, skip=self.skip)
             self.width_transformer = GatedAttention(pm, skip=self.skip)            
+
+            self.height_transformer2 = GatedAttention(pm, skip=self.skip)
+            self.width_transformer2 = GatedAttention(pm, skip=self.skip)            
+
         else:
             self.only_transformer = GatedAttention(pm, skip=self.skip)
 
@@ -283,6 +287,13 @@ class ZeusLayer(nn.Module):
             x = rearrange(x, '(b h) (t w) d -> (b w) (t h) d', h=self.pm.nPatches_h, w=self.pm.nPatches_w)
             x = self.height_transformer(x)      # ((b w) (t h) d)
             x = rearrange(x, '(b w) (t h) d -> b t (h w) d', w=self.pm.nPatches_w, h=self.pm.nPatches_h)     
+
+            x = rearrange(x, 'b t (h w) d -> (b h) (t w) d', h=self.pm.nPatches_h)
+            x = self.width_transformer2(x)       # ((b h) (t w) d)
+            x = rearrange(x, '(b h) (t w) d -> (b w) (t h) d', h=self.pm.nPatches_h, w=self.pm.nPatches_w)
+            x = self.height_transformer2(x)      # ((b w) (t h) d)
+            x = rearrange(x, '(b w) (t h) d -> b t (h w) d', w=self.pm.nPatches_w, h=self.pm.nPatches_h)     
+
         else:
             x = rearrange(x, 'b t n d -> b (t n) d')
             x = self.only_transformer(x)
@@ -390,7 +401,7 @@ class Zeus(nn.Module):
         if self.nDevices > 1: 
             assert self.nDevices >= self.pm.zeusLayers, "The numbers of devices and zeud layers must be the same if nDevices > 1"
         self.zeusLayers = nn.ModuleList([       # (B, T, N, dim) -> (B, T, N, dim)
-            ZeusLayer(self.pm)
+            ZeusLayer(self.pm, cross=True)
             for i in range(self.pm.zeusLayers)
         ])
         if self.abundant_GPUs:
@@ -443,19 +454,19 @@ class Zeus(nn.Module):
 
         return x    # (B,FG,C,H,W)
     
-    def sigle_GPU_forward_for_gradient(self, data, target, loss_fn, denormal_fn, batch_diff, era5_data_vars):
+    def sigle_GPU_forward_for_gradient(self, data, target, loss_fn, denormal_fn, batch_diff, era5_data_vars, device):
         acts_on_cpu = False
                 
         if acts_on_cpu:
             acts = [data.cpu()]     # module[-1].act, or act[-1]
         else:
-            acts = [data.to('cuda:0')]
+            acts = [data.to(device)]
             
-        x = data.to("cuda:0")
+        x = data.to(device)
                         
         # ---------------- Forward Pass ----------------
         for i, module in enumerate(self.modules):
-            module.to("cuda:0")
+            module.to(device)
 
             if i < len(self.modules) - 1:      # 0, 1, 2, ..., n-2: all except the last module n-1
                 with torch.no_grad():
@@ -495,10 +506,10 @@ class Zeus(nn.Module):
 
         # 2) Recompute previous modules in reverse. n-1 is already done.
         for module in reversed(self.modules[0 : -1]):     # n-2, ...,  2, 1, 0
-            module.to("cuda:0")
+            module.to(device)
             prev_act = acts.pop()  # acts: n-3, ...  1, 0, -1
             if acts_on_cpu:
-                prev_act = prev_act.to("cuda:0")  # acts: n-3, ...  1, 0, -1
+                prev_act = prev_act.to(device)  # acts: n-3, ...  1, 0, -1
             prev_act.requires_grad_(True)
             prev_act.retain_grad()
             out = module(prev_act)
@@ -510,7 +521,7 @@ class Zeus(nn.Module):
             del out, prev_act
             torch.cuda.empty_cache()
             
-        grads = [p.grad.detach().cpu().clone() for p in self.model.parameters()]
+        grads = [p.grad.detach().cpu().clone() for p in self.parameters()]
             
         return grads, lossAndMetrics
 
