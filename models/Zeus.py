@@ -268,6 +268,9 @@ class ZeusLayer(nn.Module):
             self.height_transformer3 = GatedAttention(pm, skip=self.skip)
             self.width_transformer3 = GatedAttention(pm, skip=self.skip) 
 
+            self.height_transformer4 = GatedAttention(pm, skip=self.skip)
+            self.width_transformer4 = GatedAttention(pm, skip=self.skip) 
+
         else:
             self.only_transformer = GatedAttention(pm, skip=self.skip)
 
@@ -301,6 +304,12 @@ class ZeusLayer(nn.Module):
             x = self.width_transformer3(x)       # ((b h) (t w) d)
             x = rearrange(x, '(b h) (t w) d -> (b w) (t h) d', h=self.pm.nPatches_h, w=self.pm.nPatches_w)
             x = self.height_transformer3(x)      # ((b w) (t h) d)
+            x = rearrange(x, '(b w) (t h) d -> b t (h w) d', w=self.pm.nPatches_w, h=self.pm.nPatches_h) 
+
+            x = rearrange(x, 'b t (h w) d -> (b h) (t w) d', h=self.pm.nPatches_h)
+            x = self.width_transformer4(x)       # ((b h) (t w) d)
+            x = rearrange(x, '(b h) (t w) d -> (b w) (t h) d', h=self.pm.nPatches_h, w=self.pm.nPatches_w)
+            x = self.height_transformer4(x)      # ((b w) (t h) d)
             x = rearrange(x, '(b w) (t h) d -> b t (h w) d', w=self.pm.nPatches_w, h=self.pm.nPatches_h) 
 
         else:
