@@ -46,6 +46,7 @@ class Params:
         
         self.attLayers = config['attLayers']
         self.zeusLayers = config['zeusLayers']
+        self.crossLayers = config['crossLayers']
         self.mlp_dim = self.dim * config['dim_to_mlp_dim']
 
         #----------------- Training ---------------

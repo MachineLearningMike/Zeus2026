@@ -85,15 +85,16 @@ class Trainer():
         
         return keep_go_next_epoch, best_rmse_yet
 
-    def bayesian_test(self, patch_size, heads, attLayers, zeusLayers):
+    def bayesian_test(self, patch_size, heads, attLayers, crossLayers, zeusLayers):
         self.config['patch_size'] = patch_size
         self.config['heads'] = heads
         self.config['attLayers'] = attLayers
+        self.config['crossLayers'] = crossLayers
         self.config['zeusLayers'] = zeusLayers
-        logging.info("Trainer configured with new hyper-parameters. patch_size {}, heads {}, attLayers {}, zeusLayers {}" \
-                    .format(patch_size, heads, attLayers, zeusLayers))
+        logging.info("Trainer configured with new hyper-parameters. patch_size {}, heads {}, attLayers {}, crossLayers {}, zeusLayers {}" \
+                    .format(patch_size, heads, attLayers, crossLayers, zeusLayers))
         
-        self.config['hypers'] = {'patch_size': patch_size, 'heads': heads, 'attLayers': attLayers, 'zeusLayers': zeusLayers}
+        self.config['hypers'] = {'patch_size': patch_size, 'heads': heads, 'attLayers': attLayers, 'crossLayers': crossLayers, 'zeusLayers': zeusLayers}
         self.pm = Params(self.config)
         
         self.train = Train(self.config, self.root_path, self.bayes_path, trainable=False)
@@ -105,16 +106,17 @@ class Trainer():
         
         return test_loss, test_metrics
 
-    def bayesian_target(self, patch_size, heads, attLayers, zeusLayers):
+    def bayesian_target(self, patch_size, heads, attLayers, crossLayers, zeusLayers):
         # Update with new hyper-parameters
         self.config['patch_size'] = patch_size
         self.config['heads'] = heads
         self.config['attLayers'] = attLayers
+        self.config['crossLayers'] = crossLayers
         self.config['zeusLayers'] = zeusLayers
-        logging.info("Trainer configured with new hyper-parameters. patch_size {}, heads {}, attLayers {}, zeusLayers {}" \
-                    .format(patch_size, heads, attLayers, zeusLayers))
+        logging.info("Trainer configured with new hyper-parameters. patch_size {}, heads {}, attLayers {}, crossLayers {}, zeusLayers {}" \
+                    .format(patch_size, heads, attLayers, crossLayers, zeusLayers))
         
-        self.config['hypers'] = {'patch_size': patch_size, 'heads': heads, 'attLayers': attLayers, 'zeusLayers': zeusLayers}
+        self.config['hypers'] = {'patch_size': patch_size, 'heads': heads, 'attLayers': attLayers, 'crossLayers': crossLayers, 'zeusLayers': zeusLayers}
         self.pm = Params(self.config)
 
         self.train = Train(self.config, self.root_path, self.bayes_path, trainable=True)

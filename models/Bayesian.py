@@ -138,24 +138,28 @@ if __name__ == "__main__":
         patch_size = config['patch_size']
         heads = config['heads']
         attLayers = config['attLayers']
+        crossLayers = config['crossLayers']
         zeusLayers = config['zeusLayers']
         
         pbounds = {     # Mike!!!
             "patch_size": (patch_size, patch_size, int),
             "heads": (heads, heads, int),
             "attLayers": (attLayers, attLayers, int),
+            "crossLayers": (crossLayers, crossLayers, int),
             "zeusLayers": (zeusLayers, zeusLayers, int),
         }
     else:
         patch_size = config['patch_size']
         heads = config['heads']
         attLayers = config['attLayers']
+        crossLayers = config['crossLayers']
         zeusLayers = config['zeusLayers']
         
         pbounds = {     # Mike!!!
             "patch_size": (patch_size, patch_size, int),
             "heads": (heads, heads, int),
             "attLayers": (attLayers, attLayers, int),
+            "crossLayers": (crossLayers, crossLayers, int),
             "zeusLayers": (zeusLayers, zeusLayers, int),
         }
         

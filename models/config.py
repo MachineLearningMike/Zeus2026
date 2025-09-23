@@ -14,7 +14,8 @@ config = {
     'heads':        512, #8,     # 8    ---------------------- optimization param
     
     'attLayers' :   1,    #             ---------------------- optimization param
-    'zeusLayers':   4,    #             ---------------------- optimization param
+    'zeusLayers':   2,    #             ---------------------- optimization param
+    'crossLayers':  6,
 
     'dropout':      0.0,
     'attn_dropout': 0.0,
@@ -39,7 +40,7 @@ config = {
     'data_last_years' : 6,
 
     'optimizer': 'adam',    # 'adamw' takes more momory for optimizer.
-    'lr' : 1e-5,    # -7 normal
+    'lr' : 1e-5,    # -5, 5e-6, -7 normal
     'max_lr' : 1e-5,
     'weight_decay': 0.0,    # disable weight_decay, in AdamW
     'pct_start' : 0.3,
@@ -57,7 +58,7 @@ config = {
     'skip_net_for_zeus2' : True,
 
     'seed': 523,
-    'bayesProject' : 'production_0923_14' #'production_0823-18' #31_12',  #23-18  # Represents an instance of a whole bayesian miximization. Mike!!!
+    'bayesProject' : 'production_0923_16' #'production_0823-18' #31_12',  #23-18  # Represents an instance of a whole bayesian miximization. Mike!!!
 }
 
 

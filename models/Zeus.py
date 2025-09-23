@@ -250,30 +250,44 @@ class SpatialConvolution(nn.Module):
         x = rearrange(x, '(b d) t h w -> b t (h w) d', d=self.pm.dim)
 
         return x
+    
+class CrossAttention(nn.Module):
+    def __init__(self, pm, cross=True, skip=False):
+        super(CrossAttention, self).__init__()
+        self.pm = pm
+        self.cross = cross
+        self.skip = skip
+        
+        if self.cross:
+            self.height_transformer = GatedAttention(pm, skip=self.skip)
+            self.width_transformer = GatedAttention(pm, skip=self.skip)        
+        else:
+            self.only_transformer = GatedAttention(pm, skip=self.skip)
+        
+    def forward(self, x):
+        if self.cross:
+            x = rearrange(x, 'b t (h w) d -> (b h) (t w) d', h=self.pm.nPatches_h)
+            x = self.width_transformer(x)       # ((b h) (t w) d)
+            x = rearrange(x, '(b h) (t w) d -> (b w) (t h) d', h=self.pm.nPatches_h, w=self.pm.nPatches_w)
+            x = self.height_transformer(x)      # ((b w) (t h) d)
+            x = rearrange(x, '(b w) (t h) d -> b t (h w) d', w=self.pm.nPatches_w, h=self.pm.nPatches_h)  
+        else:
+            x = rearrange(x, 'b t n d -> b (t n) d')
+            x = self.only_transformer(x)
+            x = rearrange(x, 'b (t n) d -> b t n d', n=self.pm.nPatches_h * self.pm.nPatches_w)
+        return x
 
 class ZeusLayer(nn.Module):
-    def __init__(self, pm, cross=True, skip=False):
+    def __init__(self, pm, cross=True, crossLayers=2, skip=False):
         super(ZeusLayer, self).__init__()
         self.pm = pm
         self.cross = cross
         self.skip = skip
 
-        if self.cross:
-            self.height_transformer = GatedAttention(pm, skip=self.skip)
-            self.width_transformer = GatedAttention(pm, skip=self.skip)            
-
-            self.height_transformer2 = GatedAttention(pm, skip=self.skip)
-            self.width_transformer2 = GatedAttention(pm, skip=self.skip)            
-
-            self.height_transformer3 = GatedAttention(pm, skip=self.skip)
-            self.width_transformer3 = GatedAttention(pm, skip=self.skip) 
-
-            self.height_transformer4 = GatedAttention(pm, skip=self.skip)
-            self.width_transformer4 = GatedAttention(pm, skip=self.skip) 
-
-        else:
-            self.only_transformer = GatedAttention(pm, skip=self.skip)
-
+        self.crossLayers = nn.ModuleList([
+                CrossAttention(self.pm, cross=True) for _ in range(crossLayers)
+            ])
+        
         # # self.spatial_colvolution_1 = SpatialConvolution(pm, skip=self.skip)  # zero initially
         # self.temporal_transformer_1 = GatedAttention(pm, skip=self.skip)     # identity initially
 
@@ -286,36 +300,9 @@ class ZeusLayer(nn.Module):
     def forward(self, x):   # (B, T, N, dim) -> (B, T, N, dim)      # (B, T1FG, H/p * W/p, dim)
         # returns x initially
         if self.skip: x_skip = x
-
-        if self.cross:
-            x = rearrange(x, 'b t (h w) d -> (b h) (t w) d', h=self.pm.nPatches_h)
-            x = self.width_transformer(x)       # ((b h) (t w) d)
-            x = rearrange(x, '(b h) (t w) d -> (b w) (t h) d', h=self.pm.nPatches_h, w=self.pm.nPatches_w)
-            x = self.height_transformer(x)      # ((b w) (t h) d)
-            x = rearrange(x, '(b w) (t h) d -> b t (h w) d', w=self.pm.nPatches_w, h=self.pm.nPatches_h)     
-
-            x = rearrange(x, 'b t (h w) d -> (b h) (t w) d', h=self.pm.nPatches_h)
-            x = self.width_transformer2(x)       # ((b h) (t w) d)
-            x = rearrange(x, '(b h) (t w) d -> (b w) (t h) d', h=self.pm.nPatches_h, w=self.pm.nPatches_w)
-            x = self.height_transformer2(x)      # ((b w) (t h) d)
-            x = rearrange(x, '(b w) (t h) d -> b t (h w) d', w=self.pm.nPatches_w, h=self.pm.nPatches_h)     
-
-            x = rearrange(x, 'b t (h w) d -> (b h) (t w) d', h=self.pm.nPatches_h)
-            x = self.width_transformer3(x)       # ((b h) (t w) d)
-            x = rearrange(x, '(b h) (t w) d -> (b w) (t h) d', h=self.pm.nPatches_h, w=self.pm.nPatches_w)
-            x = self.height_transformer3(x)      # ((b w) (t h) d)
-            x = rearrange(x, '(b w) (t h) d -> b t (h w) d', w=self.pm.nPatches_w, h=self.pm.nPatches_h) 
-
-            x = rearrange(x, 'b t (h w) d -> (b h) (t w) d', h=self.pm.nPatches_h)
-            x = self.width_transformer4(x)       # ((b h) (t w) d)
-            x = rearrange(x, '(b h) (t w) d -> (b w) (t h) d', h=self.pm.nPatches_h, w=self.pm.nPatches_w)
-            x = self.height_transformer4(x)      # ((b w) (t h) d)
-            x = rearrange(x, '(b w) (t h) d -> b t (h w) d', w=self.pm.nPatches_w, h=self.pm.nPatches_h) 
-
-        else:
-            x = rearrange(x, 'b t n d -> b (t n) d')
-            x = self.only_transformer(x)
-            x = rearrange(x, 'b (t n) d -> b t n d', n=self.pm.nPatches_h * self.pm.nPatches_w)
+        
+        for layer in self.crossLayers:
+            x = layer(x)
                 
         # # x = self.spatial_colvolution_1(x)   # (B, T, N, dim) -> (B, T, N, dim)
         # x = rearrange(x, 'b t n d -> (b n) t d')  # (B*N, T, dim)
@@ -419,7 +406,7 @@ class Zeus(nn.Module):
         if self.nDevices > 1: 
             assert self.nDevices >= self.pm.zeusLayers, "The numbers of devices and zeud layers must be the same if nDevices > 1"
         self.zeusLayers = nn.ModuleList([       # (B, T, N, dim) -> (B, T, N, dim)
-            ZeusLayer(self.pm, cross=True)
+            ZeusLayer(self.pm, cross=True, crossLayers=self.pm.crossLayers)
             for i in range(self.pm.zeusLayers)
         ])
         if self.abundant_GPUs:
