@@ -40,8 +40,8 @@ config = {
     'data_last_years' : 6,
 
     'optimizer': 'adam',    # 'adamw' takes more momory for optimizer.
-    'lr' : 1e-5,    # -5, 5e-6, -7 normal
-    'max_lr' : 1e-5,
+    'lr' : 5e-6,    # -5, 5e-6, -7 normal
+    'max_lr' : 5e-6,
     'weight_decay': 0.0,    # disable weight_decay, in AdamW
     'pct_start' : 0.3,
     'anneal_strategy' : 'linear',   # 'cos'
