@@ -22,6 +22,12 @@ config = {
     'drop_path':    0.0,
     'dim_to_mlp_dim': 4,
 
+    'nFrames': 24,
+    'mFrames' : 24,
+    'radius'  : 1000,   # in kilometers
+    'factor10' : 10,    # 10 taking the full image size.
+    'transient_steps' : 6000,
+
     # video length in and out
     'maxT2': 6,
     # data split
@@ -34,19 +40,23 @@ config = {
     'include_difficulty' : False,
     'epochs': 50,
     'steps_to_save' : 50,
-    'batch_size' : 8,
+    'batch_size' : 1,
     'log_step': 10,
     
-    'data_last_years' : 6,
+    'data_last_years' : 11,
 
     'optimizer': 'adam',    # 'adamw' takes more momory for optimizer.
-    'lr' : 5e-6,    # -5, 5e-6, -7 normal
-    'max_lr' : 5e-6,
+    'lr' : 1e-3,    # -5, 5e-6, -7 normal
+    
+    # Scheduler
+    # (initial_lr = max_lr / div_factor, for pct_start of the total_steps) -> max_lr -> (Final LR = initial_lr/final_div_factor, for the remaining steps)
+    'max_lr' : 1e-3,
+    'total_steps' : 15000,
     'weight_decay': 0.0,    # disable weight_decay, in AdamW
-    'pct_start' : 0.3,
+    'pct_start' : 0.5,      #
     'anneal_strategy' : 'linear',   # 'cos'
-    'div_factor' : 10.0,
-    'final_div_factor' : 10,
+    'div_factor' : 1.0,    # Initial LR = max_lr / div_factor
+    'final_div_factor' : 10, # Final LR = initial_lr / final_div_factor
 
     'epoch_patience' : 3,       # Mike!!!
     
@@ -58,7 +68,7 @@ config = {
     'skip_net_for_zeus2' : True,
 
     'seed': 523,
-    'bayesProject' : 'production_0923_16' #'production_0823-18' #31_12',  #23-18  # Represents an instance of a whole bayesian miximization. Mike!!!
+    'bayesProject' : 'f2-k3-9-cnn4' # 'f2-k5-3', 'f4-k5-3' #'production_0923_16' #'production_0823-18' #31_12',  #23-18  # Represents an instance of a whole bayesian miximization. Mike!!!
 }
 
 
@@ -66,16 +76,21 @@ from pathlib import Path
 import platform
 if platform.system() == "Windows":  
     root_path = Path("D:/Zeus_Data")
-    config['height'] = 72 * 2
-    config['width'] = 144
-    config['patch_size'] = 16
-    config['attLayers'] = 1
-    config['zeusLayers'] = 2
-    config['epochs'] = 3
-    config['steps_to_save'] = 5
+
+    config['factor10'] = 2
+
+    config['epochs'] = 100
+    config['steps_to_save'] = 50
     config['abundant_GPUs'] = False
-    config['doubleZeus'] = True
-else:   
+    
+else:
+   
     root_path = Path("/mnt/Data/Zeus_Data")
 
+n = config['nFrames']
+C = len(config['variables'])
+
+config['cnn_hidden_channels'] = [n*C, n*C, n*C, n*C, n*C, n*C, n*C, n*C, C] # the last should be C. See ZeusCNN.forward. We get one frame from n frames.
+   
+# config['cnn_hidden_channels'] = [2*n*C, 2*n*C, 2*n*C, 2*n*C, 2*n*C, 2*n*C, 2*n*C, 2*n*C, C]
     

@@ -134,33 +134,33 @@ if __name__ == "__main__":
 
     from pathlib import Path
     import platform
-    if platform.system() == "Windows":  
-        patch_size = config['patch_size']
-        heads = config['heads']
-        attLayers = config['attLayers']
-        crossLayers = config['crossLayers']
-        zeusLayers = config['zeusLayers']
+    if platform.system() == "Windows":
+        nFrames = config['nFrames']
+        mFrames = config['mFrames']
+        radius = config['radius']
+        factor10 = config['factor10']
+        cnn_hidden_channels = config['cnn_hidden_channels']
         
         pbounds = {     # Mike!!!
-            "patch_size": (patch_size, patch_size, int),
-            "heads": (heads, heads, int),
-            "attLayers": (attLayers, attLayers, int),
-            "crossLayers": (crossLayers, crossLayers, int),
-            "zeusLayers": (zeusLayers, zeusLayers, int),
+            "nFrames": (nFrames, nFrames, int),
+            "mFrames": (mFrames, mFrames, int),
+            "radius": (radius, radius, int),
+            "factor10": (factor10, factor10, int),
+            "cnn_hidden_channels": (len(cnn_hidden_channels), len(cnn_hidden_channels), int),
         }
     else:
-        patch_size = config['patch_size']
-        heads = config['heads']
-        attLayers = config['attLayers']
-        crossLayers = config['crossLayers']
-        zeusLayers = config['zeusLayers']
+        nFrames = config['nFrames']
+        mFrames = config['mFrames']
+        radius = config['radius']
+        factor10 = config['factor10']
+        cnn_hidden_channels = config['cnn_hidden_channels']
         
         pbounds = {     # Mike!!!
-            "patch_size": (patch_size, patch_size, int),
-            "heads": (heads, heads, int),
-            "attLayers": (attLayers, attLayers, int),
-            "crossLayers": (crossLayers, crossLayers, int),
-            "zeusLayers": (zeusLayers, zeusLayers, int),
+            "nFrames": (nFrames, nFrames, int),
+            "mFrames": (mFrames, mFrames, int),
+            "radius": (radius, radius, int),
+            "factor10": (factor10, factor10, int),
+            "cnn_hidden_channels": (len(cnn_hidden_channels), len(cnn_hidden_channels), int),
         }
         
     bayes = MLBayesianOptimizer(config, root_path, pbounds, random_state=523)

@@ -14,14 +14,20 @@ class Params:
     def __init__(self, config):
         self.dtype = torch.float16 if config['dtype'] == 16 else torch.float32 if config['dtype'] == 32 else None
         
-        self.image_height = config['height']                        # 720
-        self.image_width = config['width']                          # 1,440
+        self.image_height = round(config['height'] * config['factor10'] / 10)                        # 720 if factor10 == 10
+        self.image_width = round(config['width'] * config['factor10'] / 10)                         # 1,440 if factor10 == 10
         self.variables = config['variables']
         self.T1 = config['T1']
         self.nFramesIn = config['T1'] * config['FG']                # 2 * 24 = 48           # temporal seq_len
         self.FG = config['FG']
         self.nFramesOut = 1 * config['FG']                          # 24
         self.maxT2 = config['maxT2']
+        
+        self.nFrames = config['nFrames']
+        self.mFrames = config['mFrames']
+        self.radius = config['radius']
+        self.factor10 = config['factor10']
+        self.transient_steps = config['transient_steps']
 
         self.train_pct = config['train_pct']
         self.vali_pct = config['vali_pct']
@@ -48,6 +54,8 @@ class Params:
         self.zeusLayers = config['zeusLayers']
         self.crossLayers = config['crossLayers']
         self.mlp_dim = self.dim * config['dim_to_mlp_dim']
+        
+        self.cnn_hidden_channels = config['cnn_hidden_channels']
 
         #----------------- Training ---------------
         self.include_difficulty = config['include_difficulty']
@@ -60,6 +68,7 @@ class Params:
         self.optimizer = config['optimizer']
         self.lr = config['lr']
         self.max_lr = config['max_lr']
+        self.total_steps = config['total_steps']
         self.weight_decay = config['weight_decay']
         self.pct_start = config['pct_start']
         self.anneal_strategy = config['anneal_strategy']
@@ -79,7 +88,7 @@ class Params:
         self.freeze_zeus1 = config['freeze_zeus1']
         self.skip_net_for_zeus2 = config['skip_net_for_zeus2']
         
-        if self.image_height % self.patch_size != 0:
-            raise Exception("Image height must be divisible by the patch size: {}, {}".format(self.image_height, self.patch_size))
-        if self.image_width % self.patch_size != 0:
-            raise Exception("Image height must be divisible by the patch size: {}, {}".format(self.image_width, self.patch_size))
+        # if self.image_height % self.patch_size != 0:
+        #     raise Exception("Image height must be divisible by the patch size: {}, {}".format(self.image_height, self.patch_size))
+        # if self.image_width % self.patch_size != 0:
+        #     raise Exception("Image height must be divisible by the patch size: {}, {}".format(self.image_width, self.patch_size))

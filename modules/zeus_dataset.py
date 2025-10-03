@@ -1,9 +1,11 @@
 import numpy as np
 import torch
+import torch.nn.functional as F
 import xarray as xr
 import threading
 import calendar
 import json
+import gc
 import math
 import platform
 from datetime import datetime, date, timedelta
@@ -14,6 +16,7 @@ from pathlib import Path
 from einops import rearrange
 
 import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 
@@ -331,6 +334,9 @@ class Zeus_Dataset(Dataset):
             data = json.load(f)
             # print('------', data, torch.tensor(data['mean']).shape)
         mean, std = torch.tensor(data['mean']), torch.tensor(data['std'])
+        
+        std = std * self.pm.factor10 / 10   #=============================== Mike!!!
+        
         self.mean, self.std = mean, std
         return mean, std    # (C,), (C,)
 
@@ -552,7 +558,8 @@ class Zeus_Dataset(Dataset):
             
             data_hours = []
             for day in data_dates:
-                data_hours += [(day, hour) for hour in range(24)]
+                # data_hours += [(day, hour) for hour in range(24)]
+                data_hours += [(day, hour) for hour in range(1)]    # day, 0 hour
 
             if seed is not None: random.seed(seed)
 
@@ -598,9 +605,9 @@ class Zeus_Dataset(Dataset):
         # Mike!!! remove [:2]
         # No need to copy.copy(), as self.x_sets are re-generated above.
         if platform.system() == "Windows": 
-            self.x_set = self.train_hours[:20] if x_label=='train_set' \
-                else self.vali_hours[:5] if x_label=='vali_set' \
-                else self.test_hours[:5] if x_label=='test_set' else None
+            self.x_set = self.train_hours[:] if x_label=='train_set' \
+                else self.vali_hours[:] if x_label=='vali_set' \
+                else self.test_hours[:] if x_label=='test_set' else None
         else:
             self.x_set = self.train_hours if x_label=='train_set' \
                 else self.vali_hours if x_label=='vali_set' \
@@ -670,7 +677,7 @@ class Zeus_Dataset(Dataset):
         try:
             assert isinstance(start_hour, int)
             assert isinstance(hours, int)
-            assert 0 <= start_hour and start_hour < 24 and 0 < hours and hours <= 24
+            assert 0 <= start_hour and start_hour < 24 and 0 < hours and hours <= 48
 
             day_data = self.load_day_all_data_npy(day)
             data = day_data[start_hour : start_hour + hours]
@@ -741,6 +748,35 @@ class Zeus_Dataset(Dataset):
                 self.remove_day_vdata(day)
             day = day + timedelta(days=1)
         return
+    
+    def resize_cylindrical(self, x, size_hw):
+        """
+        x: (B, frames, C, H, W)
+        size_hw: (H1, W1)
+        """
+        B, Fm, C, H, W = x.shape
+        outs = []
+
+        for f in range(Fm):
+            frame = x[:, f]  # (B, C, H, W)
+
+            # circular padding along W (last dimension)
+            # pad format: (pad_left, pad_right, pad_top, pad_bottom)
+            frame = F.pad(frame, (1, 1, 0, 0), mode="circular")  # (B, C, H, W+2)
+
+            # interpolate
+            frame_resized = F.interpolate(
+                frame, size=(size_hw[0], size_hw[1] + 2),
+                mode="bicubic", align_corners=False    # mode="bilinear"
+            )
+
+            # remove the extra columns to restore circular wrap
+            frame_resized = frame_resized[:, :, :, 1:-1]  # (B, C, H1, W1)
+
+            outs.append(frame_resized)
+
+        # stack frames back
+        return torch.stack(outs, dim=1)  # (B, frames, C, H1, W1)
 
     def take_batch(self):
         if len(self.x_set) <= 0: return None
@@ -759,15 +795,28 @@ class Zeus_Dataset(Dataset):
             day, start_hour = taken[b]
             months.append(day.month)
 
-            hours = self.pm.T1 * self.pm.FG
-            data = self.load_hours_all_data_npy(day, start_hour, 2 * hours)                    # (2 * T1FG, C, H, W)
-            batch_x.append(torch.tensor(data[:hours]))
-            batch_y.append(torch.tensor(data[hours:]))
+            # hours = self.pm.T1 * self.pm.FG
+            nHours = self.pm.nFrames
+            mHours = self.pm.mFrames
+            data = self.load_hours_all_data_npy(day, start_hour, nHours + mHours)                    # (2 * T1FG, C, H, W)
+            batch_x.append(torch.tensor(data[:nHours]))
+            batch_y.append(torch.tensor(data[nHours:]))
 
         batch_x = torch.stack(batch_x, dim=0)     # (B, T1FG, C, H, W)
         batch_y = torch.stack(batch_y, dim=0)     # (B, T2FG, C, H, W)        
+        
+        B, _, C, H, W = batch_x.shape
+        
+        H1 = self.pm.image_height
+        W1 = self.pm.image_width
+        if H1 != H or W1 != W:
+            batch_x = self.resize_cylindrical(batch_x, (H1, W1))
+            batch_y = self.resize_cylindrical(batch_y, (H1, W1))
+            
         batch_x = self.normalize(batch_x)
         batch_y = self.normalize(batch_y)
+            
+        # self.visualize_frames(batch_x[0])
 
         if self.pm.include_difficulty:
             # difficulties[variable][month] : data (721, 1440)
@@ -789,6 +838,27 @@ class Zeus_Dataset(Dataset):
         # print("batch_x, y shape: ", batch_x.shape, batch_y.shape)
         # print('-------- type ', batch_x.dtype, batch_y.dtype, batch_diff.dtype, self.era5_data_vars.dtype)
         return batch_x, batch_y, batch_diff, self.era5_data_vars     # (B, T1FG, C, H, W), (B, T2FG, C, H, W), (B, 1, C, H, W), (C,)
+    
+
+    def visualize_frames(self, x_seq):
+        seq_len, C, H, W = x_seq.shape
+
+        # Set up figure
+        fig, ax = plt.subplots(figsize=(6, 3))
+        im = ax.imshow(x_seq[0, 0], origin='lower', cmap='coolwarm', extent=[-180, 180, -90, 90])
+        plt.colorbar(im, ax=ax, label='Temperature (arbitrary units)')
+        ax.set_xlabel('Longitude')
+        ax.set_ylabel('Latitude')
+        ax.set_title('Simulated Temperature')
+
+        def update(frame_idx):
+            im.set_data(x_seq[frame_idx, 0])
+            ax.set_title(f"Simulated Temperature - Frame {frame_idx}")
+            return [im]
+
+        ani = FuncAnimation(fig, update, frames=seq_len, interval=100, blit=True)
+
+        plt.show()
         
     #---------------------------------- Prefetch -------------------------------------
 

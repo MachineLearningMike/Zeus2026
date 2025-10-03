@@ -5,7 +5,7 @@ import logging
 import sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from models.Train import Train
+from models.Train_CNN import Train
 import modules.utils as utils
 from modules.params import Params
 
@@ -85,38 +85,17 @@ class Trainer():
         
         return keep_go_next_epoch, best_rmse_yet
 
-    def bayesian_test(self, patch_size, heads, attLayers, crossLayers, zeusLayers):
-        self.config['patch_size'] = patch_size
-        self.config['heads'] = heads
-        self.config['attLayers'] = attLayers
-        self.config['crossLayers'] = crossLayers
-        self.config['zeusLayers'] = zeusLayers
-        logging.info("Trainer configured with new hyper-parameters. patch_size {}, heads {}, attLayers {}, crossLayers {}, zeusLayers {}" \
-                    .format(patch_size, heads, attLayers, crossLayers, zeusLayers))
-        
-        self.config['hypers'] = {'patch_size': patch_size, 'heads': heads, 'attLayers': attLayers, 'crossLayers': crossLayers, 'zeusLayers': zeusLayers}
-        self.pm = Params(self.config)
-        
-        self.train = Train(self.config, self.root_path, self.bayes_path, trainable=False)
-        self.train.try_load_state()
-        epoch = 0
-        test_loss, test_metrics = self.train.run_epoch(epoch, "vali_set", trainable=False)
-        display = self.train.get_epoch_display(test_loss, test_metrics)
-        logging.info("Vali epoch: {}, {}".format(epoch, display))
-        
-        return test_loss, test_metrics
-
-    def bayesian_target(self, patch_size, heads, attLayers, crossLayers, zeusLayers):
+    def bayesian_target(self, nFrames, mFrames, radius, factor10, cnn_hidden_channels):
         # Update with new hyper-parameters
-        self.config['patch_size'] = patch_size
-        self.config['heads'] = heads
-        self.config['attLayers'] = attLayers
-        self.config['crossLayers'] = crossLayers
-        self.config['zeusLayers'] = zeusLayers
-        logging.info("Trainer configured with new hyper-parameters. patch_size {}, heads {}, attLayers {}, crossLayers {}, zeusLayers {}" \
-                    .format(patch_size, heads, attLayers, crossLayers, zeusLayers))
+        self.config['nFrames'] = nFrames
+        self.config['mFrames'] = mFrames
+        self.config['radius'] = radius
+        self.config['factor10'] = factor10
+
+        logging.info("Trainer configured with new hyper-parameters. nFrames {}, mFrames {}, radius {}, factor10 {}, cnn_hidden_channels {}" \
+                    .format(nFrames, mFrames, radius, factor10, cnn_hidden_channels))
         
-        self.config['hypers'] = {'patch_size': patch_size, 'heads': heads, 'attLayers': attLayers, 'crossLayers': crossLayers, 'zeusLayers': zeusLayers}
+        self.config['hypers'] = {'nFrames': nFrames, 'mFrames': mFrames, 'radius': radius, 'factor10': factor10}
         self.pm = Params(self.config)
 
         self.train = Train(self.config, self.root_path, self.bayes_path, trainable=True)
@@ -129,17 +108,3 @@ class Trainer():
 if __name__ == "__main__":
     from models.config import config, root_path
 
-    bases_path = root_path / 'bayes' / config['bayesProject']
-    trainer = Trainer(config, root_path, bases_path, bayes=None)
-
-    patch_size = config['patch_size']
-    heads = config['heads']
-    attLayers = config['attLayers']
-    zeusLayers = config['zeusLayers']
-    # profit = trainer.bayesian_target(patch_size, heads, attLayers, zeusLayers) 
-    
-    import platform
-    if platform.system() == "Windows": 
-        trainer.bayesian_test(16, 4, 1, 1)
-    else:
-        trainer.bayesian_test(16, 4, 4, 4)
