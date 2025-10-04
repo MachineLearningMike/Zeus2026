@@ -229,6 +229,7 @@ class GatedAttention(nn.Module):      # (b, n, dim) -> (b, n, dim)
     def forward(self, x):
         # return intact x initially
         for attn, ff, drop_path1, drop_path2 in self.layers:
+            # This block is equivalent a whole encoder layer of transformer.
             x = x + drop_path1(attn(x))     # x + zeros (initially)
             x = x + drop_path2(ff(x))       # x + zeors (initially)
         return self.norm(x)

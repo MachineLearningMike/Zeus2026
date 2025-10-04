@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-class OffChunkedMHA(nn.Module):
+class OffChunkMHA(nn.Module):
     def __init__(
         self,
         embed_dim: int,
@@ -29,6 +29,7 @@ class OffChunkedMHA(nn.Module):
         self.gpu_device = torch.device(device)
 
         base = num_heads // num_chunks
+        assert base > 0
         rem = num_heads % num_chunks
         self.heads_per_chunk = [base + (1 if i < rem else 0) for i in range(num_chunks)]
 
@@ -76,7 +77,7 @@ class OffChunkedMHA(nn.Module):
 
         # This is the place where the memory footprint reaches maximum.
         attn_logits = torch.matmul(q, k.transpose(-2, -1)) * self.scale  # (B, heads, S, S)
-        del q, k
+        del q, k    # delelet as much and early as possible.
         torch.cuda.empty_cache()
 
         if mask is not None:
@@ -160,7 +161,8 @@ class OffChunkedMHA(nn.Module):
 
         B, S, E = gradient.shape
 
-        # Commenting out this block let error divers from 1 to 40 for 100 loops.
+        # Commenting out this block let error diverges from 1 to 40 for 100 loops, 
+        # instead of converging from 1 to 0.294.
         x_dev = self.concat_saved.to(self.gpu_device)
         x_dev.requires_grad_(True)
         x_dev.retain_grad()
@@ -204,11 +206,14 @@ if __name__ == "__main__":
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
     factor10 = 2
-    batch_size = 24
-    seq_len = round(72 * factor10 * 144 * factor10 /16/16)
+    batch_size = 24         # it's also the data simplicity in this test.
+    seq_len = round(1 * 72 * factor10 * 144 * factor10 /16/16)
     embed_dim = 1024
+    num_heads = 8
+    num_chunks = 4
+    lr = 1e-3
 
-    model = OffChunkedMHA(embed_dim=embed_dim, num_heads=8, num_chunks=4, device=device)
+    model = OffChunkMHA(embed_dim=embed_dim, num_heads=num_heads, num_chunks=num_chunks, device=device)
 
     #------------------- simple test -------------------
     x = torch.randn(batch_size, seq_len, embed_dim)  # (B, S, E)
@@ -221,7 +226,7 @@ if __name__ == "__main__":
     #------------------ training test --------------------
     
     # optimizer (params are on CPU at construction time)
-    optimizer = optim.AdamW(model.parameters(), lr=1e-3)
+    optimizer = optim.AdamW(model.parameters(), lr=lr)
     criterion = nn.MSELoss()
 
     # dummy data (CPU)

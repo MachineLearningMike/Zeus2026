@@ -210,74 +210,6 @@ class Train():
         # logging.info(f"Checkpoint '{name}' saved, including model, optimizer, scheduler, scaler, rmses_old, and dataset state")
     
     
-    def try_load_state_old(self, name=None):    # Couples with save_state
-    #-------------- My version -------------- shortens tranining step.
-        if name is None: name = 'train_state-' + self.get_train_id_string()
-        
-        train_finished = False
-        
-        try:
-            checkpoint_path = self.bayes_path / (name + '.pth')
-            # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            checkpoint = torch.load(checkpoint_path, map_location=self.device)
-
-            if checkpoint['train_finished'] == True:
-                train_finished = True
-                raise Exception()
-
-            # Load model parameters
-            epoch = checkpoint['epoch']
-            self.model.load_state_dict(checkpoint['model'])
-            # for name, param in self.model.named_parameters():
-            #     print('--------------', name, param.device, param.dtype)
-            logging.info("Model loaded with saved state")
-                
-            for param_group in self.optimizer.param_groups:
-                for p in param_group['params']:
-                    if p in self.optimizer.state:
-                        for k, v in self.optimizer.state[p].items():
-                            if isinstance(v, torch.Tensor):
-                                self.optimizer.state[p][k] = v.to(p.device)       
-            logging.info("Optimizer loaded with saved state")
-
-            self.scheduler.load_state_dict(checkpoint['scheduler'])
-            self.scaler.load_state_dict(checkpoint['scaler'])
-            logging.info("Scheduler loaded with saved state")
-
-            self.rmses_old = checkpoint['rmses_old']
-            self.epochs_since_improvement = checkpoint['epochs_since_improvement']
-            logging.info("rmses_old and epochs_since_improvement loaded with saved values")
-            
-            if checkpoint.get('dataset', None) is not None:
-                self.dataset.unpack_state(checkpoint['dataset'])
-                logging.info("dataset state loaded with saved state")
-
-            if checkpoint.get('step_state', None) is not None:
-                step_state = checkpoint['step_state']
-            else:
-                step_state = None
-    
-            # print('----------- step_state loaded is ', step_state)
-            if step_state is not None:  # The previous session was terminated after a new step was finished and before an epoch is finished.
-                epoch = epoch
-            else:   # The previous session was terminated after an epoch was finished and before a new step was finished. 
-                epoch = epoch + 1
-
-            logging.info(f"Checkpoint '{name}' loaded to {self.device}, including model, optimizer, scheduler, scaler, rmses_old, and datase state")
-        except:
-            if train_finished:
-                logging.info("You tried to start/continue a finished training. Aborting...")
-                sys.exit()
-            else:   # Save not found.
-                # Starts a new training.
-                epoch = 0; step_state = None
-
-        length = len(self.dataset.x_set) if self.dataset.x_set is not None else 0
-        # print('-------- ', self.dataset._fetched_batches, self.dataset.total_batches, length)
-
-        return epoch, step_state
-    
-    
     def try_load_state(self, name=None):    # Pairs with save_state
         if name is None: name = 'train_state-' + self.get_train_id_string()
         
@@ -317,80 +249,7 @@ class Train():
                 strict = True
                 
                 if self.pm.doubleZeus:
-
-                    # old_ckpt = checkpoint['model']
-                    # new_state_dict = self.model.state_dict()
-                    # keys_to_prefix = ["to_patch_embedding",
-                    #                 "pos_embedding"]
-                    # prefix1 = "zeus1.patch_module."
-                    # prefic2 = "zeus1."
-                    
-                    # remapped_ckpt = {}       
-                    # for k, v in old_ckpt.items():
-                    #     target = False
-                    #     for key in keys_to_prefix:
-                    #         if k.startswith(key):
-                    #             target = True; break                    
-                    #     if target:
-                    #         new_key = prefix1 + k
-                    #     else:
-                    #         new_key = prefic2 + k
-                    #     target = False
-                    #     for key in new_state_dict.keys():
-                    #         if key.startswith(new_key):
-                    #             target = True; break
-                    #     if target:        
-                    #         remapped_ckpt[new_key] = v
-                    #     else:
-                    #         print(f"Skipping {new_key}, not found in model")
-                    
-                    # new_state_dict.update(remapped_ckpt)
-                    # self.model.load_state_dict(new_state_dict)
-                    
-                    # names = [
-                    #     "zeus1.mlp_head.1.weight",
-                    #     "zeus1.mlp_head.1.bias",
-                    #     "zeus1.mlp_head.2.weight",
-                    #     "zeus1.mlp_head.2.bias",
-                    #     "zeus2.mlp_head.1.weight",
-                    #     "zeus2.mlp_head.1.bias",
-                    #     "zeus2.mlp_head.2.weight",
-                    #     "zeus2.mlp_head.2.bias",
-                    # ]
-                    
-                    # Remap each tensor to match the device of the new model's parameter
-                    # zeus2_param = {}
-                    # for param_name, param in self.model.state_dict().items():
-                    #     if param_name.startswith('zeus2'):
-                    #         zeus2_param[param_name] = param
-
-                    # new_state_dict = {}
-                    # for param_name, param in self.model.state_dict().items():
-                    #     # if param_name.startswith('zeus2'): continue
-                    #     # if param_name.count('mlp_head.') == 2:
-                    #     #     old_name = param_name.replace('mlp_head.', '', 1)
-                    #     # else:
-                    #     old_name = param_name
-                        
-                    #     try:
-                    #         if old_name in state_dict:
-                    #             assert param.shape == state_dict[old_name].shape, "Parameter shape mismatch. name {}, shape1 {}, shape2 {}".format(param_name, param.shape, state_dict[old_name].shape)
-                    #             param_name = ".".join(param_name.split(".")[1:])    # Mike!!! I give up and add this line after 10 hours of struggle.
-                    #             new_state_dict[param_name] = state_dict[old_name].to(param.device, non_blocking=True)
-                    #         elif strict:
-                    #             raise KeyError(f"Missing key {old_name} in model checkpoint")
-                    #         else:
-                    #             print(f"⚠️ Skipping {old_name}, not found in checkpoint")
-                    #     except Exception as e:
-                    #         logging.info(str(e))
-                    # try:
-                    #     missing_keys, unexpected_keys = self.model.load_state_dict(new_state_dict, strict=False)
-                    #     logging.info("Model loaded with saved state: \nmissing_keys: {}, \nunexpected_keys: {}".format(missing_keys, unexpected_keys))
-                    #     # missing_keys, unexpected_keys = self.model.load_state_dict(zeus2_param, strict=False)
-                    #     # logging.info("Model loaded with its own state :): unexpected_keys: {}".format(unexpected_keys))      
-                    # except Exception as e:
-                        # logging.info(str(e))
-                        
+                       
                     zeus1_state = {key : value for key, value in state_dict.items() if key.startswith('zeus1')}
                     zeus2_state = {key : value for key, value in state_dict.items() if key.startswith('zeus2')}
                     # zeus2_state = {(key.replace("mlp_head.", "", 1) if key.count("mlp_head.") > 1 else key) : value for key, value in zeus2_state.items()}
@@ -410,17 +269,17 @@ class Train():
                     
                     try:                       
                         # Restore optimizer
-                        # if self.optimizer is not None and "optimizer" in checkpoint:
-                        #     self.optimizer.load_state_dict(checkpoint["optimizer"])
+                        if self.optimizer is not None and "optimizer" in checkpoint:
+                            self.optimizer.load_state_dict(checkpoint["optimizer"])
 
-                        #     # Move optimizer state tensors to the same device as their parameters
-                        #     for group in self.optimizer.param_groups:
-                        #         for p in group["params"]:
-                        #             if p in self.optimizer.state:
-                        #                 for k, v in self.optimizer.state[p].items():
-                        #                     if torch.is_tensor(v):
-                        #                         self.optimizer.state[p][k] = v.to(p.device, non_blocking=True)                       
-                        # logging.info("Optimizer loaded with saved state")
+                            # Move optimizer state tensors to the same device as their parameters
+                            for group in self.optimizer.param_groups:
+                                for p in group["params"]:
+                                    if p in self.optimizer.state:
+                                        for k, v in self.optimizer.state[p].items():
+                                            if torch.is_tensor(v):
+                                                self.optimizer.state[p][k] = v.to(p.device, non_blocking=True)                       
+                        logging.info("Optimizer loaded with saved state")
 
                         self.scheduler.load_state_dict(checkpoint['scheduler'])
                         logging.info("Scheduler loaded with saved state")

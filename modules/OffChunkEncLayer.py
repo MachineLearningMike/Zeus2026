@@ -6,12 +6,16 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 
-from OffChunkedMHA import OffChunkedMHA
+from OffChunkMHA import OffChunkMHA
 
 
-class OffChunkedEncLayer(nn.Module):
+class OffChunkEncLayer(nn.Module):
     """
-    Single encoder layer using OffloadedChunkedMHA.
+    implements:   
+      x = x + dropout(MHA(norm1(x)))        # pre_LN to MHA
+      x = norm2( x + dropout( ff(x) ) )     # standard post_LN to ff
+        
+    Single encoder layer using OffChunkMHA, which stands for offloaded chunked MHA.
     Pre-LN style (LayerNorm before attention and before FFN).
     All weights start on CPU; moved temporarily to GPU during computation.
     """
@@ -35,7 +39,7 @@ class OffChunkedEncLayer(nn.Module):
         self.norm1 = nn.LayerNorm(embed_dim, eps=eps)   
 
         # Offloaded attention (weights on CPU, chunks on GPU)
-        self.self_attn = OffChunkedMHA(
+        self.self_attn = OffChunkMHA(
             embed_dim=embed_dim,
             num_heads=num_heads,
             num_chunks=num_chunks,
@@ -51,11 +55,11 @@ class OffChunkedEncLayer(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.activation = activation
 
-        self.src_saved, self.src_ln_saved, self.mask_saved, self.attn_out_saved, self.src_mask_saved, self.src_key_padding_mask_saved \
-        = None, None, None, None, None, None
+        self.src_saved, self.mask_saved, self.attn_out_saved \
+        = None, None, None
 
     #---------------------------- pre_mha --------------------------
-    def norm1_and_merge_mask(self, src, src_mask, src_key_padding_mask, modules_to_cpu=True):
+    def apply_norm_to_src_before_mha(self, src, modules_to_cpu=True):
         # --- Pre-LN ---           
         norm1_gpu = self.norm1.to(self.gpu_device)
         src_ln = norm1_gpu(src.to(self.gpu_device))
@@ -63,6 +67,10 @@ class OffChunkedEncLayer(nn.Module):
         if modules_to_cpu:
             # move back to CPU
             norm1_gpu.to("cpu")
+                
+        return src_ln
+    
+    def merge_mask(self, src_mask, src_key_padding_mask):
 
         # --- Merge masks for attention ---
         mask = None
@@ -75,14 +83,14 @@ class OffChunkedEncLayer(nn.Module):
             elif mask.dtype == torch.bool:
                 mask = mask & kpm
                 
-        return src_ln, mask
+        return mask
     
     def modules_to_cpu_pre_mha(self):
         self.norm1.to("cpu")
         return
 
     #---------------------------- post_mha --------------------------
-    def attn_dropout_residual(self, src, attn_out):
+    def apply_remaining_after_mha(self, src, attn_out):
         # return res on self.gpu_device
         assert attn_out.device == self.gpu_device
         
@@ -102,12 +110,12 @@ class OffChunkedEncLayer(nn.Module):
             linear2_gpu.to("cpu")        
         return ff
     
-    def ff_dropout_norm2_residual(self, res, ff, modules_to_cpu=True):
+    def apply_post_LN_to_ff(self, src, ff, modules_to_cpu=True):
         # return src_out on self.gpu_device
         ff = self.dropout(ff)
         # --- Post-LN ---
         norm2_gpu = self.norm2.to(self.gpu_device)
-        src_out = norm2_gpu(res + ff)
+        src_out = norm2_gpu(src + ff)
         if modules_to_cpu:
             norm2_gpu.to("cpu")
         return src_out
@@ -128,28 +136,25 @@ class OffChunkedEncLayer(nn.Module):
         modules_to_cpu: bool = True
     ) -> torch.Tensor:
         
-        # grad unit ------------------------------------------ norm1_and_merge_mask ------------------------
+        # grad unit ------------------------------------------ apply_norm_to_src_before_mha ------------------------
         # input: src, output: src, src_ln
         # backward: grad_in: src_ln.grad, grad_out: src.grad + src_ln.grad
 
         # move norm1 weights temporarily to GPU
         if train:
             self.src_saved = src.to("cpu")
-            if src_mask is not None:
-                self.src_mask_saved = src_mask.to("cpu")
-            if src_key_padding_mask is not None:
-                self.src_key_padding_mask_saved = src_key_padding_mask.to("cpu")
 
-        src_ln, mask = self.norm1_and_merge_mask(src, src_mask, src_key_padding_mask, modules_to_cpu=modules_to_cpu)
+        src_ln = self.apply_norm_to_src_before_mha(src, modules_to_cpu=modules_to_cpu)
+        
+        mask = self.merge_mask(src_mask, src_key_padding_mask)
 
         # grad unit -------------------------------------------- MHA_attention -----------------------
         # input: src_ln, output: attn_out
         # backward: grad_in: attn_out.grad, grad_out: src_ln.grad
 
         if train:
-            self.src_ln_saved = src_ln.to("cpu")
-            # saving and reusing mask is internal to self_attn.
-            
+            pass
+            # !!! saving and reusing src_ln and mask are internal to self_attn.
         # --- Attention ---
         attn_out = self.self_attn.forward(src_ln, mask=mask, train=train)  # output on GPU
         # Note: We have self.self.attn.backward defined, which leaves gradient on cpu.
@@ -164,8 +169,8 @@ class OffChunkedEncLayer(nn.Module):
         if train:
             self.attn_out_saved = attn_out.to("cpu")
  
-        # --- attn_dropout_residual ---
-        res = self.attn_dropout_residual(src, attn_out)
+        # --- apply_remaining_after_mha ---
+        res = self.apply_remaining_after_mha(src, attn_out)
 
         del attn_out
         torch.cuda.empty_cache()
@@ -175,7 +180,7 @@ class OffChunkedEncLayer(nn.Module):
         ff = self.ffn(res, modules_to_cpu=modules_to_cpu)
         # keep res
 
-        src_out = self.ff_dropout_norm2_residual(res, ff, modules_to_cpu=modules_to_cpu)
+        src_out = self.apply_post_LN_to_ff(res, ff, modules_to_cpu=modules_to_cpu)
         # No need to delete res and ff - operation is almost over.
 
         # Result stays on GPU
@@ -199,12 +204,12 @@ class OffChunkedEncLayer(nn.Module):
         attn_out_saved.requires_grad_(True)
         attn_out_saved.retain_grad()
         with torch.enable_grad():   # redundant for readability
-            # --- attn_dropout_residual ---
-            res = self.attn_dropout_residual(src_saved, attn_out_saved)
+            # --- apply_remaining_after_mha ---
+            res = self.apply_remaining_after_mha(src_saved, attn_out_saved)
             # --- FFN ---
             ff = self.ffn(res, modules_to_cpu=False)
             # keep res
-            src_out = self.ff_dropout_norm2_residual(res, ff, modules_to_cpu=False)
+            src_out = self.apply_post_LN_to_ff(res, ff, modules_to_cpu=False)
             del res, ff
             torch.cuda.empty_cache()
             gradient = gradient.to(self.gpu_device)
@@ -224,7 +229,8 @@ class OffChunkedEncLayer(nn.Module):
         src_saved.requires_grad_(True)
         src_saved.retain_grad()
         with torch.enable_grad():   # redundant for readability
-            src_ln, _ = self.norm1_and_merge_mask(src_saved, self.src_mask_saved, self.src_key_padding_mask_saved, modules_to_cpu=False)
+            src_ln = self.apply_norm_to_src_before_mha(src_saved, modules_to_cpu=False)
+            # No need: mask = self.merge_mask(self.src_mask_saved, self.src_key_padding_mask_saved)
             src_ln_gradient = src_ln_gradient.to(self.gpu_device)
             src_ln.backward(src_ln_gradient)
         src_gradient1 = src_saved.grad
@@ -238,14 +244,37 @@ class OffChunkedEncLayer(nn.Module):
     
 if __name__ == "__main__":
     
+    """
+    ------------------ Theoretical study and achievements ----------------------
+    1. A transformer of any size can now fit into a (small) GPU, thought it taking longer time to compute.
+    2. So, we can use a whole attention, instead of repeated, yet inefficient, temporal attention and spatial attention.
+    3. So, we can also reduce the number of transformer layers and thus speed up training and inference.
+   
+    Experiments:
+        factor10 = 10
+        batch_size = 2
+        seq_len = 24 * 72 * factor10 * 144 * factor10 / 16 / 16
+        embed_dim = 1024 (= 16 * 16 * 4)
+        num_heads = 8
+        num_chunks = 4
+   
+        required maximum memory of 140.79 GB, which is available on a B200 GPU.
+        
+        A num_chunks requires a lower memory, enabling raising batch_size.
+        There should be an optimization for maximum throughtput.
+    """
+    
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
     factor10 = 2
-    batch_size = 24
-    seq_len = round(72 * factor10 * 144 * factor10 /16/16)
+    batch_size = 24         # it's also the data simplicity in this test.
+    seq_len = round(1 * 72 * factor10 * 144 * factor10 /16/16)
     embed_dim = 1024
+    num_heads = 8
+    num_chunks = 4
+    lr = 1e-3
 
-    model = OffChunkedEncLayer(embed_dim=embed_dim, num_heads=8, num_chunks=4, dim_feedforward=4*embed_dim, dropout=0.0, activation=F.relu, device=device)
+    model = OffChunkEncLayer(embed_dim=embed_dim, num_heads=num_heads, num_chunks=num_chunks, dim_feedforward=4*embed_dim, dropout=0.0, activation=F.relu, device=device)
 
     x = torch.randn(batch_size, seq_len, embed_dim)  # (B, S, E)
     out = model(x)
@@ -254,7 +283,7 @@ if __name__ == "__main__":
     #------------------ training test --------------------
     
     # optimizer (params are on CPU at construction time)
-    optimizer = optim.AdamW(model.parameters(), lr=1e-3)
+    optimizer = optim.AdamW(model.parameters(), lr=lr)
     criterion = nn.MSELoss()
 
     # dummy data (CPU)

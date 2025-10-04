@@ -6,9 +6,9 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 
-from OffChunkedEncLayer import OffChunkedEncLayer
+from OffChunkEncLayer import OffChunkEncLayer
 
-class OffChunkedTransformer(nn.Module):
+class OffChunkTransformer(nn.Module):
     def __init__(
         self,
         num_layers: int,
@@ -30,7 +30,7 @@ class OffChunkedTransformer(nn.Module):
         layers = []
         for _ in range(num_layers):
             layers.append(
-                OffChunkedEncLayer(
+                OffChunkEncLayer(
                     embed_dim=embed_dim,
                     num_heads=num_heads,
                     num_chunks=num_chunks,
@@ -65,25 +65,31 @@ class OffChunkedTransformer(nn.Module):
         return output
     
     def backward(self, gradient: torch.Tensor) -> torch.Tensor:
-        for layer in self.layers:
+        for layer in reversed(self.layers):
             gradient = layer.backward(gradient)
         return gradient
         
     
 if __name__ == "__main__":
+    """
+    1. For large seq_len, the more layers the more loss.
+    """
     
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
     factor10 = 2
-    batch_size = 24
-    seq_len = round(72 * factor10 * 144 * factor10 /16/16)
+    batch_size = 24         # it's also the data simplicity in this test.
+    seq_len = round(1 * 72 * factor10 * 144 * factor10 /16/16)
     embed_dim = 1024
+    num_heads = 8
+    num_chunks = 4
+    lr = 1e-3
 
-    model = OffChunkedTransformer(
+    model = OffChunkTransformer(
         num_layers=1,
         embed_dim=embed_dim, 
-        num_heads=8, 
-        num_chunks=4, 
+        num_heads=num_heads, 
+        num_chunks=num_chunks, 
         dim_feedforward=4*embed_dim, 
         dropout=0.0, 
         activation=F.relu, 
@@ -97,7 +103,7 @@ if __name__ == "__main__":
     #------------------ training test --------------------
     
     # optimizer (params are on CPU at construction time)
-    optimizer = optim.AdamW(model.parameters(), lr=1e-3)
+    optimizer = optim.AdamW(model.parameters(), lr=lr)
     criterion = nn.MSELoss()
 
     # dummy data (CPU)

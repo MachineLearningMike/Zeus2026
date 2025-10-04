@@ -140,7 +140,7 @@ if __name__ == "__main__":
         radius = config['radius']
         factor10 = config['factor10']
         cnn_hidden_channels = config['cnn_hidden_channels']
-        
+                
         pbounds = {     # Mike!!!
             "nFrames": (nFrames, nFrames, int),
             "mFrames": (mFrames, mFrames, int),

@@ -10,11 +10,11 @@ config = {
     
     # Mode.3
     'T1':           3,
-    'patch_size':   16, #16, # 8        ---------------------- optimization param
-    'heads':        512, #8,     # 8    ---------------------- optimization param
     
-    'attLayers' :   1,    #             ---------------------- optimization param
-    'zeusLayers':   2,    #             ---------------------- optimization param
+    'patch_size':   16, #16, # 8        ---------------------- optimization param
+    'heads':        4, #8,     # 8    ---------------------- optimization param
+    'attLayers' :   4,    #             ---------------------- optimization param
+    'zeusLayers':   4,    #             ---------------------- optimization param
     'crossLayers':  6,
 
     'dropout':      0.0,
