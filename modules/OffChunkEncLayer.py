@@ -7,6 +7,8 @@ import torch.optim as optim
 
 
 from OffChunkMHA import OffChunkMHA
+from Original_FFN import Original_FFN
+from SwiGLU import SwiGLU
 
 
 class OffChunkEncLayer(nn.Module):
@@ -29,6 +31,7 @@ class OffChunkEncLayer(nn.Module):
         activation: Callable = F.relu,
         device: Optional[str] = None,
         eps: float = 1e-5,
+        
     ):
         super().__init__()
         if device is None:
@@ -51,9 +54,9 @@ class OffChunkEncLayer(nn.Module):
         self.linear1 = nn.Linear(embed_dim, dim_feedforward)   
         self.linear2 = nn.Linear(dim_feedforward, embed_dim)
         self.norm2 = nn.LayerNorm(embed_dim, eps=eps)
-
-        self.dropout = nn.Dropout(dropout)
         self.activation = activation
+        
+        self.dropout = nn.Dropout(dropout)
 
         self.src_saved, self.mask_saved, self.attn_out_saved \
         = None, None, None
@@ -273,6 +276,7 @@ if __name__ == "__main__":
     num_heads = 8
     num_chunks = 4
     lr = 1e-3
+    steps = 500
 
     model = OffChunkEncLayer(embed_dim=embed_dim, num_heads=num_heads, num_chunks=num_chunks, dim_feedforward=4*embed_dim, dropout=0.0, activation=F.relu, device=device)
 
@@ -290,7 +294,6 @@ if __name__ == "__main__":
     x_train = torch.randn(batch_size, seq_len, embed_dim)
     y_train = torch.randn(batch_size, seq_len, embed_dim)
 
-    steps = 100
     for step in range(steps):
         optimizer.zero_grad()
 

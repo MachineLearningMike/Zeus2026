@@ -212,6 +212,7 @@ if __name__ == "__main__":
     num_heads = 8
     num_chunks = 4
     lr = 1e-3
+    steps = 500
 
     model = OffChunkMHA(embed_dim=embed_dim, num_heads=num_heads, num_chunks=num_chunks, device=device)
 
@@ -233,7 +234,6 @@ if __name__ == "__main__":
     x_train = torch.randn(batch_size, seq_len, embed_dim)
     y_train = torch.randn(batch_size, seq_len, embed_dim)
 
-    steps = 100
     for step in range(steps):
         optimizer.zero_grad()
 
