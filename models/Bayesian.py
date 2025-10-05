@@ -135,18 +135,19 @@ if __name__ == "__main__":
     from pathlib import Path
     import platform
     if platform.system() == "Windows":
-        nFrames = config['nFrames']
-        mFrames = config['mFrames']
-        radius = config['radius']
-        factor10 = config['factor10']
-        cnn_hidden_channels = config['cnn_hidden_channels']
-                
+        
+        patch_size = config['patch_size']
+        heads = config['heads']
+        chunks = config['chunks']
+        attLayers = config['attLayers']
+        layerFFN = config['layerFFN']
+                        
         pbounds = {     # Mike!!!
-            "nFrames": (nFrames, nFrames, int),
-            "mFrames": (mFrames, mFrames, int),
-            "radius": (radius, radius, int),
-            "factor10": (factor10, factor10, int),
-            "cnn_hidden_channels": (len(cnn_hidden_channels), len(cnn_hidden_channels), int),
+            "patch_size": (patch_size, patch_size, int),
+            "heads": (heads, heads, int),
+            "chunks": (chunks, chunks, int),
+            "attLayers": (attLayers, attLayers, int),
+            # "layerFFN" : (layerFFN, layerFFN, str),
         }
     else:
         nFrames = config['nFrames']

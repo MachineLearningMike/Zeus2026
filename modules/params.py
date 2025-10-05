@@ -20,7 +20,7 @@ class Params:
         self.T1 = config['T1']
         self.nFramesIn = config['T1'] * config['FG']                # 2 * 24 = 48           # temporal seq_len
         self.FG = config['FG']
-        self.nFramesOut = 1 * config['FG']                          # 24
+        self.nFramesOut = config['T2'] * config['FG']                          # 24
         self.maxT2 = config['maxT2']
         
         self.nFrames = config['nFrames']
@@ -46,6 +46,7 @@ class Params:
         
         self.nClasses = self.nChannels
         self.nHeads = config['heads']
+        self.nChunks = config['chunks']
         self.dropout = config['dropout']
         self.attn_dropout = config['attn_dropout']
         self.drop_path = config['drop_path']
@@ -53,6 +54,7 @@ class Params:
         self.attLayers = config['attLayers']
         self.zeusLayers = config['zeusLayers']
         self.crossLayers = config['crossLayers']
+        self.layerFFN = config['layerFFN']
         self.mlp_dim = self.dim * config['dim_to_mlp_dim']
         
         self.cnn_hidden_channels = config['cnn_hidden_channels']

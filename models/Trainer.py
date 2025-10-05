@@ -85,17 +85,18 @@ class Trainer():
         
         return keep_go_next_epoch, best_rmse_yet
 
-    def bayesian_target(self, nFrames, mFrames, radius, factor10, cnn_hidden_channels):
+    def bayesian_target(self, patch_size, heads, chunks, attLayers): #, layerFFN):
         # Update with new hyper-parameters
-        self.config['nFrames'] = nFrames
-        self.config['mFrames'] = mFrames
-        self.config['radius'] = radius
-        self.config['factor10'] = factor10
+        self.config['patch_size'] = patch_size
+        self.config['heads'] = heads
+        self.config['chunks'] = chunks
+        self.config['attLayers'] = attLayers
+        # self.config['layerFFN'] = layerFFN
 
-        logging.info("Trainer configured with new hyper-parameters. nFrames {}, mFrames {}, radius {}, factor10 {}, cnn_hidden_channels {}" \
-                    .format(nFrames, mFrames, radius, factor10, cnn_hidden_channels))
+        logging.info("Trainer configured with new hyper-parameters. patch_size {}, heads {}, chunks {}, attLayers {}, layerFFN {}" \
+                    .format(patch_size, heads, chunks, attLayers, self.config['layerFFN']))
         
-        self.config['hypers'] = {'nFrames': nFrames, 'mFrames': mFrames, 'radius': radius, 'factor10': factor10}
+        self.config['hypers'] = {'patch_size': patch_size, 'heads': heads, 'chunks': chunks, 'attLayers': attLayers, 'layerFFN': self.config['layerFFN']}
         self.pm = Params(self.config)
 
         self.train = Train(self.config, self.root_path, self.bayes_path, trainable=True)

@@ -5,10 +5,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
+from pathlib import Path
+import os, sys
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from OffChunkMHA import OffChunkMHA
-from Original_FFN import Original_FFN
-from SwiGLU import SwiGLU
+from modules.OffChunkMHA import OffChunkMHA
+from modules.Original_FFN import Original_FFN
+from modules.SwiGLU import SwiGLU
 
 
 class OffChunkEncLayer(nn.Module):
@@ -16,6 +19,10 @@ class OffChunkEncLayer(nn.Module):
     implements:   
       x = x + dropout(MHA(norm1(x)))        # pre_LN to MHA
       x = norm2( x + dropout( ff(x) ) )     # standard post_LN to ff
+
+    WHY?
+    ff = "SwiGLU" shows no significant advantage over "Original_FFN" yet is slower, 
+        although SwiGLU is millions of times more efficient when used in isolation.
         
     Single encoder layer using OffChunkMHA, which stands for offloaded chunked MHA.
     Pre-LN style (LayerNorm before attention and before FFN).
@@ -28,10 +35,9 @@ class OffChunkEncLayer(nn.Module):
         num_chunks: int = 1,
         dim_feedforward: int = 2048,
         dropout: float = 0.1,
-        activation: Callable = F.relu,
-        device: Optional[str] = None,
+        ffn: Optional[str] = "Original_FFN",  # "Original_FFN", "SwiGLU"
         eps: float = 1e-5,
-        
+        device: Optional[str] = None,
     ):
         super().__init__()
         if device is None:
@@ -50,13 +56,14 @@ class OffChunkEncLayer(nn.Module):
             device=device,
         )
 
-        # FFN and LayerNorm: start on CPU
-        self.linear1 = nn.Linear(embed_dim, dim_feedforward)   
-        self.linear2 = nn.Linear(dim_feedforward, embed_dim)
-        self.norm2 = nn.LayerNorm(embed_dim, eps=eps)
-        self.activation = activation
+        if ffn == "SwiGLU":
+            self.ffn = SwiGLU(in_features=embed_dim, hidden_features=dim_feedforward, out_features=embed_dim, act_layer=nn.SiLU, device=device)
+        elif ffn == "Original_FFN":
+            self.ffn = Original_FFN(embed_dim=embed_dim, dim_feedforward=dim_feedforward, activation=F.relu, device=device)
+        else: assert False
         
-        self.dropout = nn.Dropout(dropout)
+        self.dropout = nn.Dropout(dropout)      # shared between mha and ffn
+        self.norm2 = nn.LayerNorm(embed_dim, eps=eps)
 
         self.src_saved, self.mask_saved, self.attn_out_saved \
         = None, None, None
@@ -101,18 +108,7 @@ class OffChunkEncLayer(nn.Module):
         # Residual add: move src to GPU
         res = src.to(self.gpu_device) + attn_out
         return res
-
-    def ffn(self, res, modules_to_cpu=True):
-        # return ff on self.gpu_device        
-        # Move FFN weights to GPU temporarily
-        linear1_gpu = self.linear1.to(self.gpu_device)
-        linear2_gpu = self.linear2.to(self.gpu_device)
-        ff = linear2_gpu(self.activation(linear1_gpu(res)))
-        if modules_to_cpu:
-            linear1_gpu.to("cpu")
-            linear2_gpu.to("cpu")        
-        return ff
-    
+   
     def apply_post_LN_to_ff(self, src, ff, modules_to_cpu=True):
         # return src_out on self.gpu_device
         ff = self.dropout(ff)
@@ -124,11 +120,14 @@ class OffChunkEncLayer(nn.Module):
         return src_out
     
     def modules_to_cpu_post_mha(self):
-        self.linear1.to("cpu")
-        self.linear2.to("cpu")
-        self.norm2.to("cpu")
+        self.ffn.modules_to_cpu()
         return
 
+    def modules_to_cpu(self):
+        self.modules_to_cpu_pre_mha()
+        self.self_attn.modules_to_cpu()
+        self.modules_to_cpu_post_mha()
+        
     #-----------------------------------------------------------------------
     def forward(
         self,
@@ -159,7 +158,7 @@ class OffChunkEncLayer(nn.Module):
             pass
             # !!! saving and reusing src_ln and mask are internal to self_attn.
         # --- Attention ---
-        attn_out = self.self_attn.forward(src_ln, mask=mask, train=train)  # output on GPU
+        attn_out = self.self_attn.forward(src_ln, mask=mask, train=train, modules_to_cpu=modules_to_cpu)  # output on GPU
         # Note: We have self.self.attn.backward defined, which leaves gradient on cpu.
         
         del src_ln
@@ -180,7 +179,7 @@ class OffChunkEncLayer(nn.Module):
 
 
         # --- FFN ---
-        ff = self.ffn(res, modules_to_cpu=modules_to_cpu)
+        ff = self.ffn.forward(res, modules_to_cpu=modules_to_cpu)   #
         # keep res
 
         src_out = self.apply_post_LN_to_ff(res, ff, modules_to_cpu=modules_to_cpu)
@@ -206,6 +205,7 @@ class OffChunkEncLayer(nn.Module):
         src_saved.retain_grad()
         attn_out_saved.requires_grad_(True)
         attn_out_saved.retain_grad()
+        gradient = gradient.to(self.gpu_device)
         with torch.enable_grad():   # redundant for readability
             # --- apply_remaining_after_mha ---
             res = self.apply_remaining_after_mha(src_saved, attn_out_saved)
@@ -213,13 +213,10 @@ class OffChunkEncLayer(nn.Module):
             ff = self.ffn(res, modules_to_cpu=False)
             # keep res
             src_out = self.apply_post_LN_to_ff(res, ff, modules_to_cpu=False)
-            del res, ff
-            torch.cuda.empty_cache()
-            gradient = gradient.to(self.gpu_device)
             src_out.backward(gradient, retain_graph=False)  # gradients are saved to out_proj_gpu
         src_gradient = src_saved.grad
         attn_out_gradient = attn_out_saved.grad
-        del src_saved, attn_out_saved, src_out
+        del res, ff, src_saved, attn_out_saved, src_out
         torch.cuda.empty_cache()
         self.modules_to_cpu_post_mha()
 
@@ -278,12 +275,16 @@ if __name__ == "__main__":
     lr = 1e-3
     steps = 500
 
-    model = OffChunkEncLayer(embed_dim=embed_dim, num_heads=num_heads, num_chunks=num_chunks, dim_feedforward=4*embed_dim, dropout=0.0, activation=F.relu, device=device)
+    ffn = "Original_FFN"  # "SwiGLU", "Original_FFN"
+    model = OffChunkEncLayer(embed_dim=embed_dim, num_heads=num_heads, num_chunks=num_chunks, dim_feedforward=4*embed_dim, dropout=0.0, ffn=ffn, device=device)
 
     x = torch.randn(batch_size, seq_len, embed_dim)  # (B, S, E)
-    out = model(x)
+    with torch.no_grad():
+        out = model.forward(x, train=True, modules_to_cpu=True)
     print("Output:", out.shape, out.device)
-
+    gradient = torch.ones_like(x)
+    gradient = model.backward(gradient)
+    print("Gradient:", gradient.shape, gradient.device)
     #------------------ training test --------------------
     
     # optimizer (params are on CPU at construction time)
@@ -299,7 +300,7 @@ if __name__ == "__main__":
 
         # forward pass (offloads chunks to GPU internally)
         with torch.no_grad():
-            out = model.forward(x_train, train=True)
+            out = model.forward(x_train, train=True, modules_to_cpu=True)
             
         # target -> same device as out for loss
         out.requires_grad_(True)
@@ -308,11 +309,9 @@ if __name__ == "__main__":
             loss = criterion(out, y_train.to(out.device))
             loss.backward()
         gradient = out.grad
-
         gradient = model.backward(gradient)
-
         optimizer.step()
 
-        print(f"Step {step+1}/{steps} - Loss: {loss.item():.6f}")
+        print(f"Step {step+1}/{steps} - Loss: {loss.item():.12f}")
 
     print("Training done.")

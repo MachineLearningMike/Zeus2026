@@ -129,7 +129,7 @@ if __name__ == "__main__":
         x_train.requires_grad_(True)
         x_train.retain_grad()
         with torch.no_grad():
-            out = model.forward(x_train, train=True)
+            out = model.forward(x_train, train=True, modules_to_cpu=True)
             
         # target -> same device as out for loss
         out.requires_grad_(True)

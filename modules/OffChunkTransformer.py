@@ -5,8 +5,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
+from pathlib import Path
+import os, sys
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from OffChunkEncLayer import OffChunkEncLayer
+from modules.OffChunkEncLayer import OffChunkEncLayer
 
 class OffChunkTransformer(nn.Module):
     def __init__(
@@ -17,11 +20,11 @@ class OffChunkTransformer(nn.Module):
         num_chunks: int = 1,
         dim_feedforward: int = 2048,
         dropout: float = 0.1,
-        activation: Callable = F.relu,
+        ffn: Optional[str] = "SwiGLU",  # "Original_FFN"
+        eps: float = 1e-12,
         device: Optional[str] = None,
         norm_layer: Optional[nn.Module] = None,
-        eps: float = 1e-5,
-    ):
+    ):       
         super().__init__()
         if device is None:
             device = "cuda:0" if torch.cuda.is_available() else "cpu"
@@ -36,7 +39,7 @@ class OffChunkTransformer(nn.Module):
                     num_chunks=num_chunks,
                     dim_feedforward=dim_feedforward,
                     dropout=dropout,
-                    activation=activation,
+                    ffn = ffn,
                     device=device,
                     eps=eps,
                 )
@@ -64,6 +67,11 @@ class OffChunkTransformer(nn.Module):
         # output is on GPU (self.device)
         return output
     
+    def modules_to_cpu(self):
+        for layer in self.layers:
+            layer.modules_to_cpu()
+        return
+        
     def backward(self, gradient: torch.Tensor) -> torch.Tensor:
         for layer in reversed(self.layers):
             gradient = layer.backward(gradient)
@@ -85,21 +93,27 @@ if __name__ == "__main__":
     num_chunks = 4
     lr = 1e-3
     steps = 500
+    
+    ffn = "Original_FFN"  # "Original_FFN", "SwiGLU"
 
     model = OffChunkTransformer(
-        num_layers = 3,
+        num_layers = 1,
         embed_dim=embed_dim, 
         num_heads=num_heads, 
         num_chunks=num_chunks, 
         dim_feedforward=4*embed_dim, 
         dropout=0.0, 
-        activation=F.relu, 
+        ffn = ffn, 
         device=device
     )
 
     x = torch.randn(batch_size, seq_len, embed_dim)  # (B, S, E)
-    out = model(x)
+    with torch.no_grad():
+        out = model.forward(x, train=True, modules_to_cpu=False)
     print("Output:", out.shape, out.device)
+    gradient = torch.ones_like(x)
+    gradient = model.backward(gradient)
+    print("Gradient:", gradient.shape, gradient.device)
     
     #------------------ training test --------------------
     
@@ -116,7 +130,7 @@ if __name__ == "__main__":
 
         # forward pass (offloads chunks to GPU internally)
         with torch.no_grad():
-            out = model.forward(x_train, train=True)
+            out = model.forward(x_train, train=True, modules_to_cpu=True)
             
         # target -> same device as out for loss
         out.requires_grad_(True)
@@ -125,9 +139,7 @@ if __name__ == "__main__":
             loss = criterion(out, y_train.to(out.device))
             loss.backward()
         gradient = out.grad
-
         gradient = model.backward(gradient)
-
         optimizer.step()
 
         print(f"Step {step+1}/{steps} - Loss: {loss.item():.6f}")

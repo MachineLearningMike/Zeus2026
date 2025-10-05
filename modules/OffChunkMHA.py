@@ -6,6 +6,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
+from pathlib import Path
+import os, sys
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+
 class OffChunkMHA(nn.Module):
     def __init__(
         self,
@@ -17,16 +21,16 @@ class OffChunkMHA(nn.Module):
         device: Optional[str] = None,
     ):
         super().__init__()
+        if device is None:
+            device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        self.gpu_device = torch.device(device)
+
         assert embed_dim % num_heads == 0, "embed_dim must be divisible by num_heads"
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         self.head_dim = embed_dim // num_heads
         self.num_chunks = num_chunks
         self.dropout = dropout
-
-        if device is None:
-            device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        self.gpu_device = torch.device(device)
 
         base = num_heads // num_chunks
         assert base > 0
@@ -107,8 +111,14 @@ class OffChunkMHA(nn.Module):
     def modules_to_cpu_foreward_attention(self, idx):
         self.qkv_linears[idx].to("cpu")
         return
+    
+    def modules_to_cpu(self):
+        self.out_proj.to("cpu")
+        for idx, _ in enumerate(self.heads_per_chunk):
+            self.modules_to_cpu_foreward_attention(idx)
+        return
 
-    def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None, train: bool = False) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None, train: bool = False, modules_to_cpu=True) -> torch.Tensor:
         """
         x: (B, S, E) - input may be on CPU or GPU; chunk processing moves parts to GPU.
         mask: optional mask broadcastable to (B, 1, S, S) or (S, S) or boolean key mask shape (B, S)
@@ -129,7 +139,7 @@ class OffChunkMHA(nn.Module):
 
         for idx, heads in enumerate(self.heads_per_chunk):
             
-            out = self.foreward_attention(x_dev, mask, idx, heads, modules_to_cpu=True)
+            out = self.foreward_attention(x_dev, mask, idx, heads, modules_to_cpu=modules_to_cpu)
             torch.cuda.empty_cache()
             per_chunk_outputs.append(out.to("cpu"))
 
@@ -143,7 +153,8 @@ class OffChunkMHA(nn.Module):
         out_proj_gpu = self.out_proj.to(self.gpu_device)
         out = out_proj_gpu(concat.to(self.gpu_device))
         # move out_proj weights back to CPU to keep GPU footprint small
-        out_proj_gpu.to("cpu")
+        if modules_to_cpu:
+            self.out_proj.to("cpu")
         del concat
         torch.cuda.empty_cache()
 
@@ -167,9 +178,9 @@ class OffChunkMHA(nn.Module):
         x_dev.requires_grad_(True)
         x_dev.retain_grad()
         out_proj_gpu = self.out_proj.to(self.gpu_device)
+        gradient = gradient.to(self.gpu_device)
         with torch.enable_grad():   # redundant for readability
             out = out_proj_gpu(x_dev)
-            gradient = gradient.to(self.gpu_device)
             out.backward(gradient, retain_graph=False)  # gradients are saved to out_proj_gpu
         gradient = x_dev.grad
         out_proj_gpu.to("cpu")  # This line can be commented out. why?
@@ -189,8 +200,8 @@ class OffChunkMHA(nn.Module):
         for idx, heads in enumerate(self.heads_per_chunk):
             with torch.enable_grad():   # redundant for readability
                 out = self.foreward_attention(x_dev, self.mask_saved, idx, heads, modules_to_cpu=False)
-                torch.cuda.empty_cache()
                 out.backward(gradient_chunks[idx], retain_graph=False)
+            torch.cuda.empty_cache()
             self.modules_to_cpu_foreward_attention(idx)
             grad = x_dev.grad
             per_chunk_gradient.append(grad.to("cpu"))
@@ -218,7 +229,8 @@ if __name__ == "__main__":
 
     #------------------- simple test -------------------
     x = torch.randn(batch_size, seq_len, embed_dim)  # (B, S, E)
-    out = model(x, train=True)
+    with torch.no_grad():
+        out = model.forward(x, train=True, modules_to_cpu=True)
     print("Output:", out.shape, out.device)
     gradient = torch.ones_like(x)
     gradient = model.backward(gradient)
@@ -239,7 +251,7 @@ if __name__ == "__main__":
 
         # forward pass (offloads chunks to GPU internally)
         with torch.no_grad():
-            out = model.forward(x_train, train=True)
+            out = model.forward(x_train, train=True, modules_to_cpu=True)
             
         # target -> same device as out for loss
         out.requires_grad_(True)
@@ -249,10 +261,9 @@ if __name__ == "__main__":
             loss.backward()
         gradient = out.grad
 
-        gradient = model.backward(gradient)
-
+        gradient = model.backward(gradient) # modules are left on cuda.
         optimizer.step()
-
+        
         print(f"Step {step+1}/{steps} - Loss: {loss.item():.6f}")
 
     print("Training done.")

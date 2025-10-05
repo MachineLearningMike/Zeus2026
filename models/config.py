@@ -6,17 +6,19 @@ config = {
     'height': 720,
     'width': 1440,
     'FG': 1, # not 24, for a better granularity control   # frames in a frame group
-    'variables': variables,
+    'variables': variables,    
+    'T1':           24, # 24 for OffChunk, 3 for 256-head CNNs,
+    'T2':           24,
     
-    # Mode.3
-    'T1':           3,
-    
-    'patch_size':   16, #16, # 8        ---------------------- optimization param
-    'heads':        4, #8,     # 8    ---------------------- optimization param
-    'attLayers' :   4,    #             ---------------------- optimization param
+    'patch_size':   16, #16, # 8        ----------------------  optimization param,  OffChunk
+    'heads':        8, #8,     # 8    ----------------------    optimization param,  OffChunk
+    'chunks':       4,    #             ---------------------   optimization param,  OffChunk
+    'attLayers' :   2,    #             ----------------------  optimization param,  OffChunk
+    'layerFFN' :         "Original_FFN",  # "Original_FFN", "SwiGLU"    ----------------------  optimization param,  OffChunk
+
     'zeusLayers':   4,    #             ---------------------- optimization param
     'crossLayers':  6,
-
+    
     'dropout':      0.0,
     'attn_dropout': 0.0,
     'drop_path':    0.0,
@@ -51,7 +53,7 @@ config = {
     # Scheduler
     # (initial_lr = max_lr / div_factor, for pct_start of the total_steps) -> max_lr -> (Final LR = initial_lr/final_div_factor, for the remaining steps)
     'max_lr' : 1e-3,
-    'total_steps' : 15000,
+    'total_steps' : 60000,
     'weight_decay': 0.0,    # disable weight_decay, in AdamW
     'pct_start' : 0.5,      #
     'anneal_strategy' : 'linear',   # 'cos'
@@ -68,7 +70,7 @@ config = {
     'skip_net_for_zeus2' : True,
 
     'seed': 523,
-    'bayesProject' : 'f2-k3-9-cnn4' # 'f2-k5-3', 'f4-k5-3' #'production_0923_16' #'production_0823-18' #31_12',  #23-18  # Represents an instance of a whole bayesian miximization. Mike!!!
+    'bayesProject' : '16-8-4-2-Org' # 'f2-k5-3', 'f4-k5-3' #'production_0923_16' #'production_0823-18' #31_12',  #23-18  # Represents an instance of a whole bayesian miximization. Mike!!!
 }
 
 
