@@ -8,7 +8,7 @@ from pathlib import Path
 import os, sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-class Original_FFN(nn.Module):
+class FFN(nn.Module):
     def __init__(
             self,
             embed_dim: int,
@@ -74,12 +74,12 @@ if __name__ == "__main__":
     batch_size = 24         # it's also the data simplicity in this test.
     seq_len = round(1 * 72 * factor10 * 144 * factor10 /16/16)
     embed_dim = 1024
-    num_heads = 8
+    num_heads = 128
     num_chunks = 4
     lr = 1e-3
-    steps = 500
+    steps = 100
 
-    model = Original_FFN(embed_dim=embed_dim, dim_feedforward=embed_dim * 4, activation=F.relu, device=device)
+    model = FFN(embed_dim=embed_dim, dim_feedforward=embed_dim * 4, activation=F.relu, device=device)
 
     #------------------- simple test -------------------
     x = torch.randn(batch_size, seq_len, embed_dim)  # (B, S, E)

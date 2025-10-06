@@ -20,7 +20,7 @@ class OffChunkTransformer(nn.Module):
         num_chunks: int = 1,
         dim_feedforward: int = 2048,
         dropout: float = 0.1,
-        ffn: Optional[str] = "SwiGLU",  # "Original_FFN"
+        ffn: Optional[str] = "GLU",  # "FFN"
         eps: float = 1e-12,
         device: Optional[str] = None,
         norm_layer: Optional[nn.Module] = None,
@@ -86,15 +86,15 @@ if __name__ == "__main__":
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
     factor10 = 2
-    batch_size = 24         # it's also the data simplicity in this test.
-    seq_len = round(1 * 72 * factor10 * 144 * factor10 /16/16)
+    batch_size = 1         # it's also the data simplicity in this test.
+    seq_len = round(24 * 72 * factor10 * 144 * factor10 /16/16)
     embed_dim = 1024
     num_heads = 8
     num_chunks = 4
     lr = 1e-3
-    steps = 500
+    steps = 100
     
-    ffn = "Original_FFN"  # "Original_FFN", "SwiGLU"
+    ffn = "FFN"  # "FFN", "GLU"
 
     model = OffChunkTransformer(
         num_layers = 1,

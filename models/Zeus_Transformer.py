@@ -18,7 +18,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 from modules.params import Params
 
 
-class SwiGLU(nn.Module):
+class GLU(nn.Module):
     def __init__(
             self,
             in_features,
@@ -165,7 +165,7 @@ class GatedTemporalAttention(nn.Module):      # ((b n), t, dim) -> ((b n), t, di
         for _ in range(layers):
             self.layers.append(nn.ModuleList([
                 PreNorm(dim, Attention(dim, heads=heads, dim_head=dim_head, dropout=attn_dropout)),
-                PreNorm(dim, SwiGLU(dim, mlp_dim, drop=dropout)),
+                PreNorm(dim, GLU(dim, mlp_dim, drop=dropout)),
                 DropPath(drop_path) if drop_path > 0. else nn.Identity(),
                 DropPath(drop_path) if drop_path > 0. else nn.Identity()
             ]))
@@ -210,7 +210,7 @@ class GatedAttention(nn.Module):      # (b, n, dim) -> (b, n, dim)
         for _ in range(layers):
             self.layers.append(nn.ModuleList([
                 PreNorm(dim, Attention(dim, heads=nHeads, dim_head=dim_head, dropout=attn_dropout, skip=self.skip)),
-                PreNorm(dim, SwiGLU(dim, mlp_dim, drop=dropout, skip=self.skip)),
+                PreNorm(dim, GLU(dim, mlp_dim, drop=dropout, skip=self.skip)),
                 DropPath(drop_path) if drop_path > 0. else nn.Identity(),
                 DropPath(drop_path) if drop_path > 0. else nn.Identity()
             ]))

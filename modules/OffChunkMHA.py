@@ -54,16 +54,16 @@ class OffChunkMHA(nn.Module):
         self.concat_saved = None
 
 
-    def foreward_attention(self, x_dev, mask, idx, heads, modules_to_cpu=False):
-        assert x_dev.device == self.gpu_device
+    def foreward_attention(self, src, mask, idx, heads, modules_to_cpu=False):
+        assert src.device == self.gpu_device
         
         d_local = heads * self.head_dim
-        B, S, E = x_dev.shape
+        B, S, E = src.shape
 
         # Bring chunk qkv to GPU
-        lin = self.qkv_linears[idx].to(self.gpu_device)     # The content tensors of self.qkv_linears[idx] are moved to gpu, leaving un-referenced tensors on cpu.
-        qkv = lin(x_dev)  # (B, S, 3 * d_local)
-        del x_dev                   # x_dev is now down-referenced on gpu.
+        lin = self.qkv_linears[idx].to(self.gpu_device)     # The content tensors of self.qkv_linears[idx] are moved to gpu, down-referencing tensors on cpu.
+        qkv = lin(src)  # (B, S, 3 * d_local)
+        del src                   # src is now down-referenced on gpu.
         
         # Move qkv linear back to CPU (weights) to free GPU memory        
         if modules_to_cpu:
@@ -79,7 +79,7 @@ class OffChunkMHA(nn.Module):
         gc.collect()                # de-allocate zero-referenced tensors. The memory used by the de-allocated cpu / gpu tensor is returned to the system / torch
         torch.cuda.empty_cache()    # Torch returns the memory used by the de-allocated gpu tensor to the cuda driver.
 
-        # This is the place where the memory footprint reaches maximum.
+        # !!! THIS is the place where the memory footprint reaches maximum.
         attn_logits = torch.matmul(q, k.transpose(-2, -1)) * self.scale  # (B, heads, S, S)
         del q, k    # delelet as much and early as possible.
 
@@ -141,26 +141,28 @@ class OffChunkMHA(nn.Module):
         # Keep original input on GPU for chunk computation to avoid repeated input transfers:
         x_dev = x.to(self.gpu_device)
 
-        for idx, heads in enumerate(self.heads_per_chunk):          
+        for idx, heads in enumerate(self.heads_per_chunk):
+            # This line requires maximum memory footprint and leaves some tensors allocated.
             out = self.foreward_attention(x_dev, mask, idx, heads, modules_to_cpu=modules_to_cpu)
             gc.collect()                # Return memory used by zero-referenced cpu / gpu 
             torch.cuda.empty_cache()
-            per_chunk_outputs.append(out.to("cpu"))
+            per_chunk_outputs.append(out)
 
-        # concat on CPU
+        # concat on cuda
         concat = torch.cat(per_chunk_outputs, dim=-1)  # (B, S, E) on CPU
+        del per_chunk_outputs
+        gc.collect()
+        torch.cuda.empty_cache()
         
         if train:
             self.concat_saved = concat.to("cpu")
 
         # final projection: move out_proj to GPU, apply, then keep result on GPU
         out_proj_gpu = self.out_proj.to(self.gpu_device)
-        out = out_proj_gpu(concat.to(self.gpu_device))
+        out = out_proj_gpu(concat)
         # move out_proj weights back to CPU to keep GPU footprint small
         if modules_to_cpu:
             self.out_proj.to("cpu")
-        del concat
-        torch.cuda.empty_cache()
 
         return out  # on gpu_device
     
@@ -178,35 +180,36 @@ class OffChunkMHA(nn.Module):
 
         # Commenting out this block let error diverges from 1 to 40 for 100 loops, 
         # instead of converging from 1 to 0.294.
-        x_dev = self.concat_saved.to(self.gpu_device)
-        x_dev.requires_grad_(True)
-        x_dev.retain_grad()
+        concat = self.concat_saved.to(self.gpu_device)
+        concat.requires_grad_(True)
+        # concat.retain_grad()  # No need, it's a leaf tensor.
         out_proj_gpu = self.out_proj.to(self.gpu_device)
         gradient = gradient.to(self.gpu_device)
         with torch.enable_grad():   # redundant for readability
-            out = out_proj_gpu(x_dev)
+            out = out_proj_gpu(concat)
             out.backward(gradient, retain_graph=False)  # gradients are saved to out_proj_gpu
-        gradient = x_dev.grad
+        gradient = concat.grad
         out_proj_gpu.to("cpu")  # This line can be commented out. why?
-        del x_dev, out
+        del concat, out
         gc.collect()
         torch.cuda.empty_cache()
         
-        gradient = gradient.to(self.gpu_device)     # redundant, deliberately.
+        gradient = gradient.to(self.gpu_device)     # redundant, deliberately, for readability
         per_chunk_gradient = []
         gradient_chunks = torch.chunk(gradient, self.num_chunks, dim=-1)
         
         # Keep original input on GPU for chunk computation to avoid repeated input transfers:
-        x_dev = self.input_saved.to(self.gpu_device)
-        x_dev.requires_grad_(True)
-        x_dev.retain_grad()
+        input = self.input_saved.to(self.gpu_device)
+        input.requires_grad_(True)
+        # input.retain_grad()   # No need, it's a leaf tensor.
+        mask = self.mask_saved.to(self.gpu_device) if self.mask_saved is not None else None
 
         # Commenting out this block reduces loss from 1 to 0.967, not to 0.294, for 100 loops.
         for idx, heads in enumerate(self.heads_per_chunk):
             with torch.enable_grad():   # redundant for readability
-                out = self.foreward_attention(x_dev, self.mask_saved, idx, heads, modules_to_cpu=False)
+                out = self.foreward_attention(input, mask, idx, heads, modules_to_cpu=False)
                 out.backward(gradient_chunks[idx], retain_graph=False)
-            grad = x_dev.grad
+            grad = input.grad
             per_chunk_gradient.append(grad.to("cpu"))
             self.modules_to_cpu_foreward_attention(idx)
             del out, grad
@@ -225,10 +228,10 @@ if __name__ == "__main__":
     batch_size = 24         # it's also the data simplicity in this test.
     seq_len = round(1 * 72 * factor10 * 144 * factor10 /16/16)
     embed_dim = 1024
-    num_heads = 8
+    num_heads = 128
     num_chunks = 4
     lr = 1e-3
-    steps = 500
+    steps = 100
 
     model = OffChunkMHA(embed_dim=embed_dim, num_heads=num_heads, num_chunks=num_chunks, device=device)
 

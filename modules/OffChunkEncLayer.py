@@ -10,8 +10,8 @@ import os, sys, gc
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.OffChunkMHA import OffChunkMHA
-from modules.Original_FFN import Original_FFN
-from modules.SwiGLU import SwiGLU
+from modules.OffChunkFFN import FFN
+from modules.OffChunkGLU import GLU
 
 
 class OffChunkEncLayer(nn.Module):
@@ -21,8 +21,8 @@ class OffChunkEncLayer(nn.Module):
       x = norm2( x + dropout( ff(x) ) )     # standard post_LN to ff
 
     WHY?
-    ff = "SwiGLU" shows no significant advantage over "Original_FFN" yet is slower, 
-        although SwiGLU is millions of times more efficient when used in isolation.
+    ff = "GLU" shows no significant advantage over "FFN" yet is slower, 
+        although GLU is millions of times more efficient when used in isolation.
         
     Single encoder layer using OffChunkMHA, which stands for offloaded chunked MHA.
     Pre-LN style (LayerNorm before attention and before FFN).
@@ -35,7 +35,7 @@ class OffChunkEncLayer(nn.Module):
         num_chunks: int = 1,
         dim_feedforward: int = 2048,
         dropout: float = 0.1,
-        ffn: Optional[str] = "Original_FFN",  # "Original_FFN", "SwiGLU"
+        ffn: Optional[str] = "FFN",  # "FFN", "GLU"
         eps: float = 1e-5,
         device: Optional[str] = None,
     ):
@@ -56,10 +56,10 @@ class OffChunkEncLayer(nn.Module):
             device=device,
         )
 
-        if ffn == "SwiGLU":
-            self.ffn = SwiGLU(in_features=embed_dim, hidden_features=dim_feedforward, out_features=embed_dim, act_layer=nn.SiLU, device=device)
-        elif ffn == "Original_FFN":
-            self.ffn = Original_FFN(embed_dim=embed_dim, dim_feedforward=dim_feedforward, activation=F.relu, device=device)
+        if ffn == "GLU":
+            self.ffn = GLU(in_features=embed_dim, hidden_features=dim_feedforward, out_features=embed_dim, act_layer=nn.SiLU, device=device)
+        elif ffn == "FFN":
+            self.ffn = FFN(embed_dim=embed_dim, dim_feedforward=dim_feedforward, activation=F.relu, device=device)
         else: assert False
         
         self.dropout = nn.Dropout(dropout)      # shared between mha and ffn
@@ -257,15 +257,15 @@ if __name__ == "__main__":
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
     factor10 = 2
-    batch_size = 24         # it's also the data simplicity in this test.
+    batch_size = 1         # it's also the data simplicity in this test.
     seq_len = round(1 * 72 * factor10 * 144 * factor10 /16/16)
     embed_dim = 1024
-    num_heads = 8
+    num_heads = 128
     num_chunks = 4
     lr = 1e-3
-    steps = 500
+    steps = 100
 
-    ffn = "Original_FFN"  # "SwiGLU", "Original_FFN"
+    ffn = "GLU"  # "GLU", "FFN"
     model = OffChunkEncLayer(embed_dim=embed_dim, num_heads=num_heads, num_chunks=num_chunks, dim_feedforward=4*embed_dim, dropout=0.0, ffn=ffn, device=device)
 
     x = torch.randn(batch_size, seq_len, embed_dim)  # (B, S, E)
