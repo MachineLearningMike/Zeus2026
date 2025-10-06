@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from pathlib import Path
-import os, sys
+import os, sys, gc
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.OffChunkMHA import OffChunkMHA
@@ -145,9 +145,7 @@ class OffChunkEncLayer(nn.Module):
         # move norm1 weights temporarily to GPU
         if train:
             self.src_saved = src.to("cpu")
-
         src_ln = self.apply_norm_to_src_before_mha(src, modules_to_cpu=modules_to_cpu)
-        
         mask = self.merge_mask(src_mask, src_key_padding_mask)
 
         # grad unit -------------------------------------------- MHA_attention -----------------------
@@ -159,32 +157,25 @@ class OffChunkEncLayer(nn.Module):
             # !!! saving and reusing src_ln and mask are internal to self_attn.
         # --- Attention ---
         attn_out = self.self_attn.forward(src_ln, mask=mask, train=train, modules_to_cpu=modules_to_cpu)  # output on GPU
-        # Note: We have self.self.attn.backward defined, which leaves gradient on cpu.
-        
+        # Note: We have self.self.attn.backward defined, which leaves gradient on cpu.        
         del src_ln
-        torch.cuda.empty_cache()
+        # gc.collect()
+        # torch.cuda.empty_cache()
                 
         # grad unit ------------------------ self.linear1, self.linear2, self.norm2 ------------------
         # input: src, attn_out, output: src_out
         # backward: grad_in: from outside, grad_out: src.grad (= res.grad), attn_out.grad (= res.grad)
         
         if train:
-            self.attn_out_saved = attn_out.to("cpu")
- 
-        # --- apply_remaining_after_mha ---
+            self.attn_out_saved = attn_out.to("cpu") 
         res = self.apply_remaining_after_mha(src, attn_out)
-
         del attn_out
+        gc.collect()
         torch.cuda.empty_cache()
-
-
         # --- FFN ---
         ff = self.ffn.forward(res, modules_to_cpu=modules_to_cpu)   #
-        # keep res
-
         src_out = self.apply_post_LN_to_ff(res, ff, modules_to_cpu=modules_to_cpu)
         # No need to delete res and ff - operation is almost over.
-
         # Result stays on GPU
         return src_out
     
@@ -207,18 +198,16 @@ class OffChunkEncLayer(nn.Module):
         attn_out_saved.retain_grad()
         gradient = gradient.to(self.gpu_device)
         with torch.enable_grad():   # redundant for readability
-            # --- apply_remaining_after_mha ---
             res = self.apply_remaining_after_mha(src_saved, attn_out_saved)
-            # --- FFN ---
             ff = self.ffn(res, modules_to_cpu=False)
-            # keep res
             src_out = self.apply_post_LN_to_ff(res, ff, modules_to_cpu=False)
             src_out.backward(gradient, retain_graph=False)  # gradients are saved to out_proj_gpu
         src_gradient = src_saved.grad
         attn_out_gradient = attn_out_saved.grad
-        del res, ff, src_saved, attn_out_saved, src_out
-        torch.cuda.empty_cache()
         self.modules_to_cpu_post_mha()
+        del res, ff, src_saved, attn_out_saved, src_out
+        gc.collect()
+        torch.cuda.empty_cache()
 
         # backward -------------------- mha --------------
         src_ln_gradient = self.self_attn.backward(attn_out_gradient)    # mask is interally used.
@@ -234,9 +223,10 @@ class OffChunkEncLayer(nn.Module):
             src_ln_gradient = src_ln_gradient.to(self.gpu_device)
             src_ln.backward(src_ln_gradient)
         src_gradient1 = src_saved.grad
-        del src_saved, src_ln
-        torch.cuda.empty_cache()
         self.modules_to_cpu_pre_mha()
+        del src_saved, src_ln
+        gc.collect()
+        torch.cuda.empty_cache()
         
         src_gradient = src_gradient + src_gradient1
         

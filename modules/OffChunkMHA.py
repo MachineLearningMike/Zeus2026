@@ -7,7 +7,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from pathlib import Path
-import os, sys
+import os, sys, gc
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 class OffChunkMHA(nn.Module):
@@ -61,28 +61,30 @@ class OffChunkMHA(nn.Module):
         B, S, E = x_dev.shape
 
         # Bring chunk qkv to GPU
-        lin = self.qkv_linears[idx].to(self.gpu_device)
+        lin = self.qkv_linears[idx].to(self.gpu_device)     # The content tensors of self.qkv_linears[idx] are moved to gpu, leaving un-referenced tensors on cpu.
         qkv = lin(x_dev)  # (B, S, 3 * d_local)
-        del x_dev
-        torch.cuda.empty_cache()
+        del x_dev                   # x_dev is now down-referenced on gpu.
         
         # Move qkv linear back to CPU (weights) to free GPU memory        
         if modules_to_cpu:
-            lin.to("cpu")
-            torch.cuda.empty_cache()
+            lin.to("cpu")   # The content tensors of lin, so, of self.qkv_linears[idx], are moved to cpu, down-referencing the tensors on gpu.
 
         q, k, v = torch.chunk(qkv, 3, dim=-1)
         del qkv
-        torch.cuda.empty_cache()
-        
         q = q.view(B, S, heads, self.head_dim).transpose(1, 2)  # (B, heads, S, head_dim)
         k = k.view(B, S, heads, self.head_dim).transpose(1, 2)
         v = v.view(B, S, heads, self.head_dim).transpose(1, 2)
 
+        # Release the gpu memory used by lin tensors and qkv to the cuda driver, as they are now zero-referenced.
+        gc.collect()                # de-allocate zero-referenced tensors. The memory used by the de-allocated cpu / gpu tensor is returned to the system / torch
+        torch.cuda.empty_cache()    # Torch returns the memory used by the de-allocated gpu tensor to the cuda driver.
+
         # This is the place where the memory footprint reaches maximum.
         attn_logits = torch.matmul(q, k.transpose(-2, -1)) * self.scale  # (B, heads, S, S)
         del q, k    # delelet as much and early as possible.
-        torch.cuda.empty_cache()
+
+        gc.collect()                # de-allocate zero-referenced tensors. The memory used by the de-allocated cpu / gpu tensor is returned to the system / torch
+        torch.cuda.empty_cache()    # Torch returns the memory used by the de-allocated gpu tensor to the cuda driver.
 
         if mask is not None:
             mask_dev = mask.to(self.gpu_device)
@@ -100,8 +102,10 @@ class OffChunkMHA(nn.Module):
         attn = self.attn_dropout(attn)
 
         out = torch.matmul(attn, v)  # (B, heads, S, head_dim)
+
         # No mode need to clean memory, because the remaining operation has no more memory footprint.
-        # del v, attn
+        # del v, attn_logits, attn
+        # gc.collect()
         # torch.cuda.empty_cache()
         
         out = out.transpose(1, 2).contiguous().view(B, S, d_local)  # (B, S, d_local)
@@ -137,9 +141,9 @@ class OffChunkMHA(nn.Module):
         # Keep original input on GPU for chunk computation to avoid repeated input transfers:
         x_dev = x.to(self.gpu_device)
 
-        for idx, heads in enumerate(self.heads_per_chunk):
-            
+        for idx, heads in enumerate(self.heads_per_chunk):          
             out = self.foreward_attention(x_dev, mask, idx, heads, modules_to_cpu=modules_to_cpu)
+            gc.collect()                # Return memory used by zero-referenced cpu / gpu 
             torch.cuda.empty_cache()
             per_chunk_outputs.append(out.to("cpu"))
 
@@ -185,6 +189,7 @@ class OffChunkMHA(nn.Module):
         gradient = x_dev.grad
         out_proj_gpu.to("cpu")  # This line can be commented out. why?
         del x_dev, out
+        gc.collect()
         torch.cuda.empty_cache()
         
         gradient = gradient.to(self.gpu_device)     # redundant, deliberately.
@@ -201,11 +206,11 @@ class OffChunkMHA(nn.Module):
             with torch.enable_grad():   # redundant for readability
                 out = self.foreward_attention(x_dev, self.mask_saved, idx, heads, modules_to_cpu=False)
                 out.backward(gradient_chunks[idx], retain_graph=False)
-            torch.cuda.empty_cache()
-            self.modules_to_cpu_foreward_attention(idx)
             grad = x_dev.grad
             per_chunk_gradient.append(grad.to("cpu"))
+            self.modules_to_cpu_foreward_attention(idx)
             del out, grad
+            gc.collect()
             torch.cuda.empty_cache()
         gradient = torch.stack(per_chunk_gradient, dim=0).sum(dim=0)
         
@@ -261,7 +266,7 @@ if __name__ == "__main__":
             loss.backward()
         gradient = out.grad
 
-        gradient = model.backward(gradient) # modules are left on cuda.
+        gradient = model.backward(gradient) # modules are on cpu.
         optimizer.step()
         
         print(f"Step {step+1}/{steps} - Loss: {loss.item():.6f}")
