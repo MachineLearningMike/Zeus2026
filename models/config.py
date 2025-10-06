@@ -12,7 +12,7 @@ config = {
     
     'patch_size':   16, #16, # 8        ----------------------  optimization param,  OffChunk
     'heads':        128, #8,     # 8    ----------------------    optimization param,  OffChunk
-    'chunks':       4,    #             ---------------------   optimization param,  OffChunk
+    'chunks':       8,    #             ---------------------   optimization param,  OffChunk
     'attLayers' :   2,    #             ----------------------  optimization param,  OffChunk
     'layerFFN' :    "GLU",  # "FFN", "GLU"    ----------------------  optimization param,  OffChunk
 
@@ -70,7 +70,7 @@ config = {
     'skip_net_for_zeus2' : True,
 
     'seed': 523,
-    'bayesProject' : '16-128-4-2-Swi' # 'f2-k5-3', 'f4-k5-3' #'production_0923_16' #'production_0823-18' #31_12',  #23-18  # Represents an instance of a whole bayesian miximization. Mike!!!
+    'bayesProject' : '16-128-8-2-GLU' # 'f2-k5-3', 'f4-k5-3' #'production_0923_16' #'production_0823-18' #31_12',  #23-18  # Represents an instance of a whole bayesian miximization. Mike!!!
 }
 
 

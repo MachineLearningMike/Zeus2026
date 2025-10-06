@@ -24,7 +24,9 @@ class OffChunkTransformer(nn.Module):
         eps: float = 1e-12,
         device: Optional[str] = None,
         norm_layer: Optional[nn.Module] = None,
-    ):       
+    ):
+        print('transformer:', num_layers, embed_dim, num_heads, num_chunks, dim_feedforward, ffn)
+        
         super().__init__()
         if device is None:
             device = "cuda:0" if torch.cuda.is_available() else "cpu"

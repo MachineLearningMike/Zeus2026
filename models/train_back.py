@@ -12,7 +12,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.utils import check_dir
 from modules.zeus_tqdm import zeus_tqdm
-from models.Zeus_Transformer import Zeus, DoubleZeus
+from models.Zeus_Cross_Transformer import Zeus, DoubleZeus
 from modules.zeus_dataset import Zeus_Dataset
 import modules.utils as utils
 from modules.params import Params
@@ -413,7 +413,7 @@ class Train():
         return epoch_loss, epoch_rmses
     
    
-    def average_gradients(self, master_model, grads_list):
+    def average_gradients_to_master(self, master_model, grads_list):
         with torch.no_grad():
             for idx, param in enumerate(master_model.parameters()):
                 stacked = torch.stack([g[idx] for g in grads_list])
@@ -487,7 +487,7 @@ class Train():
                 
                 with ThreadPoolExecutor(max_workers=self.nDevices) as executor:
                     futures = [
-                        executor.submit(self.slave_models[i].sigle_GPU_forward_for_gradient, mb_x, mb_y, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars)
+                        executor.submit(self.slave_models[i].sigle_GPU_forward_loss_backward, mb_x, mb_y, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars)
                         for i, (mb_x, mb_y) in enumerate(zip(chunks_x, chunks_y))
                     ]
 
@@ -498,9 +498,9 @@ class Train():
                         step_loss.append(loss)
                         step_rmses.append(rmse)
                         
-                self.average_gradients(self.model, grads_list)
+                self.average_gradients_to_master(self.model, grads_list)
 
-                # loss, rmse = self.model.sigle_GPU_forward_for_gradient(batch_x, batch_y, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars)
+                # loss, rmse = self.model.sigle_GPU_forward_loss_backward(batch_x, batch_y, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars)
                 # step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
                 # step_rmses.append(rmse.detach().cpu())      # (C,) - list.  If no cpu(), their stack results in cuda
                     

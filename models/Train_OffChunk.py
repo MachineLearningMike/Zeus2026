@@ -12,7 +12,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.utils import check_dir
 from modules.zeus_tqdm import zeus_tqdm
-from models.Zeus_OffChunk import Zeus, DoubleZeus
+from models.Zeus_OffChunk import Zeus
 from modules.zeus_dataset import Zeus_Dataset
 import modules.utils as utils
 from modules.params import Params
@@ -57,14 +57,16 @@ class Train():
 
         try:
             if not self.pm.doubleZeus:
-                device = "cuda:0" if torch.cuda.is_available() else "cpu"
-                self.model = Zeus(config, device).float()                
-                logging.info("Zeus model created.")
+                if self.nDevices <= 1:
+                    # device = "cuda:0" if torch.cuda.is_available() else "cpu"
+                    self.model = Zeus(config, self.devices[0]).float()
+                    logging.info("Zeus model created (on cpu) for run on cuda:0")
                 if self.nDevices > 1:
+                    self.model = Zeus(config, "cpu").float()
                     self.slave_models = self.create_slave_models(self.devices)
+                    logging.info("Zeus master model created for stay on cpu, {} slave models created and each assigned to its own GPU".format(self.nDevices))
             else:
-                self.model = DoubleZeus(config, self.nDevices, device_type=self.device_type, abundant_GPUs=self.pm.abundant_GPUs, freeze_zeus1=self.pm.freeze_zeus1)
-                logging.info("DoubleZeus model created. nDevices: {}, trainable: {}".format(self.nDevices, trainable))
+                pass
 
         except Exception as e:
             logging.info(str(e))
@@ -270,17 +272,17 @@ class Train():
                     
                     try:                       
                         # Restore optimizer
-                        if self.optimizer is not None and "optimizer" in checkpoint:
-                            self.optimizer.load_state_dict(checkpoint["optimizer"])
+                        # if self.optimizer is not None and "optimizer" in checkpoint:
+                        #     self.optimizer.load_state_dict(checkpoint["optimizer"])
 
-                            # Move optimizer state tensors to the same device as their parameters
-                            for group in self.optimizer.param_groups:
-                                for p in group["params"]:
-                                    if p in self.optimizer.state:
-                                        for k, v in self.optimizer.state[p].items():
-                                            if torch.is_tensor(v):
-                                                self.optimizer.state[p][k] = v.to(p.device, non_blocking=True)                       
-                        logging.info("Optimizer loaded with saved state")
+                        #     # Move optimizer state tensors to the same device as their parameters
+                        #     for group in self.optimizer.param_groups:
+                        #         for p in group["params"]:
+                        #             if p in self.optimizer.state:
+                        #                 for k, v in self.optimizer.state[p].items():
+                        #                     if torch.is_tensor(v):
+                        #                         self.optimizer.state[p][k] = v.to(p.device, non_blocking=True)                       
+                        # logging.info("Optimizer loaded with saved state")
 
                         self.scheduler.load_state_dict(checkpoint['scheduler'])
                         logging.info("Scheduler loaded with saved state")
@@ -360,7 +362,7 @@ class Train():
         #     slave_models = {device : copy.deepcopy(self.model).to('cpu') for device in devices}
         return slave_models
     
-    def average_gradients(self, master_model, grads_list):
+    def average_gradients_to_model(self, grads_list, master_model):
         with torch.no_grad():
             for idx, param in enumerate(master_model.parameters()):
                 stacked = torch.stack([g[idx] for g in grads_list])
@@ -401,8 +403,8 @@ class Train():
             batch_x, batch_y, batch_diff, era5_data_vars = batch    # (B, T1FG, C, H, W), (B, T2FG, C, H, W), None or (B, C, H, W), (C,)
             if self.pm.include_difficulty:
                 pass
-            batch_x = batch_x[:, :, :, :self.pm.image_height, :self.pm.image_width].pin_memory()     # torch.float32, cpu
-            batch_y = batch_y[:, :, :, :self.pm.image_height, :self.pm.image_width].pin_memory()     # torch.float32, cpu
+            batch_x = batch_x.pin_memory()     # torch.float32, cpu
+            batch_y = batch_y.pin_memory()     # torch.float32, cpu
             era5_data_vars = era5_data_vars #.pin_memory() # torch.float32, cpu
 
             if self.pm.include_difficulty:
@@ -417,22 +419,48 @@ class Train():
             if trainable: self.optimizer.zero_grad() 
             
             if self.pm.abundant_GPUs or (not self.pm.abundant_GPUs and not trainable):
+
+
+                #--------------- Ordinary forward and backward for optimizer.step -----------------
                 with autocast(device_type=self.device_type, dtype=torch.bfloat16):
                     with torch.set_grad_enabled(trainable):
-                        pred = self.model(batch_x)
+                        pred = self.model.forward(batch_x)
                     pred = self.dataset.unnormalize(pred)   # torch.float32 !!!, cuda, True !!!
                     target = self.dataset.unnormalize(batch_y)   # torch.float32, cuda, False
                     loss, rmse = self.loss(target, pred, batch_diff, era5_data_vars)  # (,), (C,), torch.float32, cuda, True !!!
                     if trainable:
                         loss.backward()
+
+
                 step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
                 step_rmses.append(rmse.detach().cpu())      # (C,) - list.  If no cpu(), their stack results in cuda
 
+
             elif not self.pm.abundant_GPUs and trainable:
                 if self.nDevices <= 1:
-                    loss, rmse = self.model.sigle_GPU_forward_for_gradient(batch_x, batch_y, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars)
+                    
+                    # _, (loss, rmse) = self.model.sigle_GPU_forward_loss_backward(batch_x, batch_y, self.loss, 
+                    #                   self.dataset.unnormalize, batch_diff, era5_data_vars)
+                                        
+                    with torch.no_grad():
+                        pred = self.model.forward(batch_x, train=True, modules_to_cpu=True)
+                    pred = self.dataset.unnormalize(pred)   # torch.float32 !!!, cuda, True !!!
+                    target = self.dataset.unnormalize(batch_y)   # torch.float32, cuda, False
+                    # target -> same device as out for loss
+                    pred.requires_grad_(True)
+                    pred.retain_grad()
+                    with torch.enable_grad():   # redundant for readability
+                        loss, rmse = self.loss(target, pred, batch_diff, era5_data_vars)
+                    if trainable:
+                        loss.backward()
+                    gradient = pred.grad
+                    gradient = self.model.backward(gradient)
+                    
+
                     step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
                     step_rmses.append(rmse.detach().cpu())      # (C,) - list.  If no cpu(), their stack results in cuda
+
+
                 else:
                     chunks_x = batch_x.chunk(self.nDevices)
                     chunks_y = batch_y.chunk(self.nDevices)
@@ -442,9 +470,8 @@ class Train():
                     
                     futures = [
                         executor.submit(
-                            self.slave_models[self.devices[i]].sigle_GPU_forward_for_gradient, mb_x, mb_y, self.loss, self.dataset.unnormalize, 
-                            batch_diff, era5_data_vars, self.devices[i]
-                        )
+                            self.slave_models[self.devices[i]].sigle_GPU_forward_loss_backward, mb_x, mb_y, self.loss, self.dataset.unnormalize, 
+                            batch_diff, era5_data_vars)
                         for i, (mb_x, mb_y) in enumerate(zip(chunks_x, chunks_y))                        
                     ]   # returns immediately.
                     grads_list = []
@@ -454,7 +481,7 @@ class Train():
                         step_loss.append(loss.detach().to('cpu'))
                         step_rmses.append(rmse.detach().to('cpu'))
                     
-                    self.average_gradients(self.model, grads_list)
+                    self.average_gradients_to_model(grads_list, self.model)
                     
             if trainable:
                 self.optimizer.step()                

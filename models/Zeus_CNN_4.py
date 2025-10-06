@@ -160,7 +160,7 @@ class ZeusCNN(nn.Module):
 
         return preds
 
-    def sigle_GPU_forward_for_gradient(self, data, target, loss_fn, unnormal_fn, batch_diff, era5_data_vars):
+    def sigle_GPU_forward_loss_backward(self, data, target, loss_fn, unnormal_fn, batch_diff, era5_data_vars):
         
         pred = self.forward(data, target.shape[1], target)
 

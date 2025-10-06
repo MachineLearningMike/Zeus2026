@@ -514,7 +514,7 @@ class Train():
         #     slave_models = {device : copy.deepcopy(self.model).to('cpu') for device in devices}
         return slave_models
     
-    def average_gradients(self, master_model, grads_list):
+    def average_gradients_to_master(self, master_model, grads_list):
         with torch.no_grad():
             for idx, param in enumerate(master_model.parameters()):
                 stacked = torch.stack([g[idx] for g in grads_list])
@@ -587,7 +587,7 @@ class Train():
                 if self.nDevices <= 1:
                     self.transient_step += batch_x.shape[0]     # increase by batch size
                     self.model.update_sampling_prob(self.transient_step, self.pm.transient_steps)
-                    _, (loss, rmse) = self.model.sigle_GPU_forward_for_gradient(batch_x, batch_y, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars)
+                    _, (loss, rmse) = self.model.sigle_GPU_forward_loss_backward(batch_x, batch_y, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars)
                     step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
                     step_rmses.append(rmse.detach().cpu())      # (C,) - list.  If no cpu(), their stack results in cuda
                 else:
@@ -599,7 +599,7 @@ class Train():
                     
                     futures = [
                         executor.submit(
-                            self.slave_models[self.devices[i]].sigle_GPU_forward_for_gradient, mb_x, mb_y, self.loss, self.dataset.unnormalize, 
+                            self.slave_models[self.devices[i]].sigle_GPU_forward_loss_backward, mb_x, mb_y, self.loss, self.dataset.unnormalize, 
                             batch_diff, era5_data_vars, self.devices[i]
                         )
                         for i, (mb_x, mb_y) in enumerate(zip(chunks_x, chunks_y))                        
@@ -611,7 +611,7 @@ class Train():
                         step_loss.append(loss.detach().to('cpu'))
                         step_rmses.append(rmse.detach().to('cpu'))
                     
-                    self.average_gradients(self.model, grads_list)
+                    self.average_gradients_to_master(self.model, grads_list)
                     
             if trainable:
                 self.optimizer.step()

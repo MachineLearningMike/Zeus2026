@@ -97,7 +97,7 @@ class Zeus(nn.Module):
 
         #-------------- transformer -------------------------
         self.transformer = OffChunkTransformer(
-            num_layers = self.pm.zeusLayers,
+            num_layers = self.pm.attLayers,
             embed_dim = self.pm.dim, 
             num_heads = self.pm.nHeads, 
             num_chunks = self.pm.nChunks,
@@ -182,7 +182,24 @@ class Zeus(nn.Module):
         self.patch_module.to("cpu")
         
         return gradient
-        
+
+    def sigle_GPU_forward_loss_backward(self, data, target, loss_fn, unnormal_fn, batch_diff, era5_data_vars):
+        with torch.no_grad():
+            pred = self.forward(data, train=True, modules_to_cpu=True)
+        pred = unnormal_fn(pred)   # torch.float32 !!!, cuda, True !!!
+        target = unnormal_fn(target)   # torch.float32, cuda, False
+        # target -> same device as out for loss
+        pred.requires_grad_(True)
+        # pred.retain_grad()    no need, pred is a leaf tensor.
+        with torch.enable_grad():   # redundant for readability
+            lossAndMetrics = loss_fn(target, pred, batch_diff, era5_data_vars)
+            lossAndMetrics = loss_fn(target, pred, batch_diff, era5_data_vars) 
+            loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics    
+            loss.backward()
+        gradient = pred.grad
+        gradient = self.backward(gradient)
+
+        return gradient, lossAndMetrics
 
 if __name__ == "__main__":
     
@@ -226,6 +243,7 @@ if __name__ == "__main__":
             loss.backward()
         gradient = out.grad
         gradient = model.backward(gradient)
+        
         optimizer.step()
 
         print(f"Step {step+1}/{steps} - Loss: {loss.item():.12f}")
