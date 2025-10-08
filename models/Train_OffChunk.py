@@ -80,6 +80,8 @@ class Train():
             self.epoch = 0
             self.epochs_since_improvement = 0
             self.rmses_old = torch.ones_like(self.era5_data_vars) * 1e9
+            
+        self.total_losses = []
 
     def _acquire_device(self):
         if torch.cuda.is_available():

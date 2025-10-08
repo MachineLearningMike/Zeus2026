@@ -876,6 +876,7 @@ class Zeus_Dataset(Dataset):
             # (B, T1FG, C, H, W), (B, T2FG, C, H, W), (B, 1, C, H, W), (C,)
             # batch_x, batch_y, batch_diff, era5_data_vars
             batch = self.take_batch()
+            gc.collect()
 
             with self._lock:
                 self._batch = batch

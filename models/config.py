@@ -13,7 +13,7 @@ config = {
     'patch_size':   16, #16, # 8        ----------------------  optimization param,  OffChunk
     'heads':        128, #8,     # 8    ----------------------    optimization param,  OffChunk
     'chunks':       8,    #             ---------------------   optimization param,  OffChunk
-    'attLayers' :   2,    #             ----------------------  optimization param,  OffChunk
+    'attLayers' :   4,    #             ----------------------  optimization param,  OffChunk
     'layerFFN' :    "GLU",  # "FFN", "GLU"    ----------------------  optimization param,  OffChunk
 
     'zeusLayers':   4,    #             ---------------------- optimization param
@@ -48,11 +48,11 @@ config = {
     'data_last_years' : 11,
 
     'optimizer': 'adam',    # 'adamw' takes more momory for optimizer.
-    'lr' : 1e-3,    # -5, 5e-6, -7 normal
+    'lr' : 1e-4,    # -5, 5e-6, -7 normal
     
     # Scheduler
     # (initial_lr = max_lr / div_factor, for pct_start of the total_steps) -> max_lr -> (Final LR = initial_lr/final_div_factor, for the remaining steps)
-    'max_lr' : 1e-3,
+    'max_lr' : 1e-4,
     'total_steps' : 60000,
     'weight_decay': 0.0,    # disable weight_decay, in AdamW
     'pct_start' : 0.5,      #
@@ -70,7 +70,7 @@ config = {
     'skip_net_for_zeus2' : True,
 
     'seed': 523,
-    'bayesProject' : '16-128-8-2-GLU' # 'f2-k5-3', 'f4-k5-3' #'production_0923_16' #'production_0823-18' #31_12',  #23-18  # Represents an instance of a whole bayesian miximization. Mike!!!
+    'bayesProject' : '16-128-8-4-GLU' # 'f2-k5-3', 'f4-k5-3' #'production_0923_16' #'production_0823-18' #31_12',  #23-18  # Represents an instance of a whole bayesian miximization. Mike!!!
 }
 
 
@@ -79,7 +79,7 @@ import platform
 if platform.system() == "Windows":  
     root_path = Path("D:/Zeus_Data")
 
-    config['factor10'] = 2
+    config['factor10'] = 2  # 2 is the minimum, as 1 causes a non-float parameter error.
 
     config['epochs'] = 100
     config['steps_to_save'] = 50
