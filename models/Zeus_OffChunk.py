@@ -240,7 +240,7 @@ if __name__ == "__main__":
         out.retain_grad()
         with torch.enable_grad():   # redundant for readability
             loss = criterion(out, y_train.to(out.device))
-            loss.backward()
+        loss.backward()
         gradient = out.grad
         gradient = model.backward(gradient)
         

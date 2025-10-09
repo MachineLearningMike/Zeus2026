@@ -214,6 +214,9 @@ class Train():
         torch.save(checkpoint, self.bayes_path / (name + '.pth.bak'))   # Create a backup, as creating takes a long time and may fail by the cloud Spot service.
         # logging.info(f"Checkpoint '{name}' saved, including model, optimizer, scheduler, scaler, rmses_old, and dataset state")
     
+        with open(str(self.bayes_path / name) + '.json', 'w') as f:
+            json.dump(self.total_losses, f)
+
     
     def try_load_state(self, name=None):    # Pairs with save_state
         if name is None: name = 'train_state-' + self.get_train_id_string()
@@ -274,17 +277,17 @@ class Train():
                     
                     try:                       
                         # Restore optimizer
-                        # if self.optimizer is not None and "optimizer" in checkpoint:
-                        #     self.optimizer.load_state_dict(checkpoint["optimizer"])
+                        if self.optimizer is not None and "optimizer" in checkpoint:
+                            self.optimizer.load_state_dict(checkpoint["optimizer"])
 
-                        #     # Move optimizer state tensors to the same device as their parameters
-                        #     for group in self.optimizer.param_groups:
-                        #         for p in group["params"]:
-                        #             if p in self.optimizer.state:
-                        #                 for k, v in self.optimizer.state[p].items():
-                        #                     if torch.is_tensor(v):
-                        #                         self.optimizer.state[p][k] = v.to(p.device, non_blocking=True)                       
-                        # logging.info("Optimizer loaded with saved state")
+                            # Move optimizer state tensors to the same device as their parameters
+                            for group in self.optimizer.param_groups:
+                                for p in group["params"]:
+                                    if p in self.optimizer.state:
+                                        for k, v in self.optimizer.state[p].items():
+                                            if torch.is_tensor(v):
+                                                self.optimizer.state[p][k] = v.to(p.device, non_blocking=True)                       
+                        logging.info("Optimizer loaded with saved state")
 
                         self.scheduler.load_state_dict(checkpoint['scheduler'])
                         logging.info("Scheduler loaded with saved state")
@@ -301,7 +304,7 @@ class Train():
 
                         if checkpoint.get('step_state', None) is not None:
                             step_state = checkpoint['step_state']
-
+                            
                     except Exception as e:
                         logging.info(str(e))
 
@@ -333,6 +336,12 @@ class Train():
         else: # file found, train not finished, file loaded
             # Continue the loaded train.
             epoch = epoch; step_state = step_state
+
+        try:
+            with open(str(self.bayes_path / name) + '.json', 'r') as f:
+                self.total_losses = json.load(f)
+        except:
+            pass
 
         return epoch, step_state
     
@@ -433,9 +442,11 @@ class Train():
                     if trainable:
                         loss.backward()
 
-
-                step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
-                step_rmses.append(rmse.detach().cpu())      # (C,) - list.  If no cpu(), their stack results in cuda
+                loss = loss.detach().cpu()
+                rmse = rmse.detach().cpu()
+                step_loss.append(loss)  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
+                step_rmses.append(rmse)      # (C,) - list.  If no cpu(), their stack results in cuda
+                self.total_losses.append(loss.item())
 
 
             elif not self.pm.abundant_GPUs and trainable:
@@ -449,19 +460,28 @@ class Train():
                     pred = self.dataset.unnormalize(pred)   # torch.float32 !!!, cuda, True !!!
                     target = self.dataset.unnormalize(batch_y)   # torch.float32, cuda, False
                     # target -> same device as out for loss
-                    pred.requires_grad_(True)
-                    pred.retain_grad()
-                    with torch.enable_grad():   # redundant for readability
-                        loss, rmse = self.loss(target, pred, batch_diff, era5_data_vars)
-                    if trainable:
-                        loss.backward()
-                    gradient = pred.grad
-                    gradient = self.model.backward(gradient)
                     
-
-                    step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
-                    step_rmses.append(rmse.detach().cpu())      # (C,) - list.  If no cpu(), their stack results in cuda
-
+                    if trainable:
+                        pred.requires_grad_(True)
+                        pred.retain_grad()
+                        with torch.enable_grad():   # redundant for readability
+                            loss, rmse = self.loss(target, pred, batch_diff, era5_data_vars)
+                        if trainable:
+                            loss.backward()
+                        gradient = pred.grad
+                        gradient = self.model.backward(gradient)
+                        
+                        loss = loss.detach().cpu()
+                        rmse = rmse.detach().cpu()
+                    else:
+                        with torch.no_grad():
+                            loss, rmse = self.loss(target, pred, batch_diff, era5_data_vars)
+                        
+                    step_loss.append(loss)  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
+                    step_rmses.append(rmse)      # (C,) - list.  If no cpu(), their stack results in cuda
+                    self.total_losses.append(loss.item())
+                    
+                    self.model.to("cpu")            # Mike!!! Temporary, as there is a bug.
 
                 else:
                     chunks_x = batch_x.chunk(self.nDevices)
@@ -480,8 +500,11 @@ class Train():
                     for fut in futures:
                         grads, (loss, rmse) = fut.result()  # blocks until the single future is done.
                         grads_list.append(grads)
-                        step_loss.append(loss.detach().to('cpu'))
-                        step_rmses.append(rmse.detach().to('cpu'))
+                        loss = loss.detach().cpu()
+                        rmse = rmse.detach().cpu()
+                        step_loss.append(loss)
+                        step_rmses.append(rmse)
+                        self.total_losses.append(loss.item())
                     
                     self.average_gradients_to_model(grads_list, self.model)
                     
