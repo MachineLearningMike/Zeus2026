@@ -527,8 +527,8 @@ class Train():
                 
         _epoch_loss = torch.stack(_epoch_loss, dim=0).mean(dim=0)  # (,)
         _epoch_rmses = torch.stack(_epoch_rmses, dim=0).mean(dim=0)       # (C,)
-        strC = ", ".join(f"{x:.2f}" for x in _epoch_rmses.ravel().tolist())
-        pbar.set_description('Loss: {:.3f}, rmses: {}'.format(_epoch_loss.item(), strC))
+        strC = ", ".join(f"{x:.6f}" for x in _epoch_rmses.ravel().tolist())
+        pbar.set_description('Loss: {:.6f}, rmses: {}'.format(_epoch_loss.item(), strC))
         pbar.stop_prefetch_thread()
         
         if trainable is True: self.save_state()   # Epoch_save. No step_state saved.
