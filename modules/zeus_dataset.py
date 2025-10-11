@@ -922,15 +922,15 @@ if __name__ == "__main__":
 
     dataset = Zeus_Dataset(config, root_path)
 
-    # end_date = date(2025, 7, 31)
+    # end_date = date(2025, 10, 5)
     # dataset.download_dataset(2015, end_date)   # downloads day data in reverse order.
 
     total_days, start_day, end_day, complete, data_dates = dataset.count_data_days()
     print(start_day, end_day)
     print(total_days, complete)
 
-    for _ in range(100):
-        print(dataset.get_T2_new())
+    # for _ in range(100):
+    #     print(dataset.get_T2_new())
 
     # mean, std = dataset.analyze_dataset()
     # print(mean, std)

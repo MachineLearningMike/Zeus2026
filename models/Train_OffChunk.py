@@ -454,34 +454,35 @@ class Train():
                     
                     # _, (loss, rmse) = self.model.sigle_GPU_forward_loss_backward(batch_x, batch_y, self.loss, 
                     #                   self.dataset.unnormalize, batch_diff, era5_data_vars)
-                                        
-                    with torch.no_grad():
-                        pred = self.model.forward(batch_x, train=True, modules_to_cpu=True)
-                    pred = self.dataset.unnormalize(pred)   # torch.float32 !!!, cuda, True !!!
-                    target = self.dataset.unnormalize(batch_y)   # torch.float32, cuda, False
-                    # target -> same device as out for loss
-                    
-                    if trainable:
-                        pred.requires_grad_(True)
-                        pred.retain_grad()
-                        with torch.enable_grad():   # redundant for readability
-                            loss, rmse = self.loss(target, pred, batch_diff, era5_data_vars)
-                        if trainable:
-                            loss.backward()
-                        gradient = pred.grad
-                        gradient = self.model.backward(gradient)
-                        
-                        loss = loss.detach().cpu()
-                        rmse = rmse.detach().cpu()
-                    else:
+                
+                    with autocast(device_type=self.device_type, dtype=torch.bfloat16):  
                         with torch.no_grad():
-                            loss, rmse = self.loss(target, pred, batch_diff, era5_data_vars)
+                            pred = self.model.forward(batch_x, train=True, modules_to_cpu=True)
+                        pred = self.dataset.unnormalize(pred)   # torch.float32 !!!, cuda, True !!!
+                        target = self.dataset.unnormalize(batch_y)   # torch.float32, cuda, False
+                        # target -> same device as out for loss
                         
-                    step_loss.append(loss)  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
-                    step_rmses.append(rmse)      # (C,) - list.  If no cpu(), their stack results in cuda
-                    self.total_losses.append(loss.item())
-                    
-                    self.model.to("cpu")            # Mike!!! Temporary, as there is a bug.
+                        if trainable:
+                            pred.requires_grad_(True)
+                            pred.retain_grad()
+                            with torch.enable_grad():   # redundant for readability
+                                loss, rmse = self.loss(target, pred, batch_diff, era5_data_vars)
+                            if trainable:
+                                loss.backward()
+                            gradient = pred.grad
+                            gradient = self.model.backward(gradient)
+                            
+                            loss = loss.detach().cpu()
+                            rmse = rmse.detach().cpu()
+                        else:
+                            with torch.no_grad():
+                                loss, rmse = self.loss(target, pred, batch_diff, era5_data_vars)
+                            
+                        step_loss.append(loss)  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
+                        step_rmses.append(rmse)      # (C,) - list.  If no cpu(), their stack results in cuda
+                        self.total_losses.append(loss.item())
+                        
+                        self.model.to("cpu")            # Mike!!! Temporary, as there is a bug.
 
                 else:
                     chunks_x = batch_x.chunk(self.nDevices)

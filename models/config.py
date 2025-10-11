@@ -11,7 +11,7 @@ config = {
     'T2':           24,
     
     'patch_size':   16, #16, # 8        ----------------------  optimization param,  OffChunk
-    'heads':        128, #8,     # 8    ----------------------    optimization param,  OffChunk
+    'heads':        8, #8,     # 8    ----------------------    optimization param,  OffChunk
     'chunks':       8,    #             ---------------------   optimization param,  OffChunk
     'attLayers' :   4,    #             ----------------------  optimization param,  OffChunk
     'layerFFN' :    "GLU",  # "FFN", "GLU"    ----------------------  optimization param,  OffChunk
@@ -45,7 +45,7 @@ config = {
     'batch_size' : 1,
     'log_step': 10,
     
-    'data_last_years' : 11,
+    'data_last_years' : 100,    # The latest 'data_last_years' years of the databased years are accounted for. 
 
     'optimizer': 'adam',    # 'adamw' takes more momory for optimizer.
     # 'lr' : 1e-5,    # ---> changed below
@@ -89,8 +89,13 @@ if platform.system() == "Windows":
     config['abundant_GPUs'] = False
     
 else:
-   
     root_path = Path("/mnt/Data/Zeus_Data")
+
+    config['factor10'] = 10  # 2 is the minimum, as 1 causes a non-float parameter error.
+
+    config['epochs'] = 100
+    config['steps_to_save'] = 50
+    config['abundant_GPUs'] = False
 
 n = config['nFrames']
 C = len(config['variables'])
