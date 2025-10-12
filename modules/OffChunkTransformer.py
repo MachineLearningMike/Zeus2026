@@ -15,9 +15,9 @@ class OffChunkTransformer(nn.Module):
     def __init__(
         self,
         num_layers: int,
-        embed_dim: int,
+        d_model: int,
         num_heads: int,
-        num_chunks: int = 1,
+        heads_per_chunk: int = 1,
         dim_feedforward: int = 2048,
         dropout: float = 0.1,
         ffn: Optional[str] = "GLU",  # "FFN"
@@ -25,7 +25,7 @@ class OffChunkTransformer(nn.Module):
         device: Optional[str] = None,
         norm_layer: Optional[nn.Module] = None,
     ):
-        print('transformer:', num_layers, embed_dim, num_heads, num_chunks, dim_feedforward, ffn)
+        print("transformer: layers {}, dim {}, heads {}, heads/chunk {}, dim_fwd {}, ffn {}".format(num_layers, d_model, num_heads, heads_per_chunk, dim_feedforward, ffn))
         
         super().__init__()
         if device is None:
@@ -36,9 +36,9 @@ class OffChunkTransformer(nn.Module):
         for _ in range(num_layers):
             layers.append(
                 OffChunkEncLayer(
-                    embed_dim=embed_dim,
+                    d_model=d_model,
                     num_heads=num_heads,
-                    num_chunks=num_chunks,
+                    heads_per_chunk=heads_per_chunk,
                     dim_feedforward=dim_feedforward,
                     dropout=dropout,
                     ffn = ffn,
@@ -47,7 +47,7 @@ class OffChunkTransformer(nn.Module):
                 )
             )
         self.layers = nn.ModuleList(layers)
-        self.norm = norm_layer(embed_dim) if norm_layer is not None else None
+        self.norm = norm_layer(d_model) if norm_layer is not None else None
         
         self.src_saved = None
 
@@ -84,32 +84,37 @@ if __name__ == "__main__":
     """
     1. For large seq_len, the more layers the more loss.
     """
+    import time
     
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
     factor10 = 2
     batch_size = 1         # it's also the data simplicity in this test.
-    seq_len = round(24 * 72 * factor10 * 144 * factor10 /16/16)
-    embed_dim = 1024
-    num_heads = 8
-    num_chunks = 4
-    lr = 1e-3
+    T1 = 1
+    seq_len = round(T1 * 72 * factor10 * 144 * factor10 /16/16)    # 97_200 for factor10 == 10
+    num_layers = 5
+    d_model = 1024
+    num_heads = 128
+    seq_per_chunk = seq_len // 10
+    heads_per_chunk = 32
+    kv_full_sequence = True
+    lr = 1e-4
     steps = 100
     
     ffn = "FFN"  # "FFN", "GLU"
 
     model = OffChunkTransformer(
-        num_layers = 1,
-        embed_dim=embed_dim, 
+        num_layers = num_layers,
+        d_model=d_model, 
         num_heads=num_heads, 
-        num_chunks=num_chunks, 
-        dim_feedforward=4*embed_dim, 
+        heads_per_chunk=heads_per_chunk, 
+        dim_feedforward=4*d_model, 
         dropout=0.0, 
         ffn = ffn, 
         device=device
     )
 
-    x = torch.randn(batch_size, seq_len, embed_dim)  # (B, S, E)
+    x = torch.randn(batch_size, seq_len, d_model)  # (B, S, E)
     with torch.no_grad():
         out = model.forward(x, train=True, modules_to_cpu=False)
     print("Output:", out.shape, out.device)
@@ -124,9 +129,10 @@ if __name__ == "__main__":
     criterion = nn.MSELoss()
 
     # dummy data (CPU)
-    x_train = torch.randn(batch_size, seq_len, embed_dim)
-    y_train = torch.randn(batch_size, seq_len, embed_dim)
+    x_train = torch.randn(batch_size, seq_len, d_model)
+    y_train = torch.randn(batch_size, seq_len, d_model)
 
+    start = time.time()
     for step in range(steps):
         optimizer.zero_grad()
 
@@ -144,6 +150,8 @@ if __name__ == "__main__":
         gradient = model.backward(gradient)
         optimizer.step()
 
-        print(f"Step {step+1}/{steps} - Loss: {loss.item():.6f}")
+        end = time.time()
+        duration = end - start
+        print(f"Step {step+1}/{steps}, Loss: {loss.item():.12f}, avt time: {duration/(step+1): .3f}")
 
     print("Training done.")

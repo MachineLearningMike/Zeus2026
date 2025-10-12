@@ -7,12 +7,6 @@ from einops import rearrange
 import torch.nn.functional as F
 import torch.optim as optim
 
-
-from timm.models.layers import DropPath
-from timm.models.layers import trunc_normal_
-
-from timm.models.layers import to_2tuple
-
 from pathlib import Path
 import os, sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
@@ -100,7 +94,7 @@ class Zeus(nn.Module):
             num_layers = self.pm.attLayers,
             embed_dim = self.pm.dim, 
             num_heads = self.pm.nHeads, 
-            num_chunks = self.pm.nChunks,
+            heads_per_chunk = self.pm.nHeads // self.pm.nChunks,
             dim_feedforward = self.pm.mlp_dim,
             dropout = 0.0, 
             ffn = self.pm.layerFFN, 
@@ -201,7 +195,8 @@ class Zeus(nn.Module):
 
         return gradient, lossAndMetrics
 
-if __name__ == "__main__":
+if __name__ == "__main__":    
+    import time
     
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
@@ -229,6 +224,7 @@ if __name__ == "__main__":
     x_train = torch.randn(config['batch_size'], config['T1'], len(config['variables']), 72 * config['factor10'], 144 * config['factor10'])
     y_train = torch.randn(config['batch_size'], config['T1'], len(config['variables']), 72 * config['factor10'], 144 * config['factor10'])
 
+    start = time.time()
     for step in range(steps):
         optimizer.zero_grad()
 
@@ -246,6 +242,8 @@ if __name__ == "__main__":
         
         optimizer.step()
 
-        print(f"Step {step+1}/{steps} - Loss: {loss.item():.12f}")
+        end = time.time()
+        duration = end - start
+        print(f"Step {step+1}/{steps}, Loss: {loss.item():.12f}, avg time: {duration / (step+1): .3f}")
 
     print("Training done.")

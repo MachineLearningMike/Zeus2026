@@ -1,7 +1,6 @@
 import torch
 from torch import nn
 from typing import Optional, Callable, List
-from timm.models.layers import to_2tuple
 import torch.nn.functional as F
 import torch.optim as optim
 from pathlib import Path
@@ -11,7 +10,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 class FFN(nn.Module):
     def __init__(
             self,
-            embed_dim: int,
+            d_model: int,
             dim_feedforward: int = 2048,
             activation: Callable = F.relu,
             eps: float = 1e-6,
@@ -23,9 +22,9 @@ class FFN(nn.Module):
             device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.gpu_device = torch.device(device)
         
-        self.linear1 = nn.Linear(embed_dim, dim_feedforward)   
-        self.linear2 = nn.Linear(dim_feedforward, embed_dim)
-        self.norm2 = nn.LayerNorm(embed_dim, eps=eps)
+        self.linear1 = nn.Linear(d_model, dim_feedforward)   
+        self.linear2 = nn.Linear(dim_feedforward, d_model)
+        self.norm2 = nn.LayerNorm(d_model, eps=eps)
         self.activation = activation
         
         self.x_saved = None
@@ -71,18 +70,22 @@ if __name__ == "__main__":
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
     factor10 = 2
-    batch_size = 24         # it's also the data simplicity in this test.
-    seq_len = round(1 * 72 * factor10 * 144 * factor10 /16/16)
-    embed_dim = 1024
+    batch_size = 1         # it's also the data simplicity in this test.
+    T1 = 1
+    seq_len = round(T1 * 72 * factor10 * 144 * factor10 /16/16)    # 97_200 for factor10 == 10
+    num_layers = 5
+    d_model = 1024
     num_heads = 128
-    num_chunks = 4
-    lr = 1e-3
+    seq_per_chunk = seq_len // 10
+    heads_per_chunk = 32
+    kv_full_sequence = True
+    lr = 1e-4
     steps = 100
 
-    model = FFN(embed_dim=embed_dim, dim_feedforward=embed_dim * 4, activation=F.relu, device=device)
+    model = FFN(d_model=d_model, dim_feedforward=d_model * 4, activation=F.relu, device=device)
 
     #------------------- simple test -------------------
-    x = torch.randn(batch_size, seq_len, embed_dim)  # (B, S, E)
+    x = torch.randn(batch_size, seq_len, d_model)  # (B, S, E)
     out = model.forward(x, train=True)
     print("Output:", out.shape, out.device)
         
@@ -93,8 +96,8 @@ if __name__ == "__main__":
     criterion = nn.MSELoss()
 
     # dummy data (CPU)
-    x_train = torch.randn(batch_size, seq_len, embed_dim)
-    y_train = torch.randn(batch_size, seq_len, embed_dim)
+    x_train = torch.randn(batch_size, seq_len, d_model)
+    y_train = torch.randn(batch_size, seq_len, d_model)
 
     for step in range(steps):
         optimizer.zero_grad()

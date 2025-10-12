@@ -15,7 +15,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 class OffChunkMHA(nn.Module):
     def __init__(
         self,
-        embed_dim: int,
+        d_model: int,
         num_heads: int,
         heads_per_chunk: int = 1,
         dropout: float = 0.0,
@@ -27,10 +27,10 @@ class OffChunkMHA(nn.Module):
             device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.gpu_device = torch.device(device)
 
-        assert embed_dim % num_heads == 0, "embed_dim must be divisible by num_heads"
-        self.embed_dim = embed_dim
+        assert d_model % num_heads == 0, "d_model must be divisible by num_heads"
+        self.d_model = d_model
         self.num_heads = num_heads
-        self.head_dim = embed_dim // num_heads
+        self.head_dim = d_model // num_heads
         self.num_head_chunks = num_heads // heads_per_chunk
         self.dropout = dropout
 
@@ -44,11 +44,11 @@ class OffChunkMHA(nn.Module):
         self.qkv_linears = nn.ModuleList()
         for heads in self.head_chunks:
             d_local = heads * self.head_dim
-            lin = nn.Linear(embed_dim, 3 * d_local, bias=bias)
+            lin = nn.Linear(d_model, 3 * d_local, bias=bias)
             self.qkv_linears.append(lin.cpu())
 
         # out proj kept on CPU until used
-        self.out_proj = nn.Linear(embed_dim, embed_dim, bias=bias).cpu()
+        self.out_proj = nn.Linear(d_model, d_model, bias=bias).cpu()
         self.attn_dropout = nn.Dropout(dropout)
         self.scale = 1.0 / math.sqrt(self.head_dim)
         
@@ -138,7 +138,7 @@ class OffChunkMHA(nn.Module):
                 self.mask_saved = mask.to("cpu")
         
         B, S, E = x.shape
-        assert E == self.embed_dim
+        assert E == self.d_model
 
         per_chunk_outputs = []
 
@@ -234,19 +234,21 @@ if __name__ == "__main__":
 
     factor10 = 2
     batch_size = 1         # it's also the data simplicity in this test.
-    seq_len = round(1 * 72 * factor10 * 144 * factor10 /16/16)    # 97_200 for factor10 == 10
-    embed_dim = 1024
+    T1 = 1
+    seq_len = round(T1 * 72 * factor10 * 144 * factor10 /16/16)    # 97_200 for factor10 == 10
+    num_layers = 5
+    d_model = 1024
     num_heads = 128
     seq_per_chunk = seq_len // 10
     heads_per_chunk = 32
     kv_full_sequence = True
-    lr = 1e-3
+    lr = 1e-4
     steps = 100
     
-    model = OffChunkMHA(embed_dim=embed_dim, num_heads=num_heads, heads_per_chunk=heads_per_chunk, device=device)
+    model = OffChunkMHA(d_model=d_model, num_heads=num_heads, heads_per_chunk=heads_per_chunk, device=device)
 
     #------------------- simple test -------------------
-    x = torch.randn(batch_size, seq_len, embed_dim)  # (B, S, E)
+    x = torch.randn(batch_size, seq_len, d_model)  # (B, S, E)
     with torch.no_grad():
         out = model.forward(x, train=True, modules_to_cpu=True)
     print("Output:", out.shape, out.device)
@@ -261,8 +263,8 @@ if __name__ == "__main__":
     criterion = nn.MSELoss()
 
     # dummy data (CPU)
-    x_train = torch.randn(batch_size, seq_len, embed_dim)
-    y_train = torch.randn(batch_size, seq_len, embed_dim)
+    x_train = torch.randn(batch_size, seq_len, d_model)
+    y_train = torch.randn(batch_size, seq_len, d_model)
 
     start = time.time()
     for step in range(steps):

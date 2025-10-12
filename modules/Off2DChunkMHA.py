@@ -42,7 +42,7 @@ class Off2DChunkMHA(nn.Module):
         self.W_qkv = nn.Linear(d_model, 3 * d_model)
         self.W_o = nn.Linear(d_model, d_model)
         
-        self.input_saved, self.qkv_saved = None, None
+        self.input_saved, self.mask_saved, self.qkv_saved = None, None, None
         
     def forward_attention(self, q_h, k_h, v_h, s_start, s_end, attn_mask):
                 
@@ -118,6 +118,8 @@ class Off2DChunkMHA(nn.Module):
         #---------------------------------------------------------------------------------------    from input
         if train:
             self.input_saved = input.to("cpu")
+            if attn_mask is not None:
+                self.mask_saved = attn_mask
         
         # Project QKV under autocast so weights/inputs are cast consistently
         with autocast(device_type='cuda', dtype=torch.bfloat16):
@@ -179,6 +181,34 @@ class Off2DChunkMHA(nn.Module):
 
         return out_proj
 
+    def backward(self, gradient: torch.Tensor) -> torch.Tensor:
+        """
+        initial: all submodules, self.W_o and self.W_qkv, are on cpu
+        return: gradient from self.input_saved through to gradient, on cpu
+        state_change: gradinets are stored to parameters, for optmizer.step
+        final: all submodules are back on cpu
+        """
+        assert self.input_saved is not None
+        assert self.input_saved.shape == gradient.shape        
+
+        # Commenting out this block let error diverges from 1 to 40 for 100 loops, 
+        # instead of converging from 1 to 0.294.
+        input = self.input_saved.to(self.device)
+        input.requires_grad_(True)
+        # input.retain_grad()  # No need, it's a leaf tensor.
+        self.to(self.device)
+        gradient = gradient.to(self.device)
+        # with torch.enable_grad():   # redundant for readability
+        out = self.forward(input, self.mask_saved, train=False, modules_to_cpu=False)
+        out.backward(gradient, retain_graph=False)  # gradients are saved to out_proj_gpu
+        gradient = input.grad
+        self.to("cpu")
+        del input, out
+        gc.collect()
+        torch.cuda.empty_cache()
+        
+        return gradient
+
 
 if __name__ == "__main__":
     
@@ -200,16 +230,18 @@ if __name__ == "__main__":
     
     factor10 = 2
     batch_size = 1         # it's also the data simplicity in this test.
-    seq_len = round(24 * 72 * factor10 * 144 * factor10 /16/16)    # 97_200 for factor10 == 10
-    embed_dim = 1024
+    T1 = 1
+    seq_len = round(T1 * 72 * factor10 * 144 * factor10 /16/16)    # 97_200 for factor10 == 10
+    num_layers = 5
+    d_model = 1024
     num_heads = 128
     seq_per_chunk = seq_len // 10
     heads_per_chunk = 32
     kv_full_sequence = True
     lr = 1e-4
-    steps = 10000
+    steps = 100
 
-    model = Off2DChunkMHA(d_model=embed_dim, num_heads=num_heads, dropout=0.0, causal=False,
+    model = Off2DChunkMHA(d_model=d_model, num_heads=num_heads, dropout=0.0, causal=False,
                         seq_per_chunk=seq_per_chunk, heads_per_chunk=heads_per_chunk, kv_full_sequence=kv_full_sequence).cuda()
     
     # optimizer (params are on CPU at construction time)
@@ -218,8 +250,8 @@ if __name__ == "__main__":
     scaler = GradScaler()
 
     # dummy data (CPU)
-    x_train = torch.randn(batch_size, seq_len, embed_dim)
-    y_train = torch.randn(batch_size, seq_len, embed_dim)
+    x_train = torch.randn(batch_size, seq_len, d_model)
+    y_train = torch.randn(batch_size, seq_len, d_model)
 
     start = time.time()
     for step in range(steps):

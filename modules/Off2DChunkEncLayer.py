@@ -30,42 +30,46 @@ class Off2DChunkEncLayer(nn.Module):
     """
     def __init__(
         self,
-        embed_dim: int,
+        d_model: int,
         num_heads: int,
-        num_chunks: int = 1,
         dim_feedforward: int = 2048,
-        dropout: float = 0.1,
+        dropout: float = 0.0,
+        causal: bool = False,
+        seq_per_chunk: int = None,
+        heads_per_chunk: int = None,
+        kv_full_sequence: bool = True,        
         ffn: Optional[str] = "FFN",  # "FFN", "GLU"
         eps: float = 1e-5,
         device: Optional[str] = None,
     ):
-    # def __init__(self, d_model, num_heads, dropout=0.0, causal=False,
-    #              seq_chunk_size=None, head_chunk_size=None, kv_full_sequence=True):
         super().__init__()
         if device is None:
             device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.gpu_device = torch.device(device)
         
         # FFN and LayerNorm: start on CPU
-        self.norm1 = nn.LayerNorm(embed_dim, eps=eps)   
+        self.norm1 = nn.LayerNorm(d_model, eps=eps)   
 
         # Offloaded attention (weights on CPU, chunks on GPU)
         self.self_attn = Off2DChunkMHA(
-            embed_dim=embed_dim,
+            d_model=d_model,
             num_heads=num_heads,
-            num_chunks=num_chunks,
             dropout=dropout,
+            causal=causal,
+            seq_per_chunk=seq_per_chunk,
+            heads_per_chunk=heads_per_chunk,
+            kv_full_sequence=kv_full_sequence,
             device=device,
         )
 
         if ffn == "GLU":
-            self.ffn = GLU(in_features=embed_dim, hidden_features=dim_feedforward, out_features=embed_dim, act_layer=nn.SiLU, device=device)
+            self.ffn = GLU(in_features=d_model, hidden_features=dim_feedforward, out_features=d_model, act_layer=nn.SiLU, device=device)
         elif ffn == "FFN":
-            self.ffn = FFN(embed_dim=embed_dim, dim_feedforward=dim_feedforward, activation=F.relu, device=device)
+            self.ffn = FFN(d_model=d_model, dim_feedforward=dim_feedforward, activation=F.relu, device=device)
         else: assert False
         
         self.dropout = nn.Dropout(dropout)      # shared between mha and ffn
-        self.norm2 = nn.LayerNorm(embed_dim, eps=eps)
+        self.norm2 = nn.LayerNorm(d_model, eps=eps)
 
         self.src_saved, self.mask_saved, self.attn_out_saved \
         = None, None, None
@@ -158,7 +162,7 @@ class Off2DChunkEncLayer(nn.Module):
             pass
             # !!! saving and reusing src_ln and mask are internal to self_attn.
         # --- Attention ---
-        attn_out = self.self_attn.forward(src_ln, mask=mask, train=train, modules_to_cpu=modules_to_cpu)  # output on GPU
+        attn_out = self.self_attn.forward(src_ln, attn_mask=mask, train=train, modules_to_cpu=modules_to_cpu)  # output on GPU
         # Note: We have self.self.attn.backward defined, which leaves gradient on cpu.        
         del src_ln
         # gc.collect()
@@ -236,43 +240,27 @@ class Off2DChunkEncLayer(nn.Module):
     
 if __name__ == "__main__":
     
-    """
-    ------------------ Theoretical study and achievements ----------------------
-    1. A transformer of any size can now fit into a (small) GPU, thought it taking longer time to compute.
-    2. So, we can use a whole attention, instead of repeated, yet inefficient, temporal attention and spatial attention.
-    3. So, we can also reduce the number of transformer layers and thus speed up training and inference.
-   
-    Experiments:
-        factor10 = 10
-        batch_size = 2
-        seq_len = 24 * 72 * factor10 * 144 * factor10 / 16 / 16
-        embed_dim = 1024 (= 16 * 16 * 4)
-        num_heads = 8
-        num_chunks = 4
-   
-        required maximum memory of 140.79 GB, which is available on a B200 GPU.
-        
-        A num_chunks requires a lower memory, enabling raising batch_size.
-        There should be an optimization for maximum throughtput.
-    """
+    import time
     
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
     factor10 = 2
     batch_size = 1         # it's also the data simplicity in this test.
-    seq_len = round(24 * 72 * factor10 * 144 * factor10 /16/16)    # 97_200 for factor10 == 10
-    embed_dim = 1024
+    T1 = 1
+    seq_len = round(T1 * 72 * factor10 * 144 * factor10 /16/16)    # 97_200 for factor10 == 10
+    num_layers = 5
+    d_model = 1024
     num_heads = 128
-    seq_chunk_size = seq_len // 10
-    head_chunk_size = 64
+    seq_per_chunk = seq_len // 10
+    heads_per_chunk = 32
     kv_full_sequence = True
-    lr = 1e-3
+    lr = 1e-4
     steps = 100
 
     ffn = "GLU"  # "GLU", "FFN"
-    model = Off2DChunkEncLayer(embed_dim=embed_dim, num_heads=num_heads, head_chunk_size=head_chunk_size, dim_feedforward=4*embed_dim, dropout=0.0, ffn=ffn, device=device)
+    model = Off2DChunkEncLayer(d_model=d_model, num_heads=num_heads, heads_per_chunk=heads_per_chunk, dim_feedforward=4*d_model, dropout=0.0, ffn=ffn, device=device)
 
-    x = torch.randn(batch_size, seq_len, embed_dim)  # (B, S, E)
+    x = torch.randn(batch_size, seq_len, d_model)  # (B, S, E)
     with torch.no_grad():
         out = model.forward(x, train=True, modules_to_cpu=True)
     print("Output:", out.shape, out.device)
@@ -286,9 +274,10 @@ if __name__ == "__main__":
     criterion = nn.MSELoss()
 
     # dummy data (CPU)
-    x_train = torch.randn(batch_size, seq_len, embed_dim)
-    y_train = torch.randn(batch_size, seq_len, embed_dim)
+    x_train = torch.randn(batch_size, seq_len, d_model)
+    y_train = torch.randn(batch_size, seq_len, d_model)
 
+    start = time.time()
     for step in range(steps):
         optimizer.zero_grad()
 
@@ -303,9 +292,12 @@ if __name__ == "__main__":
             loss = criterion(out, y_train.to(out.device))
             loss.backward()
         gradient = out.grad
+        
         gradient = model.backward(gradient)
         optimizer.step()
 
-        print(f"Step {step+1}/{steps} - Loss: {loss.item():.12f}")
+        end = time.time()
+        duration = end - start
+        print(f"Step {step+1}/{steps}, Loss: {loss.item():.12f}, avt time: {duration/(step+1): .3f}")
 
     print("Training done.")

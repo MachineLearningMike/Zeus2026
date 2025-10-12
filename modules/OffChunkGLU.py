@@ -1,12 +1,17 @@
 import torch
 from torch import nn
 from typing import Optional, Callable, List
-from timm.models.layers import to_2tuple
 import torch.nn.functional as F
+from functools import partial
 import torch.optim as optim
 from pathlib import Path
 import os, sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
+
+def to_2tuple(x):
+    if isinstance(x, tuple):
+        return x
+    return (x, x)
 
 class GLU(nn.Module):
     def __init__(
@@ -24,6 +29,7 @@ class GLU(nn.Module):
         
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
+        
         bias = to_2tuple(bias)
         drop_probs = to_2tuple(drop)
         
@@ -98,12 +104,16 @@ if __name__ == "__main__":
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
     factor10 = 2
-    batch_size = 24         # it's also the data simplicity in this test.
-    seq_len = round(1 * 72 * factor10 * 144 * factor10 /16/16)
-    embed_dim = 1024
+    batch_size = 1         # it's also the data simplicity in this test.
+    T1 = 1
+    seq_len = round(T1 * 72 * factor10 * 144 * factor10 /16/16)    # 97_200 for factor10 == 10
+    num_layers = 5
+    d_model = 1024
     num_heads = 128
-    num_chunks = 4
-    lr = 1e-3
+    seq_per_chunk = seq_len // 10
+    heads_per_chunk = 32
+    kv_full_sequence = True
+    lr = 1e-4
     steps = 100
 
     model = GLU(in_features=embed_dim, hidden_features=embed_dim * 4, out_features=embed_dim, act_layer=nn.SiLU, device=device)
