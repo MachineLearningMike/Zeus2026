@@ -929,8 +929,8 @@ if __name__ == "__main__":
     print(start_day, end_day)
     print(total_days, complete)
 
-    for _ in range(100):
-        print(dataset.get_T2_new())
+    # for _ in range(100):
+    #     print(dataset.get_T2_new())
 
     # mean, std = dataset.analyze_dataset()
     # print(mean, std)

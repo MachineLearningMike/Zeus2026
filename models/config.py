@@ -13,7 +13,7 @@ config = {
     'patch_size':   16, #16, # 8        ----------------------  optimization param,  OffChunk
     'heads':        128, #8,     # 8    ----------------------    optimization param,  OffChunk
     'chunks':       8,    #             ---------------------   optimization param,  OffChunk
-    'attLayers' :   4,    #             ----------------------  optimization param,  OffChunk
+    'attLayers' :   5,    #             ----------------------  optimization param,  OffChunk
     'layerFFN' :    "GLU",  # "FFN", "GLU"    ----------------------  optimization param,  OffChunk
 
     'zeusLayers':   4,    #             ---------------------- optimization param
