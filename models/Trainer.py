@@ -5,7 +5,7 @@ import logging
 import sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from models.Train_Chunk import Train
+from models.Train_Chunk2D import Train
 import modules.utils as utils
 from modules.params import Params
 
@@ -85,18 +85,19 @@ class Trainer():
         
         return keep_go_next_epoch, best_rmse_yet
 
-    def bayesian_target(self, patch_size, heads, chunks, attLayers): #, layerFFN):
+    def bayesian_target(self, patch_size, heads, heads_per_chunk, tokens_per_chunk, attLayers): #, layerFFN):
         # Update with new hyper-parameters
         self.config['patch_size'] = patch_size
         self.config['heads'] = heads
-        self.config['chunks'] = chunks
+        self.config['heads_per_chunk'] = heads_per_chunk
+        self.config['tokens_per_chunk'] = tokens_per_chunk
         self.config['attLayers'] = attLayers
         # self.config['layerFFN'] = layerFFN
 
         logging.info("Trainer configured with new hyper-parameters. patch_size {}, heads {}, chunks {}, attLayers {}, layerFFN {}" \
-                    .format(patch_size, heads, chunks, attLayers, self.config['layerFFN']))
+                    .format(patch_size, heads, heads_per_chunk, tokens_per_chunk, attLayers, self.config['layerFFN']))
         
-        self.config['hypers'] = {'patch_size': patch_size, 'heads': heads, 'chunks': chunks, 'attLayers': attLayers, 'layerFFN': self.config['layerFFN']}
+        self.config['hypers'] = {'patch_size': patch_size, 'heads': heads, 'heads_per_chunk': heads_per_chunk, 'tokens_per_chunk': tokens_per_chunk, 'attLayers': attLayers, 'layerFFN': self.config['layerFFN']}
         self.pm = Params(self.config)
 
         self.train = Train(self.config, self.root_path, self.bayes_path, trainable=True)

@@ -138,28 +138,32 @@ if __name__ == "__main__":
         
         patch_size = config['patch_size']
         heads = config['heads']
-        chunks = config['chunks']
+        heads_per_chunk = config['heads_per_chunk']
+        tokens_per_chunk = config['tokens_per_chunk']
         attLayers = config['attLayers']
         layerFFN = config['layerFFN']
                         
         pbounds = {     # Mike!!!
             "patch_size": (patch_size, patch_size, int),
             "heads": (heads, heads, int),
-            "chunks": (chunks, chunks, int),
+            "heads_per_chunk": (heads_per_chunk, heads_per_chunk, int),
+            "tokens_per_chunk": (tokens_per_chunk, tokens_per_chunk, int),
             "attLayers": (attLayers, attLayers, int),
             # "layerFFN" : (layerFFN, layerFFN, str),
         }
     else:
         patch_size = config['patch_size']
         heads = config['heads']
-        chunks = config['chunks']
+        heads_per_chunk = config['heads_per_chunk']
+        tokens_per_chunk = config['tokens_per_chunk']
         attLayers = config['attLayers']
         layerFFN = config['layerFFN']
                         
         pbounds = {     # Mike!!!
             "patch_size": (patch_size, patch_size, int),
             "heads": (heads, heads, int),
-            "chunks": (chunks, chunks, int),
+            "heads_per_chunk": (heads_per_chunk, heads_per_chunk, int),
+            "tokens_per_chunk": (tokens_per_chunk, tokens_per_chunk, int),
             "attLayers": (attLayers, attLayers, int),
             # "layerFFN" : (layerFFN, layerFFN, str),
         }
