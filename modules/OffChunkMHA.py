@@ -239,7 +239,7 @@ if __name__ == "__main__":
     num_layers = 5
     d_model = 1024
     num_heads = 128
-    seq_per_chunk = seq_len // 10
+    tokens_per_chunk = seq_len // 10
     heads_per_chunk = 32
     kv_full_sequence = True
     lr = 1e-4
@@ -286,7 +286,9 @@ if __name__ == "__main__":
         gradient = model.backward(gradient) # modules are on cpu.
         optimizer.step()
         
-        print(f"Step {step+1}/{steps} - Loss: {loss.item():.10f}")
+        end = time.time()
+        duration = end - start
+        print(f"Step {step+1}/{steps}, Loss: {loss.item():.12f}, avg time: {duration/(step+1): .3f}")
         
     end = time.time()
     duration = end - start

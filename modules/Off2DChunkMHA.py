@@ -21,7 +21,7 @@ class Off2DChunkMHA(nn.Module):
       - flash_attn_func is callable (Windows wheel)
     """
     def __init__(self, d_model, num_heads, dropout=0.0, causal=False,
-                 seq_per_chunk=None, heads_per_chunk=None, kv_full_sequence=True, device="cuda:0"):
+                 tokens_per_chunk=None, heads_per_chunk=None, kv_full_sequence=True, device="cuda:0"):
         super().__init__()
         assert d_model % num_heads == 0, "d_model must be divisible by num_heads"
         if heads_per_chunk is not None:
@@ -35,7 +35,7 @@ class Off2DChunkMHA(nn.Module):
         self.device = device
 
         # chunking params
-        self.seq_per_chunk = seq_per_chunk
+        self.tokens_per_chunk = tokens_per_chunk
         self.heads_per_chunk = heads_per_chunk or num_heads  # default: no head chunking
         self.kv_full_sequence = kv_full_sequence
 
@@ -142,7 +142,7 @@ class Off2DChunkMHA(nn.Module):
         v_head_splits = list(v.split(heads_per_chunk, dim=1))
 
         # Sequence chunking iterator
-        seq_ranges = [(0, L)] if self.seq_per_chunk is None else [(i, min(i + self.seq_per_chunk, L)) for i in range(0, L, self.seq_per_chunk)]
+        seq_ranges = [(0, L)] if self.tokens_per_chunk is None else [(i, min(i + self.tokens_per_chunk, L)) for i in range(0, L, self.tokens_per_chunk)]
 
         out_head_chunks = []  # will collect per-head-chunk outputs (for all sequence positions)
         # For each head chunk, compute attention over the whole sequence by concatenating sequence-chunk outputs
@@ -153,23 +153,23 @@ class Off2DChunkMHA(nn.Module):
                                 
                 out_seq = self.forward_attention(q_h, k_h, v_h, s_start, s_end, attn_mask)
 
-                # out_seq: [B, seq_per_chunk, heads_per_chunk, head_dim] -> append
+                # out_seq: [B, tokens_per_chunk, heads_per_chunk, head_dim] -> append
                 seq_out_parts.append(out_seq)
         
             # concat sequence chunks back along sequence dim -> [B, L, heads_per_chunk, head_dim]
-            out_h = torch.cat(seq_out_parts, dim=1)     # tracking: (B, s_idx * seq_per_chunk : (s_idx+1) * seq_per_chunk, heads_per_chunk, head_dim )
+            out_h = torch.cat(seq_out_parts, dim=1)     # tracking: (B, s_idx * tokens_per_chunk : (s_idx+1) * tokens_per_chunk, heads_per_chunk, head_dim )
             out_head_chunks.append(out_h)
 
         # concat head chunks along head dim -> [B, L, H, head_dim]
         out_all = torch.cat(out_head_chunks, dim=2 if out_head_chunks[0].dim()==4 else 2)   
-        # tracking: (B, s_idx * seq_per_chunk : (s_idx+1) * seq_per_chunk, h_idx * heads_per_chunk : (h_idx+1) * heads_per_chunk, head_dim)
+        # tracking: (B, s_idx * tokens_per_chunk : (s_idx+1) * tokens_per_chunk, h_idx * heads_per_chunk : (h_idx+1) * heads_per_chunk, head_dim)
 
         # permute and merge heads -> [B, L, D]
         out_final = out_all.contiguous().view(B, L, D)
-        # tracking: G(s_idx, h_idx) = out_final[B, s_idx * seq_per_chunk : (s_idx+1) * seq_per_chunk, h_idx * heads_per_chunk * head_dim : (h_idx+1) * heads_per_chunk * head_dim]
+        # tracking: G(s_idx, h_idx) = out_final[B, s_idx * tokens_per_chunk : (s_idx+1) * tokens_per_chunk, h_idx * heads_per_chunk * head_dim : (h_idx+1) * heads_per_chunk * head_dim]
         
         # SO, each of (q, k, v) is mapped to G(s_idx, h_idx).     q.Grad = sum_{s_idx, h_idx}{backward(G(s_idx, h_idx).Grad)}
-        # = sum_{s_idx, h_idx}{out_final.grad[B, s_idx * seq_per_chunk : (s_idx+1) * seq_per_chunk, h_idx * heads_per_chunk * head_dim : (h_idx+1) * heads_per_chunk * head_dim]}
+        # = sum_{s_idx, h_idx}{out_final.grad[B, s_idx * tokens_per_chunk : (s_idx+1) * tokens_per_chunk, h_idx * heads_per_chunk * head_dim : (h_idx+1) * heads_per_chunk * head_dim]}
         
         #-------------------------------------------------------------------------     from out_final
         # final output projection (you can wrap in autocast as needed)
@@ -218,7 +218,7 @@ if __name__ == "__main__":
     x = torch.randn(B, L, D, dtype=torch.float32, device=device, requires_grad=True)
 
     model = Off2DChunkMHA(d_model=1024, num_heads=8, dropout=0.0, causal=False,
-                        seq_per_chunk=10000, heads_per_chunk=4).cuda()
+                        tokens_per_chunk=10000, heads_per_chunk=4).cuda()
     # out = model.forward(x)
     # loss = out.sum()
     # loss.backward()
@@ -235,14 +235,14 @@ if __name__ == "__main__":
     num_layers = 5
     d_model = 1024
     num_heads = 128
-    seq_per_chunk = seq_len // 10
+    tokens_per_chunk = seq_len // 10
     heads_per_chunk = 32
     kv_full_sequence = True
     lr = 1e-4
     steps = 100
 
     model = Off2DChunkMHA(d_model=d_model, num_heads=num_heads, dropout=0.0, causal=False,
-                        seq_per_chunk=seq_per_chunk, heads_per_chunk=heads_per_chunk, kv_full_sequence=kv_full_sequence).cuda()
+                        tokens_per_chunk=tokens_per_chunk, heads_per_chunk=heads_per_chunk, kv_full_sequence=kv_full_sequence).cuda()
     
     # optimizer (params are on CPU at construction time)
     optimizer = optim.AdamW(model.parameters(), lr=lr)

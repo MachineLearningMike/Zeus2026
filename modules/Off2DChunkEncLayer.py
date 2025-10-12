@@ -35,7 +35,7 @@ class Off2DChunkEncLayer(nn.Module):
         dim_feedforward: int = 2048,
         dropout: float = 0.0,
         causal: bool = False,
-        seq_per_chunk: int = None,
+        tokens_per_chunk: int = None,
         heads_per_chunk: int = None,
         kv_full_sequence: bool = True,        
         ffn: Optional[str] = "FFN",  # "FFN", "GLU"
@@ -56,7 +56,7 @@ class Off2DChunkEncLayer(nn.Module):
             num_heads=num_heads,
             dropout=dropout,
             causal=causal,
-            seq_per_chunk=seq_per_chunk,
+            tokens_per_chunk=tokens_per_chunk,
             heads_per_chunk=heads_per_chunk,
             kv_full_sequence=kv_full_sequence,
             device=device,
@@ -251,7 +251,7 @@ if __name__ == "__main__":
     num_layers = 5
     d_model = 1024
     num_heads = 128
-    seq_per_chunk = seq_len // 10
+    tokens_per_chunk = seq_len // 10
     heads_per_chunk = 32
     kv_full_sequence = True
     lr = 1e-4
@@ -298,6 +298,6 @@ if __name__ == "__main__":
 
         end = time.time()
         duration = end - start
-        print(f"Step {step+1}/{steps}, Loss: {loss.item():.12f}, avt time: {duration/(step+1): .3f}")
+        print(f"Step {step+1}/{steps}, Loss: {loss.item():.12f}, avg time: {duration/(step+1): .3f}")
 
     print("Training done.")

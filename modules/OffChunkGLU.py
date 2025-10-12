@@ -110,16 +110,16 @@ if __name__ == "__main__":
     num_layers = 5
     d_model = 1024
     num_heads = 128
-    seq_per_chunk = seq_len // 10
+    tokens_per_chunk = seq_len // 10
     heads_per_chunk = 32
     kv_full_sequence = True
     lr = 1e-4
     steps = 100
 
-    model = GLU(in_features=embed_dim, hidden_features=embed_dim * 4, out_features=embed_dim, act_layer=nn.SiLU, device=device)
+    model = GLU(in_features=d_model, hidden_features=d_model * 4, out_features=d_model, act_layer=nn.SiLU, device=device)
 
     #------------------- simple test -------------------
-    x = torch.randn(batch_size, seq_len, embed_dim)  # (B, S, E)
+    x = torch.randn(batch_size, seq_len, d_model)  # (B, S, E)
     out = model.forward(x, train=True)
     print("Output:", out.shape, out.device)
         
@@ -130,8 +130,8 @@ if __name__ == "__main__":
     criterion = nn.MSELoss()
 
     # dummy data (CPU)
-    x_train = torch.randn(batch_size, seq_len, embed_dim)
-    y_train = torch.randn(batch_size, seq_len, embed_dim)
+    x_train = torch.randn(batch_size, seq_len, d_model)
+    y_train = torch.randn(batch_size, seq_len, d_model)
 
     for step in range(steps):
         optimizer.zero_grad()

@@ -46,7 +46,8 @@ class Params:
         
         self.nClasses = self.nChannels
         self.nHeads = config['heads']
-        self.nChunks = config['chunks']
+        self.heads_per_chunk = config['heads_per_chunk']
+        self.tokens_per_chunk = config['tokens_per_chunk']        
         self.dropout = config['dropout']
         self.attn_dropout = config['attn_dropout']
         self.drop_path = config['drop_path']

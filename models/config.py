@@ -11,8 +11,11 @@ config = {
     'T2':           24,
     
     'patch_size':   16, #16, # 8        ----------------------  optimization param,  OffChunk
-    'heads':        8, #8,     # 8    ----------------------    optimization param,  OffChunk
-    'chunks':       8,    #             ---------------------   optimization param,  OffChunk
+    'heads':        128, #8,     # 8    ----------------------    optimization param,  OffChunk
+
+    'heads_per_chunk':  2,    #             ---------------------   optimization param,  OffChunk
+    'tokens_per_chunk':    8,    #             ---------------------   optimization param,  OffChunk
+
     'attLayers' :   5,    #             ----------------------  optimization param,  OffChunk
     'layerFFN' :    "GLU",  # "FFN", "GLU"    ----------------------  optimization param,  OffChunk
 
@@ -74,7 +77,7 @@ config = {
 }
 
 config['lr'] = config['max_lr'] = pow(10, -(config['attLayers']-2)/2) * 1e-3
-config['bayesProject'] = "-".join([str(config['patch_size']), str(config['heads']), str(config['chunks']), str(config['attLayers']), config['layerFFN']])
+config['bayesProject'] = "-".join([str(config['patch_size']), str(config['heads']), str(config['heads_per_chunk']), str(config['tokens_per_chunk']), str(config['attLayers']), config['layerFFN']])
 
 
 from pathlib import Path
@@ -83,6 +86,7 @@ if platform.system() == "Windows":
     root_path = Path("D:/Zeus_Data")
 
     config['factor10'] = 2  # 2 is the minimum, as 1 causes a non-float parameter error.
+    config['tokens_per_chunk'] = round(config['T1'] * 72 * config['factor10'] * 144 * config['factor10'] /config['patch_size']/config['patch_size']) // 10
 
     config['epochs'] = 100
     config['steps_to_save'] = 50

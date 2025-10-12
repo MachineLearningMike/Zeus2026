@@ -92,9 +92,9 @@ class Zeus(nn.Module):
         #-------------- transformer -------------------------
         self.transformer = OffChunkTransformer(
             num_layers = self.pm.attLayers,
-            embed_dim = self.pm.dim, 
+            d_model = self.pm.dim, 
             num_heads = self.pm.nHeads, 
-            heads_per_chunk = self.pm.nHeads // self.pm.nChunks,
+            heads_per_chunk = self.pm.heads_per_chunk,
             dim_feedforward = self.pm.mlp_dim,
             dropout = 0.0, 
             ffn = self.pm.layerFFN, 

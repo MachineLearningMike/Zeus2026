@@ -264,14 +264,14 @@ if __name__ == "__main__":
     num_layers = 5
     d_model = 1024
     num_heads = 128
-    seq_per_chunk = seq_len // 10
+    tokens_per_chunk = seq_len // 10
     heads_per_chunk = 32
     kv_full_sequence = True
     lr = 1e-4
     steps = 100
 
     ffn = "GLU"  # "GLU", "FFN"
-    model = OffChunkEncLayer(d_model=d_model, num_heads=num_heads, heads_per_chunk=seq_per_chunk, dim_feedforward=4*d_model, dropout=0.0, ffn=ffn, device=device)
+    model = OffChunkEncLayer(d_model=d_model, num_heads=num_heads, heads_per_chunk=tokens_per_chunk, dim_feedforward=4*d_model, dropout=0.0, ffn=ffn, device=device)
 
     x = torch.randn(batch_size, seq_len, d_model)  # (B, S, E)
     with torch.no_grad():
@@ -310,6 +310,6 @@ if __name__ == "__main__":
 
         end = time.time()
         duration = end - start
-        print(f"Step {step+1}/{steps}, Loss: {loss.item():.12f}, avt time: {duration/(step+1): .3f}")
+        print(f"Step {step+1}/{steps}, Loss: {loss.item():.12f}, avg time: {duration/(step+1): .3f}")
 
     print("Training done.")

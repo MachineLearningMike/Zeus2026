@@ -17,34 +17,18 @@ class Off2DChunkTransformer(nn.Module):
         num_layers: int,
         d_model: int,
         num_heads: int,
-        num_chunks: int = 1,
         dim_feedforward: int = 2048,
         dropout: float = 0.0,
         causal: bool = False,
-        seq_per_chunk: int = None,
         heads_per_chunk: int = None,
+        tokens_per_chunk: int = None,
         kv_full_sequence: bool = True,        
         ffn: Optional[str] = "FFN",  # "FFN", "GLU"
         eps: float = 1e-5,
         device: Optional[str] = None,
         norm_layer: Optional[nn.Module] = None,
-    ):
-    # def __init__(
-    #     self,
-    #     d_model: int,
-    #     num_heads: int,
-    #     dim_feedforward: int = 2048,
-    #     dropout: float = 0.0,
-    #     causal: bool = False,
-    #     seq_per_chunk: int = None,
-    #     heads_per_chunk: int = None,
-    #     kv_full_sequence: bool = True,        
-    #     ffn: Optional[str] = "FFN",  # "FFN", "GLU"
-    #     eps: float = 1e-5,
-    #     device: Optional[str] = None,
-    # ):
-        
-        print("transformer: layers {}, dim {}, heads {}, heads/chunk {}, dim_fwd {}, ffn {}".format(num_layers, d_model, num_heads, heads_per_chunk, dim_feedforward, ffn))
+    ):  
+        print("transformer: layers {}, dim {}, heads {}, heads_per_chunk {}, tokens_per_chunk {}, dim_fwd {}, ffn {}".format(num_layers, d_model, num_heads, heads_per_chunk, tokens_per_chunk, dim_feedforward, ffn))
         
         super().__init__()
         if device is None:
@@ -60,7 +44,7 @@ class Off2DChunkTransformer(nn.Module):
                     dim_feedforward=dim_feedforward,
                     dropout=dropout,
                     causal=causal,
-                    seq_per_chunk=seq_per_chunk,
+                    tokens_per_chunk=tokens_per_chunk,
                     heads_per_chunk=heads_per_chunk,
                     kv_full_sequence=kv_full_sequence,
                     ffn = ffn,
@@ -112,25 +96,27 @@ if __name__ == "__main__":
 
     factor10 = 2
     batch_size = 1         # it's also the data simplicity in this test.
-    T1 = 1
+    T1 = 24
     seq_len = round(T1 * 72 * factor10 * 144 * factor10 /16/16)    # 97_200 for factor10 == 10
     num_layers = 5
     d_model = 1024
     num_heads = 128
-    seq_per_chunk = seq_len // 10
-    heads_per_chunk = 32
+    heads_per_chunk = 2
+    tokens_per_chunk = seq_len // 10
     kv_full_sequence = True
     lr = 1e-4
     steps = 100
     
-    ffn = "FFN"  # "FFN", "GLU"
+    ffn = "GLU"  # "FFN", "GLU"
 
     model = Off2DChunkTransformer(
         num_layers = num_layers,
-        d_model=d_model, 
-        num_heads=num_heads, 
-        heads_per_chunk=heads_per_chunk, 
-        dim_feedforward=4*d_model, 
+        d_model = d_model,
+        num_heads = num_heads, 
+        heads_per_chunk = heads_per_chunk,
+        tokens_per_chunk = tokens_per_chunk,
+        dim_feedforward = 4*d_model,
+        kv_full_sequence = kv_full_sequence,
         dropout=0.0, 
         ffn = ffn, 
         device=device
@@ -174,6 +160,6 @@ if __name__ == "__main__":
 
         end = time.time()
         duration = end - start
-        print(f"Step {step+1}/{steps}, Loss: {loss.item():.12f}, avt time: {duration/(step+1): .3f}")
+        print(f"Step {step+1}/{steps}, Loss: {loss.item():.12f}, avg time: {duration/(step+1): .3f}")
 
     print("Training done.")
