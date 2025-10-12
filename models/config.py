@@ -88,7 +88,7 @@ if platform.system() == "Windows":
     # GPU: RTX 4070, Chunk2D
     config['heads'] = 128
     config['factor10'] = 2  # 2 is the minimum, as 1 causes a non-float parameter error.
-    config['heads_per_chunk'] = 32  # 32 == 64, 32 is a little better.
+    config['heads_per_chunk'] = 32  # 32 == 64
     config['tokens_per_chunk'] = round(config['T1'] * 72 * config['factor10'] * 144 * config['factor10'] /config['patch_size']/config['patch_size']) // 2
 
     config['epochs'] = 100
