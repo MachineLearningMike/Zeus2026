@@ -13,7 +13,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 from config import config
 from modules.params import Params
 
-from modules.OffChunkTransformer import OffChunkTransformer
+from modules.Chunk2DTransformer import Chunk2DTransformer
 
 def sinusoidal_embedding(n_channels, dim):
     pe = torch.FloatTensor([[p / (10000 ** (2 * (i // 2) / dim)) for i in range(dim)]
@@ -90,13 +90,15 @@ class Zeus(nn.Module):
         self.patch_module = PatchEmbedWithPos(to_patch_embedding, pos_embedding)
 
         #-------------- transformer -------------------------
-        self.transformer = OffChunkTransformer(
+        self.transformer = Chunk2DTransformer(
             num_layers = self.pm.attLayers,
             d_model = self.pm.dim, 
             num_heads = self.pm.nHeads, 
-            heads_per_chunk = self.pm.heads_per_chunk,
             dim_feedforward = self.pm.mlp_dim,
-            dropout = 0.0, 
+            dropout = 0.0,
+            causal = False,
+            tokens_per_chunk = self.pm.tokens_per_chunk,
+            heads_per_chunk = self.pm.heads_per_chunk,
             ffn = self.pm.layerFFN, 
             device = self.device,       # used for forward / backward only
         )

@@ -12,7 +12,7 @@ from pathlib import Path
 import os, sys, gc
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-class OffChunkMHA(nn.Module):
+class ChunkMHA(nn.Module):
     def __init__(
         self,
         d_model: int,
@@ -245,7 +245,7 @@ if __name__ == "__main__":
     lr = 1e-4
     steps = 100
     
-    model = OffChunkMHA(d_model=d_model, num_heads=num_heads, heads_per_chunk=heads_per_chunk, device=device)
+    model = ChunkMHA(d_model=d_model, num_heads=num_heads, heads_per_chunk=heads_per_chunk, device=device)
 
     #------------------- simple test -------------------
     x = torch.randn(batch_size, seq_len, d_model)  # (B, S, E)

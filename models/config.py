@@ -7,17 +7,17 @@ config = {
     'width': 1440,
     'FG': 1, # not 24, for a better granularity control   # frames in a frame group
     'variables': variables,    
-    'T1':           24, # 24 for OffChunk, 3 for 256-head CNNs,
+    'T1':           24, # 24 for Chunk, 3 for 256-head CNNs,
     'T2':           24,
     
-    'patch_size':   16, #16, # 8        ----------------------  optimization param,  OffChunk
-    'heads':        128, #8,     # 8    ----------------------    optimization param,  OffChunk
+    'patch_size':   16, #16, # 8        ----------------------  optimization param,  Chunk
+    'heads':        128, #8,     # 8    ----------------------    optimization param,  Chunk
 
-    'heads_per_chunk':  2,    #             ---------------------   optimization param,  OffChunk
-    'tokens_per_chunk':    8,    #             ---------------------   optimization param,  OffChunk
+    'heads_per_chunk':  2,    #             ---------------------   optimization param,  Chunk
+    'tokens_per_chunk':    8,    #             ---------------------   optimization param,  Chunk
 
-    'attLayers' :   5,    #             ----------------------  optimization param,  OffChunk
-    'layerFFN' :    "GLU",  # "FFN", "GLU"    ----------------------  optimization param,  OffChunk
+    'attLayers' :   5,    #             ----------------------  optimization param,  Chunk
+    'layerFFN' :    "GLU",  # "FFN", "GLU"    ----------------------  optimization param,  Chunk
 
     'zeusLayers':   4,    #             ---------------------- optimization param
     'crossLayers':  6,
@@ -85,8 +85,11 @@ import platform
 if platform.system() == "Windows":  
     root_path = Path("D:/Zeus_Data")
 
+    # GPU: RTX 4070, Chunk2D
+    config['heads'] = 128
     config['factor10'] = 2  # 2 is the minimum, as 1 causes a non-float parameter error.
-    config['tokens_per_chunk'] = round(config['T1'] * 72 * config['factor10'] * 144 * config['factor10'] /config['patch_size']/config['patch_size']) // 10
+    config['heads_per_chunk'] = 32  # 32 == 64
+    config['tokens_per_chunk'] = round(config['T1'] * 72 * config['factor10'] * 144 * config['factor10'] /config['patch_size']/config['patch_size']) // 2
 
     config['epochs'] = 100
     config['steps_to_save'] = 50
@@ -95,7 +98,9 @@ if platform.system() == "Windows":
 else:
     root_path = Path("/mnt/Data/Zeus_Data")
 
+    # GPU: 
     config['factor10'] = 10  # 2 is the minimum, as 1 causes a non-float parameter error.
+    config['tokens_per_chunk'] = round(config['T1'] * 72 * config['factor10'] * 144 * config['factor10'] /config['patch_size']/config['patch_size']) // 2
 
     config['epochs'] = 100
     config['steps_to_save'] = 50

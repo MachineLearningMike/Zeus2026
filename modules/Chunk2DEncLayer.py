@@ -9,12 +9,12 @@ from pathlib import Path
 import os, sys, gc
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from modules.Off2DChunkMHA import Off2DChunkMHA
-from modules.OffChunkFFN import FFN
-from modules.OffChunkGLU import GLU
+from modules.Chunk2DMHA import Chunk2DMHA
+from modules.ChunkFFN import FFN
+from modules.ChunkGLU import GLU
 
 
-class Off2DChunkEncLayer(nn.Module):
+class Chunk2DEncLayer(nn.Module):
     """
     implements:   
       x = x + dropout(MHA(norm1(x)))        # pre_LN to MHA
@@ -24,7 +24,7 @@ class Off2DChunkEncLayer(nn.Module):
     ff = "GLU" shows no significant advantage over "FFN" yet is slower, 
         although GLU is millions of times more efficient when used in isolation.
         
-    Single encoder layer using OffChunkMHA, which stands for offloaded chunked MHA.
+    Single encoder layer using ChunkMHA, which stands for offloaded chunked MHA.
     Pre-LN style (LayerNorm before attention and before FFN).
     All weights start on CPU; moved temporarily to GPU during computation.
     """
@@ -51,7 +51,7 @@ class Off2DChunkEncLayer(nn.Module):
         self.norm1 = nn.LayerNorm(d_model, eps=eps)   
 
         # Offloaded attention (weights on CPU, chunks on GPU)
-        self.self_attn = Off2DChunkMHA(
+        self.self_attn = Chunk2DMHA(
             d_model=d_model,
             num_heads=num_heads,
             dropout=dropout,
@@ -258,7 +258,7 @@ if __name__ == "__main__":
     steps = 100
 
     ffn = "GLU"  # "GLU", "FFN"
-    model = Off2DChunkEncLayer(d_model=d_model, num_heads=num_heads, heads_per_chunk=heads_per_chunk, dim_feedforward=4*d_model, dropout=0.0, ffn=ffn, device=device)
+    model = Chunk2DEncLayer(d_model=d_model, num_heads=num_heads, heads_per_chunk=heads_per_chunk, dim_feedforward=4*d_model, dropout=0.0, ffn=ffn, device=device)
 
     x = torch.randn(batch_size, seq_len, d_model)  # (B, S, E)
     with torch.no_grad():

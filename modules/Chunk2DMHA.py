@@ -9,7 +9,7 @@ from pathlib import Path
 import os, sys, gc
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-class Off2DChunkMHA(nn.Module):
+class Chunk2DMHA(nn.Module):
     """
     FlashAttention-2 (Windows) MHA with:
       - head chunking (heads split evenly)
@@ -217,7 +217,7 @@ if __name__ == "__main__":
     B, L, D = 2, 100_000, 1024
     x = torch.randn(B, L, D, dtype=torch.float32, device=device, requires_grad=True)
 
-    model = Off2DChunkMHA(d_model=1024, num_heads=8, dropout=0.0, causal=False,
+    model = Chunk2DMHA(d_model=1024, num_heads=8, dropout=0.0, causal=False,
                         tokens_per_chunk=10000, heads_per_chunk=4).cuda()
     # out = model.forward(x)
     # loss = out.sum()
@@ -241,7 +241,7 @@ if __name__ == "__main__":
     lr = 1e-4
     steps = 100
 
-    model = Off2DChunkMHA(d_model=d_model, num_heads=num_heads, dropout=0.0, causal=False,
+    model = Chunk2DMHA(d_model=d_model, num_heads=num_heads, dropout=0.0, causal=False,
                         tokens_per_chunk=tokens_per_chunk, heads_per_chunk=heads_per_chunk, kv_full_sequence=kv_full_sequence).cuda()
     
     # optimizer (params are on CPU at construction time)

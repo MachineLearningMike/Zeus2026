@@ -9,26 +9,23 @@ from pathlib import Path
 import os, sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from modules.Off2DChunkEncLayer import Off2DChunkEncLayer
+from modules.ChunkEncLayer import ChunkEncLayer
 
-class Off2DChunkTransformer(nn.Module):
+class ChunkTransformer(nn.Module):
     def __init__(
         self,
         num_layers: int,
         d_model: int,
         num_heads: int,
+        heads_per_chunk: int = 1,
         dim_feedforward: int = 2048,
-        dropout: float = 0.0,
-        causal: bool = False,
-        heads_per_chunk: int = None,
-        tokens_per_chunk: int = None,
-        kv_full_sequence: bool = True,        
-        ffn: Optional[str] = "FFN",  # "FFN", "GLU"
-        eps: float = 1e-5,
+        dropout: float = 0.1,
+        ffn: Optional[str] = "GLU",  # "FFN"
+        eps: float = 1e-12,
         device: Optional[str] = None,
         norm_layer: Optional[nn.Module] = None,
-    ):  
-        print("transformer: layers {}, dim {}, heads {}, heads_per_chunk {}, tokens_per_chunk {}, dim_fwd {}, ffn {}".format(num_layers, d_model, num_heads, heads_per_chunk, tokens_per_chunk, dim_feedforward, ffn))
+    ):
+        print("transformer: layers {}, dim {}, heads {}, heads/chunk {}, dim_fwd {}, ffn {}".format(num_layers, d_model, num_heads, heads_per_chunk, dim_feedforward, ffn))
         
         super().__init__()
         if device is None:
@@ -38,15 +35,12 @@ class Off2DChunkTransformer(nn.Module):
         layers = []
         for _ in range(num_layers):
             layers.append(
-                Off2DChunkEncLayer(
+                ChunkEncLayer(
                     d_model=d_model,
                     num_heads=num_heads,
+                    heads_per_chunk=heads_per_chunk,
                     dim_feedforward=dim_feedforward,
                     dropout=dropout,
-                    causal=causal,
-                    tokens_per_chunk=tokens_per_chunk,
-                    heads_per_chunk=heads_per_chunk,
-                    kv_full_sequence=kv_full_sequence,
                     ffn = ffn,
                     device=device,
                     eps=eps,
@@ -96,27 +90,25 @@ if __name__ == "__main__":
 
     factor10 = 2
     batch_size = 1         # it's also the data simplicity in this test.
-    T1 = 24
+    T1 = 1
     seq_len = round(T1 * 72 * factor10 * 144 * factor10 /16/16)    # 97_200 for factor10 == 10
     num_layers = 5
     d_model = 1024
     num_heads = 128
-    heads_per_chunk = 2
     tokens_per_chunk = seq_len // 10
+    heads_per_chunk = 32
     kv_full_sequence = True
     lr = 1e-4
     steps = 100
     
     ffn = "GLU"  # "FFN", "GLU"
 
-    model = Off2DChunkTransformer(
+    model = ChunkTransformer(
         num_layers = num_layers,
-        d_model = d_model,
-        num_heads = num_heads, 
-        heads_per_chunk = heads_per_chunk,
-        tokens_per_chunk = tokens_per_chunk,
-        dim_feedforward = 4*d_model,
-        kv_full_sequence = kv_full_sequence,
+        d_model=d_model, 
+        num_heads=num_heads, 
+        heads_per_chunk=heads_per_chunk, 
+        dim_feedforward=4*d_model, 
         dropout=0.0, 
         ffn = ffn, 
         device=device
