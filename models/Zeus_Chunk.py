@@ -131,7 +131,7 @@ class Zeus(nn.Module):
             self.patch_module.to("cpu")
         
         #----------------- transformer ------------
-        src_transformed = self.transformer.forward(src_patched, train=train, modules_to_cpu=modules_to_cpu)  # (b m d)
+        src_transformed = self.transformer(src_patched, train=train, modules_to_cpu=modules_to_cpu)  # (b m d)
         
         #---------------- mlp ---------------------
         if train:
@@ -179,7 +179,7 @@ class Zeus(nn.Module):
 
     def sigle_GPU_forward_loss_backward(self, data, target, loss_fn, unnormal_fn, batch_diff, era5_data_vars):
         with torch.no_grad():
-            pred = self.forward(data, train=True, modules_to_cpu=True)
+            pred = self(data, train=True, modules_to_cpu=True)
         pred = unnormal_fn(pred)   # torch.float32 !!!, cuda, True !!!
         target = unnormal_fn(target)   # torch.float32, cuda, False
         # target -> same device as out for loss
@@ -208,7 +208,7 @@ if __name__ == "__main__":
     #------------------- simple test -------------------
     x = torch.randn(config['batch_size'], config['T1'], len(config['variables']), 72 * config['factor10'], 144 * config['factor10'])  # (B, S, E)
     with torch.no_grad():
-        out = model.forward(x, train=True, modules_to_cpu=True)
+        out = model(x, train=True, modules_to_cpu=True)
     print("Output:", out.shape, out.device)
     gradient = torch.ones_like(x)
     gradient = model.backward(gradient)
@@ -229,7 +229,7 @@ if __name__ == "__main__":
         optimizer.zero_grad()
 
         with torch.no_grad():
-            out = model.forward(x_train, train=True, modules_to_cpu=True)
+            out = model(x_train, train=True, modules_to_cpu=True)
             
         # target -> same device as out for loss
         out.requires_grad_(True)

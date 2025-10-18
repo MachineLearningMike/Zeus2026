@@ -90,7 +90,7 @@ class GLU(nn.Module):
         x_saved.requires_grad_(True)
         x_saved.retain_grad()
 
-        ff = self.forward(x_saved, train=True, modules_to_cpu=False)
+        ff = self(x_saved, train=True, modules_to_cpu=False)
         
         gradient = ff.backward(gradient)
         
@@ -120,7 +120,7 @@ if __name__ == "__main__":
 
     #------------------- simple test -------------------
     x = torch.randn(batch_size, seq_len, d_model)  # (B, S, E)
-    out = model.forward(x, train=True)
+    out = model(x, train=True)
     print("Output:", out.shape, out.device)
         
     #------------------ training test --------------------
@@ -139,7 +139,7 @@ if __name__ == "__main__":
         x_train.requires_grad_(True)
         x_train.retain_grad()
         with torch.no_grad():
-            out = model.forward(x_train, train=True, modules_to_cpu=True)
+            out = model(x_train, train=True, modules_to_cpu=True)
             
         # target -> same device as out for loss
         out.requires_grad_(True)

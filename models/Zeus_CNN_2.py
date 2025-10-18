@@ -218,7 +218,7 @@ def train_epoch(model, dataloader, optimizer, criterion, n, m, device='cpu'):
         # Only feed the first n frames as input
         x_input = x_seq[:, :n, :, :, :]  # (B, n, C, H, W)
         target = x_seq[:, n:, :, :, :]           # (B, m, C, H, W)
-        preds = model.forward(x_input, m, y_seq=target)  # list of m predictions (B, C, H, W)
+        preds = model(x_input, m, y_seq=target)  # list of m predictions (B, C, H, W)
 
         preds_tensor = torch.stack(preds, dim=1)  # (B, m, C, H, W)
         loss = criterion(preds_tensor, target)

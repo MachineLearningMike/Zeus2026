@@ -164,7 +164,7 @@ if __name__ == "__main__":
     x_seq = [torch.randn(batch_size, C, H, W, requires_grad=True) for _ in range(n+m)]
 
     model = Zeus2(input_shape=(C, H, W), cnn_hidden_channels=[4, 8], lstm_layers=2)
-    preds = model.forward(x_seq, m=m, sampling_prob=0.8)
+    preds = model(x_seq, m=m, sampling_prob=0.8)
 
     print("Number of predictions:", len(preds))
     print("Prediction shape:", preds[0].shape)  # (batch_size, C, H, W)

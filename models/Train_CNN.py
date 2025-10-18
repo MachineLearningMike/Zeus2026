@@ -284,8 +284,8 @@ class Train():
             logging.info(f"Checkpoint '{name}' loaded to {self.device}, including model, optimizer, scheduler, scaler, rmses_old, and datase state")
         except:
             if train_finished:
-                logging.info("You tried to start/continue a finished training. Aborting...")
-                sys.exit()
+                logging.info("You tried to start/continue a finished training. Aborting... No! specially")
+                # sys.exit()
             else:   # Save not found.
                 # Starts a new training.
                 epoch = 0; step_state = None
@@ -318,6 +318,7 @@ class Train():
         if not file_not_found:
             if checkpoint.get('train_finished', None) is not None:
                 train_finished = checkpoint['train_finished']
+                train_finished = False  # Mike!!!
             else:
                 logging.info("Train_finished not found")
                 sys.exit()
@@ -484,8 +485,8 @@ class Train():
             epoch = 0; step_state = None    # This is the moment where an existing train will be overriden !!!    
         elif train_finished and self.trainable:
             # Keep the finished train intact.
-            logging.info("You tried to start/continue a finished training. Aborting...")
-            sys.exit()
+            logging.info("You tried to start/continue a finished training. Aborting... No! specially")
+            # sys.exit()
         elif not file_loaded:
             # Start a new training, creating the file.
             epoch = 0; step_state = None    # This is the moment where an existing train will be overriden !!!    

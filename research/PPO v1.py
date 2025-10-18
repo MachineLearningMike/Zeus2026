@@ -19,7 +19,7 @@ class ActorCritic(nn.Module):
         return self.policy(x), self.value(x)
 
     def act(self, state):
-        logits, value = self.forward(state)
+        logits, value = self(state)
         dist = Categorical(logits=logits)
         action = dist.sample()
         return action, dist.log_prob(action), value

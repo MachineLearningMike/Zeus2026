@@ -59,7 +59,7 @@ if __name__ == "__main__":
         x_seq = generate_batch(batch_size, n, m, C, H, W)
 
         optimizer.zero_grad()
-        preds = model.forward(x_seq, m=m, sampling_prob=sampling_prob)
+        preds = model(x_seq, m=m, sampling_prob=sampling_prob)
 
         # Compute loss (compare prediction to ground truth)
         loss = 0.0

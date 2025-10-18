@@ -38,7 +38,7 @@ class Flash2DZeusBlock(nn.Module):
         if device is None:
             device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.device = torch.device(device)
-        
+               
         self.temporal_transformer_1 = Flash2DTransformer(
             num_layers = num_layers,
             d_model = d_model,
@@ -88,35 +88,100 @@ class Flash2DZeusBlock(nn.Module):
             device=device
         )
         
-    def forward(self, x): # (B, T, N, dim) -> (B, T, N, dim)      # (B, T1FG, H/p * W/p, dim)
+    def forward(self, x, train=False, modules_to_cpu=True): # (B, T, N, dim) -> (B, T, N, dim)      # (B, T1FG, H/p * W/p, dim)
         b, t, n, dim = x.shape                  # (B, T, N, dim), or (B, T1FG, H/p * W/p, dim)
         
-        x = rearrange(x, 'b t n d -> (b n) t d')  # (B*N, T, dim)
-        x = self.temporal_transformer_1(x)       # (B*N, T, dim)
+        if train: self.in_temporal1_saved = x.to("cpu")     # (B, T, N, dim)
+        x = rearrange(x, 'b t n d -> (b n) t d')            # (B*N, T, dim)
+        self.temporal_transformer_1.to(self.device)
+        x = self.temporal_transformer_1(x)                  # (B*N, T, dim)
+        if modules_to_cpu: self.temporal_transformer_1.to("cpu")
+
+        if train: self.in_spatial1_saved = x.to("cpu")      # (B*N, T, dim)
+        x = rearrange(x, '(b n) t d -> (b t) n d', b=b)     # (B*T, N, dim)
+        x = self.spatial_transformer_1(x)                   # (B*T, N, dim)
+        if modules_to_cpu: self.spatial_transformer_1.to("cpu")
         
-        x = rearrange(x, '(b n) t d -> (b t) n d', b=b)       # (B*T, N, dim)
-        x = self.spatial_transformer_1(x)                      # (B*T, N, dim)
-        x = self.spatial_transformer_2(x)                      # (B*T, N, dim)
-        
+        if train: self.in_spatial2_saved = x.to("cpu")      # (B*T, N, dim)
+        x = self.spatial_transformer_2(x)                   # (B*T, N, dim)
+        if modules_to_cpu: self.spatial_transformer_2.to("cpu")
+
+        if train: self.in_temporal2_saved = x.to("cpu")     # (B*T, N, dim)
         x = rearrange(x, '(b t) n d -> b t n d', b=b)       # (B, T, N, dim)
-        x = rearrange(x, 'b t n d -> (b n) t d')        # (B*N, T, dim)
-        x = self.temporal_transformer_2(x)                   # (B*N, T, dim)
-        
-        x = rearrange(x, '(b n) t d -> b t n d', b=b)         # (B, T, N, dim)
-
-        gc.collect()
-        torch.cuda.empty_cache()
+        x = rearrange(x, 'b t n d -> (b n) t d')            # (B*N, T, dim)
+        x = self.temporal_transformer_2(x)                  # (B*N, T, dim)        
+        x = rearrange(x, '(b n) t d -> b t n d', b=b)       # (B, T, N, dim)
+        if modules_to_cpu: self.temporal_transformer_2.to("cpu")
                
-        return x
+        return x                                            # (B, T, N, dim)
 
+    def modules_to_cpu(self):
+        self.temporal_transformer_1.modules_to_cpu()
+        self.spatial_transformer_1.modules_to_cpu()
+        self.spatial_transformer_2.modules_to_cpu()
+        self.temporal_transformer_2.modules_to_cpu()
 
+    def backward(self, gradient: torch.Tensor) -> torch.Tensor:
+        gradient = gradient.to(self.device)  # redundant
+        b, t, n, dim = gradient.shape
+        
+        # in_temporal2_saved.grad
+        src = self.in_temporal2_saved.to(self.device)             # (B*T, N, dim)
+        src.requires_grad_(True)
+        src.retain_grad()
+        self.temporal_transformer_2.to(self.device)
+        with torch.enable_grad():   # redundant for readability
+            x = rearrange(src, '(b t) n d -> b t n d', b=b)       # (B, T, N, dim)
+            x = rearrange(x, 'b t n d -> (b n) t d')            # (B*N, T, dim)
+            x = self.temporal_transformer_2(x, train=False, modules_to_cpu=False)                  # (B*N, T, dim) 
+            x = rearrange(x, '(b n) t d -> b t n d', b=b)     # (B, T, N, dim)
+        x.backward(gradient, retain_graph=False)
+        gradient = src.grad                                       # (B*T, N, dim)
+        self.temporal_transformer_2.to("cpu")
+
+        # in_spatial2_saved.grad
+        src = self.in_spatial2_saved.to(self.device)              # (B*T, N, dim)
+        src.requires_grad_(True)
+        src.retain_grad()
+        self.spatial_transformer_2.to(self.device)
+        with torch.enable_grad():   # redundant for readability
+            x = self.spatial_transformer_2(src, train=False, modules_to_cpu=False)                 # (B*T, N, dim)
+        x.backward(gradient, retain_graph=False)
+        gradient = src.grad                                       # (B*T, N, dim)
+        self.spatial_transformer_2.to("cpu")
+
+        # in_spatial1_saved.grad
+        src = self.in_spatial1_saved.to(self.device)              # (B*N, T, dim)
+        src.requires_grad_(True)
+        src.retain_grad()
+        self.spatial_transformer_1.to(self.device)
+        with torch.enable_grad():   # redundant for readability
+            x = rearrange(src, '(b n) t d -> (b t) n d', b=b)     # (B*T, N, dim)
+            x = self.spatial_transformer_1(x, train=False, modules_to_cpu=False)                                  # (B*T, N, dim) 
+        x.backward(gradient, retain_graph=False)
+        gradient = src.grad                                       # (B*N, T, dim)
+        self.spatial_transformer_1.to("cpu")
+        
+        # in_temporal1_saved.grad
+        src = self.in_temporal1_saved.to(self.device)              # (B, N, T, dim)
+        src.requires_grad_(True)
+        src.retain_grad()
+        self.temporal_transformer_1.to(self.device)
+        with torch.enable_grad():   # redundant for readability
+            x = rearrange(src, 'b t n d -> (b n) t d')            # (B*N, T, dim)
+            x = self.temporal_transformer_1(x, train=False, modules_to_cpu=False)                                  # (B*N, T, dim) 
+        x.backward(gradient, retain_graph=False)
+        gradient = src.grad                                       # (B, N, T, dim)
+        self.temporal_transformer_1.to("cpu")
+        
+        return gradient
 
 # ---- Run Demo ----
 if __name__ == "__main__":
     import time
     
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
-
+    
     factor10 = 2
     batch_size = 1         # it's also the data simplicity in this test.
     T1 = 24
@@ -131,6 +196,8 @@ if __name__ == "__main__":
     lr = 1e-4
     steps = 100
     
+    ffn = "GLU"  # "FFN", "GLU"
+    
     model = Flash2DZeusBlock(
         num_layers = num_layers,
         d_model = d_model,
@@ -141,20 +208,49 @@ if __name__ == "__main__":
         heads_per_chunk = heads_per_chunk,
         tokens_per_chunk = tokens_per_chunk,
         kv_full_sequence = True,
-        ffn = "GLU", # "FFN", "GLU"
+        ffn = ffn,
         device = device,
     )
 
     x = torch.randn(batch_size, T1, N, d_model)
+    with torch.no_grad():
+        out = model(x, train=True, modules_to_cpu=True)
+    print("Output:", out.shape, out.device)
+    gradient = torch.ones_like(x)
+    gradient = model.backward(gradient)
+    model.modules_to_cpu()
+    print("Gradient:", gradient.shape, gradient.device)
     
-    loops = 5
-    start = time.time()
-    for _ in range(loops):
-        with torch.set_grad_enabled(False):
-            y = model(x)
-    end = time.time()
+    #------------------ training test --------------------
+    
+    # optimizer (params are on CPU at construction time)
+    optimizer = optim.AdamW(model.parameters(), lr=lr)
+    criterion = nn.MSELoss()
 
-    print("\n✅ Final check:")
-    print(f"Input shape:  {x.shape}")
-    print(f"Output shape: {y.shape}")
-    print(f"time per iteration: {(end-start)/loops:.2f} s")
+    # dummy data (CPU)
+    x_train = torch.randn(batch_size, T1, N, d_model)
+    y_train = torch.randn(batch_size, T1, N, d_model)
+
+    start = time.time()
+    for step in range(steps):
+        optimizer.zero_grad()
+
+        # forward pass (offloads chunks to GPU internally)
+        with torch.no_grad():
+            out = model(x_train, train=True, modules_to_cpu=True)
+            
+        # target -> same device as out for loss
+        out.requires_grad_(True)
+        out.retain_grad()
+        with torch.enable_grad():   # redundant for readability
+            loss = criterion(out, y_train.to(out.device))
+            loss.backward()
+        gradient = out.grad
+        gradient = model.backward(gradient)
+        optimizer.step()
+        
+        end = time.time()
+        duration = end - start
+        print(f"Step {step+1}/{steps}, Loss: {loss.item():.12f}, avg time: {duration/(step+1): .3f}")
+
+    print("Training done.")

@@ -162,7 +162,7 @@ class Flash2DEncLayer(nn.Module):
             pass
             # !!! saving and reusing src_ln and mask are internal to self_attn.
         # --- Attention ---
-        attn_out = self.self_attn.forward(src_ln, attn_mask=mask, train=train, modules_to_cpu=modules_to_cpu)  # output on GPU
+        attn_out = self.self_attn(src_ln, attn_mask=mask, train=train, modules_to_cpu=modules_to_cpu)  # output on GPU
         # Note: We have self.self.attn.backward defined, which leaves gradient on cpu.        
         del src_ln
         # gc.collect()
@@ -179,7 +179,7 @@ class Flash2DEncLayer(nn.Module):
         gc.collect()
         torch.cuda.empty_cache()
         # --- FFN ---
-        ff = self.ffn.forward(res, modules_to_cpu=modules_to_cpu)   #
+        ff = self.ffn(res, modules_to_cpu=modules_to_cpu)   #
         src_out = self.apply_post_LN_to_ff(res, ff, modules_to_cpu=modules_to_cpu)
         # No need to delete res and ff - operation is almost over.
         # Result stays on GPU
@@ -244,7 +244,7 @@ if __name__ == "__main__":
     
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
-    factor10 = 10
+    factor10 = 2
     batch_size = 1         # it's also the data simplicity in this test.
     T1 = 24
     seq_len = round(T1 * 72 * factor10 * 144 * factor10 /16/16)    # 97_200 for factor10 == 10
@@ -262,7 +262,7 @@ if __name__ == "__main__":
 
     x = torch.randn(batch_size, seq_len, d_model)  # (B, S, E)
     with torch.no_grad():
-        out = model.forward(x, train=True, modules_to_cpu=True)
+        out = model(x, train=True, modules_to_cpu=True)
     print("Output:", out.shape, out.device)
     gradient = torch.ones_like(x)
     gradient = model.backward(gradient)
@@ -283,7 +283,7 @@ if __name__ == "__main__":
 
         # forward pass (offloads chunks to GPU internally)
         with torch.no_grad():
-            out = model.forward(x_train, train=True, modules_to_cpu=True)
+            out = model(x_train, train=True, modules_to_cpu=True)
             
         # target -> same device as out for loss
         out.requires_grad_(True)

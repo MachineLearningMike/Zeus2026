@@ -82,7 +82,7 @@ class ZeusCNN(nn.Module):
 
     def sigle_GPU_forward_loss_backward(self, data, target, loss_fn, unnormal_fn, batch_diff, era5_data_vars):
         
-        pred = self.forward(data, target.shape[1], target)
+        pred = self(data, target.shape[1], target)
 
         target = unnormal_fn(target)
         pred = unnormal_fn(pred)
@@ -171,7 +171,7 @@ def train_epoch(model, dataloader, optimizer, criterion, x_frames, y_frames, dev
         
         x_input = normalize(x_input)
         target = normalize(target_org)
-        preds = model.forward(x_input, y_frames, y=target)  # list of m predictions (B, C, H, W)
+        preds = model(x_input, y_frames, y=target)  # list of m predictions (B, C, H, W)
 
         preds = denormalize(preds)
         loss = criterion(preds, target_org)

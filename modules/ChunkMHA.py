@@ -250,7 +250,7 @@ if __name__ == "__main__":
     #------------------- simple test -------------------
     x = torch.randn(batch_size, seq_len, d_model)  # (B, S, E)
     with torch.no_grad():
-        out = model.forward(x, train=True, modules_to_cpu=True)
+        out = model(x, train=True, modules_to_cpu=True)
     print("Output:", out.shape, out.device)
     gradient = torch.ones_like(x)
     gradient = model.backward(gradient)
@@ -273,7 +273,7 @@ if __name__ == "__main__":
         # with autocast(device_type='cuda', dtype=torch.bfloat16):
         # forward pass (offloads chunks to GPU internally)
         with torch.no_grad():
-            out = model.forward(x_train, train=True, modules_to_cpu=True)
+            out = model(x_train, train=True, modules_to_cpu=True)
             
         # target -> same device as out for loss
         out.requires_grad_(True)

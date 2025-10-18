@@ -19,7 +19,7 @@ class ActorCritic(nn.Module):
         return self.actor(features), self.critic(features)
 
     def act(self, state):
-        logits, value = self.forward(state)
+        logits, value = self(state)
         probs = torch.softmax(logits, dim=-1)
         dist = torch.distributions.Categorical(probs)
         action = dist.sample()

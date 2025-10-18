@@ -320,7 +320,7 @@ class Train():
             epoch = 0; step_state = None    # This is the moment where an existing train will be overriden !!!    
         elif train_finished and self.trainable:
             # Keep the finished train intact.
-            logging.info("You tried to start/continue a finished training. Aborting...")
+            logging.info("You tried to start/continue a finished training. Aborting... <>")
             sys.exit()
         elif not file_loaded:
             # Start a new training, creating the file.

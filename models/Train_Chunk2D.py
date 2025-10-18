@@ -328,7 +328,7 @@ class Train():
             epoch = 0; step_state = None    # This is the moment where an existing train will be overriden !!!    
         elif train_finished and self.trainable:
             # Keep the finished train intact.
-            logging.info("You tried to start/continue a finished training. Aborting...")
+            logging.info("You tried to start/continue a finished training. Aborting... !!")
             sys.exit()
         elif not file_loaded:
             # Start a new training, creating the file.
@@ -437,7 +437,7 @@ class Train():
                 #--------------- Ordinary forward and backward for optimizer.step -----------------
                 with autocast(device_type=self.device_type, dtype=torch.bfloat16):
                     with torch.set_grad_enabled(trainable):
-                        pred = self.model.forward(batch_x)
+                        pred = self.model(batch_x)
                     pred = self.dataset.unnormalize(pred)   # torch.float32 !!!, cuda, True !!!
                     target = self.dataset.unnormalize(batch_y)   # torch.float32, cuda, False
                     loss, rmse = self.loss(target, pred, batch_diff, era5_data_vars)  # (,), (C,), torch.float32, cuda, True !!!
@@ -459,7 +459,7 @@ class Train():
                 
                     with autocast(device_type=self.device_type, dtype=torch.bfloat16):  
                         with torch.no_grad():
-                            pred = self.model.forward(batch_x, train=True, modules_to_cpu=True)
+                            pred = self.model(batch_x, train=True, modules_to_cpu=True)
                         pred = self.dataset.unnormalize(pred)   # torch.float32 !!!, cuda, True !!!
                         target = self.dataset.unnormalize(batch_y)   # torch.float32, cuda, False
                         # target -> same device as out for loss

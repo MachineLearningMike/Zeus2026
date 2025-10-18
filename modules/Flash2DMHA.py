@@ -182,6 +182,10 @@ class Flash2DMHA(nn.Module):
         if modules_to_cpu: self.to("cpu")
 
         return out_proj
+    
+    def modules_to_cpu(self):
+        self.W_qkv.to("cpu")
+        self.W_o.to("cpu")
 
     def backward(self, gradient: torch.Tensor) -> torch.Tensor:
         # return gradient     # NoMHA
@@ -202,7 +206,7 @@ class Flash2DMHA(nn.Module):
         self.to(self.device)
         gradient = gradient.to(self.device)
         # with torch.enable_grad():   # redundant for readability
-        out = self.forward(input, self.mask_saved, train=False, modules_to_cpu=False)
+        out = self(input, self.mask_saved, train=False, modules_to_cpu=False)
         out.backward(gradient, retain_graph=False)  # gradients are saved to out_proj_gpu
         gradient = input.grad
         self.to("cpu")
@@ -222,7 +226,7 @@ if __name__ == "__main__":
 
     model = Flash2DMHA(d_model=1024, num_heads=8, dropout=0.0, causal=False,
                         tokens_per_chunk=10000, heads_per_chunk=4).cuda()
-    # out = model.forward(x)
+    # out = model(x)
     # loss = out.sum()
     # loss.backward()
     # grad = x.grad
@@ -262,7 +266,7 @@ if __name__ == "__main__":
 
         with autocast(device_type='cuda', dtype=torch.bfloat16):
             # forward pass (offloads chunks to GPU internally)
-            out = model.forward(x_train.clone().to(device), modules_to_cpu=False)
+            out = model(x_train.clone().to(device), modules_to_cpu=False)
             loss = criterion(out, y_train.to(out.device))
         
         loss.backward()

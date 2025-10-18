@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from pathlib import Path
-import os, sys
+import os, sys, gc
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.Flash2DEncLayer import Flash2DEncLayer
@@ -65,12 +65,17 @@ class Flash2DTransformer(nn.Module):
         train: bool = False,
         modules_to_cpu: bool = True
     ) -> torch.Tensor:
-        output = src.to(self.device)
+        layered = src.to(self.device)
         for layer in self.layers:
-            output = layer.forward(output, src_mask=src_mask, src_key_padding_mask=src_key_padding_mask, train=train, modules_to_cpu=modules_to_cpu)
+            layered = layer(layered, src_mask=src_mask, src_key_padding_mask=src_key_padding_mask, train=train, modules_to_cpu=modules_to_cpu)        
+
+        if train and self.norm is not None:
+            self.layered_saved = layered.to("cpu")
+
+        output = layered
         if self.norm is not None:
             norm = self.norm.to(self.device)
-            output = self.norm(output.to(self.device))
+            output = self.norm(layered)
             norm.to("cpu")
         # output is on GPU (self.device)
         return output
@@ -78,13 +83,41 @@ class Flash2DTransformer(nn.Module):
     def modules_to_cpu(self):
         for layer in self.layers:
             layer.modules_to_cpu()
+        if self.norm is not None:
+            self.norm.to("cpu")
         return
         
     def backward(self, gradient: torch.Tensor) -> torch.Tensor:
+        # gradient = gradient.to(self.device)  # redundant
+        
+        if self.norm is not None:
+            layered_saved = self.layered_saved.to(self.device)
+            layered_saved.requires_grad_(True)
+            layered_saved.retain_grad()
+            self.norm.to(self.device)
+            with torch.enable_grad():   # redundant for readability
+                out = self.norm(layered_saved)
+            out.backward(gradient, retain_graph=False)
+            gradient = layered_saved.grad
+            self.norm.to("cpu")
+            del layered_saved, out
+            gc.collect()
+            torch.cuda.empty_cache()
+        
         for layer in reversed(self.layers):
             gradient = layer.backward(gradient)
         return gradient
         
+    # def to(self, device, *args, **kwargs):
+    #     # Convert self.device to a torch.device
+    #     self.device = torch.device(device)
+    #     # Move all layers recursively
+    #     for layer in self.layers:
+    #         layer.to(device, *args, **kwargs)
+    #     # Move LayerNorm if exists
+    #     if self.norm is not None:
+    #         self.norm = self.norm.to(device, *args, **kwargs)
+    #     return super().to(device, *args, **kwargs)
     
 if __name__ == "__main__":
     """
@@ -97,6 +130,7 @@ if __name__ == "__main__":
     factor10 = 2
     batch_size = 1         # it's also the data simplicity in this test.
     T1 = 24
+    N = round(72 * factor10 * 144 * factor10 /16/16)
     seq_len = round(T1 * 72 * factor10 * 144 * factor10 /16/16)    # 97_200 for factor10 == 10
     num_layers = 5
     d_model = 1024
@@ -124,10 +158,11 @@ if __name__ == "__main__":
 
     x = torch.randn(batch_size, seq_len, d_model)  # (B, S, E)
     with torch.no_grad():
-        out = model.forward(x, train=True, modules_to_cpu=False)
+        out = model(x, train=True, modules_to_cpu=False)
     print("Output:", out.shape, out.device)
     gradient = torch.ones_like(x)
     gradient = model.backward(gradient)
+    model.modules_to_cpu()
     print("Gradient:", gradient.shape, gradient.device)
     
     #------------------ training test --------------------
@@ -144,9 +179,11 @@ if __name__ == "__main__":
     for step in range(steps):
         optimizer.zero_grad()
 
+        # model.to(device)
+
         # forward pass (offloads chunks to GPU internally)
         with torch.no_grad():
-            out = model.forward(x_train, train=True, modules_to_cpu=True)
+            out = model(x_train, train=True, modules_to_cpu=True)
             
         # target -> same device as out for loss
         out.requires_grad_(True)
@@ -155,9 +192,10 @@ if __name__ == "__main__":
             loss = criterion(out, y_train.to(out.device))
             loss.backward()
         gradient = out.grad
+                
         gradient = model.backward(gradient)
         optimizer.step()
-
+        
         end = time.time()
         duration = end - start
         print(f"Step {step+1}/{steps}, Loss: {loss.item():.12f}, avg time: {duration/(step+1): .3f}")

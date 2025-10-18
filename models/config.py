@@ -66,7 +66,7 @@ config = {
     'div_factor' : 1.0,    # Initial LR = max_lr / div_factor
     'final_div_factor' : 10, # Final LR = initial_lr / final_div_factor
 
-    'epoch_patience' : 3,       # Mike!!!
+    'epoch_patience' : 10,       # Mike!!!
     
     'abundant_GPUs' : False,
     'doubleZeus' : False,
