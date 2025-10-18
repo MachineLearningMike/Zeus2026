@@ -38,6 +38,8 @@ class Params:
         self.nPatches = self.nPatches_h * self.nPatches_w           # 45 * 90 = 4,050       # spatial seq_len
         self.nSequences = self.nFramesIn * self.nPatches            # 48 * 4,050 = 194,400
 
+        self.skip_validation = config['skip_validation']
+
         self.nChannels = len(config['variables'])                         # 5
         self.patch_dim = self.nChannels * self.patch_size ** 2      # 16 * 16 * 5 = 1,280
 
@@ -84,6 +86,8 @@ class Params:
         self.hypers = config['hypers']
         self.seed = config['seed']
         self.bayesProject = config['bayesProject']
+        
+        self.noPE = config['noPE']
         
         self.abundant_GPUs = config['abundant_GPUs']
         

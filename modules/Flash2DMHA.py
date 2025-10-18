@@ -9,7 +9,7 @@ from pathlib import Path
 import os, sys, gc
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-class Chunk2DMHA(nn.Module):
+class Flash2DMHA(nn.Module):
     """
     FlashAttention-2 (Windows) MHA with:
       - head chunking (heads split evenly)
@@ -101,6 +101,8 @@ class Chunk2DMHA(nn.Module):
         return out_seq
         
     def forward(self, input, attn_mask=None, train:bool = False, modules_to_cpu=True):
+        # return input    # NoMHA
+        
         """
         x: [B, L, D]
         attn_mask: optional boolean mask. Supports shapes:
@@ -161,7 +163,7 @@ class Chunk2DMHA(nn.Module):
             out_head_chunks.append(out_h)
 
         # concat head chunks along head dim -> [B, L, H, head_dim]
-        out_all = torch.cat(out_head_chunks, dim=2 if out_head_chunks[0].dim()==4 else 2)   
+        out_all = torch.cat(out_head_chunks, dim=2)
         # tracking: (B, s_idx * tokens_per_chunk : (s_idx+1) * tokens_per_chunk, h_idx * heads_per_chunk : (h_idx+1) * heads_per_chunk, head_dim)
 
         # permute and merge heads -> [B, L, D]
@@ -182,6 +184,7 @@ class Chunk2DMHA(nn.Module):
         return out_proj
 
     def backward(self, gradient: torch.Tensor) -> torch.Tensor:
+        # return gradient     # NoMHA
         """
         initial: all submodules, self.W_o and self.W_qkv, are on cpu
         return: gradient from self.input_saved through to gradient, on cpu
@@ -217,7 +220,7 @@ if __name__ == "__main__":
     B, L, D = 2, 100_000, 1024
     x = torch.randn(B, L, D, dtype=torch.float32, device=device, requires_grad=True)
 
-    model = Chunk2DMHA(d_model=1024, num_heads=8, dropout=0.0, causal=False,
+    model = Flash2DMHA(d_model=1024, num_heads=8, dropout=0.0, causal=False,
                         tokens_per_chunk=10000, heads_per_chunk=4).cuda()
     # out = model.forward(x)
     # loss = out.sum()
@@ -241,7 +244,7 @@ if __name__ == "__main__":
     lr = 1e-4
     steps = 100
 
-    model = Chunk2DMHA(d_model=d_model, num_heads=num_heads, dropout=0.0, causal=False,
+    model = Flash2DMHA(d_model=d_model, num_heads=num_heads, dropout=0.0, causal=False,
                         tokens_per_chunk=tokens_per_chunk, heads_per_chunk=heads_per_chunk, kv_full_sequence=kv_full_sequence).cuda()
     
     # optimizer (params are on CPU at construction time)

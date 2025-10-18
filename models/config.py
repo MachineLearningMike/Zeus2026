@@ -11,12 +11,12 @@ config = {
     'T2':           24,
     
     'patch_size':   16, #16, # 8        ----------------------  optimization param,  Chunk
-    'heads':        128, #8,     # 8    ----------------------    optimization param,  Chunk
+    'heads':        128, # (128) 8,     # 8    ----------------------    optimization param,  Chunk
 
-    'heads_per_chunk':  2,    #             ---------------------   optimization param,  Chunk
+    'heads_per_chunk':  2,  # (2)             ---------------------   optimization param,  Chunk
     'tokens_per_chunk':    8,    #             ---------------------   optimization param,  Chunk
 
-    'attLayers' :   5,    #             ----------------------  optimization param,  Chunk
+    # 'attLayers' :   5, # (10)            ----------------------  optimization param,  Chunk
     'layerFFN' :    "GLU",  # "FFN", "GLU"    ----------------------  optimization param,  Chunk
 
     'zeusLayers':   4,    #             ---------------------- optimization param
@@ -25,7 +25,7 @@ config = {
     'dropout':      0.0,
     'attn_dropout': 0.0,
     'drop_path':    0.0,
-    'dim_to_mlp_dim': 4,
+    # 'dim_to_mlp_dim': 4,
 
     'nFrames': 24,
     'mFrames' : 24,
@@ -45,8 +45,11 @@ config = {
     'include_difficulty' : False,
     'epochs': 50,
     'steps_to_save' : 50,
-    'batch_size' : 1,
+    # The bottleneck is on file reading.
+    'batch_size' : 10, #(10)
     'log_step': 10,
+    
+    'skip_validation' : False,
     
     'data_last_years' : 100,    # The latest 'data_last_years' years of the databased years are accounted for. 
 
@@ -76,21 +79,24 @@ config = {
     # 'bayesProject' : '16-128-8-6-GLU' # '16-128-8-6-GLU' # 'f2-k5-3', 'f4-k5-3' #'production_0923_16' #'production_0823-18' #31_12',  #23-18  # Represents an instance of a whole bayesian miximization. Mike!!!
 }
 
-config['lr'] = config['max_lr'] = pow(10, -(config['attLayers']-2)/2) * 1e-3
-config['bayesProject'] = "-".join([str(config['patch_size']), str(config['heads']), str(config['heads_per_chunk']), str(config['tokens_per_chunk']), str(config['attLayers']), config['layerFFN']])
-
-
 from pathlib import Path
 import platform
 if platform.system() == "Windows":  
+    
     root_path = Path("D:/Zeus_Data")
 
     # GPU: RTX 4070, Chunk2D
-    config['heads'] = 128
     config['factor10'] = 2  # 2 is the minimum, as 1 causes a non-float parameter error.
+    config['dim_to_mlp_dim'] = 4
+
+    config['heads'] = 128
+    config['attLayers'] = 5
     config['heads_per_chunk'] = 32  # 32 == 64
     config['tokens_per_chunk'] = round(config['T1'] * 72 * config['factor10'] * 144 * config['factor10'] /config['patch_size']/config['patch_size']) // 2
 
+    config['noPE'] = True
+    
+    config['batch_size'] = 5
     config['epochs'] = 100
     config['steps_to_save'] = 50
     config['abundant_GPUs'] = False
@@ -112,4 +118,20 @@ C = len(config['variables'])
 config['cnn_hidden_channels'] = [n*C, n*C, n*C, n*C, n*C, n*C, n*C, n*C, C] # the last should be C. See ZeusCNN.forward. We get one frame from n frames.
    
 # config['cnn_hidden_channels'] = [2*n*C, 2*n*C, 2*n*C, 2*n*C, 2*n*C, 2*n*C, 2*n*C, 2*n*C, C]
-    
+
+# (-5, -4,)
+config['lr'] = config['max_lr'] = 1e-3 # 1e-3 # pow(10, -(config['attLayers']-2)/2) * 1e-2
+
+# Chunk2D and simple Chunk
+if config['dim_to_mlp_dim'] == 4:
+    config['bayesProject'] = "-".join([str(config['patch_size']), str(config['heads']), str(config['heads_per_chunk']), str(config['tokens_per_chunk']), str(config['attLayers']), config['layerFFN'], "noPE" if config['noPE'] else "" ])
+else:
+    config['bayesProject'] = "-".join([str(config['patch_size']), str(config['heads']), str(config['heads_per_chunk']), str(config['tokens_per_chunk']), str(config['attLayers']), str(config['dim_to_mlp_dim']), config['layerFFN'], "noPE" if config['noPE'] else ""])
+
+config['bayesProject'] = "ResNet50"
+config['bayesProject'] = "ResNet50-NewCodec-2"
+# config['bayesProject'] = "Latent-ConvNeXtV2"
+
+print('bayesProject:', config['bayesProject'])
+
+# config['bayesProject'] = config['bayesProject'] + '-NoMHA'  # NoMHA

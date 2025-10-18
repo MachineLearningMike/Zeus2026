@@ -5,7 +5,8 @@ import logging
 import sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from models.Train_Chunk2D import Train
+# from models.Train_Chunk2D import Train
+from models.Train_CNN import Train
 import modules.utils as utils
 from modules.params import Params
 
@@ -48,10 +49,10 @@ class Trainer():
         logging.root.addHandler(console_handler)
         
     def run_train(self, start_epoch=0, step_state=None):
+        run = False
         keep_go_next_epoch = True
         best_rmse_yet = 1e10
-        run = False
-
+            
         for epoch in range(start_epoch, self.pm.epochs):
             run = True
             print("---------- epoch {} ------------".format(epoch))
@@ -61,8 +62,10 @@ class Trainer():
             # self.scheduler.step()   # Commented out, because our scheduler is OneCycleLR, which is a per-batch scheduler
             display = self.train.get_epoch_display(train_loss, train_metrics)
             logging.info("Train epoch: {}, {}".format(epoch, display))
-
-            if epoch >= 0:              # Mike!!!
+    
+            if self.pm.skip_validation:              # Mike!!!
+                logging.info("Validation skipped as configured with 'skip_validation'")
+            else:
                 keep_go_next_epoch, best_rmse_yet = self.validate(epoch, train_loss, train_metrics)
 
             if self.bayes is not None:  self.bayes.on_epoch_end()

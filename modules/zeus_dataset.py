@@ -631,7 +631,8 @@ class Zeus_Dataset(Dataset):
             for item in data["x_set"]
         ]
         self._fetched_batches = 0
-        self.total_batches = data["total_batches"] - data["_fetched_batches"]
+        # self.total_batches = data["total_batches"] - data["_fetched_batches"]
+        self.total_batches = math.ceil(len(self.x_set) / self.pm.batch_size)    # This line allows to change batch_size mid apoch
 
     def no_more_data(self):
         return len(self.x_set) <= 0

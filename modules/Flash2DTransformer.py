@@ -9,9 +9,9 @@ from pathlib import Path
 import os, sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from modules.Chunk2DEncLayer import Chunk2DEncLayer
+from modules.Flash2DEncLayer import Flash2DEncLayer
 
-class Chunk2DTransformer(nn.Module):
+class Flash2DTransformer(nn.Module):
     def __init__(
         self,
         num_layers: int,
@@ -28,7 +28,7 @@ class Chunk2DTransformer(nn.Module):
         device: Optional[str] = None,
         norm_layer: Optional[nn.Module] = None,
     ):  
-        print("transformer: layers {}, dim {}, heads {}, heads_per_chunk {}, tokens_per_chunk {}, dim_fwd {}, ffn {}".format(num_layers, d_model, num_heads, heads_per_chunk, tokens_per_chunk, dim_feedforward, ffn))
+        print("transformer Chunk2D: layers {}, dim {}, heads {}, heads_per_chunk {}, tokens_per_chunk {}, dim_fwd {}, ffn {}".format(num_layers, d_model, num_heads, heads_per_chunk, tokens_per_chunk, dim_feedforward, ffn))
         
         super().__init__()
         if device is None:
@@ -38,7 +38,7 @@ class Chunk2DTransformer(nn.Module):
         layers = []
         for _ in range(num_layers):
             layers.append(
-                Chunk2DEncLayer(
+                Flash2DEncLayer(
                     d_model=d_model,
                     num_heads=num_heads,
                     dim_feedforward=dim_feedforward,
@@ -96,20 +96,20 @@ if __name__ == "__main__":
 
     factor10 = 2
     batch_size = 1         # it's also the data simplicity in this test.
-    T1 = 24
+    T1 = 1
     seq_len = round(T1 * 72 * factor10 * 144 * factor10 /16/16)    # 97_200 for factor10 == 10
     num_layers = 5
     d_model = 1024
     num_heads = 128
-    heads_per_chunk = 2
     tokens_per_chunk = seq_len // 10
+    heads_per_chunk = 32
     kv_full_sequence = True
     lr = 1e-4
     steps = 100
     
     ffn = "GLU"  # "FFN", "GLU"
 
-    model = Chunk2DTransformer(
+    model = Flash2DTransformer(
         num_layers = num_layers,
         d_model = d_model,
         num_heads = num_heads, 

@@ -6,13 +6,17 @@ from einops import rearrange
 from pathlib import Path
 import logging
 from datetime import datetime
-import sys, gc, copy
+import sys, gc, copy, time
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.utils import check_dir
 from modules.zeus_tqdm import zeus_tqdm
-from models.Zeus_CNN_4 import ZeusCNN
+
+# from models.Zeus_CNN_4 import ZeusCNN
+from models.Zeus_ResNet import ZeusCNN
+# from models.Zeus_ConvNeXtV2 import ZeusCNN
+
 from modules.zeus_dataset import Zeus_Dataset
 import modules.utils as utils
 from modules.params import Params
@@ -60,8 +64,9 @@ class Train():
                 kernel_size = round(self.pm.radius*72*self.pm.factor10/6400/3.1416/len(self.pm.cnn_hidden_channels)) // 2 * 2 + 1
                 kernel_size = max(3, kernel_size)
                 # kernel_size = 5 # Mike!!!
-                print('kernel_size, max_radius: ', kernel_size, 6400 * 3.1416 / 72 / self.pm.factor10 * kernel_size * len(self.pm.cnn_hidden_channels) )
-                self.model = ZeusCNN(self.pm.nChannels, self.pm.image_height, self.pm.image_width, self.pm.cnn_hidden_channels, n_frames=self.pm.nFrames, kernel_size=kernel_size, device=self.device)
+                # print('kernel_size, max_radius: ', kernel_size, 6400 * 3.1416 / 72 / self.pm.factor10 * kernel_size * len(self.pm.cnn_hidden_channels) )
+                # self.model = ZeusCNN(self.pm.nChannels, self.pm.image_height, self.pm.image_width, self.pm.cnn_hidden_channels, n_frames=self.pm.nFrames, kernel_size=kernel_size, device=self.device)
+                self.model = ZeusCNN(self.pm.nChannels, self.pm.image_height, self.pm.image_width, n_frames=self.pm.nFrames, device=self.device)                
                 # self.model = Zeus(config, self.nDevices, device_type=self.device_type, abundant_GPUs=self.pm.abundant_GPUs).float()                
                 logging.info("Zeus model created.")
                 if self.nDevices > 1:
@@ -83,6 +88,8 @@ class Train():
             self.epochs_since_improvement = 0
             self.rmses_old = torch.ones_like(self.era5_data_vars) * 1e9
             self.transient_step = 0
+            
+        self.total_losses = []
 
     def _acquire_device(self):
         if torch.cuda.is_available():
@@ -218,6 +225,8 @@ class Train():
         torch.save(checkpoint, self.bayes_path / (name + '.pth.bak'))   # Create a backup, as creating takes a long time and may fail by the cloud Spot service.
         # logging.info(f"Checkpoint '{name}' saved, including model, optimizer, scheduler, scaler, rmses_old, and dataset state")
     
+        with open(str(self.bayes_path / name) + '.json', 'w') as f:
+            json.dump(self.total_losses, f)
     
     def try_load_state_old(self, name=None):    # Couples with save_state
     #-------------- My version -------------- shortens tranining step.
@@ -483,6 +492,12 @@ class Train():
         else: # file found, train not finished, file loaded
             # Continue the loaded train.
             epoch = epoch; step_state = step_state
+            
+        try:
+            with open(str(self.bayes_path / name) + '.json', 'r') as f:
+                self.total_losses = json.load(f)
+        except:
+            pass
 
         return epoch, step_state
     
@@ -550,7 +565,9 @@ class Train():
         if not pbar.no_more_data():  pbar.prefetch(x_set_label)        # Fetch one batch asynchronously
 
         step = 0
+        start = time.time()
         for batch_normalized in pbar:              # Wait for the asynchronous .prefetch
+            end = time.time()
             if not pbar.no_more_data():  pbar.prefetch(x_set_label)        # Prefetch ensures getting new bacthes.
             if batch_normalized is None: break     # just in case
             batch_x, batch_y, batch_diff, era5_data_vars = batch_normalized    # (B, T1FG, C, H, W), (B, T2FG, C, H, W), None or (B, C, H, W), (C,)
@@ -582,6 +599,7 @@ class Train():
                         loss.backward()
                 step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
                 step_rmses.append(rmse.detach().cpu())      # (C,) - list.  If no cpu(), their stack results in cuda
+                self.total_losses.append(loss.item())
 
             elif not self.pm.abundant_GPUs and trainable:
                 if self.nDevices <= 1:
@@ -590,6 +608,7 @@ class Train():
                     _, (loss, rmse) = self.model.sigle_GPU_forward_loss_backward(batch_x, batch_y, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars)
                     step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
                     step_rmses.append(rmse.detach().cpu())      # (C,) - list.  If no cpu(), their stack results in cuda
+                    self.total_losses.append(loss.item())
                 else:
                     chunks_x = batch_x.chunk(self.nDevices)
                     chunks_y = batch_y.chunk(self.nDevices)
@@ -610,6 +629,7 @@ class Train():
                         grads_list.append(grads)
                         step_loss.append(loss.detach().to('cpu'))
                         step_rmses.append(rmse.detach().to('cpu'))
+                        self.total_losses.append(loss.item())
                     
                     self.average_gradients_to_master(self.model, grads_list)
                     
@@ -622,8 +642,9 @@ class Train():
 
             step_loss = torch.tensor(step_loss).mean()   # (,)
             step_rmses = torch.stack(step_rmses, dim=0).mean(dim=0)   # (C,)
-            strC = ", ".join(f"{x:.3f}" for x in step_rmses.ravel().tolist())
-            pbar.set_description('Loss: {:.3f}, rmses: {}'.format(step_loss.item(), strC))
+            strC = ", ".join(f"{x:.2f}" for x in step_rmses.ravel().tolist())
+            pbar.set_description("loss {:.4f} rmse ({}) wait(ms) {:.3f} lr {:0.1e}, bs {}"
+                                 .format(step_loss.item(), strC, (end-start) * 1000, self.optimizer.param_groups[0]['lr'], self.pm.batch_size))
 
             _epoch_loss.append(step_loss)    # (,) - list
             _epoch_rmses.append(step_rmses)   # (C,) - list
@@ -632,6 +653,8 @@ class Train():
             if trainable is True and step % self.pm.steps_to_save == 0:
                 step_state = self.pack_step_state(_epoch_loss, _epoch_rmses)
                 self.save_state(step_state=step_state)  # Step_save
+                
+            start = time.time()
                 
         _epoch_loss = torch.stack(_epoch_loss, dim=0).mean(dim=0)  # (,)
         _epoch_rmses = torch.stack(_epoch_rmses, dim=0).mean(dim=0)       # (C,)
@@ -660,7 +683,7 @@ class Train():
     
     def get_epoch_display(self, _epoch_loss, _epoch_rmses):
         loss = "Loss: {:.4f}".format(_epoch_loss.item())
-        rmses = "RMSE: " + ", ".join(f"{x:.2f}" for x in _epoch_rmses.ravel().tolist())
+        rmses = "RMSE: " + ", ".join(f"{x:.5f}" for x in _epoch_rmses.ravel().tolist())
         display = loss + ', ' + rmses
         return display
     

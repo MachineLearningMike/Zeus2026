@@ -13,7 +13,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 from config import config
 from modules.params import Params
 
-from modules.Chunk2DTransformer import Chunk2DTransformer
+from modules.Flash2DTransformer import Flash2DTransformer
 
 def sinusoidal_embedding(n_channels, dim):
     pe = torch.FloatTensor([[p / (10000 ** (2 * (i // 2) / dim)) for i in range(dim)]
@@ -23,15 +23,18 @@ def sinusoidal_embedding(n_channels, dim):
     return pe    # (n_channels, dim)
 
 class PatchEmbedWithPos(nn.Module):
-    def __init__(self, to_patch_embedding, pos_embedding):
+    def __init__(self, to_patch_embedding, pos_embedding, noPE=False):
         super().__init__()
+        self.noPE = noPE
         # Assign with the name you want in state_dict
         self.to_patch_embedding = to_patch_embedding  # nn.Linear
-        self.pos_embedding = nn.Parameter(pos_embedding)    # trainable
+        if not noPE:
+            self.pos_embedding = nn.Parameter(pos_embedding)    # trainable
 
     def forward(self, x):
         x = self.to_patch_embedding(x)
-        x = x + self.pos_embedding
+        if not self.noPE:
+            x = x + self.pos_embedding
         return x
 
 class ReshapeForMLP(nn.Module):
@@ -87,10 +90,10 @@ class Zeus(nn.Module):
         pe = sinusoidal_embedding(self.pm.nFramesIn * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.dim)
         pos_embedding = rearrange(pe, '(t n) dim -> 1 t n dim', t=self.pm.nFramesIn)
         
-        self.patch_module = PatchEmbedWithPos(to_patch_embedding, pos_embedding)
+        self.patch_module = PatchEmbedWithPos(to_patch_embedding, pos_embedding, self.pm.noPE)
 
         #-------------- transformer -------------------------
-        self.transformer = Chunk2DTransformer(
+        self.transformer = Flash2DTransformer(
             num_layers = self.pm.attLayers,
             d_model = self.pm.dim, 
             num_heads = self.pm.nHeads, 
@@ -202,8 +205,8 @@ if __name__ == "__main__":
     
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
-    lr = 1e-3
-    steps = 500
+    lr = 1e-3   # 1e-2: 1, 1e-3: 0.19, 1e-4: 
+    steps = 100
 
     model = Zeus(config, device=device)
 

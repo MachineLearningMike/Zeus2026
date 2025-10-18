@@ -6,7 +6,7 @@ from einops import rearrange
 from pathlib import Path
 import logging
 from datetime import datetime
-import sys, gc, copy
+import sys, gc, copy, time
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
@@ -134,7 +134,7 @@ class Train():
             weight_decay=weight_decay
         )
 
-        logging.info(f"Optimizer created: {optimizer_name.upper()} with lr={lr}, weight_decay={weight_decay}")
+        logging.info(f"Optimizer created: {optimizer_name.upper()} with lr={lr:.2e}, weight_decay={weight_decay}")
 
         return optimizer
     
@@ -165,7 +165,7 @@ class Train():
             final_div_factor=final_div_factor
         )
 
-        logging.info(f"Scheduler created: OneCycleLR with max_lr={max_lr}, epochs={epochs}, steps_per_epoch={steps_per_epoch}")
+        logging.info(f"Scheduler created: OneCycleLR with max_lr={max_lr:.2e}, epochs={epochs}, steps_per_epoch={steps_per_epoch}")
 
         return scheduler
     
@@ -277,17 +277,17 @@ class Train():
                     
                     try:                       
                         # Restore optimizer
-                        if self.optimizer is not None and "optimizer" in checkpoint:
-                            self.optimizer.load_state_dict(checkpoint["optimizer"])
+                        # if self.optimizer is not None and "optimizer" in checkpoint:
+                        #     self.optimizer.load_state_dict(checkpoint["optimizer"])
 
-                            # Move optimizer state tensors to the same device as their parameters
-                            for group in self.optimizer.param_groups:
-                                for p in group["params"]:
-                                    if p in self.optimizer.state:
-                                        for k, v in self.optimizer.state[p].items():
-                                            if torch.is_tensor(v):
-                                                self.optimizer.state[p][k] = v.to(p.device, non_blocking=True)                       
-                        logging.info("Optimizer loaded with saved state")
+                        #     # Move optimizer state tensors to the same device as their parameters
+                        #     for group in self.optimizer.param_groups:
+                        #         for p in group["params"]:
+                        #             if p in self.optimizer.state:
+                        #                 for k, v in self.optimizer.state[p].items():
+                        #                     if torch.is_tensor(v):
+                        #                         self.optimizer.state[p][k] = v.to(p.device, non_blocking=True)                       
+                        # logging.info("Optimizer loaded with saved state")
 
                         self.scheduler.load_state_dict(checkpoint['scheduler'])
                         logging.info("Scheduler loaded with saved state")
@@ -408,7 +408,9 @@ class Train():
         
         if not pbar.no_more_data():  pbar.prefetch(x_set_label)        # Fetch one batch asynchronously
         step = 0
+        start = time.time()
         for batch in pbar:              # Wait for the asynchronous .prefetch
+            end = time.time()
             if not pbar.no_more_data():  pbar.prefetch(x_set_label)        # Prefetch ensures getting new bacthes.
             if batch is None: break     # just in case
             batch_x, batch_y, batch_diff, era5_data_vars = batch    # (B, T1FG, C, H, W), (B, T2FG, C, H, W), None or (B, C, H, W), (C,)
@@ -515,8 +517,9 @@ class Train():
 
             step_loss = torch.tensor(step_loss).mean()   # (,)
             step_rmses = torch.stack(step_rmses, dim=0).mean(dim=0)   # (C,)
-            strC = ", ".join(f"{x:.3f}" for x in step_rmses.ravel().tolist())
-            pbar.set_description('Loss: {:.3f}, rmses: {}'.format(step_loss.item(), strC))
+            strC = ", ".join(f"{x:.2f}" for x in step_rmses.ravel().tolist())
+            pbar.set_description("loss {:.4f} rmse ({}) wait(ms) {:.3f} lr {:0.1e}, bs {}"
+                                 .format(step_loss.item(), strC, (end-start) * 1000, self.optimizer.param_groups[0]['lr'], self.pm.batch_size))
 
             _epoch_loss.append(step_loss)    # (,) - list
             _epoch_rmses.append(step_rmses)   # (C,) - list
@@ -525,6 +528,8 @@ class Train():
             if trainable is True and step % self.pm.steps_to_save == 0:
                 step_state = self.pack_step_state(_epoch_loss, _epoch_rmses)
                 self.save_state(step_state=step_state)  # Step_save
+                
+            start = time.time()
                 
         _epoch_loss = torch.stack(_epoch_loss, dim=0).mean(dim=0)  # (,)
         _epoch_rmses = torch.stack(_epoch_rmses, dim=0).mean(dim=0)       # (C,)
@@ -553,7 +558,7 @@ class Train():
     
     def get_epoch_display(self, _epoch_loss, _epoch_rmses):
         loss = "Loss: {:.4f}".format(_epoch_loss.item())
-        rmses = "RMSE: " + ", ".join(f"{x:.2f}" for x in _epoch_rmses.ravel().tolist())
+        rmses = "RMSE: " + ", ".join(f"{x:.5f}" for x in _epoch_rmses.ravel().tolist())
         display = loss + ', ' + rmses
         return display
     

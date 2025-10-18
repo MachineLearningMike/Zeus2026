@@ -553,7 +553,7 @@ class Train():
     
     def get_epoch_display(self, _epoch_loss, _epoch_rmses):
         loss = "Loss: {:.4f}".format(_epoch_loss.item())
-        rmses = "RMSE: " + ", ".join(f"{x:.2f}" for x in _epoch_rmses.ravel().tolist())
+        rmses = "RMSE: " + ", ".join(f"{x:.5f}" for x in _epoch_rmses.ravel().tolist())
         display = loss + ', ' + rmses
         return display
     

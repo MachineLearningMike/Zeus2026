@@ -9,12 +9,12 @@ from pathlib import Path
 import os, sys, gc
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from modules.Chunk2DMHA import Chunk2DMHA
+from modules.Flash2DMHA import Flash2DMHA
 from modules.ChunkFFN import FFN
 from modules.ChunkGLU import GLU
 
 
-class Chunk2DEncLayer(nn.Module):
+class Flash2DEncLayer(nn.Module):
     """
     implements:   
       x = x + dropout(MHA(norm1(x)))        # pre_LN to MHA
@@ -51,7 +51,7 @@ class Chunk2DEncLayer(nn.Module):
         self.norm1 = nn.LayerNorm(d_model, eps=eps)   
 
         # Offloaded attention (weights on CPU, chunks on GPU)
-        self.self_attn = Chunk2DMHA(
+        self.self_attn = Flash2DMHA(
             d_model=d_model,
             num_heads=num_heads,
             dropout=dropout,
@@ -258,7 +258,7 @@ if __name__ == "__main__":
     steps = 100
 
     ffn = "GLU"  # "GLU", "FFN"
-    model = Chunk2DEncLayer(d_model=d_model, num_heads=num_heads, heads_per_chunk=heads_per_chunk, dim_feedforward=4*d_model, dropout=0.0, ffn=ffn, device=device)
+    model = Flash2DEncLayer(d_model=d_model, num_heads=num_heads, heads_per_chunk=heads_per_chunk, dim_feedforward=4*d_model, dropout=0.0, ffn=ffn, device=device)
 
     x = torch.randn(batch_size, seq_len, d_model)  # (B, S, E)
     with torch.no_grad():
