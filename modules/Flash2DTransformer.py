@@ -96,7 +96,7 @@ if __name__ == "__main__":
 
     factor10 = 2
     batch_size = 1         # it's also the data simplicity in this test.
-    T1 = 1
+    T1 = 24
     seq_len = round(T1 * 72 * factor10 * 144 * factor10 /16/16)    # 97_200 for factor10 == 10
     num_layers = 5
     d_model = 1024

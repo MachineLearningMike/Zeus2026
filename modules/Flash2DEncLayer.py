@@ -244,15 +244,15 @@ if __name__ == "__main__":
     
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
-    factor10 = 2
+    factor10 = 10
     batch_size = 1         # it's also the data simplicity in this test.
-    T1 = 1
+    T1 = 24
     seq_len = round(T1 * 72 * factor10 * 144 * factor10 /16/16)    # 97_200 for factor10 == 10
     num_layers = 5
     d_model = 1024
     num_heads = 128
-    tokens_per_chunk = seq_len // 10
-    heads_per_chunk = 32
+    tokens_per_chunk = seq_len // 1
+    heads_per_chunk = 128
     kv_full_sequence = True
     lr = 1e-4
     steps = 100

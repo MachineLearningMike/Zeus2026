@@ -535,6 +535,11 @@ class Train():
                 stacked = torch.stack([g[idx] for g in grads_list])
                 param.grad = stacked.mean(dim=0)
                 
+    def clean_gpu_every(self, n_iter, step):
+        if step % n_iter == 0:
+            gc.collect()
+            torch.cuda.empty_cache()
+            # torch.cuda.ipc_collect()  # only for inter-process communicatoin
 
     def run_epoch(self, epoch, x_set_label, trainable=False, step_state=None):
         self.epoch = epoch
@@ -653,9 +658,9 @@ class Train():
             if trainable is True and step % self.pm.steps_to_save == 0:
                 step_state = self.pack_step_state(_epoch_loss, _epoch_rmses)
                 self.save_state(step_state=step_state)  # Step_save
-                
+            self.clean_gpu_every(50, step)
             start = time.time()
-                
+            
         _epoch_loss = torch.stack(_epoch_loss, dim=0).mean(dim=0)  # (,)
         _epoch_rmses = torch.stack(_epoch_rmses, dim=0).mean(dim=0)       # (C,)
         strC = ", ".join(f"{x:.2f}" for x in _epoch_rmses.ravel().tolist())
