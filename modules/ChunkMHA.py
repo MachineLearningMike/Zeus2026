@@ -78,6 +78,7 @@ class ChunkMHA(nn.Module):
         k = k.view(B, S, heads, self.head_dim).transpose(1, 2)
         v = v.view(B, S, heads, self.head_dim).transpose(1, 2)
 
+        # !!! Keep this block.
         # Release the gpu memory used by lin tensors and qkv to the cuda driver, as they are now zero-referenced.
         gc.collect()                # de-allocate zero-referenced tensors. The memory used by the de-allocated cpu / gpu tensor is returned to the system / torch
         torch.cuda.empty_cache()    # Torch returns the memory used by the de-allocated gpu tensor to the cuda driver.
@@ -85,7 +86,6 @@ class ChunkMHA(nn.Module):
         # !!! THIS is the place where the memory footprint reaches maximum.
         attn_logits = torch.matmul(q, k.transpose(-2, -1)) * self.scale  # (B, heads, S, S)
         del q, k    # delelet as much and early as possible.
-
         gc.collect()                # de-allocate zero-referenced tensors. The memory used by the de-allocated cpu / gpu tensor is returned to the system / torch
         torch.cuda.empty_cache()    # Torch returns the memory used by the de-allocated gpu tensor to the cuda driver.
 

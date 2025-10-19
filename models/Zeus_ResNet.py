@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.amp import autocast, GradScaler
 import math
 from einops import rearrange
 import random
@@ -12,11 +13,11 @@ from SphericalCodec import SphericalEncoder, SphericalDecoder
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 # modules.ResNet_custom_1 is 0.131:0.090x faster, giving the same accuracy.
-from modules.ResNet_custom_1 import FCResNetCylindrical
+from modules.ResNet_GroupNorm import FCResNetCylindrical
 # -----------------------------
 # ZeusCNN model
 # -----------------------------
-class ZeusCNN(nn.Module):
+class Zeus(nn.Module):
     def __init__(self, C, H, W, n_frames=5, device='cpu'):
         """
         Past n frames are flattened into channels (n*C) and fed once to encoder + CNN.
@@ -171,12 +172,14 @@ def train_epoch(model, dataloader, optimizer, criterion, x_frames, y_frames, dev
         
         x_input = normalize(x_input)
         target = normalize(target_org)
-        preds = model(x_input, y_frames, y=target)  # list of m predictions (B, C, H, W)
+        with autocast(device_type="cuda", dtype=torch.bfloat16):
+            preds = model(x_input, y_frames, y=target)  # list of m predictions (B, C, H, W)
 
         preds = denormalize(preds)
         loss = criterion(preds, target_org)
 
-        loss.backward()
+        with autocast(device_type="cuda", dtype=torch.bfloat16):
+            loss.backward()
         optimizer.step()
         total_loss += loss.item()
         end = time.time()
@@ -236,7 +239,7 @@ if __name__ == "__main__":
     # -----------------------------
     lr = 1e-3   #=======================
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    model = ZeusCNN(C=C, H=H, W=W, n_frames=n, device=device)
+    model = Zeus(C=C, H=H, W=W, n_frames=n, device=device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     def criterion(pred, target):
         return ((target.to(pred.device) - pred) ** 2).mean() ** 0.5

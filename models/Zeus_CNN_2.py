@@ -97,7 +97,7 @@ class Convolutions(nn.Module):
 # -----------------------------
 # ZeusCNN model
 # -----------------------------
-class ZeusCNN(nn.Module):
+class Zeus(nn.Module):
     def __init__(self, C, H, W, cnn_hidden_channels, n_frames=5, interactive_codec=False):
         """
         interactive_codec:

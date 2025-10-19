@@ -13,7 +13,7 @@ from timm.models.layers import trunc_normal_
 from timm.models.layers import to_2tuple
 
 from pathlib import Path
-import os, sys
+import os, sys, gc
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 from modules.params import Params
 
@@ -81,7 +81,7 @@ class FeedForward(nn.Module):
     def forward(self, x):   # shape -> shape
         return self.net(x)
      
-class Attention(nn.Module):     # (b, n, dim)  -> (b, n, dim)
+class MHA(nn.Module):     # (b, n, dim)  -> (b, n, dim)
     def __init__(self, dim, heads=8, dim_head=64, dropout=0., skip=False):
         super().__init__()
         
@@ -181,7 +181,7 @@ def sinusoidal_embedding_3d(sPos, dim):    # shape of positions, dim. -> (1,) + 
     return pe # (s0, s1, s2, d)
 
 class GatedTemporalAttention(nn.Module):      # ((b n), t, dim) -> ((b n), t, dim) 
-    def __init__(self, model_dict, dim, layers, heads, dim_head, mlp_dim, dropout=0., attn_dropout=0., drop_path=0.1):
+    def __init__(self, model_dict, dim, layers, heads, dim_head, dim_layerFFN, dropout=0., attn_dropout=0., drop_path=0.1):
         super().__init__()
         self.model_dict = model_dict
         self.convolve = nn.ModuleList([
@@ -195,8 +195,8 @@ class GatedTemporalAttention(nn.Module):      # ((b n), t, dim) -> ((b n), t, di
 
         for _ in range(layers):
             self.layers.append(nn.ModuleList([
-                PreNorm(dim, Attention(dim, heads=heads, dim_head=dim_head, dropout=attn_dropout)),
-                PreNorm(dim, GLU(dim, mlp_dim, drop=dropout)),
+                PreNorm(dim, MHA(dim, heads=heads, dim_head=dim_head, dropout=attn_dropout)),
+                PreNorm(dim, GLU(dim, dim_layerFFN, drop=dropout)),
                 DropPath(drop_path) if drop_path > 0. else nn.Identity(),
                 DropPath(drop_path) if drop_path > 0. else nn.Identity()
             ]))
@@ -221,7 +221,7 @@ class GatedTemporalAttention(nn.Module):      # ((b n), t, dim) -> ((b n), t, di
         return self.norm(x)
 
 
-class GatedAttention(nn.Module):      # (b, n, dim) -> (b, n, dim)
+class EncLayersWithGLU(nn.Module):      # (b, n, dim) -> (b, n, dim)
     def __init__(self, pm, skip):
         super().__init__()
         self.skip = skip
@@ -230,7 +230,7 @@ class GatedAttention(nn.Module):      # (b, n, dim) -> (b, n, dim)
         layers = pm.attLayers
         nHeads = pm.nHeads
         dim_head = pm.dim_head
-        mlp_dim = pm.mlp_dim
+        dim_layerFFN = pm.dim_layerFFN
         dropout = pm.dropout
         attn_dropout = pm.attn_dropout
         drop_path = pm.drop_path
@@ -240,8 +240,8 @@ class GatedAttention(nn.Module):      # (b, n, dim) -> (b, n, dim)
 
         for _ in range(layers):
             self.layers.append(nn.ModuleList([
-                PreNorm(dim, Attention(dim, heads=nHeads, dim_head=dim_head, dropout=attn_dropout, skip=self.skip)),
-                PreNorm(dim, GLU(dim, mlp_dim, drop=dropout, skip=self.skip)),
+                PreNorm(dim, MHA(dim, heads=nHeads, dim_head=dim_head, dropout=attn_dropout, skip=self.skip)),
+                PreNorm(dim, GLU(dim, dim_layerFFN, drop=dropout, skip=self.skip)),
                 DropPath(drop_path) if drop_path > 0. else nn.Identity(),
                 DropPath(drop_path) if drop_path > 0. else nn.Identity()
             ]))
@@ -282,20 +282,20 @@ class SpatialConvolution(nn.Module):
 
         return x
 
-class ZeusLayer(nn.Module):
+class Interwoven_EncLayersWithGLU(nn.Module):
     def __init__(self, pm, skip=False):
-        super(ZeusLayer, self).__init__()
+        super(Interwoven_EncLayersWithGLU, self).__init__()
         self.pm = pm
         self.skip = skip
 
         self.spatial_colvolution_1 = SpatialConvolution(pm, skip=self.skip)  # zero initially
-        self.temporal_transformer_1 = GatedAttention(pm, skip=self.skip)     # identity initially
+        self.temporal_transformer_1 = EncLayersWithGLU(pm, skip=self.skip)     # identity initially
 
-        self.space_transformer_1 = GatedAttention(pm, skip=self.skip)         # identity initially
-        self.space_transformer_2 = GatedAttention(pm, skip=self.skip)         # identity initially
+        self.space_transformer_1 = EncLayersWithGLU(pm, skip=self.skip)         # identity initially
+        self.space_transformer_2 = EncLayersWithGLU(pm, skip=self.skip)         # identity initially
         
         self.spacial_colvolution_2 = SpatialConvolution(pm, skip=self.skip)  # zero initially
-        self.temporal_transformer_2 = GatedAttention(pm, skip=self.skip)      # identity initially
+        self.temporal_transformer_2 = EncLayersWithGLU(pm, skip=self.skip)      # identity initially
 
     def forward(self, x):   # (B, T, N, dim) -> (B, T, N, dim)      # (B, T1FG, H/p * W/p, dim)
         # returns x initially
@@ -402,13 +402,13 @@ class Zeus(nn.Module):
 
         #-------------- zeus layers -------------------------
         if self.nDevices > 1: 
-            assert self.nDevices >= self.pm.zeusLayers, "The numbers of devices and zeud layers must be the same if nDevices > 1"
-        self.zeusLayers = nn.ModuleList([       # (B, T, N, dim) -> (B, T, N, dim)
-            ZeusLayer(self.pm)
-            for i in range(self.pm.zeusLayers)
+            assert self.nDevices >= self.pm.zeusBlocks, "The numbers of devices and zeud layers must be the same if nDevices > 1"
+        self.zeusBlocks = nn.ModuleList([       # (B, T, N, dim) -> (B, T, N, dim)
+            Interwoven_EncLayersWithGLU(self.pm)
+            for i in range(self.pm.zeusBlocks)
         ])
         if self.abundant_GPUs:
-            for idx, layer in enumerate(self.zeusLayers):
+            for idx, layer in enumerate(self.zeusBlocks):
                 layer = layer.to(dstring(self.device_type, self.base_device + min(self.nDevices - 1, idx)))  # to the i-th device
         elif not self.abundant_GPUs: pass
 
@@ -426,13 +426,13 @@ class Zeus(nn.Module):
             reconstruct
         )
         if self.abundant_GPUs:
-            self.mlp_head = self.mlp_head.to(dstring(self.device_type, self.base_device + min(self.nDevices - 1, self.pm.zeusLayers-1)))    # to the last device
+            self.mlp_head = self.mlp_head.to(dstring(self.device_type, self.base_device + min(self.nDevices - 1, self.pm.zeusBlocks-1)))    # to the last device
         elif not self.abundant_GPUs: pass
         
         self.modules = self.get_modules()
         
     def get_modules(self):
-        return [self.patch_module] + list(self.zeusLayers) + [self.mlp_head]
+        return [self.patch_module] + list(self.zeusBlocks) + [self.mlp_head]
 
     def forward(self, x):
         # compute_place: data_find_layer, all_find_device_0
@@ -449,13 +449,11 @@ class Zeus(nn.Module):
                 x = x.to(device, non_blocking=True)
                 x = module(x)  # (B, T1FG, H/p * W/p, self.patch_dim = p * p * C) -> (B, T1FG, H/p * W/p, dim)
                 # backwarding is possible, because module is on the device it was forwarded on.
-                torch.cuda.empty_cache()    # free the space where x was.
             elif not self.abundant_GPUs:       #========================== inference only
                 module.to(x.device)  # layer is not a copy.
                 x = module(x)
                 module.to('cpu:0')
                 # backwarding is NOT possible, because module NOT is on the device it was forwarded on.
-                torch.cuda.empty_cache()    # free the space where layer was if there are multiple GPUs 
 
         return x    # (B,FG,C,H,W)
 
@@ -541,13 +539,13 @@ class Zeus_Skip(nn.Module):
 
         #-------------- zeus layers -------------------------
         if self.nDevices > 1: 
-            assert self.nDevices >= self.pm.zeusLayers, "The numbers of devices and zeud layers must be the same if nDevices > 1"
-        self.zeusLayers = nn.ModuleList([       # (B, T, N, dim) -> (B, T, N, dim)
-            ZeusLayer(self.pm, skip=True)
-            for i in range(self.pm.zeusLayers)
+            assert self.nDevices >= self.pm.zeusBlocks, "The numbers of devices and zeud layers must be the same if nDevices > 1"
+        self.zeusBlocks = nn.ModuleList([       # (B, T, N, dim) -> (B, T, N, dim)
+            Interwoven_EncLayersWithGLU(self.pm, skip=True)
+            for i in range(self.pm.zeusBlocks)
         ])
         if self.abundant_GPUs:
-            for idx, layer in enumerate(self.zeusLayers):
+            for idx, layer in enumerate(self.zeusBlocks):
                 layer = layer.to(dstring(self.device_type, self.base_device + min(self.nDevices - 1, idx)))  # to the i-th device
         elif not self.abundant_GPUs: pass
 
@@ -555,13 +553,13 @@ class Zeus_Skip(nn.Module):
         self.mlp_head = MLP_Skip(self.pm)
         
         if self.abundant_GPUs:
-            self.mlp_head = self.mlp_head.to(dstring(self.device_type, self.base_device + min(self.nDevices - 1, self.pm.zeusLayers-1)))    # to the last device
+            self.mlp_head = self.mlp_head.to(dstring(self.device_type, self.base_device + min(self.nDevices - 1, self.pm.zeusBlocks-1)))    # to the last device
         elif not self.abundant_GPUs: pass
         
         self.modules = self.get_modules()
         
     def get_modules(self):
-        return [self.patch_module] + list(self.zeusLayers) + [self.mlp_head]
+        return [self.patch_module] + list(self.zeusBlocks) + [self.mlp_head]
 
     def forward(self, x):
         # compute_place: data_find_layer, all_find_device_0
@@ -578,13 +576,11 @@ class Zeus_Skip(nn.Module):
                 x = x.to(device, non_blocking=True)
                 x = module(x)  # (B, T1FG, H/p * W/p, self.patch_dim = p * p * C) -> (B, T1FG, H/p * W/p, dim)
                 # backwarding is possible, because module is on the device it was forwarded on.
-                torch.cuda.empty_cache()    # free the space where x was.
             elif not self.abundant_GPUs:       #========================== inference only
                 module.to(x.device)  # layer is not a copy.
                 x = module(x)
                 module.to('cpu:0')
                 # backwarding is NOT possible, because module NOT is on the device it was forwarded on.
-                torch.cuda.empty_cache()    # free the space where layer was if there are multiple GPUs 
 
         return x    # (B,FG,C,H,W)
     
@@ -603,7 +599,6 @@ class Zeus_Skip(nn.Module):
                 x = x.detach()          # safe, disconnect from graph
                 acts_cpu.append(x.cpu())  # save for recomputation
                 module.to("cpu")
-                torch.cuda.empty_cache()
             else:
                 # Last module
                 last_input = x
@@ -638,9 +633,10 @@ class Zeus_Skip(nn.Module):
                 out.backward(grad_next.to(out.device))
 
             grad_next = prev_act.grad.detach().cpu()
-            del out, prev_act
-            torch.cuda.empty_cache()
             module.to("cpu")
+            # del out, prev_act
+            # gc.collect()
+            # torch.cuda.empty_cache()
             
         return lossAndMetrics
     
@@ -696,8 +692,7 @@ class DoubleZeus(nn.Module):
             module.to("cuda:0")
             with torch.set_grad_enabled(False):
                 x = module(x)
-                module.to("cpu:0")       # move module back to CPU
-                torch.cuda.empty_cache()
+            module.to("cpu:0")       # move module back to CPU
         return x.to("cpu:0")
     
     
@@ -731,7 +726,6 @@ class DoubleZeus(nn.Module):
                     else:
                         acts.append(x)  # 0, 1, ..., n-3
                 module.to("cpu")
-                # torch.cuda.empty_cache()
             else:                               # 3 = n-1
                 act_n_2 = x                  # act[n-2]. no save as it's used now
                 module_n_1 = module
@@ -756,6 +750,7 @@ class DoubleZeus(nn.Module):
         module_n_1.to("cpu")        # After backward(), safe place to move back. 
         
         del act_n_2, act_n_1, target, pred
+        gc.collect()
         torch.cuda.empty_cache()
 
         # 2) Recompute previous modules in reverse. n-1 is already done.
@@ -772,8 +767,9 @@ class DoubleZeus(nn.Module):
             grad_next = prev_act.grad   # 
                                    
             module.to("cpu")
-            del out, prev_act
-            torch.cuda.empty_cache()
+            # del out, prev_act
+            # gc.collect()
+            # torch.cuda.empty_cache()
             
         return lossAndMetrics
     

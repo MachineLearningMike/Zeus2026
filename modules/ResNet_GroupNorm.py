@@ -2,7 +2,12 @@ import torch
 import torch.nn as nn
 import time
 
-# Downsampling removed !
+"""
+Divides the channels into groups (e.g., 32 groups).
+Normalizes within each group across spatial positions (H×W).
+Good for convolutional spatial invariance and stable training on small batches.
+Computation is purely in (B,C,H,W) order → efficient on GPUs.
+"""
 
 # ---------- Helper ----------
 def get_valid_groups(num_channels, max_groups=32):

@@ -15,17 +15,21 @@ config = {
 
     'heads_per_chunk':  2,  # (2)             ---------------------   optimization param,  Chunk
     'tokens_per_chunk':    8,    #             ---------------------   optimization param,  Chunk
+    'kv_full_sequence': True,
 
     # 'attLayers' :   5, # (10)            ----------------------  optimization param,  Chunk
     'layerFFN' :    "GLU",  # "FFN", "GLU"    ----------------------  optimization param,  Chunk
 
-    'zeusLayers':   4,    #             ---------------------- optimization param
+    'zeusBlocks':   4,    #             ---------------------- optimization param
     'crossLayers':  6,
     
-    'dropout':      0.0,
-    'attn_dropout': 0.0,
-    'drop_path':    0.0,
-    # 'dim_to_mlp_dim': 4,
+    'PE': 'random',    # 'random', 'sinusodial'
+    'learn_PE': True,
+    
+    'dropout':      0.05,
+    'attn_dropout': 0.05,
+    'drop_path':    0.05,
+    # 'dim_to_layerFFN_dim': 4,
 
     'nFrames': 24,
     'mFrames' : 24,
@@ -87,14 +91,14 @@ if platform.system() == "Windows":
 
     # GPU: RTX 4070, Chunk2D
     config['factor10'] = 2  # 2 is the minimum, as 1 causes a non-float parameter error.
-    config['dim_to_mlp_dim'] = 4
+    config['dim_to_layerFFN_dim'] = 4
 
     config['heads'] = 128
     config['attLayers'] = 5
     config['heads_per_chunk'] = 32  # 32 == 64
     config['tokens_per_chunk'] = round(config['T1'] * 72 * config['factor10'] * 144 * config['factor10'] /config['patch_size']/config['patch_size']) // 2
 
-    config['noPE'] = True
+    config['no_PE'] = True
     
     config['batch_size'] = 5
     config['epochs'] = 100
@@ -123,14 +127,15 @@ config['cnn_hidden_channels'] = [n*C, n*C, n*C, n*C, n*C, n*C, n*C, n*C, C] # th
 config['lr'] = config['max_lr'] = 1e-3 # 1e-3 # pow(10, -(config['attLayers']-2)/2) * 1e-2
 
 # Chunk2D and simple Chunk
-if config['dim_to_mlp_dim'] == 4:
-    config['bayesProject'] = "-".join([str(config['patch_size']), str(config['heads']), str(config['heads_per_chunk']), str(config['tokens_per_chunk']), str(config['attLayers']), config['layerFFN'], "noPE" if config['noPE'] else "" ])
+if config['dim_to_layerFFN_dim'] == 4:
+    config['bayesProject'] = "-".join([str(config['patch_size']), str(config['heads']), str(config['heads_per_chunk']), str(config['tokens_per_chunk']), str(config['attLayers']), config['layerFFN'], "no_PE" if config['no_PE'] else "" ])
 else:
-    config['bayesProject'] = "-".join([str(config['patch_size']), str(config['heads']), str(config['heads_per_chunk']), str(config['tokens_per_chunk']), str(config['attLayers']), str(config['dim_to_mlp_dim']), config['layerFFN'], "noPE" if config['noPE'] else ""])
+    config['bayesProject'] = "-".join([str(config['patch_size']), str(config['heads']), str(config['heads_per_chunk']), str(config['tokens_per_chunk']), str(config['attLayers']), str(config['dim_to_layerFFN_dim']), config['layerFFN'], "no_PE" if config['no_PE'] else ""])
 
-config['bayesProject'] = "ResNet50"
+# config['bayesProject'] = "ResNet50"
 config['bayesProject'] = "ResNet50-NewCodec-2"
 # config['bayesProject'] = "Latent-ConvNeXtV2"
+# config['bayesProject'] = "Flash2DBlocked-1"
 
 print('bayesProject:', config['bayesProject'])
 

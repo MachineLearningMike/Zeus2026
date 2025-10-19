@@ -84,6 +84,12 @@ class Flash2DMHA(nn.Module):
         k_seq_for = k_seq.permute(0, 2, 1, 3).contiguous()
         v_seq_for = v_seq.permute(0, 2, 1, 3).contiguous()
 
+        # This is required to spare memory space before calling attn_func, which takes huge memory.        
+        del q_seq, k_seq, v_seq
+        if attn_mask is not None: del attn_mask
+        gc.collect()
+        torch.cuda.empty_cache()
+
         # call FlashAttention (pass mask_chunk if available)
         # signature differs across builds; this variant uses keyword args for clarity
         if mask_chunk is not None:
@@ -210,9 +216,9 @@ class Flash2DMHA(nn.Module):
         out.backward(gradient, retain_graph=False)  # gradients are saved to out_proj_gpu
         gradient = input.grad
         self.to("cpu")
-        del input, out
-        gc.collect()
-        torch.cuda.empty_cache()
+        # del input, out
+        # gc.collect()
+        # torch.cuda.empty_cache()
         
         return gradient
 

@@ -14,7 +14,7 @@ from modules.convnextv2_custom_1 import ConvNeXtV2
 # -----------------------------
 # ZeusCNN model
 # -----------------------------
-class ZeusCNN(nn.Module):
+class Zeus(nn.Module):
     def __init__(self, C, H, W, n_frames=5, device='cpu'):
         """
         Past n frames are flattened into channels (n*C) and fed once to encoder + CNN.
@@ -238,7 +238,7 @@ if __name__ == "__main__":
     # -----------------------------
     lr = 1e-3   #=======================
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    model = ZeusCNN(C=C, H=H, W=W, n_frames=n, device=device)
+    model = Zeus(C=C, H=H, W=W, n_frames=n, device=device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     def criterion(pred, target):
         return ((target.to(pred.device) - pred) ** 2).mean() ** 0.5

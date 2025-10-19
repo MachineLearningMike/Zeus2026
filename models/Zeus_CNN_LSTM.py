@@ -90,7 +90,7 @@ class LSTMs(nn.Module):
 # -----------------------------
 # Zeus2 model
 # -----------------------------
-class Zeus2(nn.Module):
+class Zeus(nn.Module):
     def __init__(self, input_shape, cnn_hidden_channels, lstm_layers=2):
         super().__init__()
         C, H, W = input_shape
@@ -163,7 +163,7 @@ if __name__ == "__main__":
     n, m = 5, 3
     x_seq = [torch.randn(batch_size, C, H, W, requires_grad=True) for _ in range(n+m)]
 
-    model = Zeus2(input_shape=(C, H, W), cnn_hidden_channels=[4, 8], lstm_layers=2)
+    model = Zeus(input_shape=(C, H, W), cnn_hidden_channels=[4, 8], lstm_layers=2)
     preds = model(x_seq, m=m, sampling_prob=0.8)
 
     print("Number of predictions:", len(preds))

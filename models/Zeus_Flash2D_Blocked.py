@@ -4,6 +4,7 @@ from torch import nn, einsum
 from torch.utils.checkpoint import checkpoint
 from einops.layers.torch import Rearrange
 from einops import rearrange
+from torch.amp import autocast, GradScaler
 import torch.nn.functional as F
 import torch.optim as optim
 
@@ -23,17 +24,20 @@ def sinusoidal_embedding(n_channels, dim):
     return pe    # (n_channels, dim)
 
 class PatchEmbedWithPos(nn.Module):
-    def __init__(self, to_patch_embedding, pos_embedding, noPE=False):
+    def __init__(self, to_patch_embedding, pos_embedding, no_PE=False, learn_PE=False):
         super().__init__()
-        self.noPE = noPE
+        self.no_PE = no_PE
         # Assign with the name you want in state_dict
         self.to_patch_embedding = to_patch_embedding  # nn.Linear
-        if not noPE:
-            self.pos_embedding = nn.Parameter(pos_embedding)    # trainable
+        if not no_PE:
+            if learn_PE:
+                self.pos_embedding = nn.Parameter(pos_embedding)    # trainable
+            else:
+                self.pos_embedding = pos_embedding
 
     def forward(self, x):
         x = self.to_patch_embedding(x)
-        if not self.noPE:
+        if not self.no_PE:
             x = x + self.pos_embedding
         return x
 
@@ -86,26 +90,35 @@ class Zeus(nn.Module):
             nn.Linear(2 * self.pm.dim, self.pm.dim),
             )
         #-------------- positional embedding ----------------
-        # pe: (self.pm.nFramesId * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.dim)
-        pe = sinusoidal_embedding(self.pm.nFramesIn * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.dim)
+        # pe: (self.pm.nFramesIn * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.dim)
+        if self.pm.PE == 'sinusodial':
+            pe = sinusoidal_embedding(self.pm.nFramesIn * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.dim)
+        elif self.pm.PE == 'random':
+            pe = torch.randn(self.pm.nFramesIn * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.dim)
         pos_embedding = rearrange(pe, '(t n) dim -> 1 t n dim', t=self.pm.nFramesIn)
+        self.patch_module = PatchEmbedWithPos(to_patch_embedding, pos_embedding, no_PE=self.pm.no_PE, learn_PE=self.pm.learn_PE)
+
+        #-------------- blocks -----------------------------
+        blocks = []
+        for _ in range(self.pm.zeusBlocks):
+            blocks.append(
+                Flash2DZeusBlock(
+                    d_model=self.pm.dim,
+                    num_heads=self.pm.nHeads,
+                    num_layers=self.pm.attLayers,
+                    dim_layerFFN=self.pm.dim_layerFFN,
+                    dropout=self.pm.dropout,
+                    causal=False,
+                    tokens_per_chunk=self.pm.tokens_per_chunk,
+                    heads_per_chunk=self.pm.heads_per_chunk,
+                    kv_full_sequence=self.pm.kv_full_sequence,
+                    ffn=self.pm.layerFFN,
+                    device=device,
+                    eps=1e-9,
+                )
+            )
+        self.blocks = nn.ModuleList(blocks)
         
-        self.patch_module = PatchEmbedWithPos(to_patch_embedding, pos_embedding, self.pm.noPE)
-
-        #-------------- transformer -------------------------
-        self.transformer = Flash2DTransformer(
-            num_layers = self.pm.attLayers,
-            d_model = self.pm.dim, 
-            num_heads = self.pm.nHeads, 
-            dim_feedforward = self.pm.mlp_dim,
-            dropout = 0.0,
-            causal = False,
-            tokens_per_chunk = self.pm.tokens_per_chunk,
-            heads_per_chunk = self.pm.heads_per_chunk,
-            ffn = self.pm.layerFFN, 
-            device = self.device,       # used for forward / backward only
-        )
-
         #--------------- ffn --------------------------------
         reshapeForMlp = ReshapeForMLP(self.pm.dim)
         reconstruct = PatchReconstruct(
@@ -119,7 +132,6 @@ class Zeus(nn.Module):
             nn.Linear(self.pm.dim, self.pm.nChannels * self.pm.patch_size ** 2),    # to ( (b t n), d)
             reconstruct     # to (b t c h w)
         )
-        
         return
     
     def get_modules(self):
@@ -130,42 +142,47 @@ class Zeus(nn.Module):
         if train:
             self.src_saved = src.to("cpu")
         src = src.to(self.device)   # (b t c H W)
-        patch_module = self.patch_module.to(self.device)
-        src_patched = rearrange(patch_module(src), 'b t n d -> b (t n) d')  # (b m d)
+        patch_module = self.patch_module.to(self.device)    # (b t n d)
+        # src_patched = rearrange(patch_module(src), 'b t n d -> b (t n) d')  # (b m d)
+        src_patched = patch_module(src)     # (b t n d)
         if modules_to_cpu:
             self.patch_module.to("cpu")
         
         #----------------- transformer ------------
-        src_transformed = self.transformer(src_patched, train=train, modules_to_cpu=modules_to_cpu)  # (b m d)
-        
+        for block in self.blocks:
+            gc.collect()
+            torch.cuda.empty_cache()
+            src_blocked = block(src_patched, train=train, modules_to_cpu=modules_to_cpu)    # (b t n d)
+                    
         #---------------- mlp ---------------------
         if train:
-            self.src_transformed_saved = src_transformed.to("cpu")
+            self.src_blocked_saved = src_blocked.to("cpu")
         mlp_head = self.mlp_head.to(self.device)
-        out = mlp_head(src_transformed)
+        out = mlp_head(src_blocked)
         if modules_to_cpu:
             self.mlp_head.to("cpu")
 
         return out    # (B,FG,C,H,W)
     
     def backward(self, gradient):
-        #---------------- mlp ---------------------
-        src_transformed = self.src_transformed_saved.to(self.device)
-        src_transformed.requires_grad_(True)
-        src_transformed.retain_grad()
+        # #---------------- mlp ---------------------
+        src_blocked = self.src_blocked_saved.to(self.device)
+        src_blocked.requires_grad_(True)
+        src_blocked.retain_grad()
         mlp_head = self.mlp_head.to(self.device)
         gradient = gradient.to(self.device)
         with torch.enable_grad():   # redundant for readability
-            out = mlp_head(src_transformed)
-            out.backward(gradient, retain_graph=False)  
-        gradient = src_transformed.grad
-        del src_transformed, out
-        gc.collect()
-        torch.cuda.empty_cache()
+            out = mlp_head(src_blocked)
+        out.backward(gradient, retain_graph=False)  
+        gradient = src_blocked.grad
         self.mlp_head.to("cpu")
+        del src_blocked, out
 
         #---------------- transformer -----------------
-        gradient = self.transformer.backward(gradient)
+        for block in reversed(self.blocks):
+            gc.collect()
+            torch.cuda.empty_cache()
+            gradient = block.backward(gradient)
         
         #---------------- patch -----------------------
         src = self.src_saved.to(self.device)
@@ -174,12 +191,14 @@ class Zeus(nn.Module):
         patch_module = self.patch_module.to(self.device)
         gradient = gradient.to(self.device)
         with torch.enable_grad():   # redundant for readability
-            out = rearrange(patch_module(src), 'b t n d -> b (t n) d')  # (b m d)
-            out.backward(gradient, retain_graph=False)  
+            # out = rearrange(patch_module(src), 'b t n d -> b (t n) d')  # (b m d)
+            out = patch_module(src)  # (b t n d)
+        out.backward(gradient, retain_graph=False)  
         gradient = src.grad
-        # del src, out
-        # torch.cuda.empty_cache()
         self.patch_module.to("cpu")
+        del src, out
+        gc.collect()
+        torch.cuda.empty_cache()
         
         return gradient
 
@@ -212,7 +231,7 @@ if __name__ == "__main__":
     model = Zeus(config, device=device)
 
     #------------------- simple test -------------------
-    x = torch.randn(config['batch_size'], config['T1'], len(config['variables']), 72 * config['factor10'], 144 * config['factor10'])  # (B, S, E)
+    x = torch.randn(1, config['T1'], len(config['variables']), 72 * config['factor10'], 144 * config['factor10'])
     with torch.no_grad():
         out = model(x, train=True, modules_to_cpu=True)
     print("Output:", out.shape, out.device)
@@ -234,17 +253,25 @@ if __name__ == "__main__":
     for step in range(steps):
         optimizer.zero_grad()
 
-        with torch.no_grad():
-            out = model(x_train, train=True, modules_to_cpu=True)
+        with autocast(device_type="cuda", dtype=torch.bfloat16):
+            with torch.no_grad():
+                out = model(x_train, train=True, modules_to_cpu=True)
+        gc.collect()
+        torch.cuda.empty_cache()
             
         # target -> same device as out for loss
         out.requires_grad_(True)
         out.retain_grad()
-        with torch.enable_grad():   # redundant for readability
-            loss = criterion(out, y_train.to(out.device))
+        with autocast(device_type="cuda", dtype=torch.bfloat16):
+            with torch.enable_grad():   # redundant for readability
+                loss = criterion(out, y_train.to(out.device))
         loss.backward()
         gradient = out.grad
-        gradient = model.backward(gradient)
+
+        with autocast(device_type="cuda", dtype=torch.bfloat16):
+            gradient = model.backward(gradient)
+        gc.collect()
+        torch.cuda.empty_cache()
         
         optimizer.step()
 

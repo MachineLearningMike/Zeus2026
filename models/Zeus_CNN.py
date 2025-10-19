@@ -97,7 +97,7 @@ class Convolutions(nn.Module):
 # -----------------------------
 # ZeusCNN model
 # -----------------------------
-class ZeusCNN(nn.Module):
+class Zeus(nn.Module):
     def __init__(self, C, H, W, cnn_hidden_channels, n_frames, repeated_encoder=False):
         """
         repeated_encoder:
@@ -241,7 +241,7 @@ if __name__ == "__main__":
     # Model and training
     # -----------------------------
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    model = ZeusCNN(C=C, H=H, W=W, cnn_hidden_channels=[C, C], n_frames=n).to(device)
+    model = Zeus(C=C, H=H, W=W, cnn_hidden_channels=[C, C], n_frames=n).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     criterion = nn.MSELoss()
 

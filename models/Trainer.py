@@ -7,6 +7,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 # from models.Train_Chunk2D import Train
 from models.Train_CNN import Train
+
 import modules.utils as utils
 from modules.params import Params
 

@@ -35,7 +35,7 @@ class Train():
         self.dataset = Zeus_Dataset(config, root_path)
         logging.info("Zeus_Dataset created.")
         self.device_type, self.nDevices, self.device = self._acquire_device()
-        # if self.trainable: assert self.nDevices == self.pm.zeusLayers
+        # if self.trainable: assert self.nDevices == self.pm.zeusBlocks
         
         #---------- Loss ----------------
         min_sota_delta = torch.tensor([value for (key, value) in REWARD_IMPROVEMENT_MIN_DELTA.items() if key in self.pm.variables])  # (C,)
@@ -539,7 +539,7 @@ class Train():
         torch.save(self.model.state_dict(), 'saved_model.pth')
 
         # Load the model's state back
-        loaded_model = Zeus(self.config, self.config['zeusLayers'], device_type=self.device_type)
+        loaded_model = Zeus(self.config, self.config['zeusBlocks'], device_type=self.device_type)
         loaded_model.load_state_dict(torch.load('saved_model.pth'))
 
         # Check if weights are the same
@@ -616,8 +616,8 @@ if __name__ == "__main__":
     pbounds = {     # Mike!!!
         "patch_size": (8, 8, int),
         "heads": (8, 8, int),
-        "attLayers": (8, 8, int),   # !!! assert attLayers + zeusLayers <= 3
-        "zeusLayers": (8, 8, int),  # 
+        "attLayers": (8, 8, int),   # !!! assert attLayers + zeusBlocks <= 3
+        "zeusBlocks": (8, 8, int),  # 
     }
     
     train = Train(config, root_path, bayes_path)

@@ -2,6 +2,12 @@ import torch
 import torch.nn as nn
 import time
 
+"""
+Normalizes across all channels for each spatial location (h,w) individually.
+Treats every pixel’s feature vector like a Transformer token embedding.
+Better for models where channel relationships matter more than spatial ones (e.g., hybrid CNN-Transformer encoders).
+Adds overhead because of tensor permutation (B,C,H,W) → (B,H,W,C) and back.
+"""
 # ---------- Helper ----------
 class LayerNorm2d(nn.Module):
     """

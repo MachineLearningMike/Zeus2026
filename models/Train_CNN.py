@@ -13,9 +13,9 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 from modules.utils import check_dir
 from modules.zeus_tqdm import zeus_tqdm
 
-# from models.Zeus_CNN_4 import ZeusCNN
-from models.Zeus_ResNet import ZeusCNN
-# from models.Zeus_ConvNeXtV2 import ZeusCNN
+# from models.Zeus_CNN_4 import Zeus
+from models.Zeus_ResNet import Zeus
+# from models.Zeus_ConvNeXtV2 import Zeus
 
 from modules.zeus_dataset import Zeus_Dataset
 import modules.utils as utils
@@ -40,7 +40,7 @@ class Train():
         logging.info("Zeus_Dataset created.")
         self.device_type, self.nDevices, self.device = self._acquire_device()
         self.devices = [ self.device_type + ':' + str(id) for id in range(self.nDevices)]
-        # if self.trainable: assert self.nDevices == self.pm.zeusLayers
+        # if self.trainable: assert self.nDevices == self.pm.zeusBlocks
         
         #---------- Loss ----------------
         min_sota_delta = torch.tensor([value for (key, value) in REWARD_IMPROVEMENT_MIN_DELTA.items() if key in self.pm.variables])  # (C,)
@@ -66,7 +66,7 @@ class Train():
                 # kernel_size = 5 # Mike!!!
                 # print('kernel_size, max_radius: ', kernel_size, 6400 * 3.1416 / 72 / self.pm.factor10 * kernel_size * len(self.pm.cnn_hidden_channels) )
                 # self.model = ZeusCNN(self.pm.nChannels, self.pm.image_height, self.pm.image_width, self.pm.cnn_hidden_channels, n_frames=self.pm.nFrames, kernel_size=kernel_size, device=self.device)
-                self.model = ZeusCNN(self.pm.nChannels, self.pm.image_height, self.pm.image_width, n_frames=self.pm.nFrames, device=self.device)                
+                self.model = Zeus(self.pm.nChannels, self.pm.image_height, self.pm.image_width, n_frames=self.pm.nFrames, device=self.device)                
                 # self.model = Zeus(config, self.nDevices, device_type=self.device_type, abundant_GPUs=self.pm.abundant_GPUs).float()                
                 logging.info("Zeus model created.")
                 if self.nDevices > 1:
@@ -544,9 +544,6 @@ class Train():
 
     def run_epoch(self, epoch, x_set_label, trainable=False, step_state=None):
         self.epoch = epoch
-
-        gc.collect()
-        torch.cuda.empty_cache()
         self.model.train(trainable)
        
         if step_state is not None:
@@ -679,7 +676,7 @@ class Train():
         torch.save(self.model.state_dict(), 'saved_model.pth')
 
         # Load the model's state back
-        loaded_model = Zeus(self.config, self.config['zeusLayers'], device_type=self.device_type)
+        loaded_model = Zeus(self.config, self.config['zeusBlocks'], device_type=self.device_type)
         loaded_model.load_state_dict(torch.load('saved_model.pth'))
 
         # Check if weights are the same
@@ -756,8 +753,8 @@ if __name__ == "__main__":
     pbounds = {     # Mike!!!
         "patch_size": (8, 8, int),
         "heads": (8, 8, int),
-        "attLayers": (8, 8, int),   # !!! assert attLayers + zeusLayers <= 3
-        "zeusLayers": (8, 8, int),  # 
+        "attLayers": (8, 8, int),   # !!! assert attLayers + zeusBlocks <= 3
+        "zeusBlocks": (8, 8, int),  # 
     }
     
     train = Train(config, root_path, bayes_path)

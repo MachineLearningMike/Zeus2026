@@ -18,14 +18,14 @@ class ChunkTransformer(nn.Module):
         d_model: int,
         num_heads: int,
         heads_per_chunk: int = 1,
-        dim_feedforward: int = 2048,
+        dim_layerFFN: int = 2048,
         dropout: float = 0.1,
         ffn: Optional[str] = "GLU",  # "FFN"
         eps: float = 1e-12,
         device: Optional[str] = None,
         norm_layer: Optional[nn.Module] = None,
     ):
-        print("transformer: layers {}, dim {}, heads {}, heads/chunk {}, dim_fwd {}, ffn {}".format(num_layers, d_model, num_heads, heads_per_chunk, dim_feedforward, ffn))
+        print("transformer: layers {}, dim {}, heads {}, heads/chunk {}, dim_fwd {}, ffn {}".format(num_layers, d_model, num_heads, heads_per_chunk, dim_layerFFN, ffn))
         
         super().__init__()
         if device is None:
@@ -39,7 +39,7 @@ class ChunkTransformer(nn.Module):
                     d_model=d_model,
                     num_heads=num_heads,
                     heads_per_chunk=heads_per_chunk,
-                    dim_feedforward=dim_feedforward,
+                    dim_layerFFN=dim_layerFFN,
                     dropout=dropout,
                     ffn = ffn,
                     device=device,
@@ -132,7 +132,7 @@ if __name__ == "__main__":
         d_model=d_model, 
         num_heads=num_heads, 
         heads_per_chunk=heads_per_chunk, 
-        dim_feedforward=4*d_model, 
+        dim_layerFFN=4*d_model, 
         dropout=0.0, 
         ffn = ffn, 
         device=device

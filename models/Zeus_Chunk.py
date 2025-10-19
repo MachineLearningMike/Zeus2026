@@ -8,7 +8,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from pathlib import Path
-import os, sys
+import os, sys, gc
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 from config import config
 from modules.params import Params
@@ -95,7 +95,7 @@ class Zeus(nn.Module):
             d_model = self.pm.dim, 
             num_heads = self.pm.nHeads, 
             heads_per_chunk = self.pm.heads_per_chunk,
-            dim_feedforward = self.pm.mlp_dim,
+            dim_layerFFN = self.pm.dim_layerFFN,
             dropout = 0.0, 
             ffn = self.pm.layerFFN, 
             device = self.device,       # used for forward / backward only
@@ -154,9 +154,10 @@ class Zeus(nn.Module):
             out = mlp_head(src_transformed)
             out.backward(gradient, retain_graph=False)  
         gradient = src_transformed.grad
-        del src_transformed, out
-        torch.cuda.empty_cache()
         self.mlp_head.to("cpu")
+        del src_transformed, out
+        gc.collect()
+        torch.cuda.empty_cache()
 
         #---------------- transformer -----------------
         gradient = self.transformer.backward(gradient)
@@ -171,9 +172,10 @@ class Zeus(nn.Module):
             out = rearrange(patch_module(src), 'b t n d -> b (t n) d')  # (b m d)
             out.backward(gradient, retain_graph=False)  
         gradient = src.grad
-        del src, out
-        torch.cuda.empty_cache()
         self.patch_module.to("cpu")
+        # del src, out
+        # gc.collect()
+        # torch.cuda.empty_cache()
         
         return gradient
 

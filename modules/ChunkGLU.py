@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from functools import partial
 import torch.optim as optim
 from pathlib import Path
-import os, sys
+import os, sys, gc
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 def to_2tuple(x):
@@ -67,8 +67,9 @@ class GLU(nn.Module):
         x = norm_gpu(x)
         x = fc2_gpu(x)
         x = self.drop2(x)
-        del x_gate
-        torch.cuda.empty_cache()
+        # del x_gate
+        # gc.collect()
+        # torch.cuda.empty_cache()
         
         if modules_to_cpu:
             fc1_g_gpu.to("cpu")

@@ -6,6 +6,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch import nn, einsum
 from torch.utils.checkpoint import checkpoint
+from torch.amp import autocast, GradScaler
 from einops.layers.torch import Rearrange
 from einops import rearrange
 
@@ -21,7 +22,7 @@ class Flash2DZeusBlock(nn.Module):
         num_layers: int,
         d_model: int,
         num_heads: int,
-        dim_feedforward: int = 2048,
+        dim_layerFFN: int = 2048,
         dropout: float = 0.0,
         causal: bool = False,
         heads_per_chunk: int = None,
@@ -32,7 +33,7 @@ class Flash2DZeusBlock(nn.Module):
         device: Optional[str] = None,
         norm_layer: Optional[nn.Module] = None,
     ):  
-        print("Flash2DZeusBlock: layers {}, dim {}, heads {}, heads_per_chunk {}, tokens_per_chunk {}, dim_fwd {}, ffn {}".format(num_layers, d_model, num_heads, heads_per_chunk, tokens_per_chunk, dim_feedforward, ffn))
+        print("Flash2DZeusBlock: layers {}, dim {}, heads {}, heads_per_chunk {}, tokens_per_chunk {}, dim_fwd {}, ffn {}".format(num_layers, d_model, num_heads, heads_per_chunk, tokens_per_chunk, dim_layerFFN, ffn))
 
         super().__init__()
         if device is None:
@@ -45,7 +46,7 @@ class Flash2DZeusBlock(nn.Module):
             num_heads = num_heads, 
             heads_per_chunk = heads_per_chunk,
             tokens_per_chunk = tokens_per_chunk,
-            dim_feedforward = 4*d_model,
+            dim_layerFFN = dim_layerFFN,
             kv_full_sequence = kv_full_sequence,
             dropout=0.0, 
             ffn = ffn, 
@@ -57,7 +58,7 @@ class Flash2DZeusBlock(nn.Module):
             num_heads = num_heads, 
             heads_per_chunk = heads_per_chunk,
             tokens_per_chunk = tokens_per_chunk,
-            dim_feedforward = 4*d_model,
+            dim_layerFFN = dim_layerFFN,
             kv_full_sequence = kv_full_sequence,
             dropout=0.0, 
             ffn = ffn, 
@@ -69,7 +70,7 @@ class Flash2DZeusBlock(nn.Module):
             num_heads = num_heads, 
             heads_per_chunk = heads_per_chunk,
             tokens_per_chunk = tokens_per_chunk,
-            dim_feedforward = 4*d_model,
+            dim_layerFFN = dim_layerFFN,
             kv_full_sequence = kv_full_sequence,
             dropout=0.0, 
             ffn = ffn, 
@@ -81,7 +82,7 @@ class Flash2DZeusBlock(nn.Module):
             num_heads = num_heads, 
             heads_per_chunk = heads_per_chunk,
             tokens_per_chunk = tokens_per_chunk,
-            dim_feedforward = 4*d_model,
+            dim_layerFFN = dim_layerFFN,
             kv_full_sequence = kv_full_sequence,
             dropout=0.0, 
             ffn = ffn, 
@@ -190,7 +191,7 @@ if __name__ == "__main__":
     num_layers = 5
     d_model = 1024
     num_heads = 128
-    tokens_per_chunk = seq_len // 8
+    tokens_per_chunk = seq_len // 1
     heads_per_chunk = 128
     kv_full_sequence = True
     lr = 1e-4
@@ -202,7 +203,7 @@ if __name__ == "__main__":
         num_layers = num_layers,
         d_model = d_model,
         num_heads = num_heads,
-        dim_feedforward = d_model * 4,
+        dim_layerFFN = d_model * 4,
         dropout = 0.0,
         causal = False,
         heads_per_chunk = heads_per_chunk,
@@ -236,17 +237,21 @@ if __name__ == "__main__":
         optimizer.zero_grad()
 
         # forward pass (offloads chunks to GPU internally)
-        with torch.no_grad():
-            out = model(x_train, train=True, modules_to_cpu=True)
+        with autocast(device_type="cuda", dtype=torch.bfloat16):
+            with torch.no_grad():
+                out = model(x_train, train=True, modules_to_cpu=True)
             
         # target -> same device as out for loss
         out.requires_grad_(True)
         out.retain_grad()
-        with torch.enable_grad():   # redundant for readability
-            loss = criterion(out, y_train.to(out.device))
+        with autocast(device_type="cuda", dtype=torch.bfloat16):
+            with torch.enable_grad():   # redundant for readability
+                loss = criterion(out, y_train.to(out.device))
             loss.backward()
         gradient = out.grad
-        gradient = model.backward(gradient)
+
+        with autocast(device_type="cuda", dtype=torch.bfloat16):
+            gradient = model.backward(gradient)
         optimizer.step()
         
         gc.collect()

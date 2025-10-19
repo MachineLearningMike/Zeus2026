@@ -101,7 +101,7 @@ class Convolutions(nn.Module):
 # -----------------------------
 # ZeusCNN model
 # -----------------------------
-class ZeusCNN(nn.Module):
+class Zeus(nn.Module):
     def __init__(self, C, H, W, cnn_hidden_channels, n_frames=5, kernel_size=3, device='cpu'):
         """
         Past n frames are flattened into channels (n*C) and fed once to encoder + CNN.

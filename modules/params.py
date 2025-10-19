@@ -49,16 +49,21 @@ class Params:
         self.nClasses = self.nChannels
         self.nHeads = config['heads']
         self.heads_per_chunk = config['heads_per_chunk']
-        self.tokens_per_chunk = config['tokens_per_chunk']        
+        self.tokens_per_chunk = config['tokens_per_chunk']
+        self.kv_full_sequence = config['kv_full_sequence']        
         self.dropout = config['dropout']
         self.attn_dropout = config['attn_dropout']
         self.drop_path = config['drop_path']
         
         self.attLayers = config['attLayers']
-        self.zeusLayers = config['zeusLayers']
+        self.zeusBlocks = config['zeusBlocks']
+        
+        self.PE = config['PE']
+        self.learn_PE = config['learn_PE']
+        
         self.crossLayers = config['crossLayers']
         self.layerFFN = config['layerFFN']
-        self.mlp_dim = self.dim * config['dim_to_mlp_dim']
+        self.dim_layerFFN = self.dim * config['dim_to_layerFFN_dim']
         
         self.cnn_hidden_channels = config['cnn_hidden_channels']
 
@@ -87,7 +92,7 @@ class Params:
         self.seed = config['seed']
         self.bayesProject = config['bayesProject']
         
-        self.noPE = config['noPE']
+        self.no_PE = config['no_PE']
         
         self.abundant_GPUs = config['abundant_GPUs']
         

@@ -32,7 +32,7 @@ class Flash2DEncLayer(nn.Module):
         self,
         d_model: int,
         num_heads: int,
-        dim_feedforward: int = 2048,
+        dim_layerFFN: int = 2048,
         dropout: float = 0.0,
         causal: bool = False,
         tokens_per_chunk: int = None,
@@ -63,9 +63,9 @@ class Flash2DEncLayer(nn.Module):
         )
 
         if ffn == "GLU":
-            self.ffn = GLU(in_features=d_model, hidden_features=dim_feedforward, out_features=d_model, act_layer=nn.SiLU, device=device)
+            self.ffn = GLU(in_features=d_model, hidden_features=dim_layerFFN, out_features=d_model, act_layer=nn.SiLU, device=device)
         elif ffn == "FFN":
-            self.ffn = FFN(d_model=d_model, dim_feedforward=dim_feedforward, activation=F.relu, device=device)
+            self.ffn = FFN(d_model=d_model, dim_layerFFN=dim_layerFFN, activation=F.relu, device=device)
         else: assert False
         
         self.dropout = nn.Dropout(dropout)      # shared between mha and ffn
@@ -164,7 +164,7 @@ class Flash2DEncLayer(nn.Module):
         # --- Attention ---
         attn_out = self.self_attn(src_ln, attn_mask=mask, train=train, modules_to_cpu=modules_to_cpu)  # output on GPU
         # Note: We have self.self.attn.backward defined, which leaves gradient on cpu.        
-        del src_ln
+        # del src_ln
         # gc.collect()
         # torch.cuda.empty_cache()
                 
@@ -175,9 +175,10 @@ class Flash2DEncLayer(nn.Module):
         if train:
             self.attn_out_saved = attn_out.to("cpu") 
         res = self.apply_remaining_after_mha(src, attn_out)
-        del attn_out
-        gc.collect()
-        torch.cuda.empty_cache()
+        # del attn_out
+        # gc.collect()
+        # torch.cuda.empty_cache()
+
         # --- FFN ---
         ff = self.ffn(res, modules_to_cpu=modules_to_cpu)   #
         src_out = self.apply_post_LN_to_ff(res, ff, modules_to_cpu=modules_to_cpu)
@@ -211,9 +212,9 @@ class Flash2DEncLayer(nn.Module):
         src_gradient = src_saved.grad
         attn_out_gradient = attn_out_saved.grad
         self.modules_to_cpu_post_mha()
-        del res, ff, src_saved, attn_out_saved, src_out
-        gc.collect()
-        torch.cuda.empty_cache()
+        # del res, ff, src_saved, attn_out_saved, src_out
+        # gc.collect()
+        # torch.cuda.empty_cache()
 
         # backward -------------------- mha --------------
         src_ln_gradient = self.self_attn.backward(attn_out_gradient)    # mask is interally used.
@@ -230,9 +231,9 @@ class Flash2DEncLayer(nn.Module):
             src_ln.backward(src_ln_gradient)
         src_gradient1 = src_saved.grad
         self.modules_to_cpu_pre_mha()
-        del src_saved, src_ln
-        gc.collect()
-        torch.cuda.empty_cache()
+        # del src_saved, src_ln
+        # gc.collect()
+        # torch.cuda.empty_cache()
         
         src_gradient = src_gradient + src_gradient1
         
@@ -258,7 +259,7 @@ if __name__ == "__main__":
     steps = 100
 
     ffn = "GLU"  # "GLU", "FFN"
-    model = Flash2DEncLayer(d_model=d_model, num_heads=num_heads, heads_per_chunk=heads_per_chunk, dim_feedforward=4*d_model, dropout=0.0, ffn=ffn, device=device)
+    model = Flash2DEncLayer(d_model=d_model, num_heads=num_heads, heads_per_chunk=heads_per_chunk, dim_layerFFN=4*d_model, dropout=0.0, ffn=ffn, device=device)
 
     x = torch.randn(batch_size, seq_len, d_model)  # (B, S, E)
     with torch.no_grad():

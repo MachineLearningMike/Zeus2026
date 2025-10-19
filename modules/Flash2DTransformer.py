@@ -3,6 +3,7 @@ from typing import Optional, Callable, List
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.amp import autocast, GradScaler
 import torch.optim as optim
 
 from pathlib import Path
@@ -17,7 +18,7 @@ class Flash2DTransformer(nn.Module):
         num_layers: int,
         d_model: int,
         num_heads: int,
-        dim_feedforward: int = 2048,
+        dim_layerFFN: int = 2048,
         dropout: float = 0.0,
         causal: bool = False,
         heads_per_chunk: int = None,
@@ -28,7 +29,7 @@ class Flash2DTransformer(nn.Module):
         device: Optional[str] = None,
         norm_layer: Optional[nn.Module] = None,
     ):  
-        print("transformer Chunk2D: layers {}, dim {}, heads {}, heads_per_chunk {}, tokens_per_chunk {}, dim_fwd {}, ffn {}".format(num_layers, d_model, num_heads, heads_per_chunk, tokens_per_chunk, dim_feedforward, ffn))
+        print("transformer Chunk2D: layers {}, dim {}, heads {}, heads_per_chunk {}, tokens_per_chunk {}, dim_fwd {}, ffn {}".format(num_layers, d_model, num_heads, heads_per_chunk, tokens_per_chunk, dim_layerFFN, ffn))
         
         super().__init__()
         if device is None:
@@ -41,7 +42,7 @@ class Flash2DTransformer(nn.Module):
                 Flash2DEncLayer(
                     d_model=d_model,
                     num_heads=num_heads,
-                    dim_feedforward=dim_feedforward,
+                    dim_layerFFN=dim_layerFFN,
                     dropout=dropout,
                     causal=causal,
                     tokens_per_chunk=tokens_per_chunk,
@@ -78,6 +79,11 @@ class Flash2DTransformer(nn.Module):
             output = self.norm(layered)
             norm.to("cpu")
         # output is on GPU (self.device)
+
+        # del layered
+        # gc.collect()
+        # torch.cuda.empty_cache()
+        
         return output
     
     def modules_to_cpu(self):
@@ -149,7 +155,7 @@ if __name__ == "__main__":
         num_heads = num_heads, 
         heads_per_chunk = heads_per_chunk,
         tokens_per_chunk = tokens_per_chunk,
-        dim_feedforward = 4*d_model,
+        dim_layerFFN = 4*d_model,
         kv_full_sequence = kv_full_sequence,
         dropout=0.0, 
         ffn = ffn, 
@@ -182,14 +188,16 @@ if __name__ == "__main__":
         # model.to(device)
 
         # forward pass (offloads chunks to GPU internally)
-        with torch.no_grad():
-            out = model(x_train, train=True, modules_to_cpu=True)
+        with autocast(device_type="cuda", dtype=torch.bfloat16):
+            with torch.no_grad():
+                out = model(x_train, train=True, modules_to_cpu=True)
             
         # target -> same device as out for loss
         out.requires_grad_(True)
         out.retain_grad()
-        with torch.enable_grad():   # redundant for readability
-            loss = criterion(out, y_train.to(out.device))
+        with autocast(device_type="cuda", dtype=torch.bfloat16):
+            with torch.enable_grad():   # redundant for readability
+                loss = criterion(out, y_train.to(out.device))
             loss.backward()
         gradient = out.grad
                 

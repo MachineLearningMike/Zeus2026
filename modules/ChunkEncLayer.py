@@ -33,7 +33,7 @@ class ChunkEncLayer(nn.Module):
         d_model: int,
         num_heads: int,
         heads_per_chunk: int = 1,
-        dim_feedforward: int = 2048,
+        dim_layerFFN: int = 2048,
         dropout: float = 0.1,
         ffn: Optional[str] = "FFN",  # "FFN", "GLU"
         eps: float = 1e-5,
@@ -57,9 +57,9 @@ class ChunkEncLayer(nn.Module):
         )
 
         if ffn == "GLU":
-            self.ffn = GLU(in_features=d_model, hidden_features=dim_feedforward, out_features=d_model, act_layer=nn.SiLU, device=device)
+            self.ffn = GLU(in_features=d_model, hidden_features=dim_layerFFN, out_features=d_model, act_layer=nn.SiLU, device=device)
         elif ffn == "FFN":
-            self.ffn = FFN(d_model=d_model, dim_feedforward=dim_feedforward, activation=F.relu, device=device)
+            self.ffn = FFN(d_model=d_model, dim_layerFFN=dim_layerFFN, activation=F.relu, device=device)
         else: assert False
         
         self.dropout = nn.Dropout(dropout)      # shared between mha and ffn
@@ -159,8 +159,8 @@ class ChunkEncLayer(nn.Module):
         attn_out = self.self_attn(src_ln, mask=mask, train=train, modules_to_cpu=modules_to_cpu)  # output on GPU
         # Note: We have self.self.attn.backward defined, which leaves gradient on cpu.        
         del src_ln
-        # gc.collect()
-        # torch.cuda.empty_cache()
+        gc.collect()
+        torch.cuda.empty_cache()
                 
         # grad unit ------------------------ self.linear1, self.linear2, self.norm2 ------------------
         # input: src, attn_out, output: src_out
@@ -224,9 +224,9 @@ class ChunkEncLayer(nn.Module):
             src_ln.backward(src_ln_gradient)
         src_gradient1 = src_saved.grad
         self.modules_to_cpu_pre_mha()
-        del src_saved, src_ln
-        gc.collect()
-        torch.cuda.empty_cache()
+        # del src_saved, src_ln
+        # gc.collect()
+        # torch.cuda.empty_cache()
         
         src_gradient = src_gradient + src_gradient1
         
@@ -271,7 +271,7 @@ if __name__ == "__main__":
     steps = 100
 
     ffn = "GLU"  # "GLU", "FFN"
-    model = ChunkEncLayer(d_model=d_model, num_heads=num_heads, heads_per_chunk=tokens_per_chunk, dim_feedforward=4*d_model, dropout=0.0, ffn=ffn, device=device)
+    model = ChunkEncLayer(d_model=d_model, num_heads=num_heads, heads_per_chunk=tokens_per_chunk, dim_layerFFN=4*d_model, dropout=0.0, ffn=ffn, device=device)
 
     x = torch.randn(batch_size, seq_len, d_model)  # (B, S, E)
     with torch.no_grad():

@@ -3,6 +3,7 @@ from torch import nn
 from torch import nn, einsum
 from torch.utils.checkpoint import checkpoint
 from einops.layers.torch import Rearrange
+from torch.amp import autocast, GradScaler
 from einops import rearrange
 import torch.nn.functional as F
 import torch.optim as optim
@@ -23,17 +24,17 @@ def sinusoidal_embedding(n_channels, dim):
     return pe    # (n_channels, dim)
 
 class PatchEmbedWithPos(nn.Module):
-    def __init__(self, to_patch_embedding, pos_embedding, noPE=False):
+    def __init__(self, to_patch_embedding, pos_embedding, no_PE=False):
         super().__init__()
-        self.noPE = noPE
+        self.no_PE = no_PE
         # Assign with the name you want in state_dict
         self.to_patch_embedding = to_patch_embedding  # nn.Linear
-        if not noPE:
+        if not no_PE:
             self.pos_embedding = nn.Parameter(pos_embedding)    # trainable
 
     def forward(self, x):
         x = self.to_patch_embedding(x)
-        if not self.noPE:
+        if not self.no_PE:
             x = x + self.pos_embedding
         return x
 
@@ -90,15 +91,15 @@ class Zeus(nn.Module):
         pe = sinusoidal_embedding(self.pm.nFramesIn * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.dim)
         pos_embedding = rearrange(pe, '(t n) dim -> 1 t n dim', t=self.pm.nFramesIn)
         
-        self.patch_module = PatchEmbedWithPos(to_patch_embedding, pos_embedding, self.pm.noPE)
+        self.patch_module = PatchEmbedWithPos(to_patch_embedding, pos_embedding, self.pm.no_PE)
 
         #-------------- transformer -------------------------
         self.transformer = Flash2DTransformer(
             num_layers = self.pm.attLayers,
             d_model = self.pm.dim, 
             num_heads = self.pm.nHeads, 
-            dim_feedforward = self.pm.mlp_dim,
-            dropout = 0.0,
+            dim_layerFFN = self.pm.dim_layerFFN,
+            dropout = self.pm.dropout,
             causal = False,
             tokens_per_chunk = self.pm.tokens_per_chunk,
             heads_per_chunk = self.pm.heads_per_chunk,
@@ -159,10 +160,10 @@ class Zeus(nn.Module):
             out = mlp_head(src_transformed)
             out.backward(gradient, retain_graph=False)  
         gradient = src_transformed.grad
+        self.mlp_head.to("cpu")
         del src_transformed, out
         gc.collect()
         torch.cuda.empty_cache()
-        self.mlp_head.to("cpu")
 
         #---------------- transformer -----------------
         gradient = self.transformer.backward(gradient)
@@ -177,10 +178,10 @@ class Zeus(nn.Module):
             out = rearrange(patch_module(src), 'b t n d -> b (t n) d')  # (b m d)
             out.backward(gradient, retain_graph=False)  
         gradient = src.grad
-        del src, out
-        gc.collect()
-        torch.cuda.empty_cache()
         self.patch_module.to("cpu")
+        # del src, out
+        # gc.collect()
+        # torch.cuda.empty_cache()
         
         return gradient
 
@@ -235,17 +236,22 @@ if __name__ == "__main__":
     for step in range(steps):
         optimizer.zero_grad()
 
-        with torch.no_grad():
-            out = model(x_train, train=True, modules_to_cpu=True)
+        with autocast(device_type="cuda", dtype=torch.bfloat16):
+            with torch.no_grad():
+                out = model(x_train, train=True, modules_to_cpu=True)
             
         # target -> same device as out for loss
         out.requires_grad_(True)
         out.retain_grad()
-        with torch.enable_grad():   # redundant for readability
-            loss = criterion(out, y_train.to(out.device))
+        
+        with autocast(device_type="cuda", dtype=torch.bfloat16):
+            with torch.enable_grad():   # redundant for readability
+                loss = criterion(out, y_train.to(out.device))
         loss.backward()
         gradient = out.grad
-        gradient = model.backward(gradient)
+
+        with autocast(device_type="cuda", dtype=torch.bfloat16):
+            gradient = model.backward(gradient)
         
         optimizer.step()
 

@@ -11,7 +11,7 @@ class FFN(nn.Module):
     def __init__(
             self,
             d_model: int,
-            dim_feedforward: int = 2048,
+            dim_layerFFN: int = 2048,
             activation: Callable = F.relu,
             eps: float = 1e-6,
             device: Optional[str] = None,
@@ -22,8 +22,8 @@ class FFN(nn.Module):
             device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.gpu_device = torch.device(device)
         
-        self.linear1 = nn.Linear(d_model, dim_feedforward)   
-        self.linear2 = nn.Linear(dim_feedforward, d_model)
+        self.linear1 = nn.Linear(d_model, dim_layerFFN)   
+        self.linear2 = nn.Linear(dim_layerFFN, d_model)
         self.norm2 = nn.LayerNorm(d_model, eps=eps)
         self.activation = activation
         
@@ -82,7 +82,7 @@ if __name__ == "__main__":
     lr = 1e-4
     steps = 100
 
-    model = FFN(d_model=d_model, dim_feedforward=d_model * 4, activation=F.relu, device=device)
+    model = FFN(d_model=d_model, dim_layerFFN=d_model * 4, activation=F.relu, device=device)
 
     #------------------- simple test -------------------
     x = torch.randn(batch_size, seq_len, d_model)  # (B, S, E)
