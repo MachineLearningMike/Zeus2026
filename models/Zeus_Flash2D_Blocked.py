@@ -8,12 +8,12 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 from pathlib import Path
-import os, sys
+import os, sys, gc
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 from config import config
 from modules.params import Params
 
-from modules.Flash2DTransformer import Flash2DTransformer
+from modules.Flash2DZeusBlock import Flash2DZeusBlock
 
 def sinusoidal_embedding(n_channels, dim):
     pe = torch.FloatTensor([[p / (10000 ** (2 * (i // 2) / dim)) for i in range(dim)]
@@ -160,6 +160,7 @@ class Zeus(nn.Module):
             out.backward(gradient, retain_graph=False)  
         gradient = src_transformed.grad
         del src_transformed, out
+        gc.collect()
         torch.cuda.empty_cache()
         self.mlp_head.to("cpu")
 
@@ -176,8 +177,8 @@ class Zeus(nn.Module):
             out = rearrange(patch_module(src), 'b t n d -> b (t n) d')  # (b m d)
             out.backward(gradient, retain_graph=False)  
         gradient = src.grad
-        del src, out
-        torch.cuda.empty_cache()
+        # del src, out
+        # torch.cuda.empty_cache()
         self.patch_module.to("cpu")
         
         return gradient

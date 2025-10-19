@@ -135,8 +135,8 @@ if __name__ == "__main__":
     num_layers = 5
     d_model = 1024
     num_heads = 128
-    tokens_per_chunk = seq_len // 10
-    heads_per_chunk = 32
+    tokens_per_chunk = seq_len // 1
+    heads_per_chunk = 128
     kv_full_sequence = True
     lr = 1e-4
     steps = 100

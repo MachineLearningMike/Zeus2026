@@ -421,9 +421,6 @@ class Train():
     
     def run_epoch(self, epoch, x_set_label, trainable=False, step_state=None):
         self.epoch = epoch
-
-        gc.collect()
-        torch.cuda.empty_cache()
         self.model.train(trainable)
        
         if step_state is not None:
