@@ -194,7 +194,7 @@ if __name__ == "__main__":
     tokens_per_chunk = seq_len // 1
     heads_per_chunk = 128
     kv_full_sequence = True
-    lr = 1e-4
+    lr = 1e-4               # -4
     steps = 100
     
     ffn = "GLU"  # "FFN", "GLU"
@@ -239,7 +239,10 @@ if __name__ == "__main__":
         # forward pass (offloads chunks to GPU internally)
         with autocast(device_type="cuda", dtype=torch.bfloat16):
             with torch.no_grad():
+                start1 = time.time()
                 out = model(x_train, train=True, modules_to_cpu=True)
+                end1 = time.time()
+                print("block-forward time {:.3f}".format(end1-start1))
             
         # target -> same device as out for loss
         out.requires_grad_(True)
@@ -247,11 +250,14 @@ if __name__ == "__main__":
         with autocast(device_type="cuda", dtype=torch.bfloat16):
             with torch.enable_grad():   # redundant for readability
                 loss = criterion(out, y_train.to(out.device))
-            loss.backward()
+            loss.backward(retain_graph=False)
         gradient = out.grad
 
         with autocast(device_type="cuda", dtype=torch.bfloat16):
+            start1 = time.time()
             gradient = model.backward(gradient)
+            end1 = time.time()
+            print("block-backward time {:.3f}".format(end1-start1))
         optimizer.step()
         
         gc.collect()

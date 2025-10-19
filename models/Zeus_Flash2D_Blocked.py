@@ -7,6 +7,7 @@ from einops import rearrange
 from torch.amp import autocast, GradScaler
 import torch.nn.functional as F
 import torch.optim as optim
+import time
 
 from pathlib import Path
 import os, sys, gc
@@ -142,17 +143,20 @@ class Zeus(nn.Module):
         if train:
             self.src_saved = src.to("cpu")
         src = src.to(self.device)   # (b t c H W)
+
         patch_module = self.patch_module.to(self.device)    # (b t n d)
-        # src_patched = rearrange(patch_module(src), 'b t n d -> b (t n) d')  # (b m d)
         src_patched = patch_module(src)     # (b t n d)
         if modules_to_cpu:
             self.patch_module.to("cpu")
         
         #----------------- transformer ------------
+        start = time.time()
         for block in self.blocks:
             gc.collect()
             torch.cuda.empty_cache()
             src_blocked = block(src_patched, train=train, modules_to_cpu=modules_to_cpu)    # (b t n d)
+        end = time.time()
+        print("block-forward time {:.3f}".format(end-start))
                     
         #---------------- mlp ---------------------
         if train:
@@ -178,11 +182,14 @@ class Zeus(nn.Module):
         self.mlp_head.to("cpu")
         del src_blocked, out
 
+        start = time.time()
         #---------------- transformer -----------------
         for block in reversed(self.blocks):
             gc.collect()
             torch.cuda.empty_cache()
             gradient = block.backward(gradient)
+        end = time.time()
+        print("block-backward time {:.3f}".format(end-start))
         
         #---------------- patch -----------------------
         src = self.src_saved.to(self.device)
@@ -191,7 +198,6 @@ class Zeus(nn.Module):
         patch_module = self.patch_module.to(self.device)
         gradient = gradient.to(self.device)
         with torch.enable_grad():   # redundant for readability
-            # out = rearrange(patch_module(src), 'b t n d -> b (t n) d')  # (b m d)
             out = patch_module(src)  # (b t n d)
         out.backward(gradient, retain_graph=False)  
         gradient = src.grad
@@ -225,8 +231,22 @@ if __name__ == "__main__":
     
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
-    lr = 1e-3   # 1e-2: 1, 1e-3: 0.19, 1e-4: 
+    lr = 1e-4   #   -4 
     steps = 100
+
+    config['nHeads']
+
+                    d_model=self.pm.dim,
+                    num_heads=self.pm.nHeads,
+                    num_layers=self.pm.attLayers,
+                    dim_layerFFN=self.pm.dim_layerFFN,
+                    dropout=self.pm.dropout,
+                    causal=False,
+                    tokens_per_chunk=self.pm.tokens_per_chunk,
+                    heads_per_chunk=self.pm.heads_per_chunk,
+                    kv_full_sequence=self.pm.kv_full_sequence,
+                    ffn=self.pm.layerFFN,
+
 
     model = Zeus(config, device=device)
 
@@ -238,7 +258,7 @@ if __name__ == "__main__":
     gradient = torch.ones_like(x)
     gradient = model.backward(gradient)
     print("Gradient:", gradient.shape, gradient.device)
-        
+
     #------------------ training test --------------------
     
     # optimizer (params are on CPU at construction time)
@@ -246,13 +266,13 @@ if __name__ == "__main__":
     criterion = nn.MSELoss()
 
     # dummy data (CPU)
-    x_train = torch.randn(config['batch_size'], config['T1'], len(config['variables']), 72 * config['factor10'], 144 * config['factor10'])
-    y_train = torch.randn(config['batch_size'], config['T1'], len(config['variables']), 72 * config['factor10'], 144 * config['factor10'])
+    x_train = torch.randn(1, config['T1'], len(config['variables']), 72 * config['factor10'], 144 * config['factor10'])
+    y_train = torch.randn(1, config['T1'], len(config['variables']), 72 * config['factor10'], 144 * config['factor10'])
 
     start = time.time()
     for step in range(steps):
         optimizer.zero_grad()
-
+                
         with autocast(device_type="cuda", dtype=torch.bfloat16):
             with torch.no_grad():
                 out = model(x_train, train=True, modules_to_cpu=True)
@@ -272,7 +292,7 @@ if __name__ == "__main__":
             gradient = model.backward(gradient)
         gc.collect()
         torch.cuda.empty_cache()
-        
+
         optimizer.step()
 
         end = time.time()

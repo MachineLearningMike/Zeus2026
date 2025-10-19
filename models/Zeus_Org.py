@@ -181,7 +181,7 @@ def sinusoidal_embedding_3d(sPos, dim):    # shape of positions, dim. -> (1,) + 
     return pe # (s0, s1, s2, d)
 
 class GatedTemporalAttention(nn.Module):      # ((b n), t, dim) -> ((b n), t, dim) 
-    def __init__(self, model_dict, dim, layers, heads, dim_head, dim_layerFFN, dropout=0., attn_dropout=0., drop_path=0.1):
+    def __init__(self, model_dict, dim, layers, heads, dim_head, mlp_dim, dropout=0., attn_dropout=0., drop_path=0.1):
         super().__init__()
         self.model_dict = model_dict
         self.convolve = nn.ModuleList([
@@ -196,7 +196,7 @@ class GatedTemporalAttention(nn.Module):      # ((b n), t, dim) -> ((b n), t, di
         for _ in range(layers):
             self.layers.append(nn.ModuleList([
                 PreNorm(dim, MHA(dim, heads=heads, dim_head=dim_head, dropout=attn_dropout)),
-                PreNorm(dim, GLU(dim, dim_layerFFN, drop=dropout)),
+                PreNorm(dim, GLU(dim, mlp_dim, drop=dropout)),
                 DropPath(drop_path) if drop_path > 0. else nn.Identity(),
                 DropPath(drop_path) if drop_path > 0. else nn.Identity()
             ]))
@@ -230,7 +230,7 @@ class EncLayersWithGLU(nn.Module):      # (b, n, dim) -> (b, n, dim)
         layers = pm.attLayers
         nHeads = pm.nHeads
         dim_head = pm.dim_head
-        dim_layerFFN = pm.dim_layerFFN
+        mlp_dim = pm.mlp_dim
         dropout = pm.dropout
         attn_dropout = pm.attn_dropout
         drop_path = pm.drop_path
@@ -241,7 +241,7 @@ class EncLayersWithGLU(nn.Module):      # (b, n, dim) -> (b, n, dim)
         for _ in range(layers):
             self.layers.append(nn.ModuleList([
                 PreNorm(dim, MHA(dim, heads=nHeads, dim_head=dim_head, dropout=attn_dropout, skip=self.skip)),
-                PreNorm(dim, GLU(dim, dim_layerFFN, drop=dropout, skip=self.skip)),
+                PreNorm(dim, GLU(dim, mlp_dim, drop=dropout, skip=self.skip)),
                 DropPath(drop_path) if drop_path > 0. else nn.Identity(),
                 DropPath(drop_path) if drop_path > 0. else nn.Identity()
             ]))
@@ -402,13 +402,13 @@ class Zeus(nn.Module):
 
         #-------------- zeus layers -------------------------
         if self.nDevices > 1: 
-            assert self.nDevices >= self.pm.zeusBlocks, "The numbers of devices and zeud layers must be the same if nDevices > 1"
-        self.zeusBlocks = nn.ModuleList([       # (B, T, N, dim) -> (B, T, N, dim)
+            assert self.nDevices >= self.pm.zeusLayers, "The numbers of devices and zeud layers must be the same if nDevices > 1"
+        self.zeusLayers = nn.ModuleList([       # (B, T, N, dim) -> (B, T, N, dim)
             Interwoven_EncLayersWithGLU(self.pm)
-            for i in range(self.pm.zeusBlocks)
+            for i in range(self.pm.zeusLayers)
         ])
         if self.abundant_GPUs:
-            for idx, layer in enumerate(self.zeusBlocks):
+            for idx, layer in enumerate(self.zeusLayers):
                 layer = layer.to(dstring(self.device_type, self.base_device + min(self.nDevices - 1, idx)))  # to the i-th device
         elif not self.abundant_GPUs: pass
 
@@ -426,13 +426,13 @@ class Zeus(nn.Module):
             reconstruct
         )
         if self.abundant_GPUs:
-            self.mlp_head = self.mlp_head.to(dstring(self.device_type, self.base_device + min(self.nDevices - 1, self.pm.zeusBlocks-1)))    # to the last device
+            self.mlp_head = self.mlp_head.to(dstring(self.device_type, self.base_device + min(self.nDevices - 1, self.pm.zeusLayers-1)))    # to the last device
         elif not self.abundant_GPUs: pass
         
         self.modules = self.get_modules()
         
     def get_modules(self):
-        return [self.patch_module] + list(self.zeusBlocks) + [self.mlp_head]
+        return [self.patch_module] + list(self.zeusLayers) + [self.mlp_head]
 
     def forward(self, x):
         # compute_place: data_find_layer, all_find_device_0
@@ -539,13 +539,13 @@ class Zeus_Skip(nn.Module):
 
         #-------------- zeus layers -------------------------
         if self.nDevices > 1: 
-            assert self.nDevices >= self.pm.zeusBlocks, "The numbers of devices and zeud layers must be the same if nDevices > 1"
-        self.zeusBlocks = nn.ModuleList([       # (B, T, N, dim) -> (B, T, N, dim)
+            assert self.nDevices >= self.pm.zeusLayers, "The numbers of devices and zeud layers must be the same if nDevices > 1"
+        self.zeusLayers = nn.ModuleList([       # (B, T, N, dim) -> (B, T, N, dim)
             Interwoven_EncLayersWithGLU(self.pm, skip=True)
-            for i in range(self.pm.zeusBlocks)
+            for i in range(self.pm.zeusLayers)
         ])
         if self.abundant_GPUs:
-            for idx, layer in enumerate(self.zeusBlocks):
+            for idx, layer in enumerate(self.zeusLayers):
                 layer = layer.to(dstring(self.device_type, self.base_device + min(self.nDevices - 1, idx)))  # to the i-th device
         elif not self.abundant_GPUs: pass
 
@@ -553,13 +553,13 @@ class Zeus_Skip(nn.Module):
         self.mlp_head = MLP_Skip(self.pm)
         
         if self.abundant_GPUs:
-            self.mlp_head = self.mlp_head.to(dstring(self.device_type, self.base_device + min(self.nDevices - 1, self.pm.zeusBlocks-1)))    # to the last device
+            self.mlp_head = self.mlp_head.to(dstring(self.device_type, self.base_device + min(self.nDevices - 1, self.pm.zeusLayers-1)))    # to the last device
         elif not self.abundant_GPUs: pass
         
         self.modules = self.get_modules()
         
     def get_modules(self):
-        return [self.patch_module] + list(self.zeusBlocks) + [self.mlp_head]
+        return [self.patch_module] + list(self.zeusLayers) + [self.mlp_head]
 
     def forward(self, x):
         # compute_place: data_find_layer, all_find_device_0

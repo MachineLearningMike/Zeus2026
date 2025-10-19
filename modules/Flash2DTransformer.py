@@ -11,6 +11,7 @@ import os, sys, gc
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.Flash2DEncLayer import Flash2DEncLayer
+# from modules.Flash2DEncLayer_MSave import Flash2DEncLayer     # Weird, its slower.
 
 class Flash2DTransformer(nn.Module):
     def __init__(
@@ -113,17 +114,6 @@ class Flash2DTransformer(nn.Module):
         for layer in reversed(self.layers):
             gradient = layer.backward(gradient)
         return gradient
-        
-    # def to(self, device, *args, **kwargs):
-    #     # Convert self.device to a torch.device
-    #     self.device = torch.device(device)
-    #     # Move all layers recursively
-    #     for layer in self.layers:
-    #         layer.to(device, *args, **kwargs)
-    #     # Move LayerNorm if exists
-    #     if self.norm is not None:
-    #         self.norm = self.norm.to(device, *args, **kwargs)
-    #     return super().to(device, *args, **kwargs)
     
 if __name__ == "__main__":
     """
@@ -144,7 +134,7 @@ if __name__ == "__main__":
     tokens_per_chunk = seq_len // 1
     heads_per_chunk = 128
     kv_full_sequence = True
-    lr = 1e-4
+    lr = 1e-3
     steps = 100
     
     ffn = "GLU"  # "FFN", "GLU"
@@ -198,7 +188,7 @@ if __name__ == "__main__":
         with autocast(device_type="cuda", dtype=torch.bfloat16):
             with torch.enable_grad():   # redundant for readability
                 loss = criterion(out, y_train.to(out.device))
-            loss.backward()
+            loss.backward(retain_graph=False)
         gradient = out.grad
                 
         gradient = model.backward(gradient)

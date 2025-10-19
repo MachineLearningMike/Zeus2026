@@ -71,8 +71,7 @@ class Flash2DEncLayer(nn.Module):
         self.dropout = nn.Dropout(dropout)      # shared between mha and ffn
         self.norm2 = nn.LayerNorm(d_model, eps=eps)
 
-        self.src_saved, self.mask_saved, self.attn_out_saved \
-        = None, None, None
+        self.src_saved, self.src_mask_saved, self.src_key_padding_mask_saved, self.attn_out_saved = None, None, None, None
 
     #---------------------------- pre_mha --------------------------
     def apply_norm_to_src_before_mha(self, src, modules_to_cpu=True):
@@ -149,8 +148,14 @@ class Flash2DEncLayer(nn.Module):
         # backward: grad_in: src_ln.grad, grad_out: src.grad + src_ln.grad
 
         # move norm1 weights temporarily to GPU
+
         if train:
             self.src_saved = src.to("cpu")
+            if src_mask is not None:
+                self.src_mask_saved = src_mask.to("cpu")
+            if src_key_padding_mask is not None:
+                self.src_key_padding_mask_saved = src_key_padding_mask.to("cpu")
+                            
         src_ln = self.apply_norm_to_src_before_mha(src, modules_to_cpu=modules_to_cpu)
         mask = self.merge_mask(src_mask, src_key_padding_mask)
 
@@ -248,6 +253,7 @@ if __name__ == "__main__":
     factor10 = 2
     batch_size = 1         # it's also the data simplicity in this test.
     T1 = 24
+    N = round(72 * factor10 * 144 * factor10 /16/16)
     seq_len = round(T1 * 72 * factor10 * 144 * factor10 /16/16)    # 97_200 for factor10 == 10
     num_layers = 5
     d_model = 1024
@@ -255,7 +261,7 @@ if __name__ == "__main__":
     tokens_per_chunk = seq_len // 1
     heads_per_chunk = 128
     kv_full_sequence = True
-    lr = 1e-4
+    lr = 1e-3
     steps = 100
 
     ffn = "GLU"  # "GLU", "FFN"
@@ -291,7 +297,7 @@ if __name__ == "__main__":
         out.retain_grad()
         with torch.enable_grad():   # redundant for readability
             loss = criterion(out, y_train.to(out.device))
-            loss.backward()
+            loss.backward(retain_graph=False)
         gradient = out.grad
         
         gradient = model.backward(gradient)

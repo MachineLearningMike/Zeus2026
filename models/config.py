@@ -20,7 +20,7 @@ config = {
     # 'attLayers' :   5, # (10)            ----------------------  optimization param,  Chunk
     'layerFFN' :    "GLU",  # "FFN", "GLU"    ----------------------  optimization param,  Chunk
 
-    'zeusBlocks':   4,    #             ---------------------- optimization param
+    'zeusBlocks':   1,    #             ---------------------- optimization param
     'crossLayers':  6,
     
     'PE': 'random',    # 'random', 'sinusodial'
