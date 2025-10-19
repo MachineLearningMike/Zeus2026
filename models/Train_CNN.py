@@ -47,7 +47,7 @@ class Train():
         self.min_sota_delta = rearrange(min_sota_delta, 'c -> c 1 1')
         self.era5_data_vars = self.load_era5_data_vars()
         #---------- Save config ---------
-        configPath =  self.bayes_path / ('config-' + self.get_train_id_string() +'.json')
+        configPath =  self.bayes_path / ('config') # + '-' + self.get_train_id_string() +'.json')
         utils.check_dir(configPath.parent)
         with open(configPath, 'w') as f:
             json.dump(config, f, indent=4)
@@ -190,7 +190,7 @@ class Train():
         if torch.mean(rmses) < torch.mean(self.rmses_old):
             wasBestEpoch = True
             self.rmses_old = rmses
-            name = 'best-' + self.get_train_id_string()
+            name = 'best_model' # + '-' + self.get_train_id_string()
             logging.info("saving best train_state... avg rmse: {:.3f}, name: {}".format(torch.mean(rmses).item(), name))
             # train==True means the next possible loading should train not validate.
             self.save_state(name=name)  # Extra epoch_save after as a conlusion of validate()
@@ -206,7 +206,7 @@ class Train():
     def save_state(self, name=None, train_finished=False, step_state=None):
     #-------------- My version
         assert self.trainable, "Non-trainable train object cannot be saved."
-        if name is None: name = 'train_state-' + self.get_train_id_string()
+        if name is None: name = 'train_state' # + '-' + self.get_train_id_string()
         checkpoint = {
             'model': self.model.state_dict(),
             'optimizer': self.optimizer.state_dict(),
@@ -297,7 +297,7 @@ class Train():
     
     
     def try_load_state(self, name=None):    # Pairs with save_state
-        if name is None: name = 'train_state-' + self.get_train_id_string()
+        if name is None: name = 'train_state' #+ self.get_train_id_string()
         
         file_not_found = False; train_finished = False; file_loaded = False
 
