@@ -615,7 +615,7 @@ if __name__ == "__main__":
     bayes_path = root_path / 'bayes' / 'test'
     pbounds = {     # Mike!!!
         "patch_size": (8, 8, int),
-        "heads": (8, 8, int),
+        "nHeads": (8, 8, int),
         "attLayers": (8, 8, int),   # !!! assert attLayers + zeusBlocks <= 3
         "zeusBlocks": (8, 8, int),  # 
     }

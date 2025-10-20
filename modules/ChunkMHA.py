@@ -42,8 +42,8 @@ class ChunkMHA(nn.Module):
 
         # qkv per-chunk linears on CPU
         self.qkv_linears = nn.ModuleList()
-        for heads in self.head_chunks:
-            d_local = heads * self.head_dim
+        for nHeads in self.head_chunks:
+            d_local = nHeads * self.head_dim
             lin = nn.Linear(d_model, 3 * d_local, bias=bias)
             self.qkv_linears.append(lin.cpu())
 
@@ -57,10 +57,10 @@ class ChunkMHA(nn.Module):
         self.concat_saved = None
 
 
-    def foreward_attention(self, src, mask, idx, heads, modules_to_cpu=False):
+    def foreward_attention(self, src, mask, idx, nHeads, modules_to_cpu=False):
         assert src.device == self.gpu_device
         
-        d_local = heads * self.head_dim
+        d_local = nHeads * self.head_dim
         B, S, E = src.shape
 
         # Bring chunk qkv to GPU
@@ -74,9 +74,9 @@ class ChunkMHA(nn.Module):
 
         q, k, v = torch.chunk(qkv, 3, dim=-1)
         del qkv
-        q = q.view(B, S, heads, self.head_dim).transpose(1, 2)  # (B, heads, S, head_dim)
-        k = k.view(B, S, heads, self.head_dim).transpose(1, 2)
-        v = v.view(B, S, heads, self.head_dim).transpose(1, 2)
+        q = q.view(B, S, nHeads, self.head_dim).transpose(1, 2)  # (B, nHeads, S, head_dim)
+        k = k.view(B, S, nHeads, self.head_dim).transpose(1, 2)
+        v = v.view(B, S, nHeads, self.head_dim).transpose(1, 2)
 
         # !!! Keep this block.
         # Release the gpu memory used by lin tensors and qkv to the cuda driver, as they are now zero-referenced.
@@ -84,7 +84,7 @@ class ChunkMHA(nn.Module):
         torch.cuda.empty_cache()    # Torch returns the memory used by the de-allocated gpu tensor to the cuda driver.
 
         # !!! THIS is the place where the memory footprint reaches maximum.
-        attn_logits = torch.matmul(q, k.transpose(-2, -1)) * self.scale  # (B, heads, S, S)
+        attn_logits = torch.matmul(q, k.transpose(-2, -1)) * self.scale  # (B, nHeads, S, S)
         del q, k    # delelet as much and early as possible.
         gc.collect()                # de-allocate zero-referenced tensors. The memory used by the de-allocated cpu / gpu tensor is returned to the system / torch
         torch.cuda.empty_cache()    # Torch returns the memory used by the de-allocated gpu tensor to the cuda driver.
@@ -104,7 +104,7 @@ class ChunkMHA(nn.Module):
         attn = F.softmax(attn_logits, dim=-1)
         attn = self.attn_dropout(attn)
 
-        out = torch.matmul(attn, v)  # (B, heads, S, head_dim)
+        out = torch.matmul(attn, v)  # (B, nHeads, S, head_dim)
 
         # No mode need to clean memory, because the remaining operation has no more memory footprint.
         # del v, attn_logits, attn
@@ -145,9 +145,9 @@ class ChunkMHA(nn.Module):
         # Keep original input on GPU for chunk computation to avoid repeated input transfers:
         x_dev = x.to(self.gpu_device)
 
-        for idx, heads in enumerate(self.head_chunks):
+        for idx, nHeads in enumerate(self.head_chunks):
             # This line requires maximum memory footprint and leaves some tensors allocated.
-            out = self.foreward_attention(x_dev, mask, idx, heads, modules_to_cpu=modules_to_cpu)
+            out = self.foreward_attention(x_dev, mask, idx, nHeads, modules_to_cpu=modules_to_cpu)
             gc.collect()                # Return memory used by zero-referenced cpu / gpu 
             torch.cuda.empty_cache()
             per_chunk_outputs.append(out)
@@ -213,9 +213,9 @@ class ChunkMHA(nn.Module):
         mask = self.mask_saved.to(self.gpu_device) if self.mask_saved is not None else None
 
         # Commenting out this block reduces loss from 1 to 0.967, not to 0.294, for 100 loops.
-        for idx, heads in enumerate(self.head_chunks):
+        for idx, nHeads in enumerate(self.head_chunks):
             # with torch.enable_grad():   # redundant for readability
-            out = self.foreward_attention(input, mask, idx, heads, modules_to_cpu=False)
+            out = self.foreward_attention(input, mask, idx, nHeads, modules_to_cpu=False)
             out.backward(gradient_chunks[idx], retain_graph=False)
             grad = input.grad
             per_chunk_gradient.append(grad.to("cpu"))

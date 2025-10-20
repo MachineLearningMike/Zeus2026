@@ -44,10 +44,10 @@ class Params:
         self.patch_dim = self.nChannels * self.patch_size ** 2      # 16 * 16 * 5 = 1,280
 
         self.dim = self.patch_dim
-        self.dim_head = int(self.dim / config['heads'])
+        self.dim_head = int(self.dim / config['nHeads'])
         
         self.nClasses = self.nChannels
-        self.nHeads = config['heads']
+        self.nHeads = config['nHeads']
         self.heads_per_chunk = config['heads_per_chunk']
         self.tokens_per_chunk = config['tokens_per_chunk']
         self.kv_full_sequence = config['kv_full_sequence']        
@@ -86,7 +86,7 @@ class Params:
         self.final_div_factor = config['final_div_factor']
         self.epoch_patience = config['epoch_patience']
         
-        self.data_last_years = config['data_last_years']
+        self.data_years = config['data_years']
 
         self.hypers = config['hypers']
         self.seed = config['seed']

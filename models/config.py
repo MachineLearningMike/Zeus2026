@@ -11,7 +11,7 @@ config = {
     'T2':           24,
     
     'patch_size':   16, #16, # 8        ----------------------  optimization param,  Chunk
-    'heads':        128, # (128) 8,     # 8    ----------------------    optimization param,  Chunk
+    'nHeads':        128, # (128) 8,     # 8    ----------------------    optimization param,  Chunk
 
     'heads_per_chunk':  2,  # (2)             ---------------------   optimization param,  Chunk
     'tokens_per_chunk':    8,    #             ---------------------   optimization param,  Chunk
@@ -20,7 +20,7 @@ config = {
     # 'attLayers' :   5, # (10)            ----------------------  optimization param,  Chunk
     'layerFFN' :    "GLU",  # "FFN", "GLU"    ----------------------  optimization param,  Chunk
 
-    'zeusBlocks':   1,    #             ---------------------- optimization param
+    'zeusBlocks':   4,    #             ---------------------- optimization param
     'crossLayers':  6,
     
     'PE': 'random',    # 'random', 'sinusodial'
@@ -55,7 +55,7 @@ config = {
     
     'skip_validation' : False,
     
-    'data_last_years' : 100,    # The latest 'data_last_years' years of the databased years are accounted for. 
+    'data_years' : 100,    # The latest 'data_years' years of the databased years are accounted for. 
 
     'optimizer': 'adam',    # 'adamw' takes more momory for optimizer.
     # 'lr' : 1e-5,    # ---> changed below
@@ -93,7 +93,7 @@ if platform.system() == "Windows":
     config['factor10'] = 2  # 2 is the minimum, as 1 causes a non-float parameter error.
     config['dim_to_layerFFN_dim'] = 4
 
-    config['heads'] = 128
+    config['nHeads'] = 128
     config['attLayers'] = 5
     config['heads_per_chunk'] = 32  # 32 == 64
     config['tokens_per_chunk'] = round(config['T1'] * 72 * config['factor10'] * 144 * config['factor10'] /config['patch_size']/config['patch_size']) // 2
@@ -128,9 +128,9 @@ config['lr'] = config['max_lr'] = 1e-3 # 1e-3 # pow(10, -(config['attLayers']-2)
 
 # Chunk2D and simple Chunk
 if config['dim_to_layerFFN_dim'] == 4:
-    config['bayesProject'] = "-".join([str(config['patch_size']), str(config['heads']), str(config['heads_per_chunk']), str(config['tokens_per_chunk']), str(config['attLayers']), config['layerFFN'], "no_PE" if config['no_PE'] else "" ])
+    config['bayesProject'] = "-".join([str(config['patch_size']), str(config['nHeads']), str(config['heads_per_chunk']), str(config['tokens_per_chunk']), str(config['attLayers']), config['layerFFN'], "no_PE" if config['no_PE'] else "" ])
 else:
-    config['bayesProject'] = "-".join([str(config['patch_size']), str(config['heads']), str(config['heads_per_chunk']), str(config['tokens_per_chunk']), str(config['attLayers']), str(config['dim_to_layerFFN_dim']), config['layerFFN'], "no_PE" if config['no_PE'] else ""])
+    config['bayesProject'] = "-".join([str(config['patch_size']), str(config['nHeads']), str(config['heads_per_chunk']), str(config['tokens_per_chunk']), str(config['attLayers']), str(config['dim_to_layerFFN_dim']), config['layerFFN'], "no_PE" if config['no_PE'] else ""])
 
 # config['bayesProject'] = "ResNet50"
 config['bayesProject'] = "ResNet50-NewCodec-2"

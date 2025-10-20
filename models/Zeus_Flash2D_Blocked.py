@@ -150,13 +150,13 @@ class Zeus(nn.Module):
             self.patch_module.to("cpu")
         
         #----------------- transformer ------------
-        start = time.time()
+        # start = time.time()
         for block in self.blocks:
             gc.collect()
             torch.cuda.empty_cache()
             src_blocked = block(src_patched, train=train, modules_to_cpu=modules_to_cpu)    # (b t n d)
-        end = time.time()
-        print("block-forward time {:.3f}".format(end-start))
+        # end = time.time()
+        # print("block-forward time {:.3f}".format(end-start))
                     
         #---------------- mlp ---------------------
         if train:
@@ -182,14 +182,14 @@ class Zeus(nn.Module):
         self.mlp_head.to("cpu")
         del src_blocked, out
 
-        start = time.time()
+        # start = time.time()
         #---------------- transformer -----------------
         for block in reversed(self.blocks):
             gc.collect()
             torch.cuda.empty_cache()
             gradient = block.backward(gradient)
-        end = time.time()
-        print("block-backward time {:.3f}".format(end-start))
+        # end = time.time()
+        # print("block-backward time {:.3f}".format(end-start))
         
         #---------------- patch -----------------------
         src = self.src_saved.to(self.device)
@@ -231,23 +231,17 @@ if __name__ == "__main__":
     
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
 
-    lr = 1e-4   #   -4 
-    steps = 100
+    lr = 1e-5   #   -5 
+    steps = 30
 
-    config['nHeads']
-
-                    d_model=self.pm.dim,
-                    num_heads=self.pm.nHeads,
-                    num_layers=self.pm.attLayers,
-                    dim_layerFFN=self.pm.dim_layerFFN,
-                    dropout=self.pm.dropout,
-                    causal=False,
-                    tokens_per_chunk=self.pm.tokens_per_chunk,
-                    heads_per_chunk=self.pm.heads_per_chunk,
-                    kv_full_sequence=self.pm.kv_full_sequence,
-                    ffn=self.pm.layerFFN,
-
-
+    config['nHeads'] = 128
+    config['dim_to_layerFFN_dim'] = 4
+    config['tokens_per_chunk'] = None # round(24 * 72 * 2 * 144 * 2 /16/16)
+    config['heads_per_chunk'] = None # 128
+    
+    config['zeusBlocks'] = 5
+    config['attLayers'] = 4
+    
     model = Zeus(config, device=device)
 
     #------------------- simple test -------------------

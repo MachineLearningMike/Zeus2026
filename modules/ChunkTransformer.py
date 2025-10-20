@@ -25,7 +25,7 @@ class ChunkTransformer(nn.Module):
         device: Optional[str] = None,
         norm_layer: Optional[nn.Module] = None,
     ):
-        print("transformer: layers {}, dim {}, heads {}, heads/chunk {}, dim_fwd {}, ffn {}".format(num_layers, d_model, num_heads, heads_per_chunk, dim_layerFFN, ffn))
+        print("transformer: layers {}, dim {}, nHeads {}, nHeads/chunk {}, dim_fwd {}, ffn {}".format(num_layers, d_model, num_heads, heads_per_chunk, dim_layerFFN, ffn))
         
         super().__init__()
         if device is None:

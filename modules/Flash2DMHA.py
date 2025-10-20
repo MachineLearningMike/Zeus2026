@@ -12,7 +12,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 class Flash2DMHA(nn.Module):
     """
     FlashAttention-2 (Windows) MHA with:
-      - head chunking (heads split evenly)
+      - head chunking (nHeads split evenly)
       - sequence chunking (local attention per sequence chunk by default)
       - optional kv_full_sequence (if True, q-chunk attends to full k/v)
       - autocast for mixed precision
@@ -79,7 +79,7 @@ class Flash2DMHA(nn.Module):
 
         # call flash_attn_func (it expects [B, L_q, H, head_dim] or [B, H, L, head_dim]?
         # Our wheel expects [B, L, nheads, head_dim], so transpose to [B, Lc, heads_per_chunk, head_dim]
-        # Current q_seq shape: [B, heads, Lc, head_dim] -> permute to [B, Lc, heads, head_dim]
+        # Current q_seq shape: [B, nHeads, Lc, head_dim] -> permute to [B, Lc, nHeads, head_dim]
         q_seq_for = q_seq.permute(0, 2, 1, 3).contiguous()
         k_seq_for = k_seq.permute(0, 2, 1, 3).contiguous()
         v_seq_for = v_seq.permute(0, 2, 1, 3).contiguous()
@@ -168,7 +168,7 @@ class Flash2DMHA(nn.Module):
         out_all = torch.cat(out_head_chunks, dim=2)
         # tracking: (B, s_idx * tokens_per_chunk : (s_idx+1) * tokens_per_chunk, h_idx * heads_per_chunk : (h_idx+1) * heads_per_chunk, head_dim)
 
-        # permute and merge heads -> [B, L, D]
+        # permute and merge nHeads -> [B, L, D]
         out_final = out_all.contiguous().view(B, L, D)
         # tracking: G(s_idx, h_idx) = out_final[B, s_idx * tokens_per_chunk : (s_idx+1) * tokens_per_chunk, h_idx * heads_per_chunk * head_dim : (h_idx+1) * heads_per_chunk * head_dim]
         

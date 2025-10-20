@@ -47,7 +47,7 @@ class MLBayesianOptimizer:
 
         # Initialize plot
         # self.fig, self.ax = plt.subplots(figsize=(6, 4))
-        print("ptach*patch*nChannels, heads, dim, dim_head", self.pm.patch_dim, self.pm.nHeads, self.pm.dim, self.pm.dim_head)
+        print("ptach*patch*nChannels, nHeads, dim, dim_head", self.pm.patch_dim, self.pm.nHeads, self.pm.dim, self.pm.dim_head)
 
     def _objective(self, **params):     # a part of self.bayes_optimizer
         # print('_objective', params)
@@ -137,7 +137,7 @@ if __name__ == "__main__":
     if platform.system() == "Windows":
         
         patch_size = config['patch_size']
-        heads = config['heads']
+        nHeads = config['nHeads']
         heads_per_chunk = config['heads_per_chunk']
         tokens_per_chunk = config['tokens_per_chunk']
         attLayers = config['attLayers']
@@ -145,7 +145,7 @@ if __name__ == "__main__":
                         
         pbounds = {     # Mike!!!
             "patch_size": (patch_size, patch_size, int),
-            "heads": (heads, heads, int),
+            "nHeads": (nHeads, nHeads, int),
             "heads_per_chunk": (heads_per_chunk, heads_per_chunk, int),
             "tokens_per_chunk": (tokens_per_chunk, tokens_per_chunk, int),
             "attLayers": (attLayers, attLayers, int),
@@ -153,7 +153,7 @@ if __name__ == "__main__":
         }
     else:
         patch_size = config['patch_size']
-        heads = config['heads']
+        nHeads = config['nHeads']
         heads_per_chunk = config['heads_per_chunk']
         tokens_per_chunk = config['tokens_per_chunk']
         attLayers = config['attLayers']
@@ -161,7 +161,7 @@ if __name__ == "__main__":
                         
         pbounds = {     # Mike!!!
             "patch_size": (patch_size, patch_size, int),
-            "heads": (heads, heads, int),
+            "nHeads": (nHeads, nHeads, int),
             "heads_per_chunk": (heads_per_chunk, heads_per_chunk, int),
             "tokens_per_chunk": (tokens_per_chunk, tokens_per_chunk, int),
             "attLayers": (attLayers, attLayers, int),

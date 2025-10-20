@@ -82,14 +82,14 @@ class FeedForward(nn.Module):
         return self.net(x)
      
 class MHA(nn.Module):     # (b, n, dim)  -> (b, n, dim)
-    def __init__(self, dim, heads=8, dim_head=64, dropout=0., skip=False):
+    def __init__(self, dim, nHeads=8, dim_head=64, dropout=0., skip=False):
         super().__init__()
         
-        inner_dim = dim_head * heads
+        inner_dim = dim_head * nHeads
         
-        project_out = not (heads == 1 and dim_head == dim)
+        project_out = not (nHeads == 1 and dim_head == dim)
 
-        self.heads = heads
+        self.nHeads = nHeads
         self.scale = dim_head ** -0.5
 
         self.to_qkv = nn.Linear(dim, inner_dim * 3, bias=False)
@@ -130,7 +130,7 @@ class MHA(nn.Module):     # (b, n, dim)  -> (b, n, dim)
                 dot_head = torch.einsum('bid,bjd->bij', q_chunk[:, head], k[:, head])
                 dot_chunk.append(dot_head.unsqueeze(1))  # restore head dim
 
-            # concat heads for this chunk: (b, h, chunk_size, j)
+            # concat nHeads for this chunk: (b, h, chunk_size, j)
             dot_chunk = torch.cat(dot_chunk, dim=1)
             dots_chunks.append(dot_chunk)
 
@@ -143,17 +143,17 @@ class MHA(nn.Module):     # (b, n, dim)  -> (b, n, dim)
 
     def forward(self, x):                   # (b, n, dim)  -> (b, n, dim)
         # return zeros initially
-        b, n, dim, h = *x.shape, self.heads
-        qkv = self.to_qkv(x).chunk(3, dim=-1)                                   # (b, n, dim_head * heads) x 3
-        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=h), qkv) # (b, heads, n, dim_head) x 3
+        b, n, dim, h = *x.shape, self.nHeads
+        qkv = self.to_qkv(x).chunk(3, dim=-1)                                   # (b, n, dim_head * nHeads) x 3
+        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> b h n d', h=h), qkv) # (b, nHeads, n, dim_head) x 3
         
         # This is the notorious attention memory bottleneck. Replace it!
-        dots = einsum('b h i d, b h j d -> b h i j', q, k) * self.scale         # (b, heads, n, n)
+        dots = einsum('b h i d, b h j d -> b h i j', q, k) * self.scale         # (b, nHeads, n, n)
         # dots = self.efficient_attention(q, k, self.scale)     # !!! This doesn't mitigate memory peak !!!
 
-        attn = dots.softmax(dim=-1)                                             # (b, heads, n, n)
-        out = einsum('b h i j, b h j d -> b h i d', attn, v)                    # (b, heads, n, dim_head)
-        out = rearrange(out, 'b h n d -> b n (h d)')                            # (b, n, dim_head * heads)
+        attn = dots.softmax(dim=-1)                                             # (b, nHeads, n, n)
+        out = einsum('b h i j, b h j d -> b h i d', attn, v)                    # (b, nHeads, n, dim_head)
+        out = rearrange(out, 'b h n d -> b n (h d)')                            # (b, n, dim_head * nHeads)
         out = self.to_out(out)                                                  # (b, n, dim)
         return out                                                              # (b, n, dim)
     
@@ -181,7 +181,7 @@ def sinusoidal_embedding_3d(sPos, dim):    # shape of positions, dim. -> (1,) + 
     return pe # (s0, s1, s2, d)
 
 class GatedTemporalAttention(nn.Module):      # ((b n), t, dim) -> ((b n), t, dim) 
-    def __init__(self, model_dict, dim, layers, heads, dim_head, mlp_dim, dropout=0., attn_dropout=0., drop_path=0.1):
+    def __init__(self, model_dict, dim, layers, nHeads, dim_head, mlp_dim, dropout=0., attn_dropout=0., drop_path=0.1):
         super().__init__()
         self.model_dict = model_dict
         self.convolve = nn.ModuleList([
@@ -195,7 +195,7 @@ class GatedTemporalAttention(nn.Module):      # ((b n), t, dim) -> ((b n), t, di
 
         for _ in range(layers):
             self.layers.append(nn.ModuleList([
-                PreNorm(dim, MHA(dim, heads=heads, dim_head=dim_head, dropout=attn_dropout)),
+                PreNorm(dim, MHA(dim, nHeads=nHeads, dim_head=dim_head, dropout=attn_dropout)),
                 PreNorm(dim, GLU(dim, mlp_dim, drop=dropout)),
                 DropPath(drop_path) if drop_path > 0. else nn.Identity(),
                 DropPath(drop_path) if drop_path > 0. else nn.Identity()
@@ -240,7 +240,7 @@ class EncLayersWithGLU(nn.Module):      # (b, n, dim) -> (b, n, dim)
 
         for _ in range(layers):
             self.layers.append(nn.ModuleList([
-                PreNorm(dim, MHA(dim, heads=nHeads, dim_head=dim_head, dropout=attn_dropout, skip=self.skip)),
+                PreNorm(dim, MHA(dim, nHeads=nHeads, dim_head=dim_head, dropout=attn_dropout, skip=self.skip)),
                 PreNorm(dim, GLU(dim, mlp_dim, drop=dropout, skip=self.skip)),
                 DropPath(drop_path) if drop_path > 0. else nn.Identity(),
                 DropPath(drop_path) if drop_path > 0. else nn.Identity()

@@ -33,7 +33,7 @@ class Flash2DZeusBlock(nn.Module):
         device: Optional[str] = None,
         norm_layer: Optional[nn.Module] = None,
     ):  
-        print("Flash2DZeusBlock: layers {}, dim {}, heads {}, heads_per_chunk {}, tokens_per_chunk {}, dim_fwd {}, ffn {}".format(num_layers, d_model, num_heads, heads_per_chunk, tokens_per_chunk, dim_layerFFN, ffn))
+        print("Flash2DZeusBlock: layers {}, dim {}, nHeads {}, heads_per_chunk {}, tokens_per_chunk {}, dim_fwd {}, ffn {}".format(num_layers, d_model, num_heads, heads_per_chunk, tokens_per_chunk, dim_layerFFN, ffn))
 
         super().__init__()
         if device is None:
