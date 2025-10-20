@@ -108,9 +108,9 @@ if __name__ == "__main__":
     batch_size = 1         # it's also the data simplicity in this test.
     T1 = 1
     seq_len = round(T1 * 72 * factor10 * 144 * factor10 /16/16)    # 97_200 for factor10 == 10
-    num_layers = 5
+    nLayers = 5
     d_model = 1024
-    num_heads = 128
+    nHeads = 128
     tokens_per_chunk = seq_len // 10
     heads_per_chunk = 32
     kv_full_sequence = True
@@ -147,7 +147,7 @@ if __name__ == "__main__":
         out.retain_grad()
         with torch.enable_grad():   # redundant for readability
             loss = criterion(out, y_train.to(out.device))
-            loss.backward()
+        loss.backward()
         gradient = out.grad
 
         gradient = model.backward(gradient)

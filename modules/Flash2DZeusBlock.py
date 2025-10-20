@@ -15,84 +15,100 @@ import os, sys, gc
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.Flash2DTransformer import Flash2DTransformer
+from modules.CylindricSpatialConvTD import CylindricSpatialConvTD
+
+class SpatialConvolution(nn.Module):
+    def __init__(self, pm):
+        self.pm = pm
+        super(SpatialConvolution, self).__init__()
+        self.convolve = nn.Conv2d(pm.nFramesIn, pm.nFramesIn, 3, 1, 1)  # preserve shape
+
+    def forward(self, x):   # (B, T1FG, H/p * W/p, dim) -> preserve shape
+        # return zero initially
+        x = rearrange(x, 'b t n d -> (b d) t n')
+        x = rearrange(x, 'B t (h w) -> B t h w', h=self.pm.nPatches_h)
+        x = self.convolve(x)    # preserves shape
+        x = rearrange(x, '(b d) t h w -> b t (h w) d', d=self.pm.d_model)
+
+        return x
+
 
 class Flash2DZeusBlock(nn.Module):
     def __init__(
-        self,
-        num_layers: int,
-        d_model: int,
-        num_heads: int,
-        dim_layerFFN: int = 2048,
-        dropout: float = 0.0,
-        causal: bool = False,
-        heads_per_chunk: int = None,
-        tokens_per_chunk: int = None,
-        kv_full_sequence: bool = True,        
-        ffn: Optional[str] = "FFN",  # "FFN", "GLU"
-        eps: float = 1e-5,
-        device: Optional[str] = None,
-        norm_layer: Optional[nn.Module] = None,
-    ):  
-        print("Flash2DZeusBlock: layers {}, dim {}, nHeads {}, heads_per_chunk {}, tokens_per_chunk {}, dim_fwd {}, ffn {}".format(num_layers, d_model, num_heads, heads_per_chunk, tokens_per_chunk, dim_layerFFN, ffn))
-
+        self, pm, device=None):  
+        print("Flash2DZeusBlock: layers {}, dim {}, nHeads {}, heads_per_chunk {}, tokens_per_chunk {}, dim_fwd {}, layerFFN {}"
+              .format(pm.nLayers, pm.d_model, pm.nHeads, pm.heads_per_chunk, pm.tokens_per_chunk, pm.dim_layerFFN, pm.layerFFN))
         super().__init__()
+        
+        self.add_spatial_conv = pm.add_spatial_conv
+        
         if device is None:
             device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.device = torch.device(device)
+
+        if self.add_spatial_conv:
+            self.spaial_conv_1 = CylindricSpatialConvTD(pm, kernel_size=5)
+            self.spaial_conv_2 = CylindricSpatialConvTD(pm, kernel_size=5)
                
         self.temporal_transformer_1 = Flash2DTransformer(
-            num_layers = num_layers,
-            d_model = d_model,
-            num_heads = num_heads, 
-            heads_per_chunk = heads_per_chunk,
-            tokens_per_chunk = tokens_per_chunk,
-            dim_layerFFN = dim_layerFFN,
-            kv_full_sequence = kv_full_sequence,
-            dropout=0.0, 
-            ffn = ffn, 
+            nLayers = pm.nLayers,
+            d_model = pm.d_model,
+            nHeads = pm.nHeads, 
+            heads_per_chunk = pm.heads_per_chunk,
+            tokens_per_chunk = pm.tokens_per_chunk,
+            dim_layerFFN = pm.dim_layerFFN,
+            kv_full_sequence = pm.kv_full_sequence,
+            dropout=pm.dropout, 
+            layerFFN = pm.layerFFN, 
             device=device
         )
         self.spatial_transformer_1 = Flash2DTransformer(
-            num_layers = num_layers,
-            d_model = d_model,
-            num_heads = num_heads, 
-            heads_per_chunk = heads_per_chunk,
-            tokens_per_chunk = tokens_per_chunk,
-            dim_layerFFN = dim_layerFFN,
-            kv_full_sequence = kv_full_sequence,
-            dropout=0.0, 
-            ffn = ffn, 
+            nLayers = pm.nLayers,
+            d_model = pm.d_model,
+            nHeads = pm.nHeads, 
+            heads_per_chunk = pm.heads_per_chunk,
+            tokens_per_chunk = pm.tokens_per_chunk,
+            dim_layerFFN = pm.dim_layerFFN,
+            kv_full_sequence = pm.kv_full_sequence,
+            dropout=pm.dropout, 
+            layerFFN = pm.layerFFN, 
             device=device
         )
         self.spatial_transformer_2 = Flash2DTransformer(
-            num_layers = num_layers,
-            d_model = d_model,
-            num_heads = num_heads, 
-            heads_per_chunk = heads_per_chunk,
-            tokens_per_chunk = tokens_per_chunk,
-            dim_layerFFN = dim_layerFFN,
-            kv_full_sequence = kv_full_sequence,
-            dropout=0.0, 
-            ffn = ffn, 
+            nLayers = pm.nLayers,
+            d_model = pm.d_model,
+            nHeads = pm.nHeads, 
+            heads_per_chunk = pm.heads_per_chunk,
+            tokens_per_chunk = pm.tokens_per_chunk,
+            dim_layerFFN = pm.dim_layerFFN,
+            kv_full_sequence = pm.kv_full_sequence,
+            dropout=pm.dropout, 
+            layerFFN = pm.layerFFN, 
             device=device
         )
         self.temporal_transformer_2 = Flash2DTransformer(
-            num_layers = num_layers,
-            d_model = d_model,
-            num_heads = num_heads, 
-            heads_per_chunk = heads_per_chunk,
-            tokens_per_chunk = tokens_per_chunk,
-            dim_layerFFN = dim_layerFFN,
-            kv_full_sequence = kv_full_sequence,
-            dropout=0.0, 
-            ffn = ffn, 
+            nLayers = pm.nLayers,
+            d_model = pm.d_model,
+            nHeads = pm.nHeads, 
+            heads_per_chunk = pm.heads_per_chunk,
+            tokens_per_chunk = pm.tokens_per_chunk,
+            dim_layerFFN = pm.dim_layerFFN,
+            kv_full_sequence = pm.kv_full_sequence,
+            dropout=pm.dropout, 
+            layerFFN = pm.layerFFN, 
             device=device
         )
         
     def forward(self, x, train=False, modules_to_cpu=True): # (B, T, N, dim) -> (B, T, N, dim)      # (B, T1FG, H/p * W/p, dim)
         b, t, n, dim = x.shape                  # (B, T, N, dim), or (B, T1FG, H/p * W/p, dim)
         
+        x = x.to(self.device)
+        
         if train: self.in_temporal1_saved = x.to("cpu")     # (B, T, N, dim)
+        if self.add_spatial_conv:
+            self.spaial_conv_1.to(self.device)
+            x = self.spaial_conv_1(x)                       # (B, T, N, dim)
+            if modules_to_cpu: self.spaial_conv_1.to("cpu")
         x = rearrange(x, 'b t n d -> (b n) t d')            # (B*N, T, dim)
         self.temporal_transformer_1.to(self.device)
         x = self.temporal_transformer_1(x)                  # (B*N, T, dim)
@@ -108,12 +124,18 @@ class Flash2DZeusBlock(nn.Module):
         if modules_to_cpu: self.spatial_transformer_2.to("cpu")
 
         if train: self.in_temporal2_saved = x.to("cpu")     # (B*T, N, dim)
+        if self.add_spatial_conv:
+            x = rearrange(x, '(b t) n d -> b t n d', t=t)
+            self.spaial_conv_2.to(self.device)
+            x = self.spaial_conv_2(x)                       # (B, T, N, dim)
+            x = rearrange(x, 'b t n d -> (b t) n d')
+            if modules_to_cpu: self.spaial_conv_2.to("cpu")
         x = rearrange(x, '(b t) n d -> b t n d', b=b)       # (B, T, N, dim)
         x = rearrange(x, 'b t n d -> (b n) t d')            # (B*N, T, dim)
         x = self.temporal_transformer_2(x)                  # (B*N, T, dim)        
         x = rearrange(x, '(b n) t d -> b t n d', b=b)       # (B, T, N, dim)
         if modules_to_cpu: self.temporal_transformer_2.to("cpu")
-               
+              
         return x                                            # (B, T, N, dim)
 
     def modules_to_cpu(self):
@@ -124,15 +146,20 @@ class Flash2DZeusBlock(nn.Module):
 
     def backward(self, gradient: torch.Tensor) -> torch.Tensor:
         gradient = gradient.to(self.device)  # redundant
-        b, t, n, dim = gradient.shape
+        b, t, n, dim = gradient.shape        
         
         # in_temporal2_saved.grad
         src = self.in_temporal2_saved.to(self.device)             # (B*T, N, dim)
         src.requires_grad_(True)
         src.retain_grad()
         self.temporal_transformer_2.to(self.device)
-        with torch.enable_grad():   # redundant for readability
-            x = rearrange(src, '(b t) n d -> b t n d', b=b)       # (B, T, N, dim)
+        with torch.enable_grad():   # redundant for readability            
+            if self.add_spatial_conv:
+                x = rearrange(src, '(b t) n d -> b t n d', t=t)
+                self.spaial_conv_2.to(self.device)
+                x = self.spaial_conv_2(x)                       # (B, T, N, dim)
+            else:
+                x = rearrange(src, '(b t) n d -> b t n d', b=b)       # (B, T, N, dim)
             x = rearrange(x, 'b t n d -> (b n) t d')            # (B*N, T, dim)
             x = self.temporal_transformer_2(x, train=False, modules_to_cpu=False)                  # (B*N, T, dim) 
             x = rearrange(x, '(b n) t d -> b t n d', b=b)     # (B, T, N, dim)
@@ -169,7 +196,12 @@ class Flash2DZeusBlock(nn.Module):
         src.retain_grad()
         self.temporal_transformer_1.to(self.device)
         with torch.enable_grad():   # redundant for readability
-            x = rearrange(src, 'b t n d -> (b n) t d')            # (B*N, T, dim)
+            if self.add_spatial_conv:
+                self.spaial_conv_1.to(self.device)
+                x = self.spaial_conv_1(src)                       # (B, T, N, dim)
+                x = rearrange(x, 'b t n d -> (b n) t d')
+            else:
+                x = rearrange(src, 'b t n d -> (b n) t d')            # (B*N, T, dim)
             x = self.temporal_transformer_1(x, train=False, modules_to_cpu=False)                                  # (B*N, T, dim) 
         x.backward(gradient, retain_graph=False)
         gradient = src.grad                                       # (B, N, T, dim)
@@ -179,39 +211,35 @@ class Flash2DZeusBlock(nn.Module):
 
 # ---- Run Demo ----
 if __name__ == "__main__":
+    device = "cuda:0" if torch.cuda.is_available() else "cpu"   
+    
     import time
+    import sys
+    from pathlib import Path
+    # Get path to sibling folder
+    sibling_path = Path(__file__).resolve().parent.parent / "models"
+    sys.path.insert(0, str(sibling_path))
+    from config import config
+    from params import Params
+
+    # config['factor10'] = 2
+    config['batch_size'] = 1
+    # config['T1'] = 24
+    # config['nLayers'] = 5
+    # config['nHeads'] = 128
+    # config['tokens_per_chunk'] = None
+    # config['heads_per_chunk'] = None
+    # config['kv_full_sequence'] = True
+    # config['self.add_spatial_conv'] = False
+    # config['layerFFN'] = "GLU"
     
-    device = "cuda:0" if torch.cuda.is_available() else "cpu"
-    
-    factor10 = 2
-    batch_size = 1         # it's also the data simplicity in this test.
-    T1 = 24
-    N = round(72 * factor10 * 144 * factor10 /16/16)
-    seq_len = round(T1 * 72 * factor10 * 144 * factor10 /16/16)    # 97_200 for factor10 == 10
-    num_layers = 5
-    d_model = 1024
-    num_heads = 128
-    tokens_per_chunk = seq_len // 1
-    heads_per_chunk = 128
-    kv_full_sequence = True
+    pm = Params(config)
+    batch_size, T1, N, d_model = pm.batch_size, pm.T1, pm.nPatches, pm.d_model
+
     lr = 1e-4               # -4
     steps = 100
-    
-    ffn = "GLU"  # "FFN", "GLU"
-    
-    model = Flash2DZeusBlock(
-        num_layers = num_layers,
-        d_model = d_model,
-        num_heads = num_heads,
-        dim_layerFFN = d_model * 4,
-        dropout = 0.0,
-        causal = False,
-        heads_per_chunk = heads_per_chunk,
-        tokens_per_chunk = tokens_per_chunk,
-        kv_full_sequence = True,
-        ffn = ffn,
-        device = device,
-    )
+       
+    model = Flash2DZeusBlock(pm, device = device)
 
     x = torch.randn(batch_size, T1, N, d_model)
     with torch.no_grad():
@@ -239,10 +267,10 @@ if __name__ == "__main__":
         # forward pass (offloads chunks to GPU internally)
         with autocast(device_type="cuda", dtype=torch.bfloat16):
             with torch.no_grad():
-                start1 = time.time()
+                # start1 = time.time()
                 out = model(x_train, train=True, modules_to_cpu=True)
-                end1 = time.time()
-                print("block-forward time {:.3f}".format(end1-start1))
+                # end1 = time.time()
+                # print("block-forward time {:.3f}".format(end1-start1))
             
         # target -> same device as out for loss
         out.requires_grad_(True)
@@ -254,10 +282,10 @@ if __name__ == "__main__":
         gradient = out.grad
 
         with autocast(device_type="cuda", dtype=torch.bfloat16):
-            start1 = time.time()
+            # start1 = time.time()
             gradient = model.backward(gradient)
-            end1 = time.time()
-            print("block-backward time {:.3f}".format(end1-start1))
+            # end1 = time.time()
+            # print("block-backward time {:.3f}".format(end1-start1))
         optimizer.step()
         
         gc.collect()

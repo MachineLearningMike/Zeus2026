@@ -226,8 +226,8 @@ class EncLayersWithGLU(nn.Module):      # (b, n, dim) -> (b, n, dim)
         super().__init__()
         self.skip = skip
 
-        dim = pm.dim
-        layers = pm.attLayers
+        dim = pm.d_model
+        layers = pm.nLayers
         nHeads = pm.nHeads
         dim_head = pm.dim_head
         mlp_dim = pm.mlp_dim
@@ -278,7 +278,7 @@ class SpatialConvolution(nn.Module):
         x = rearrange(x, 'b t n d -> (b d) t n')
         x = rearrange(x, 'B t (h w) -> B t h w', h=self.pm.nPatches_h)
         x = self.convolve(x)    # preserves shape
-        x = rearrange(x, '(b d) t h w -> b t (h w) d', d=self.pm.dim)
+        x = rearrange(x, '(b d) t h w -> b t (h w) d', d=self.pm.d_model)
 
         return x
 
@@ -385,13 +385,13 @@ class Zeus(nn.Module):
         # We need to enable more complex non-linearity here.
         to_patch_embedding = nn.Sequential(             # Mike!!! (p1, p2, c) is wrong. should be (c, p1, p2). No touch, as we have learned parameters.
             Rearrange('b t c (h p1) (w p2) -> b t (h w) (p1 p2 c)', p1=self.pm.patch_size, p2=self.pm.patch_size),
-            nn.Linear(self.pm.patch_dim, 2 * self.pm.dim),
+            nn.Linear(self.pm.patch_dim, 2 * self.pm.d_model),
             nn.Tanh(),
-            nn.Linear(2 * self.pm.dim, self.pm.dim),
+            nn.Linear(2 * self.pm.d_model, self.pm.d_model),
             )
         #-------------- positional embedding ----------------
-        # pe: (self.pm.nFramesId * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.dim)
-        pe = sinusoidal_embedding(self.pm.nFramesIn * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.dim)
+        # pe: (self.pm.nFramesId * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.d_model)
+        pe = sinusoidal_embedding(self.pm.nFramesIn * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.d_model)
         pos_embedding = rearrange(pe, '(t n) dim -> 1 t n dim', t=self.pm.nFramesIn)
         
         self.patch_module = PatchEmbedWithPos(to_patch_embedding, pos_embedding)
@@ -412,8 +412,8 @@ class Zeus(nn.Module):
                 layer = layer.to(dstring(self.device_type, self.base_device + min(self.nDevices - 1, idx)))  # to the i-th device
         elif not self.abundant_GPUs: pass
 
-        #--------------- ffn --------------------------------
-        reshapeForMlp = ReshapeForMLP(self.pm.dim)
+        #--------------- layerFFN --------------------------------
+        reshapeForMlp = ReshapeForMLP(self.pm.d_model)
         reconstruct = PatchReconstruct(
             nFramesOut=self.pm.nFramesOut, nPatches_h=self.pm.nPatches_h, nPatches_w=self.pm.nPatches_w, patch_size=self.pm.patch_size,
             C=self.pm.nChannels, H=self.pm.image_height, W=self.pm.image_width
@@ -421,8 +421,8 @@ class Zeus(nn.Module):
         
         self.mlp_head = nn.Sequential(
             reshapeForMlp,
-            nn.LayerNorm(self.pm.dim),
-            nn.Linear(self.pm.dim, self.pm.nChannels * self.pm.patch_size ** 2),
+            nn.LayerNorm(self.pm.d_model),
+            nn.Linear(self.pm.d_model, self.pm.nChannels * self.pm.patch_size ** 2),
             reconstruct
         )
         if self.abundant_GPUs:
@@ -465,17 +465,17 @@ class PatchEmbedWithPos_Skip(nn.Module):
         # We need to enable more complex non-linearity here.
         to_patch_embedding = nn.Sequential(
             Rearrange('b t c (h p1) (w p2) -> b t (h w) (c p1 p2)', p1=self.pm.patch_size, p2=self.pm.patch_size),
-            nn.Linear(self.pm.patch_dim, 2 * self.pm.dim),
+            nn.Linear(self.pm.patch_dim, 2 * self.pm.d_model),
             nn.Tanh(),
-            nn.Linear(2 * self.pm.dim, self.pm.dim),
+            nn.Linear(2 * self.pm.d_model, self.pm.d_model),
             )
         nn.init.constant_(to_patch_embedding[3].weight, 0.0)
         nn.init.constant_(to_patch_embedding[3].bias, 0.0)
         
         #-------------- positional embedding ----------------
-        # pe: (self.pm.nFrames * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.dim)
-        pe = torch.zeros(self.pm.nFramesIn * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.dim)
-        # pe = sinusoidal_embedding(self.pm.nFramesIn * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.dim)
+        # pe: (self.pm.nFrames * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.d_model)
+        pe = torch.zeros(self.pm.nFramesIn * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.d_model)
+        # pe = sinusoidal_embedding(self.pm.nFramesIn * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.d_model)
         pos_embedding = rearrange(pe, '(t n) dim -> 1 t n dim', t=self.pm.nFramesIn)
                 
         # Assign with the name you want in state_dict
@@ -483,7 +483,7 @@ class PatchEmbedWithPos_Skip(nn.Module):
         self.pos_embedding = nn.Parameter(pos_embedding)    # trainable
 
     def forward(self, x):
-        # Assuming self.pm.patch_dim == self.pm.dim
+        # Assuming self.pm.patch_dim == self.pm.d_model
         # returns x initially
         # (b t c H W)
         x_skip = rearrange(x, 'b t c (h p1) (w p2) -> b t (h w) (c p1 p2)', p1=self.pm.patch_size, p2=self.pm.patch_size)
@@ -497,22 +497,22 @@ class MLP_Skip(nn.Module):
         super().__init__()
         self.pm = pm
     
-        self.reshapeForMlp = ReshapeForMLP(self.pm.dim)
+        self.reshapeForMlp = ReshapeForMLP(self.pm.d_model)
         self.reconstruct = PatchReconstruct(
             nFramesOut=self.pm.nFramesOut, nPatches_h=self.pm.nPatches_h, nPatches_w=self.pm.nPatches_w, patch_size=self.pm.patch_size,
             C=self.pm.nChannels, H=self.pm.image_height, W=self.pm.image_width
         )
         self.mlp_head = nn.Sequential(
             self.reshapeForMlp,
-            nn.LayerNorm(self.pm.dim),
-            nn.Linear(self.pm.dim, self.pm.nChannels * self.pm.patch_size ** 2),
+            nn.LayerNorm(self.pm.d_model),
+            nn.Linear(self.pm.d_model, self.pm.nChannels * self.pm.patch_size ** 2),
             self.reconstruct
         )
         nn.init.constant_(self.mlp_head[2].weight, 0.0)
         nn.init.constant_(self.mlp_head[2].bias, 0.0)
         
     def forward(self, x):
-        # Assuing self.pm.dim == self.pm.nChannels * self.pm.patch_size ** 2
+        # Assuing self.pm.d_model == self.pm.nChannels * self.pm.patch_size ** 2
         x_skip = self.reconstruct(self.reshapeForMlp(x))
         x = self.mlp_head(x)
         x = x + x_skip
@@ -549,7 +549,7 @@ class Zeus_Skip(nn.Module):
                 layer = layer.to(dstring(self.device_type, self.base_device + min(self.nDevices - 1, idx)))  # to the i-th device
         elif not self.abundant_GPUs: pass
 
-        #--------------- ffn --------------------------------
+        #--------------- layerFFN --------------------------------
         self.mlp_head = MLP_Skip(self.pm)
         
         if self.abundant_GPUs:

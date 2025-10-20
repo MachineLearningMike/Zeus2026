@@ -78,31 +78,31 @@ class Zeus(nn.Module):
         # We need to enable more complex non-linearity here.
         to_patch_embedding = nn.Sequential(
             Rearrange('b t c (h p1) (w p2) -> b t (h w) (p1 p2 c)', p1=self.pm.patch_size, p2=self.pm.patch_size),
-            nn.Linear(self.pm.patch_dim, 2 * self.pm.dim),
+            nn.Linear(self.pm.patch_dim, 2 * self.pm.d_model),
             nn.Tanh(),
-            nn.Linear(2 * self.pm.dim, self.pm.dim),
+            nn.Linear(2 * self.pm.d_model, self.pm.d_model),
             )
         #-------------- positional embedding ----------------
-        # pe: (self.pm.nFramesId * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.dim)
-        pe = sinusoidal_embedding(self.pm.nFramesIn * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.dim)
+        # pe: (self.pm.nFramesId * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.d_model)
+        pe = sinusoidal_embedding(self.pm.nFramesIn * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.d_model)
         pos_embedding = rearrange(pe, '(t n) dim -> 1 t n dim', t=self.pm.nFramesIn)
         
         self.patch_module = PatchEmbedWithPos(to_patch_embedding, pos_embedding)
 
         #-------------- transformer -------------------------
         self.transformer = ChunkTransformer(
-            num_layers = self.pm.attLayers,
-            d_model = self.pm.dim, 
-            num_heads = self.pm.nHeads, 
+            nLayers = self.pm.nLayers,
+            d_model = self.pm.d_model, 
+            nHeads = self.pm.nHeads, 
             heads_per_chunk = self.pm.heads_per_chunk,
             dim_layerFFN = self.pm.dim_layerFFN,
             dropout = 0.0, 
-            ffn = self.pm.layerFFN, 
+            layerFFN = self.pm.layerFFN, 
             device = self.device,       # used for forward / backward only
         )
 
-        #--------------- ffn --------------------------------
-        reshapeForMlp = ReshapeForMLP(self.pm.dim)
+        #--------------- layerFFN --------------------------------
+        reshapeForMlp = ReshapeForMLP(self.pm.d_model)
         reconstruct = PatchReconstruct(
             nFramesOut=self.pm.nFramesOut, nPatches_h=self.pm.nPatches_h, nPatches_w=self.pm.nPatches_w, patch_size=self.pm.patch_size,
             C=self.pm.nChannels, H=self.pm.image_height, W=self.pm.image_width
@@ -110,8 +110,8 @@ class Zeus(nn.Module):
         
         self.mlp_head = nn.Sequential(
             reshapeForMlp,              # to ( (b t n), d )
-            nn.LayerNorm(self.pm.dim),  # keep ( (b t n), d )
-            nn.Linear(self.pm.dim, self.pm.nChannels * self.pm.patch_size ** 2),    # to ( (b t n), d)
+            nn.LayerNorm(self.pm.d_model),  # keep ( (b t n), d )
+            nn.Linear(self.pm.d_model, self.pm.nChannels * self.pm.patch_size ** 2),    # to ( (b t n), d)
             reconstruct     # to (b t c h w)
         )
         

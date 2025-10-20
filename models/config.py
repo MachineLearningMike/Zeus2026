@@ -17,7 +17,7 @@ config = {
     'tokens_per_chunk':    8,    #             ---------------------   optimization param,  Chunk
     'kv_full_sequence': True,
 
-    # 'attLayers' :   5, # (10)            ----------------------  optimization param,  Chunk
+    # 'nLayers' :   5, # (10)            ----------------------  optimization param,  Chunk
     'layerFFN' :    "GLU",  # "FFN", "GLU"    ----------------------  optimization param,  Chunk
 
     'zeusBlocks':   4,    #             ---------------------- optimization param
@@ -25,6 +25,7 @@ config = {
     
     'PE': 'random',    # 'random', 'sinusodial'
     'learn_PE': True,
+    'add_spatial_conv': True,
     
     'dropout':      0.05,
     'attn_dropout': 0.05,
@@ -65,10 +66,10 @@ config = {
     # 'max_lr' : 1e-5,    # ----> changed below
     'total_steps' : 60000,
     'weight_decay': 0.0,    # disable weight_decay, in AdamW
-    'pct_start' : 0.5,      #
+    'pct_start' : 1.0,      #
     'anneal_strategy' : 'linear',   # 'cos'
     'div_factor' : 1.0,    # Initial LR = max_lr / div_factor
-    'final_div_factor' : 10, # Final LR = initial_lr / final_div_factor
+    'final_div_factor' : 1.0, # Final LR = initial_lr / final_div_factor
 
     'epoch_patience' : 10,       # Mike!!!
     
@@ -94,13 +95,12 @@ if platform.system() == "Windows":
     config['dim_to_layerFFN_dim'] = 4
 
     config['nHeads'] = 128
-    config['attLayers'] = 5
-    config['heads_per_chunk'] = 32  # 32 == 64
-    config['tokens_per_chunk'] = round(config['T1'] * 72 * config['factor10'] * 144 * config['factor10'] /config['patch_size']/config['patch_size']) // 2
+    config['nLayers'] = 5
+    config['heads_per_chunk'] = None
+    config['tokens_per_chunk'] = None
 
     config['no_PE'] = True
     
-    config['batch_size'] = 5
     config['epochs'] = 100
     config['steps_to_save'] = 50
     config['abundant_GPUs'] = False
@@ -123,19 +123,19 @@ config['cnn_hidden_channels'] = [n*C, n*C, n*C, n*C, n*C, n*C, n*C, n*C, C] # th
    
 # config['cnn_hidden_channels'] = [2*n*C, 2*n*C, 2*n*C, 2*n*C, 2*n*C, 2*n*C, 2*n*C, 2*n*C, C]
 
-# (-5, -4,)
-config['lr'] = config['max_lr'] = 1e-3 # 1e-3 # pow(10, -(config['attLayers']-2)/2) * 1e-2
-
 # Chunk2D and simple Chunk
 if config['dim_to_layerFFN_dim'] == 4:
-    config['bayesProject'] = "-".join([str(config['patch_size']), str(config['nHeads']), str(config['heads_per_chunk']), str(config['tokens_per_chunk']), str(config['attLayers']), config['layerFFN'], "no_PE" if config['no_PE'] else "" ])
+    config['bayesProject'] = "-".join([str(config['patch_size']), str(config['nHeads']), str(config['heads_per_chunk']), str(config['tokens_per_chunk']), str(config['nLayers']), config['layerFFN'], "no_PE" if config['no_PE'] else "" ])
 else:
-    config['bayesProject'] = "-".join([str(config['patch_size']), str(config['nHeads']), str(config['heads_per_chunk']), str(config['tokens_per_chunk']), str(config['attLayers']), str(config['dim_to_layerFFN_dim']), config['layerFFN'], "no_PE" if config['no_PE'] else ""])
+    config['bayesProject'] = "-".join([str(config['patch_size']), str(config['nHeads']), str(config['heads_per_chunk']), str(config['tokens_per_chunk']), str(config['nLayers']), str(config['dim_to_layerFFN_dim']), config['layerFFN'], "no_PE" if config['no_PE'] else ""])
 
-# config['bayesProject'] = "ResNet50"
-config['bayesProject'] = "ResNet50-NewCodec-2"
-# config['bayesProject'] = "Latent-ConvNeXtV2"
-# config['bayesProject'] = "Flash2DBlocked-1"
+config['lr'] = config['max_lr'] = 1e-3
+config['batch_size'] = 5 #5
+config['bayesProject'] = "ResNet50-NewCodec-2"      # Current Convolution
+
+# config['lr'] = config['max_lr'] = 5e-5
+# config['batch_size'] = 1
+# config['bayesProject'] = "Flash2DBlocked-1"         # Current Transformer
 
 print('bayesProject:', config['bayesProject'])
 

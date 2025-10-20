@@ -14,18 +14,18 @@ from modules.ChunkEncLayer import ChunkEncLayer
 class ChunkTransformer(nn.Module):
     def __init__(
         self,
-        num_layers: int,
+        nLayers: int,
         d_model: int,
-        num_heads: int,
+        nHeads: int,
         heads_per_chunk: int = 1,
         dim_layerFFN: int = 2048,
         dropout: float = 0.1,
-        ffn: Optional[str] = "GLU",  # "FFN"
+        layerFFN: Optional[str] = "GLU",  # "FFN"
         eps: float = 1e-12,
         device: Optional[str] = None,
         norm_layer: Optional[nn.Module] = None,
     ):
-        print("transformer: layers {}, dim {}, nHeads {}, nHeads/chunk {}, dim_fwd {}, ffn {}".format(num_layers, d_model, num_heads, heads_per_chunk, dim_layerFFN, ffn))
+        print("transformer: layers {}, dim {}, nHeads {}, nHeads/chunk {}, dim_fwd {}, layerFFN {}".format(nLayers, d_model, nHeads, heads_per_chunk, dim_layerFFN, layerFFN))
         
         super().__init__()
         if device is None:
@@ -33,15 +33,15 @@ class ChunkTransformer(nn.Module):
         self.device = torch.device(device)
 
         layers = []
-        for _ in range(num_layers):
+        for _ in range(nLayers):
             layers.append(
                 ChunkEncLayer(
                     d_model=d_model,
-                    num_heads=num_heads,
+                    nHeads=nHeads,
                     heads_per_chunk=heads_per_chunk,
                     dim_layerFFN=dim_layerFFN,
                     dropout=dropout,
-                    ffn = ffn,
+                    layerFFN = layerFFN,
                     device=device,
                     eps=eps,
                 )
@@ -116,25 +116,25 @@ if __name__ == "__main__":
     T1 = 24
     N = round(72 * factor10 * 144 * factor10 /16/16)
     seq_len = round(T1 * 72 * factor10 * 144 * factor10 /16/16)    # 97_200 for factor10 == 10
-    num_layers = 5
+    nLayers = 5
     d_model = 1024
-    num_heads = 128
+    nHeads = 128
     tokens_per_chunk = seq_len // 10
     heads_per_chunk = 32
     kv_full_sequence = True
     lr = 1e-4
     steps = 100
     
-    ffn = "GLU"  # "FFN", "GLU"
+    layerFFN = "GLU"  # "FFN", "GLU"
 
     model = ChunkTransformer(
-        num_layers = num_layers,
+        nLayers = nLayers,
         d_model=d_model, 
-        num_heads=num_heads, 
+        nHeads=nHeads, 
         heads_per_chunk=heads_per_chunk, 
         dim_layerFFN=4*d_model, 
         dropout=0.0, 
-        ffn = ffn, 
+        layerFFN = layerFFN, 
         device=device
     )
 
@@ -170,7 +170,7 @@ if __name__ == "__main__":
         out.retain_grad()
         with torch.enable_grad():   # redundant for readability
             loss = criterion(out, y_train.to(out.device))
-            loss.backward()
+        loss.backward()
         gradient = out.grad
         gradient = model.backward(gradient)
         optimizer.step()

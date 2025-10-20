@@ -31,14 +31,14 @@ class Flash2DEncLayer(nn.Module):
     def __init__(
         self,
         d_model: int,
-        num_heads: int,
+        nHeads: int,
         dim_layerFFN: int = 2048,
         dropout: float = 0.0,
         causal: bool = False,
         tokens_per_chunk: int = None,
         heads_per_chunk: int = None,
         kv_full_sequence: bool = True,        
-        ffn: Optional[str] = "FFN",  # "FFN", "GLU"
+        layerFFN: Optional[str] = "FFN",  # "FFN", "GLU"
         eps: float = 1e-5,
         device: Optional[str] = None,
     ):
@@ -53,7 +53,7 @@ class Flash2DEncLayer(nn.Module):
         # Offloaded attention (weights on CPU, chunks on GPU)
         self.self_attn = Flash2DMHA(
             d_model=d_model,
-            num_heads=num_heads,
+            nHeads=nHeads,
             dropout=dropout,
             causal=causal,
             tokens_per_chunk=tokens_per_chunk,
@@ -62,13 +62,13 @@ class Flash2DEncLayer(nn.Module):
             device=device,
         )
 
-        if ffn == "GLU":
-            self.ffn = GLU(in_features=d_model, hidden_features=dim_layerFFN, out_features=d_model, act_layer=nn.SiLU, device=device)
-        elif ffn == "FFN":
-            self.ffn = FFN(d_model=d_model, dim_layerFFN=dim_layerFFN, activation=F.relu, device=device)
+        if layerFFN == "GLU":
+            self.layerFFN = GLU(in_features=d_model, hidden_features=dim_layerFFN, out_features=d_model, act_layer=nn.SiLU, device=device)
+        elif layerFFN == "FFN":
+            self.layerFFN = FFN(d_model=d_model, dim_layerFFN=dim_layerFFN, activation=F.relu, device=device)
         else: assert False
         
-        self.dropout = nn.Dropout(dropout)      # shared between mha and ffn
+        self.dropout = nn.Dropout(dropout)      # shared between mha and layerFFN
         self.norm2 = nn.LayerNorm(d_model, eps=eps)
 
         self.src_saved, self.src_mask_saved, self.src_key_padding_mask_saved, self.attn_out_saved = None, None, None, None
@@ -125,7 +125,7 @@ class Flash2DEncLayer(nn.Module):
         return src_out
     
     def modules_to_cpu_post_mha(self):
-        self.ffn.modules_to_cpu()
+        self.layerFFN.modules_to_cpu()
         return
 
     def modules_to_cpu(self):
@@ -185,7 +185,7 @@ class Flash2DEncLayer(nn.Module):
         # torch.cuda.empty_cache()
 
         # --- FFN ---
-        ff = self.ffn(res, modules_to_cpu=modules_to_cpu)   #
+        ff = self.layerFFN(res, modules_to_cpu=modules_to_cpu)   #
         src_out = self.apply_post_LN_to_ff(res, ff, modules_to_cpu=modules_to_cpu)
         # No need to delete res and ff - operation is almost over.
         # Result stays on GPU
@@ -211,7 +211,7 @@ class Flash2DEncLayer(nn.Module):
         gradient = gradient.to(self.gpu_device)
         with torch.enable_grad():   # redundant for readability
             res = self.apply_remaining_after_mha(src_saved, attn_out_saved)
-            ff = self.ffn(res, modules_to_cpu=False)
+            ff = self.layerFFN(res, modules_to_cpu=False)
             src_out = self.apply_post_LN_to_ff(res, ff, modules_to_cpu=False)
             src_out.backward(gradient, retain_graph=False)  # gradients are saved to out_proj_gpu
         src_gradient = src_saved.grad
@@ -255,17 +255,17 @@ if __name__ == "__main__":
     T1 = 24
     N = round(72 * factor10 * 144 * factor10 /16/16)
     seq_len = round(T1 * 72 * factor10 * 144 * factor10 /16/16)    # 97_200 for factor10 == 10
-    num_layers = 5
+    nLayers = 5
     d_model = 1024
-    num_heads = 128
+    nHeads = 128
     tokens_per_chunk = seq_len // 1
     heads_per_chunk = 128
     kv_full_sequence = True
     lr = 1e-3
     steps = 100
 
-    ffn = "GLU"  # "GLU", "FFN"
-    model = Flash2DEncLayer(d_model=d_model, num_heads=num_heads, heads_per_chunk=heads_per_chunk, dim_layerFFN=4*d_model, dropout=0.0, ffn=ffn, device=device)
+    layerFFN = "GLU"  # "GLU", "FFN"
+    model = Flash2DEncLayer(d_model=d_model, nHeads=nHeads, heads_per_chunk=heads_per_chunk, dim_layerFFN=4*d_model, dropout=0.0, layerFFN=layerFFN, device=device)
 
     x = torch.randn(batch_size, seq_len, d_model)  # (B, S, E)
     with torch.no_grad():

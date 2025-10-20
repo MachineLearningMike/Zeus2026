@@ -31,6 +31,8 @@ class Params:
 
         self.train_pct = config['train_pct']
         self.vali_pct = config['vali_pct']
+        
+        self.add_spatial_conv = config['add_spatial_conv']
 
         self.patch_size = config['patch_size']                      # 16
         self.nPatches_h = self.image_height // self.patch_size      # 720 / 16 = 45
@@ -43,8 +45,8 @@ class Params:
         self.nChannels = len(config['variables'])                         # 5
         self.patch_dim = self.nChannels * self.patch_size ** 2      # 16 * 16 * 5 = 1,280
 
-        self.dim = self.patch_dim
-        self.dim_head = int(self.dim / config['nHeads'])
+        self.d_model = self.patch_dim
+        self.dim_head = int(self.d_model / config['nHeads'])
         
         self.nClasses = self.nChannels
         self.nHeads = config['nHeads']
@@ -55,7 +57,7 @@ class Params:
         self.attn_dropout = config['attn_dropout']
         self.drop_path = config['drop_path']
         
-        self.attLayers = config['attLayers']
+        self.nLayers = config['nLayers']
         self.zeusBlocks = config['zeusBlocks']
         
         self.PE = config['PE']
@@ -63,7 +65,7 @@ class Params:
         
         self.crossLayers = config['crossLayers']
         self.layerFFN = config['layerFFN']
-        self.dim_layerFFN = self.dim * config['dim_to_layerFFN_dim']
+        self.dim_layerFFN = self.d_model * config['dim_to_layerFFN_dim']
         
         self.cnn_hidden_channels = config['cnn_hidden_channels']
 

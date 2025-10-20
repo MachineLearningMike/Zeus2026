@@ -47,7 +47,7 @@ class MLBayesianOptimizer:
 
         # Initialize plot
         # self.fig, self.ax = plt.subplots(figsize=(6, 4))
-        print("ptach*patch*nChannels, nHeads, dim, dim_head", self.pm.patch_dim, self.pm.nHeads, self.pm.dim, self.pm.dim_head)
+        print("ptach*patch*nChannels, nHeads, dim, dim_head", self.pm.patch_dim, self.pm.nHeads, self.pm.d_model, self.pm.dim_head)
 
     def _objective(self, **params):     # a part of self.bayes_optimizer
         # print('_objective', params)
@@ -140,32 +140,28 @@ if __name__ == "__main__":
         nHeads = config['nHeads']
         heads_per_chunk = config['heads_per_chunk']
         tokens_per_chunk = config['tokens_per_chunk']
-        attLayers = config['attLayers']
+        nLayers = config['nLayers']
         layerFFN = config['layerFFN']
                         
         pbounds = {     # Mike!!!
-            "patch_size": (patch_size, patch_size, int),
-            "nHeads": (nHeads, nHeads, int),
-            "heads_per_chunk": (heads_per_chunk, heads_per_chunk, int),
-            "tokens_per_chunk": (tokens_per_chunk, tokens_per_chunk, int),
-            "attLayers": (attLayers, attLayers, int),
-            # "layerFFN" : (layerFFN, layerFFN, str),
+            # "patch_size": (patch_size, patch_size, int),
+            # "nHeads": (nHeads, nHeads, int),
+            # "nLayers": (nLayers, nLayers, int),
+            # # "layerFFN" : (layerFFN, layerFFN, str),
         }
     else:
         patch_size = config['patch_size']
         nHeads = config['nHeads']
         heads_per_chunk = config['heads_per_chunk']
         tokens_per_chunk = config['tokens_per_chunk']
-        attLayers = config['attLayers']
+        nLayers = config['nLayers']
         layerFFN = config['layerFFN']
                         
         pbounds = {     # Mike!!!
-            "patch_size": (patch_size, patch_size, int),
-            "nHeads": (nHeads, nHeads, int),
-            "heads_per_chunk": (heads_per_chunk, heads_per_chunk, int),
-            "tokens_per_chunk": (tokens_per_chunk, tokens_per_chunk, int),
-            "attLayers": (attLayers, attLayers, int),
-            # "layerFFN" : (layerFFN, layerFFN, str),
+            # "patch_size": (patch_size, patch_size, int),
+            # "nHeads": (nHeads, nHeads, int),
+            # "nLayers": (nLayers, nLayers, int),
+            # # "layerFFN" : (layerFFN, layerFFN, str),
         }
         
     bayes = MLBayesianOptimizer(config, root_path, pbounds, random_state=523)

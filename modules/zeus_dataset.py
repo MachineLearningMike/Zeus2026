@@ -31,9 +31,9 @@ from modules_zeus.era5_cds import Era5CDSLoader, get_today
 
 
 class Zeus_Dataset(Dataset):
-    def __init__(self, config, root_path):
+    def __init__(self, pm, root_path):
         super().__init__()
-        self.pm = Params(config)
+        self.pm = pm
         self.root_path = root_path
 
         self.cds_folder = root_path / "CDS"
@@ -832,6 +832,10 @@ class Zeus_Dataset(Dataset):
                 variable_diff = torch.stack(variable_diff, dim=0)           # (C, 720, 1440)
                 batch_diff.append(variable_diff)
             batch_diff = torch.stack(batch_diff, dim=0)                     # (B, C, 720, 1440)
+
+            if H1 != H or W1 != W:
+                batch_diff = self.resize_cylindrical(batch_diff, (H1, W1))
+            
         else:
             batch_diff = None
         # print('batch_diff', batch_diff.shape)
@@ -920,8 +924,9 @@ class Zeus_Dataset(Dataset):
 if __name__ == "__main__":
 
     from models.config import config, root_path
+    pm = Params(config)
 
-    dataset = Zeus_Dataset(config, root_path)
+    dataset = Zeus_Dataset(pm, root_path)
 
     # end_date = date(2025, 10, 5)
     # dataset.download_dataset(2015, end_date)   # downloads day data in reverse order.

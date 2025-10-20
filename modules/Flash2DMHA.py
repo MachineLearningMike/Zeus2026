@@ -17,26 +17,26 @@ class Flash2DMHA(nn.Module):
       - optional kv_full_sequence (if True, q-chunk attends to full k/v)
       - autocast for mixed precision
     Requirements:
-      - num_heads % heads_per_chunk == 0 (if heads_per_chunk provided)
+      - nHeads % heads_per_chunk == 0 (if heads_per_chunk provided)
       - flash_attn_func is callable (Windows wheel)
     """
-    def __init__(self, d_model, num_heads, dropout=0.0, causal=False,
+    def __init__(self, d_model, nHeads, dropout=0.0, causal=False,
                  tokens_per_chunk=None, heads_per_chunk=None, kv_full_sequence=True, device="cuda:0"):
         super().__init__()
-        assert d_model % num_heads == 0, "d_model must be divisible by num_heads"
+        assert d_model % nHeads == 0, "d_model must be divisible by nHeads"
         if heads_per_chunk is not None:
-            assert num_heads % heads_per_chunk == 0, "heads_per_chunk must divide num_heads"
+            assert nHeads % heads_per_chunk == 0, "heads_per_chunk must divide nHeads"
 
         self.d_model = d_model
-        self.num_heads = num_heads
-        self.head_dim = d_model // num_heads
+        self.nHeads = nHeads
+        self.head_dim = d_model // nHeads
         self.dropout = dropout
         self.causal = causal
         self.device = device
 
         # chunking params
         self.tokens_per_chunk = tokens_per_chunk
-        self.heads_per_chunk = heads_per_chunk or num_heads  # default: no head chunking
+        self.heads_per_chunk = heads_per_chunk or nHeads  # default: no head chunking
         self.kv_full_sequence = kv_full_sequence
 
         self.W_qkv = nn.Linear(d_model, 3 * d_model)
@@ -133,7 +133,7 @@ class Flash2DMHA(nn.Module):
         with autocast(device_type='cuda', dtype=torch.bfloat16):
             qkv = self.W_qkv(input)  # [B, L, 3*D], weights/autocast -> fp16 for kernel
             # reshape to [B, H, L, 3*head_dim]
-            qkv = qkv.view(B, L, self.num_heads, 3 * self.head_dim).permute(0, 2, 1, 3)
+            qkv = qkv.view(B, L, self.nHeads, 3 * self.head_dim).permute(0, 2, 1, 3)
         
         # split into q,k,v: each [B, H, L, head_dim]
         q, k, v = torch.chunk(qkv, 3, dim=-1)
@@ -230,7 +230,7 @@ if __name__ == "__main__":
     B, L, D = 2, 100_000, 1024
     x = torch.randn(B, L, D, dtype=torch.float32, device=device, requires_grad=True)
 
-    model = Flash2DMHA(d_model=1024, num_heads=8, dropout=0.0, causal=False,
+    model = Flash2DMHA(d_model=1024, nHeads=8, dropout=0.0, causal=False,
                         tokens_per_chunk=10000, heads_per_chunk=4).cuda()
     # out = model(x)
     # loss = out.sum()
@@ -246,16 +246,16 @@ if __name__ == "__main__":
     T1 = 24
     N = round(72 * factor10 * 144 * factor10 /16/16)
     seq_len = round(T1 * 72 * factor10 * 144 * factor10 /16/16)    # 97_200 for factor10 == 10
-    num_layers = 5
+    nLayers = 5
     d_model = 1024
-    num_heads = 128
+    nHeads = 128
     tokens_per_chunk = seq_len // 1
     heads_per_chunk = 128
     kv_full_sequence = True
     lr = 1e-3
     steps = 100
 
-    model = Flash2DMHA(d_model=d_model, num_heads=num_heads, dropout=0.0, causal=False,
+    model = Flash2DMHA(d_model=d_model, nHeads=nHeads, dropout=0.0, causal=False,
                         tokens_per_chunk=tokens_per_chunk, heads_per_chunk=heads_per_chunk, kv_full_sequence=kv_full_sequence).cuda()
     
     # optimizer (params are on CPU at construction time)

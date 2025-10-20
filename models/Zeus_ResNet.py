@@ -18,28 +18,24 @@ from modules.ResNet_GroupNorm import FCResNetCylindrical
 # ZeusCNN model
 # -----------------------------
 class Zeus(nn.Module):
-    def __init__(self, C, H, W, n_frames=5, device='cpu'):
+    def __init__(self, pm, device='cpu'):
         """
         Past n frames are flattened into channels (n*C) and fed once to encoder + CNN.
         """       
         super().__init__()
-        self.C, self.H, self.W = C, H, W
-        self.n_frames = n_frames
+        self.pm = pm
+
+        C, H, W, self.n_frames = len(pm.variables), pm.image_height, pm.image_width, pm.nFramesIn
         self.device = device
 
         # Encoder/Decoder always work per-frame
         self.encoder = SphericalEncoder(C, H, W).to(device)
         self.decoder = SphericalDecoder(C, C, H, W).to(device)
 
-        in_channels = n_frames * C    # stacked frames
+        in_channels = self.n_frames * C    # stacked frames
         # self.cnn = Convolutions(in_channels, cnn_hidden_channels, kernel_size=kernel_size).to(device)
         print("ZeusResNet being created...")
         self.cnn = FCResNetCylindrical(nVariables=C, nBlocks=18, mid_channels=32, in_channels=in_channels).to(device)
-
-        self.sampling_prob = 0.0
-    
-    def update_sampling_prob(self, step, total_steps):
-        self.sampling_prob = max(min(step / total_steps, 1.0), 0.0)
 
     def forward(self, x, m_frames, y=None):  # y_seq != None signals training
         """
@@ -81,19 +77,27 @@ class Zeus(nn.Module):
 
         return preds
 
-    def sigle_GPU_forward_loss_backward(self, data, target, loss_fn, unnormal_fn, batch_diff, era5_data_vars):
-        
-        pred = self(data, target.shape[1], target)
+    def sigle_GPU_forward_loss_backward(self, input, target, loss_fn, unnormal_fn, batch_diff, era5_data_vars, trainable=True):
 
+        # The caller creates this context:
+        # with autocast(device_type=self.device_type, dtype=torch.bfloat16):
+        #     with torch.set_grad_enabled(trainable): 
+        
+        # input.requires_grad_(trainable)  # defalut is False
+        # # input.retain_grad()   # No deed for a leaf tensor
+        
+        pred = self(input, target.shape[1], target)
         target = unnormal_fn(target)
         pred = unnormal_fn(pred)
+        
         lossAndMetrics = loss_fn(target, pred, batch_diff, era5_data_vars)     
         loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
-        loss.backward()             # grads for last_input (i.e. act[n-2]) -> last_module -> act[n-1] -> loss_fn -> loss.
+
+        if trainable:
+            loss.backward()
+            # grads = [p.grad.detach().clone() for p in self.parameters()]
         
-        grads = [p.grad.detach().clone() for p in self.parameters()]
-        
-        return grads, lossAndMetrics
+        return lossAndMetrics
 
 # -----------------------------
 # Sinusoidal dataset
@@ -168,7 +172,6 @@ def train_epoch(model, dataloader, optimizer, criterion, x_frames, y_frames, dev
         x_input = frames[:, :x_frames]  # (B, n, C, H, W)
         target_org = frames[:, x_frames:]           # (B, m, C, H, W)
         steps += 1; local_step += 1
-        model.update_sampling_prob(steps, transient_steps)
         
         x_input = normalize(x_input)
         target = normalize(target_org)
@@ -208,20 +211,22 @@ if __name__ == "__main__":
     # -----------------------------
     # DataLoader
     # -----------------------------
-    factor10 = 2  #=======================
-    B, C, H, W = 1, 4, 72 * factor10, 144 * factor10
-    n, m = 24, 24
+    
+    import time
+    # import sys
+    # from pathlib import Path
+    # # Get path to sibling folder
+    # sibling_path = Path(__file__).resolve().parent.parent / "models"
+    # sys.path.insert(0, str(sibling_path))
+    from config import config
+    from modules.params import Params
+    
+    pm = Params(config)
+    B, C, H, W, n, m, = pm.batch_size, len(pm.variables), pm.image_height, pm.image_width, pm.nFramesIn, pm.nFramesOut
+    
     epochs = 50
     length = 10
     
-    # cnn_hidden_channels=[n*C, C] #=========================
-    
-    # max_radius = 1000 # km
-    # kernel_size = round(max_radius*72*factor10/6400/3.1416/len(cnn_hidden_channels)) // 2 * 2 + 1
-    # kernel_size = 9     #============== Mike!!! temporary to reproduce past experiments.
-    # # if kernel_size % 2 == 0: kernel_size += 1
-    
-    # print('kernel_size, max_radius: ', kernel_size, 6400 * 3.1416 / 72 / factor10 * kernel_size * len(cnn_hidden_channels) )
     dataset = TemperatureGlobeDataset(B, C, H, W, n, m, length=length)
     
     x = dataset[0][0]    # (C, H, W)
@@ -237,9 +242,10 @@ if __name__ == "__main__":
     # -----------------------------
     # Model and training
     # -----------------------------
+
     lr = 1e-3   #=======================
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    model = Zeus(C=C, H=H, W=W, n_frames=n, device=device)
+    model = Zeus(pm, device=device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     def criterion(pred, target):
         return ((target.to(pred.device) - pred) ** 2).mean() ** 0.5

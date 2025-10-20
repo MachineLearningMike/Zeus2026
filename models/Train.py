@@ -6,13 +6,16 @@ from einops import rearrange
 from pathlib import Path
 import logging
 from datetime import datetime
-import sys, gc, copy
+import sys, gc, copy, time, math
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.utils import check_dir
 from modules.zeus_tqdm import zeus_tqdm
-from models.Zeus_Cross import Zeus, DoubleZeus
+
+from models.Zeus_ResNet import Zeus
+# from Zeus_Flash2D_Blocked import Zeus
+
 from modules.zeus_dataset import Zeus_Dataset
 import modules.utils as utils
 from modules.params import Params
@@ -23,16 +26,25 @@ from modules_zeus.constants import (
     REWARD_IMPROVEMENT_MIN_DELTA,
 )
 
+from modules.read_cursor_keys import read_key, init_key_listener
+init_key_listener()  # optional, read_key() will auto-init too
+
+def print_data_attrs(obj):
+    for name, value in vars(obj).items():
+        print(f"{name}: {value}")
+
 class Train():
     def __init__(self, config, root_path, bayes_path, trainable=True):
         self.config = config
         #======================== Fixed train state =======================
         # utils.set_seed(self.pm.seed)
         self.pm = Params(config)
+        print_data_attrs(self.pm)
+        
         self.bayes_path = bayes_path
         self.trainable = trainable
         
-        self.dataset = Zeus_Dataset(config, root_path)
+        self.dataset = Zeus_Dataset(self.pm, root_path)
         logging.info("Zeus_Dataset created.")
         self.device_type, self.nDevices, self.device = self._acquire_device()
         self.devices = [ self.device_type + ':' + str(id) for id in range(self.nDevices)]
@@ -43,7 +55,7 @@ class Train():
         self.min_sota_delta = rearrange(min_sota_delta, 'c -> c 1 1')
         self.era5_data_vars = self.load_era5_data_vars()
         #---------- Save config ---------
-        configPath =  self.bayes_path / ('config-' + self.get_train_id_string() +'.json')
+        configPath =  self.bayes_path / ('config') # + '-' + self.get_train_id_string() +'.json')
         utils.check_dir(configPath.parent)
         with open(configPath, 'w') as f:
             json.dump(config, f, indent=4)
@@ -57,12 +69,16 @@ class Train():
 
         try:
             if not self.pm.doubleZeus:
-                self.model = Zeus(config, self.nDevices, device_type=self.device_type, abundant_GPUs=self.pm.abundant_GPUs).float()                
+                # kernel_size = 5 # Mike!!!
+                # print('kernel_size, max_radius: ', kernel_size, 6400 * 3.1416 / 72 / self.pm.factor10 * kernel_size * len(self.pm.cnn_hidden_channels) )
+                # self.model = ZeusCNN(self.pm.nChannels, self.pm.image_height, self.pm.image_width, self.pm.cnn_hidden_channels, n_frames=self.pm.nFrames, kernel_size=kernel_size, device=self.device)
+                self.model = Zeus(self.pm, device=self.device)                
+                # self.model = Zeus(config, self.nDevices, device_type=self.device_type, abundant_GPUs=self.pm.abundant_GPUs).float()                
                 logging.info("Zeus model created.")
                 if self.nDevices > 1:
                     self.slave_models = self.create_slave_models(self.devices)
             else:
-                self.model = DoubleZeus(config, self.nDevices, device_type=self.device_type, abundant_GPUs=self.pm.abundant_GPUs, freeze_zeus1=self.pm.freeze_zeus1)
+                # self.model = DoubleZeus(config, self.nDevices, device_type=self.device_type, abundant_GPUs=self.pm.abundant_GPUs, freeze_zeus1=self.pm.freeze_zeus1)
                 logging.info("DoubleZeus model created. nDevices: {}, trainable: {}".format(self.nDevices, trainable))
 
         except Exception as e:
@@ -77,6 +93,10 @@ class Train():
             self.epoch = 0
             self.epochs_since_improvement = 0
             self.rmses_old = torch.ones_like(self.era5_data_vars) * 1e9
+            self.transient_step = 0
+            self.learning_rate = None
+            
+        self.total_losses = []
 
     def _acquire_device(self):
         if torch.cuda.is_available():
@@ -133,7 +153,6 @@ class Train():
 
         return optimizer
     
-
     def _select_scheduler(self, optimizer):
         # Check train_loader length for scheduler
         steps_per_epoch = self.dataset.get_steps_per_epoch()
@@ -141,7 +160,7 @@ class Train():
         # Scheduler parameters with defaults, overridable by args
         max_lr = getattr(self.pm, 'max_lr', optimizer.param_groups[0]['lr'] * 2)
         pct_start = getattr(self.pm, 'pct_start', 0.3)
-        epochs = getattr(self.pm, 'epochs', 10)
+        total_steps = self.pm.total_steps
         anneal_strategy =  getattr(self.pm, 'anneal_strategy', 'linear')
         div_factor = getattr(self.pm, 'div_factor', 25.0)
         final_div_factor = getattr(self.pm, 'final_div_factor', 1e4)
@@ -150,17 +169,19 @@ class Train():
             # A per-batch scheduler's time axis is on mini-batch, not on epochs.
             # It only counts how many mini-batches it traverses, across epochs, and doesn't aware of epochs.
             # steps_per_epoch and epochs are only used to get total_steps.
+            
+            # (initial_lr = max_lr / div_factor, for pct_start of the total_steps) -> max_lr -> (Final LR = initial_lr/final_div_factor, for the remaining steps)
             optimizer,
             max_lr=max_lr,
-            steps_per_epoch=steps_per_epoch,
+            total_steps=total_steps,
             pct_start=pct_start,
-            epochs=epochs,
             anneal_strategy=anneal_strategy,
             div_factor=div_factor,
-            final_div_factor=final_div_factor
+            final_div_factor=final_div_factor,
+            # suppress_warnings=True,
         )
 
-        logging.info(f"Scheduler created: OneCycleLR with max_lr={max_lr}, epochs={epochs}, steps_per_epoch={steps_per_epoch}")
+        logging.info(f"Scheduler created: OneCycleLR with max_lr={max_lr}, pct_start={pct_start}, total_steps={total_steps}, div_factor={div_factor}, final_div_factor={final_div_factor}")
 
         return scheduler
     
@@ -175,7 +196,7 @@ class Train():
         if torch.mean(rmses) < torch.mean(self.rmses_old):
             wasBestEpoch = True
             self.rmses_old = rmses
-            name = 'best-' + self.get_train_id_string()
+            name = 'best_model' # + '-' + self.get_train_id_string()
             logging.info("saving best train_state... avg rmse: {:.3f}, name: {}".format(torch.mean(rmses).item(), name))
             # train==True means the next possible loading should train not validate.
             self.save_state(name=name)  # Extra epoch_save after as a conlusion of validate()
@@ -191,7 +212,7 @@ class Train():
     def save_state(self, name=None, train_finished=False, step_state=None):
     #-------------- My version
         assert self.trainable, "Non-trainable train object cannot be saved."
-        if name is None: name = 'train_state-' + self.get_train_id_string()
+        if name is None: name = 'train_state' # + '-' + self.get_train_id_string()
         checkpoint = {
             'model': self.model.state_dict(),
             'optimizer': self.optimizer.state_dict(),
@@ -203,15 +224,87 @@ class Train():
             'train_finished' : train_finished,
             'dataset': self.dataset.pack_state(),
             'step_state': step_state,
+            'transient_step': self.transient_step,
+            'learning_rate': self.learning_rate,
         }
         utils.check_dir(self.bayes_path)
         torch.save(checkpoint, self.bayes_path / (name + '.pth'))
         torch.save(checkpoint, self.bayes_path / (name + '.pth.bak'))   # Create a backup, as creating takes a long time and may fail by the cloud Spot service.
         # logging.info(f"Checkpoint '{name}' saved, including model, optimizer, scheduler, scaler, rmses_old, and dataset state")
     
+        with open(str(self.bayes_path / name) + '.json', 'w') as f:
+            json.dump(self.total_losses, f)
+    
+    def try_load_state_old(self, name=None):    # Couples with save_state
+    #-------------- My version -------------- shortens tranining step.
+        if name is None: name = 'train_state-' + self.get_train_id_string()
+        
+        train_finished = False
+        
+        try:
+            checkpoint_path = self.bayes_path / (name + '.pth')
+            # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            checkpoint = torch.load(checkpoint_path, map_location=self.device)
+
+            if checkpoint['train_finished'] == True:
+                train_finished = True
+                raise Exception()
+
+            # Load model parameters
+            epoch = checkpoint['epoch']
+            self.model.load_state_dict(checkpoint['model'])
+            # for name, param in self.model.named_parameters():
+            #     print('--------------', name, param.device, param.dtype)
+            logging.info("Model loaded with saved state")
+                
+            for param_group in self.optimizer.param_groups:
+                for p in param_group['params']:
+                    if p in self.optimizer.state:
+                        for k, v in self.optimizer.state[p].items():
+                            if isinstance(v, torch.Tensor):
+                                self.optimizer.state[p][k] = v.to(p.device)       
+            logging.info("Optimizer loaded with saved state")
+
+            self.scheduler.load_state_dict(checkpoint['scheduler'])
+            self.scaler.load_state_dict(checkpoint['scaler'])
+            logging.info("Scheduler loaded with saved state")
+
+            self.rmses_old = checkpoint['rmses_old']
+            self.epochs_since_improvement = checkpoint['epochs_since_improvement']
+            logging.info("rmses_old and epochs_since_improvement loaded with saved values")
+            
+            if checkpoint.get('dataset', None) is not None:
+                self.dataset.unpack_state(checkpoint['dataset'])
+                logging.info("dataset state loaded with saved state")
+
+            if checkpoint.get('step_state', None) is not None:
+                step_state = checkpoint['step_state']
+            else:
+                step_state = None
+    
+            # print('----------- step_state loaded is ', step_state)
+            if step_state is not None:  # The previous session was terminated after a new step was finished and before an epoch is finished.
+                epoch = epoch
+            else:   # The previous session was terminated after an epoch was finished and before a new step was finished. 
+                epoch = epoch + 1
+
+            logging.info(f"Checkpoint '{name}' loaded to {self.device}, including model, optimizer, scheduler, scaler, rmses_old, and datase state")
+        except:
+            if train_finished:
+                logging.info("You tried to start/continue a finished training. Aborting... No! specially")
+                # sys.exit()
+            else:   # Save not found.
+                # Starts a new training.
+                epoch = 0; step_state = None
+
+        length = len(self.dataset.x_set) if self.dataset.x_set is not None else 0
+        # print('-------- ', self.dataset._fetched_batches, self.dataset.total_batches, length)
+
+        return epoch, step_state
+    
     
     def try_load_state(self, name=None):    # Pairs with save_state
-        if name is None: name = 'train_state-' + self.get_train_id_string()
+        if name is None: name = 'train_state' #+ self.get_train_id_string()
         
         file_not_found = False; train_finished = False; file_loaded = False
 
@@ -232,6 +325,7 @@ class Train():
         if not file_not_found:
             if checkpoint.get('train_finished', None) is not None:
                 train_finished = checkpoint['train_finished']
+                train_finished = False  # Mike!!!
             else:
                 logging.info("Train_finished not found")
                 sys.exit()
@@ -249,7 +343,80 @@ class Train():
                 strict = True
                 
                 if self.pm.doubleZeus:
-                       
+
+                    # old_ckpt = checkpoint['model']
+                    # new_state_dict = self.model.state_dict()
+                    # keys_to_prefix = ["to_patch_embedding",
+                    #                 "pos_embedding"]
+                    # prefix1 = "zeus1.patch_module."
+                    # prefic2 = "zeus1."
+                    
+                    # remapped_ckpt = {}       
+                    # for k, v in old_ckpt.items():
+                    #     target = False
+                    #     for key in keys_to_prefix:
+                    #         if k.startswith(key):
+                    #             target = True; break                    
+                    #     if target:
+                    #         new_key = prefix1 + k
+                    #     else:
+                    #         new_key = prefic2 + k
+                    #     target = False
+                    #     for key in new_state_dict.keys():
+                    #         if key.startswith(new_key):
+                    #             target = True; break
+                    #     if target:        
+                    #         remapped_ckpt[new_key] = v
+                    #     else:
+                    #         print(f"Skipping {new_key}, not found in model")
+                    
+                    # new_state_dict.update(remapped_ckpt)
+                    # self.model.load_state_dict(new_state_dict)
+                    
+                    # names = [
+                    #     "zeus1.mlp_head.1.weight",
+                    #     "zeus1.mlp_head.1.bias",
+                    #     "zeus1.mlp_head.2.weight",
+                    #     "zeus1.mlp_head.2.bias",
+                    #     "zeus2.mlp_head.1.weight",
+                    #     "zeus2.mlp_head.1.bias",
+                    #     "zeus2.mlp_head.2.weight",
+                    #     "zeus2.mlp_head.2.bias",
+                    # ]
+                    
+                    # Remap each tensor to match the device of the new model's parameter
+                    # zeus2_param = {}
+                    # for param_name, param in self.model.state_dict().items():
+                    #     if param_name.startswith('zeus2'):
+                    #         zeus2_param[param_name] = param
+
+                    # new_state_dict = {}
+                    # for param_name, param in self.model.state_dict().items():
+                    #     # if param_name.startswith('zeus2'): continue
+                    #     # if param_name.count('mlp_head.') == 2:
+                    #     #     old_name = param_name.replace('mlp_head.', '', 1)
+                    #     # else:
+                    #     old_name = param_name
+                        
+                    #     try:
+                    #         if old_name in state_dict:
+                    #             assert param.shape == state_dict[old_name].shape, "Parameter shape mismatch. name {}, shape1 {}, shape2 {}".format(param_name, param.shape, state_dict[old_name].shape)
+                    #             param_name = ".".join(param_name.split(".")[1:])    # Mike!!! I give up and add this line after 10 hours of struggle.
+                    #             new_state_dict[param_name] = state_dict[old_name].to(param.device, non_blocking=True)
+                    #         elif strict:
+                    #             raise KeyError(f"Missing key {old_name} in model checkpoint")
+                    #         else:
+                    #             print(f"⚠️ Skipping {old_name}, not found in checkpoint")
+                    #     except Exception as e:
+                    #         logging.info(str(e))
+                    # try:
+                    #     missing_keys, unexpected_keys = self.model.load_state_dict(new_state_dict, strict=False)
+                    #     logging.info("Model loaded with saved state: \nmissing_keys: {}, \nunexpected_keys: {}".format(missing_keys, unexpected_keys))
+                    #     # missing_keys, unexpected_keys = self.model.load_state_dict(zeus2_param, strict=False)
+                    #     # logging.info("Model loaded with its own state :): unexpected_keys: {}".format(unexpected_keys))      
+                    # except Exception as e:
+                        # logging.info(str(e))
+                        
                     zeus1_state = {key : value for key, value in state_dict.items() if key.startswith('zeus1')}
                     zeus2_state = {key : value for key, value in state_dict.items() if key.startswith('zeus2')}
                     # zeus2_state = {(key.replace("mlp_head.", "", 1) if key.count("mlp_head.") > 1 else key) : value for key, value in zeus2_state.items()}
@@ -268,7 +435,6 @@ class Train():
                 if self.trainable:
                     
                     try:                       
-                        # Restore optimizer
                         if self.optimizer is not None and "optimizer" in checkpoint:
                             self.optimizer.load_state_dict(checkpoint["optimizer"])
 
@@ -278,11 +444,12 @@ class Train():
                                     if p in self.optimizer.state:
                                         for k, v in self.optimizer.state[p].items():
                                             if torch.is_tensor(v):
-                                                self.optimizer.state[p][k] = v.to(p.device, non_blocking=True)                       
-                        logging.info("Optimizer loaded with saved state")
+                                                self.optimizer.state[p][k] = v.to(p.device, non_blocking=True)
+                        logging.info("Optimizer loaded with saved state.")
 
                         self.scheduler.load_state_dict(checkpoint['scheduler'])
-                        logging.info("Scheduler loaded with saved state")
+                        logging.info("Scheduler loaded with saved state.")
+                        
                         self.scaler.load_state_dict(checkpoint['scaler'])
                         logging.info("Scaler loaded with saved state")
 
@@ -296,6 +463,19 @@ class Train():
 
                         if checkpoint.get('step_state', None) is not None:
                             step_state = checkpoint['step_state']
+                            logging.info("step_state loaded")
+                            
+                        if checkpoint.get('transient_step', None) is not None:
+                            self.transient_step = checkpoint['transient_step']
+                            logging.info("transient_step loaded: {}".format(self.transient_step))
+                            
+                        if checkpoint.get('learning_rate', None) is not None:
+                            self.learning_rate = checkpoint['learning_rate']
+                            logging.info("learning_rate: {}".format(self.transient_step))
+                            if self.learning_rate is None:
+                                self.learning_rate = self.get_learning_rate()
+                            else:
+                                self.set_learning_rate(self.learning_rate)
 
                     except Exception as e:
                         logging.info(str(e))
@@ -320,14 +500,20 @@ class Train():
             epoch = 0; step_state = None    # This is the moment where an existing train will be overriden !!!    
         elif train_finished and self.trainable:
             # Keep the finished train intact.
-            logging.info("You tried to start/continue a finished training. Aborting... <>")
-            sys.exit()
+            logging.info("You tried to start/continue a finished training. Aborting... No! specially")
+            # sys.exit()
         elif not file_loaded:
             # Start a new training, creating the file.
             epoch = 0; step_state = None    # This is the moment where an existing train will be overriden !!!    
         else: # file found, train not finished, file loaded
             # Continue the loaded train.
             epoch = epoch; step_state = step_state
+            
+        try:
+            with open(str(self.bayes_path / name) + '.json', 'r') as f:
+                self.total_losses = json.load(f)
+        except:
+            pass
 
         return epoch, step_state
     
@@ -365,10 +551,40 @@ class Train():
                 stacked = torch.stack([g[idx] for g in grads_list])
                 param.grad = stacked.mean(dim=0)
                 
-    
+    def clean_gpu_every(self, n_iter, step):
+        if step % n_iter == 0:
+            gc.collect()
+            torch.cuda.empty_cache()
+            # torch.cuda.ipc_collect()  # only for inter-process communicatoin
+            
+    def set_learning_rate(self, lr):
+        for param_group in self.optimizer.param_groups:
+            param_group['lr'] = lr
+        self.scheduler.base_lrs = [lr for lr in self.scheduler.base_lrs]
+        self.learning_rate = lr
+        
+    def get_learning_rate(self):
+        return self.optimizer.param_groups[0]['lr']
+            
+    def respond_to_cursor(self):
+        direction, count = read_key()
+        factor = None; step = math.pow(10.0, 1/10)
+        if direction:
+            if direction == "up":
+                factor = math.pow(step, count)         
+            elif direction == "down":
+                factor = math.pow(1 / step, count)
+            else: pass
+        if factor:
+            lr = self.get_learning_rate()
+            assert lr is not None
+            lr *= factor
+            self.set_learning_rate(lr)
+        return
+
     def run_epoch(self, epoch, x_set_label, trainable=False, step_state=None):
         self.epoch = epoch
-        self.model.train(trainable)
+        self.model.train(trainable)     # regularize how dropout and normalization works.
        
         if step_state is not None:
             logging.info("Continuing saved epoch...")
@@ -390,52 +606,52 @@ class Train():
         if self.nDevices > 1: executor = ThreadPoolExecutor(max_workers=len(self.devices))
         
         if not pbar.no_more_data():  pbar.prefetch(x_set_label)        # Fetch one batch asynchronously
+
         step = 0
-        for batch in pbar:              # Wait for the asynchronous .prefetch
+        start = time.time()
+        for batch_normalized in pbar:              # Wait for the asynchronous .prefetch
+            end = time.time()
             if not pbar.no_more_data():  pbar.prefetch(x_set_label)        # Prefetch ensures getting new bacthes.
-            if batch is None: break     # just in case
-            batch_x, batch_y, batch_diff, era5_data_vars = batch    # (B, T1FG, C, H, W), (B, T2FG, C, H, W), None or (B, C, H, W), (C,)
-            if self.pm.include_difficulty:
-                pass
-            batch_x = batch_x[:, :, :, :self.pm.image_height, :self.pm.image_width].pin_memory()     # torch.float32, cpu
-            batch_y = batch_y[:, :, :, :self.pm.image_height, :self.pm.image_width].pin_memory()     # torch.float32, cpu
-            era5_data_vars = era5_data_vars #.pin_memory() # torch.float32, cpu
+            if batch_normalized is None: break     # just in case
+            batch_x, batch_y, batch_diff, era5_data_vars = batch_normalized    # (B, T1FG, C, H, W), (B, T2FG, C, H, W), None or (B, C, H, W), (C,)
 
-            if self.pm.include_difficulty:
-                batch_diff = batch_diff[:, :, :self.pm.image_height, :self.pm.image_width]
-
-            # batch_x = batch_x.to(self.device, non_blocking=True)               # torch.float32, cuda
-            # batch_y = batch_y.float().to(self.device_type + ':' + str(self.nDevices-1), non_blocking=True)       # torch.float32, cuda
-            # era5_data_vars = era5_data_vars.to(self.device_type + ':' + str(self.nDevices-1), non_blocking=True) # torch.float32, cuda
+            batch_x = batch_x.pin_memory()     # torch.float32, cpu
+            batch_y = batch_y.pin_memory()     # torch.float32, cpu
 
             step_loss = []; step_rmses = []
-
             if trainable: self.optimizer.zero_grad() 
+            
+            self.transient_step += batch_x.shape[0]     # increase by batch size
             
             if self.pm.abundant_GPUs or (not self.pm.abundant_GPUs and not trainable):
                 with autocast(device_type=self.device_type, dtype=torch.bfloat16):
                     with torch.set_grad_enabled(trainable):
-                        pred = self.model(batch_x)
-                    pred = self.dataset.unnormalize(pred)   # torch.float32 !!!, cuda, True !!!
-                    target = self.dataset.unnormalize(batch_y)   # torch.float32, cuda, False
-                    loss, rmse = self.loss(target, pred, batch_diff, era5_data_vars)  # (,), (C,), torch.float32, cuda, True !!!
+                        pred = self.model(batch_x, self.pm.mFrames)
+                        pred = self.dataset.unnormalize(pred)   # torch.float32 !!!, cuda, True !!!
+                        target = self.dataset.unnormalize(batch_y)   # torch.float32, cuda, False
+                        loss, rmse = self.loss(target, pred, batch_diff, era5_data_vars)  # (,), (C,), torch.float32, cuda, True !!!
                     if trainable:
                         loss.backward()
                 step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
                 step_rmses.append(rmse.detach().cpu())      # (C,) - list.  If no cpu(), their stack results in cuda
+                self.total_losses.append(loss.item())
 
             elif not self.pm.abundant_GPUs and trainable:
                 if self.nDevices <= 1:
-                    loss, rmse = self.model.sigle_GPU_forward_loss_backward(batch_x, batch_y, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars)
+                    with autocast(device_type=self.device_type, dtype=torch.bfloat16):
+                        with torch.set_grad_enabled(trainable):    
+                            (loss, rmse) = self.model.sigle_GPU_forward_loss_backward(batch_x, batch_y, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars, trainable=trainable)
+                            # (loss, rmse) = self.model.sigle_GPU_forward_loss(batch_x, batch_y, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars)
                     step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
                     step_rmses.append(rmse.detach().cpu())      # (C,) - list.  If no cpu(), their stack results in cuda
+                    self.total_losses.append(loss.item())
                 else:
                     chunks_x = batch_x.chunk(self.nDevices)
                     chunks_y = batch_y.chunk(self.nDevices)
                     
                     for device in self.devices:
                         self.slave_models[device].load_state_dict(self.model.state_dict())
-                    
+                        
                     futures = [
                         executor.submit(
                             self.slave_models[self.devices[i]].sigle_GPU_forward_loss_backward, mb_x, mb_y, self.loss, self.dataset.unnormalize, 
@@ -449,17 +665,22 @@ class Train():
                         grads_list.append(grads)
                         step_loss.append(loss.detach().to('cpu'))
                         step_rmses.append(rmse.detach().to('cpu'))
+                        self.total_losses.append(loss.item())
                     
                     self.average_gradients_to_master(self.model, grads_list)
                     
             if trainable:
-                self.optimizer.step()                
-                self.scheduler.step()   # Our scheduler is OneCycleLR, which is a per-batch scheduler
+                self.optimizer.step()
+                # try:                   
+                #   self.scheduler.step()   # Our scheduler is OneCycleLR, which is a per-batch scheduler
+                # except ValueError:        # It may go beyond the total_steps
+                #     pass
 
             step_loss = torch.tensor(step_loss).mean()   # (,)
             step_rmses = torch.stack(step_rmses, dim=0).mean(dim=0)   # (C,)
-            strC = ", ".join(f"{x:.3f}" for x in step_rmses.ravel().tolist())
-            pbar.set_description('Loss: {:.3f}, rmses: {}'.format(step_loss.item(), strC))
+            strC = ", ".join(f"{x:.2f}" for x in step_rmses.ravel().tolist())
+            pbar.set_description("loss {:.4f} rmse ({}) wait(ms) {:.3f} lr {:1.3e}, bs {}"
+                                 .format(step_loss.item(), strC, (end-start) * 1000, self.get_learning_rate(), self.pm.batch_size))
 
             _epoch_loss.append(step_loss)    # (,) - list
             _epoch_rmses.append(step_rmses)   # (C,) - list
@@ -468,7 +689,10 @@ class Train():
             if trainable is True and step % self.pm.steps_to_save == 0:
                 step_state = self.pack_step_state(_epoch_loss, _epoch_rmses)
                 self.save_state(step_state=step_state)  # Step_save
-                
+            self.clean_gpu_every(50, step)
+            self.respond_to_cursor()
+            start = time.time()
+            
         _epoch_loss = torch.stack(_epoch_loss, dim=0).mean(dim=0)  # (,)
         _epoch_rmses = torch.stack(_epoch_rmses, dim=0).mean(dim=0)       # (C,)
         strC = ", ".join(f"{x:.2f}" for x in _epoch_rmses.ravel().tolist())
@@ -563,7 +787,7 @@ if __name__ == "__main__":
     pbounds = {     # Mike!!!
         "patch_size": (8, 8, int),
         "nHeads": (8, 8, int),
-        "attLayers": (8, 8, int),   # !!! assert attLayers + zeusBlocks <= 3
+        "nLayers": (8, 8, int),   # !!! assert nLayers + zeusBlocks <= 3
         "zeusBlocks": (8, 8, int),  # 
     }
     

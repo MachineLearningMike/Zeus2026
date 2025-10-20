@@ -16,7 +16,7 @@ class ChunkMHA(nn.Module):
     def __init__(
         self,
         d_model: int,
-        num_heads: int,
+        nHeads: int,
         heads_per_chunk: int = 1,
         dropout: float = 0.0,
         bias: bool = True,
@@ -27,15 +27,15 @@ class ChunkMHA(nn.Module):
             device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.gpu_device = torch.device(device)
 
-        assert d_model % num_heads == 0, "d_model must be divisible by num_heads"
+        assert d_model % nHeads == 0, "d_model must be divisible by nHeads"
         self.d_model = d_model
-        self.num_heads = num_heads
-        self.head_dim = d_model // num_heads
-        self.num_head_chunks = num_heads // heads_per_chunk
+        self.nHeads = nHeads
+        self.head_dim = d_model // nHeads
+        self.num_head_chunks = nHeads // heads_per_chunk
         self.dropout = dropout
 
         assert heads_per_chunk > 0
-        rem = num_heads % self.num_head_chunks
+        rem = nHeads % self.num_head_chunks
         self.head_chunks = [heads_per_chunk + (1 if i < rem else 0) for i in range(self.num_head_chunks)]
         
         print(self.head_chunks)
@@ -236,16 +236,16 @@ if __name__ == "__main__":
     batch_size = 1         # it's also the data simplicity in this test.
     T1 = 1
     seq_len = round(T1 * 72 * factor10 * 144 * factor10 /16/16)    # 97_200 for factor10 == 10
-    num_layers = 5
+    nLayers = 5
     d_model = 1024
-    num_heads = 128
+    nHeads = 128
     tokens_per_chunk = seq_len // 10
     heads_per_chunk = 32
     kv_full_sequence = True
     lr = 1e-4
     steps = 100
     
-    model = ChunkMHA(d_model=d_model, num_heads=num_heads, heads_per_chunk=heads_per_chunk, device=device)
+    model = ChunkMHA(d_model=d_model, nHeads=nHeads, heads_per_chunk=heads_per_chunk, device=device)
 
     #------------------- simple test -------------------
     x = torch.randn(batch_size, seq_len, d_model)  # (B, S, E)
@@ -280,7 +280,7 @@ if __name__ == "__main__":
         out.retain_grad()
         with torch.enable_grad():   # redundant for readability
             loss = criterion(out, y_train.to(out.device))
-            loss.backward()
+        loss.backward()
         gradient = out.grad
 
         gradient = model.backward(gradient) # modules are on cpu.

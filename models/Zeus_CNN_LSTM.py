@@ -65,12 +65,12 @@ class Convolutions(nn.Module):
 # LSTMs
 # -----------------------------
 class LSTMs(nn.Module):
-    def __init__(self, input_dim, hidden_dim, num_layers=2):
+    def __init__(self, input_dim, hidden_dim, nLayers=2):
         super().__init__()
-        self.num_layers = num_layers
+        self.nLayers = nLayers
         self.lstm_cells = nn.ModuleList([
             nn.LSTMCell(input_dim if i == 0 else hidden_dim, hidden_dim)
-            for i in range(num_layers)
+            for i in range(nLayers)
         ])
         self.fc = nn.Linear(hidden_dim, input_dim)
 
@@ -103,11 +103,11 @@ class Zeus(nn.Module):
 
         # # LSTM
         flattened_size = self.cnn_out_channels * H * W
-        # self.lstm = LSTMs(input_dim=flattened_size, hidden_dim=flattened_size, num_layers=lstm_layers)
+        # self.lstm = LSTMs(input_dim=flattened_size, hidden_dim=flattened_size, nLayers=lstm_layers)
         
         # Allow smaller hidden_dim
         lstm_hidden_dim = self.cnn_out_channels * H * W // 2000  # reduced hidden_dim, 137,554,329,600 bytes for LSTM cell.
-        self.lstm = LSTMs(input_dim=flattened_size, hidden_dim=lstm_hidden_dim, num_layers=lstm_layers)
+        self.lstm = LSTMs(input_dim=flattened_size, hidden_dim=lstm_hidden_dim, nLayers=lstm_layers)
 
         # Decoder maps cnn_out_channels -> C
         self.decoder = Decoder(in_channels=self.cnn_out_channels, out_channels=C, H=H, W=W)
@@ -123,9 +123,9 @@ class Zeus(nn.Module):
         device = x_seq[0].device
 
         h = [torch.zeros(batch_size, self.lstm.lstm_cells[0].hidden_size, device=device)
-             for _ in range(self.lstm.num_layers)]
+             for _ in range(self.lstm.nLayers)]
         c = [torch.zeros(batch_size, self.lstm.lstm_cells[0].hidden_size, device=device)
-             for _ in range(self.lstm.num_layers)]
+             for _ in range(self.lstm.nLayers)]
 
         preds = []
         input_t = None
