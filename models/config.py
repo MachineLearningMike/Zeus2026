@@ -26,6 +26,9 @@ config = {
     'PE': 'random',    # 'random', 'sinusodial'
     'learn_PE': True,
     'add_spatial_conv': True,
+    'blocksPerState': [3, 4, 6],
+    'ObsorbHDistortion' : True,
+    'Zeus_Model' : 'Zeus_ResNet',
     
     'dropout':      0.05,
     'attn_dropout': 0.05,
@@ -98,7 +101,7 @@ if platform.system() == "Windows":
     config['nLayers'] = 5
     config['heads_per_chunk'] = None
     config['tokens_per_chunk'] = None
-
+    
     config['no_PE'] = True
     
     config['epochs'] = 100
@@ -118,25 +121,108 @@ else:
 
 n = config['nFrames']
 C = len(config['variables'])
-
 config['cnn_hidden_channels'] = [n*C, n*C, n*C, n*C, n*C, n*C, n*C, n*C, C] # the last should be C. See ZeusCNN.forward. We get one frame from n frames.
    
-# config['cnn_hidden_channels'] = [2*n*C, 2*n*C, 2*n*C, 2*n*C, 2*n*C, 2*n*C, 2*n*C, 2*n*C, C]
+#-------------------------------------------------- project list ---------------
+projects = {}
+projects["ResNet50-24M"] = {           #
+    'Zeus_Model' : 'Zeus_ResNet',
+    'factor10': 1,
+    'lr': 1e-3,
+    'max_lr': 1e-3,
+    'batch_size': 2, # (?)
+    'ObsorbHDistortion': True,
+}
+projects["ResNet50-24M-2"] = {           #
+    'Zeus_Model' : 'Zeus_ResNet',
+    'factor10': 2,
+    'lr': 1e-3,
+    'max_lr': 1e-3,
+    'batch_size': 1,
+    'ObsorbHDistortion': True,
+}
+projects["ResNet50-NewCodec-2"] = {      # longest. 365K params CNN.
+    'Zeus_Model' : 'Zeus_ResNet',
+    'factor10': 2,
+    'lr': 1e-3,
+    'max_lr': 1e-3,
+    'batch_size': 5,
+    'ObsorbHDistortion': True,
+}
+projects["ResNet50-3753K"] = {
+    'Zeus_Model' : 'Zeus_ResNet',
+    'factor10': 2,
+    'lr': 1e-3,
+    'max_lr': 1e-4,
+    'batch_size': 2,
+    'ObsorbHDistortion': True,
+}
+projects["ResNet50-9M"] = {
+    'Zeus_Model' : 'Zeus_ResNet',
+    'factor10': 2,
+    'lr': 1e-3,
+    'max_lr': 1e-4,
+    'batch_size': 2,
+    'blocksPerState': [3, 4, 6],
+    'ObsorbHDistortion': True,
+}
+projects["ResNet50-9M-2"] = {
+    'Zeus_Model' : 'Zeus_ResNet',
+    'factor10': 2,
+    'lr': 1e-3,
+    'max_lr': 1e-4,
+    'batch_size': 2,
+    'blocksPerState': [3, 4, 6],
+    'ObsorbHDistortion': False,
+}
+projects["ResNet50-6M-2"] = {
+    'Zeus_Model' : 'Zeus_ResNet',
+    'factor10': 2,
+    'lr': 1e-3,
+    'max_lr': 1e-4,
+    'batch_size': 2,
+    'blocksPerState': [3, 20],    #------ stc [3, 4, 6]
+    'ObsorbHDistortion': False,
+}
 
-# Chunk2D and simple Chunk
-if config['dim_to_layerFFN_dim'] == 4:
-    config['bayesProject'] = "-".join([str(config['patch_size']), str(config['nHeads']), str(config['heads_per_chunk']), str(config['tokens_per_chunk']), str(config['nLayers']), config['layerFFN'], "no_PE" if config['no_PE'] else "" ])
-else:
-    config['bayesProject'] = "-".join([str(config['patch_size']), str(config['nHeads']), str(config['heads_per_chunk']), str(config['tokens_per_chunk']), str(config['nLayers']), str(config['dim_to_layerFFN_dim']), config['layerFFN'], "no_PE" if config['no_PE'] else ""])
+projects["Flash2DBlocked-1"] = {         # to check 
+    'Zeus_Model' : 'Zeus_Flash2D_Blocked',
+    'factor10': 2,
+    'lr': 5e-5,
+    'max_lr': 5e-5,
+    'batch_size': 1,
+    'dim_to_layerFFN_dim': 4,
+    'nHeads' : 128,
+    'nLayers' : 5,
+    'zeusBlocks':   4,
+    'heads_per_chunk' : None,
+    'tokens_per_chunk' : None,
+    'PE': 'random',    # 'random', 'sinusodial'
+    'learn_PE': True,
+    'add_spatial_conv': True,
+}
 
-config['lr'] = config['max_lr'] = 1e-3
-config['batch_size'] = 5 #5
-config['bayesProject'] = "ResNet50-NewCodec-2"      # Current Convolution
+projects["Flash2DBlocked-2"] = {         # to check 
+    'Zeus_Model' : 'Zeus_Flash2D_Blocked',
+    'factor10': 2,
+    'lr': 5e-5,
+    'max_lr': 5e-5,
+    'batch_size': 1,
+    'patch_size':   8,
+    'nHeads' : 8,
+    'nLayers' : 4,
+    'zeusBlocks':   4,
+    'heads_per_chunk' : None,
+    'tokens_per_chunk' : None,
+    'PE': 'sinusodial',    # 'random', 'sinusodial'
+    'dim_to_layerFFN_dim': 4,
+    'learn_PE': True,
+    'add_spatial_conv': False,
+}
 
-# config['lr'] = config['max_lr'] = 5e-5
-# config['batch_size'] = 1
-# config['bayesProject'] = "Flash2DBlocked-1"         # Current Transformer
+#-------------------------------- select proejct -----------------------
+select = "Flash2DBlocked-2" # "ResNet50-NewCodec-2" #"ResNet50-9M" # "ResNet50-3753K" #"ResNet50-NewCodec-2"  #'ResNet50-24M-2'
 
+config['bayesProject'] = select
+config.update(projects[select])
 print('bayesProject:', config['bayesProject'])
-
-# config['bayesProject'] = config['bayesProject'] + '-NoMHA'  # NoMHA

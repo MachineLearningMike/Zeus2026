@@ -7,14 +7,20 @@ from pathlib import Path
 import logging
 from datetime import datetime
 import sys, gc, copy, time, math
+import importlib
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.utils import check_dir
 from modules.zeus_tqdm import zeus_tqdm
 
-from models.Zeus_ResNet import Zeus
-# from Zeus_Flash2D_Blocked import Zeus
+from config import config
+
+module = importlib.import_module(config['Zeus_Model'])
+Zeus = getattr(module, 'Zeus')
+
+# from models.Zeus_ResNet import Zeus
+# # from Zeus_Flash2D_Blocked import Zeus
 
 from modules.zeus_dataset import Zeus_Dataset
 import modules.utils as utils
@@ -82,7 +88,7 @@ class Train():
                 logging.info("DoubleZeus model created. nDevices: {}, trainable: {}".format(self.nDevices, trainable))
 
         except Exception as e:
-            logging.info(str(e))
+            logging.info("Creating model..." + str(e))
             sys.exit(0)
         
         if self.trainable:

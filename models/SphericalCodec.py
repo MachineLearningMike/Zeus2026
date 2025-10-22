@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 # -----------------------------
 # Fast Encoder / Decoder Definition
 # -----------------------------
-class FastCnnLayerPerLatitude(nn.Module):
+class ObsorbH(nn.Module):
     """Latitude-dependent 1D conv, truly per-latitude, cylindrical padding."""
     def __init__(self, C, H, W):
         super().__init__()
@@ -17,7 +17,7 @@ class FastCnnLayerPerLatitude(nn.Module):
         lat_rad = torch.deg2rad(lat_deg)
 
         alpha = 1.0 / (torch.cos(lat_rad) + 1e-9)
-        alpha = torch.clamp(alpha, 1.0, W)    # W/2 might be better: no harm to accuracy with higher speed.
+        alpha = torch.clamp(alpha, 1.0, W)
 
         floor = torch.floor(alpha).to(torch.int32)
         ceil  = torch.ceil(alpha).to(torch.int32)
@@ -68,23 +68,26 @@ class FastCnnLayerPerLatitude(nn.Module):
         return y_out
 
 class SphericalEncoder(nn.Module):
-    def __init__(self, C, H, W):
+    def __init__(self, C, H, W, ObsorbHDistortion=True):
         super().__init__()
         self.C, self.H, self.W = C, H, W
-        self.layer = FastCnnLayerPerLatitude(C, H, W)
+        self.ObsorbHDistortion = ObsorbHDistortion
+        if ObsorbHDistortion:
+            self.obsorb = ObsorbH(C, H, W)
         self.positional_codes = nn.Parameter(torch.empty(C, H, W).uniform_(-math.sqrt(3), math.sqrt(3)))
 
     def forward(self, x):
-        x = self.layer(x)
+        if self.ObsorbHDistortion:
+            x = self.obsorb(x)
         x = x + self.positional_codes
         return x
 
 
 class SphericalDecoder(SphericalEncoder):
     """Decoder is the same as Encoder, optionally could take different in_C"""
-    def __init__(self, in_C, C, H, W):
+    def __init__(self, in_C, C, H, W, ObsorbHDistortion=True):
         assert in_C == C, "in_C must equal C for this simple decoder"
-        super().__init__(C, H, W)
+        super().__init__(C, H, W, ObsorbHDistortion)
 
 
 # -----------------------------

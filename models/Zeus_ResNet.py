@@ -13,7 +13,11 @@ from SphericalCodec import SphericalEncoder, SphericalDecoder
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 # modules.ResNet_custom_1 is 0.131:0.090x faster, giving the same accuracy.
-from modules.ResNet_GroupNorm import FCResNetCylindrical
+# from modules.ResNet50_Zeus_GroupNorm_365K import ResNetCylindrical
+# from modules.ResNet50_Zeus_GroupNorm_24M import ResNetCylindrical
+# from modules.ResNet50_Zeus_noStage_GroupNorm_xM import ResNetCylindrical
+# from modules.ResNet50_Zeus_noStage_GroupNorm_365K import ResNetCylindrical
+from modules.ResNet50_Zeus_GroupNorm import ResNetCylindrical
 # -----------------------------
 # ZeusCNN model
 # -----------------------------
@@ -26,16 +30,22 @@ class Zeus(nn.Module):
         self.pm = pm
 
         C, H, W, self.n_frames = len(pm.variables), pm.image_height, pm.image_width, pm.nFramesIn
+        blocksPerState = pm.blocksPerState
         self.device = device
 
         # Encoder/Decoder always work per-frame
-        self.encoder = SphericalEncoder(C, H, W).to(device)
-        self.decoder = SphericalDecoder(C, C, H, W).to(device)
+        self.encoder = SphericalEncoder(C, H, W, pm.ObsorbHDistortion).to(device)
+        self.decoder = SphericalDecoder(C, C, H, W, pm.ObsorbHDistortion).to(device)
 
         in_channels = self.n_frames * C    # stacked frames
         # self.cnn = Convolutions(in_channels, cnn_hidden_channels, kernel_size=kernel_size).to(device)
         print("ZeusResNet being created...")
-        self.cnn = FCResNetCylindrical(nVariables=C, nBlocks=18, mid_channels=32, in_channels=in_channels).to(device)
+        # self.cnn = ResNetCylindrical(nVariables=C, nBlocks=36, mid_channels=in_channels, in_channels=in_channels).to(device)    # 3753K params, from ResNet50_Zeus_GroupNorm_3753K
+        # self.cnn = ResNetCylindrical(in_channels=pm.T1*C).to(device)  # 365K params, from ResNet50_Zeus_GroupNorm_365K
+        self.cnn = ResNetCylindrical(self.pm).to(device)
+
+        num_params = sum(p.numel() for p in self.cnn.parameters())
+        print(f"Total parameters: {num_params:,}")
 
     def forward(self, x, m_frames, y=None):  # y_seq != None signals training
         """
@@ -176,15 +186,22 @@ def train_epoch(model, dataloader, optimizer, criterion, x_frames, y_frames, dev
         x_input = normalize(x_input)
         target = normalize(target_org)
         with autocast(device_type="cuda", dtype=torch.bfloat16):
+            s = time.time()
             preds = model(x_input, y_frames, y=target)  # list of m predictions (B, C, H, W)
+            e = time.time()
+            print("forward pass: {:.3f}".format(e-s))
 
         preds = denormalize(preds)
         loss = criterion(preds, target_org)
 
         with autocast(device_type="cuda", dtype=torch.bfloat16):
+            s = time.time()
             loss.backward()
+            e = time.time()
+            print("backward pass: {:.3f}".format(e-s))
         optimizer.step()
         total_loss += loss.item()
+        e = time.time()
         end = time.time()
         print("steps: {}, loss {:.3f}, avg time(s) {:.3f}".format(steps, loss, (end-start)/local_step))
 
@@ -223,6 +240,7 @@ if __name__ == "__main__":
     
     pm = Params(config)
     B, C, H, W, n, m, = pm.batch_size, len(pm.variables), pm.image_height, pm.image_width, pm.nFramesIn, pm.nFramesOut
+    print("B, C, H, W, n, m", B, C, H, W, n, m)
     
     epochs = 50
     length = 10
@@ -246,6 +264,10 @@ if __name__ == "__main__":
     lr = 1e-3   #=======================
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model = Zeus(pm, device=device)
+    
+    num_params = sum(p.numel() for p in model.parameters())
+    print(f"Total parameters: {num_params:,}")
+    
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     def criterion(pred, target):
         return ((target.to(pred.device) - pred) ** 2).mean() ** 0.5

@@ -17,6 +17,7 @@ class Params:
         self.image_height = round(config['height'] * config['factor10'] / 10)                        # 720 if factor10 == 10
         self.image_width = round(config['width'] * config['factor10'] / 10)                         # 1,440 if factor10 == 10
         self.variables = config['variables']
+        self.nVariables = len(config['variables'])
         self.T1 = config['T1']
         self.nFramesIn = config['T1'] * config['FG']                # 2 * 24 = 48           # temporal seq_len
         self.FG = config['FG']
@@ -59,15 +60,20 @@ class Params:
         
         self.nLayers = config['nLayers']
         self.zeusBlocks = config['zeusBlocks']
+        self.ObsorbHDistortion = config['ObsorbHDistortion']
+        self.Zeus_Model = config['Zeus_Model']
         
         self.PE = config['PE']
         self.learn_PE = config['learn_PE']
+        self.ObsorbHDistortion = config['ObsorbHDistortion']
+
         
         self.crossLayers = config['crossLayers']
         self.layerFFN = config['layerFFN']
         self.dim_layerFFN = self.d_model * config['dim_to_layerFFN_dim']
         
         self.cnn_hidden_channels = config['cnn_hidden_channels']
+        self.blocksPerState = config['blocksPerState']
 
         #----------------- Training ---------------
         self.include_difficulty = config['include_difficulty']

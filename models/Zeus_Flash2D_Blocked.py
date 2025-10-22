@@ -192,28 +192,7 @@ class Zeus(nn.Module):
         torch.cuda.empty_cache()
         
         return gradient
-
-    def sigle_GPU_forward_loss_backward_old(self, input, target, loss_fn, unnormal_fn, batch_diff, era5_data_vars, trainable=True):
-        # The caller creates this context:
-        # with autocast(device_type=self.device_type, dtype=torch.bfloat16):
-        #     with torch.set_grad_enabled(trainable): 
-
-        # if trainable:
-        #     input.requires_grad_(trainable)
-        #     # input.retain_grad()    no need, pred is a leaf tensor.
-
-        pred = self(input, train=True, modules_to_cpu=True)
-        pred = unnormal_fn(pred)   # torch.float32 !!!, cuda, True !!!
-        target = unnormal_fn(target)   # torch.float32, cuda, False
-        
-        lossAndMetrics = loss_fn(target, pred, batch_diff, era5_data_vars)
-        loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
-        
-        if trainable:    
-            loss.backward()
-
-        return lossAndMetrics
-    
+   
     def sigle_GPU_forward_loss_backward(self, input, target, loss_fn, unnormal_fn, batch_diff, era5_data_vars, trainable=True):
         # The caller creates this context:
         # with autocast(device_type=self.device_type, dtype=torch.bfloat16):
@@ -264,6 +243,9 @@ if __name__ == "__main__":
     steps = 100
     
     model = Zeus(pm, device=device)
+    
+    num_params = sum(p.numel() for p in model.parameters())
+    print(f"Total parameters: {num_params:,}")
 
     #------------------- simple test -------------------
     x = torch.randn(1, config['T1'], len(config['variables']), 72 * config['factor10'], 144 * config['factor10'])

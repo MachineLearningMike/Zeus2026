@@ -42,13 +42,16 @@ class BottleneckSame(nn.Module):
         return out
 
 # ---------- FCResNet with head ----------
-class FCResNetCylindrical(nn.Module):
-    def __init__(self, nVariables=4, nBlocks=18, in_channels=None, mid_channels=32, num_groups=32):
+class ResNetCylindrical(nn.Module):
+    def __init__(self, pm):
         super().__init__()
-        if in_channels is None:
-            in_channels = 24 * nVariables
+        in_channels = pm.T1 * pm.nVariables
+        mid_channels = 32
+        num_groups = 32
+        nBlocks = 18
+
         self.in_channels = in_channels
-        self.nVariables = nVariables
+        self.nVariables = pm.nVariables
 
         # Initial conv
         self.conv1 = nn.Conv2d(in_channels, in_channels, 3, padding=1,
@@ -75,12 +78,20 @@ if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
     nVariables = 4
     in_channels = 24 * nVariables  # 96
+    
+    class Params:
+        def __init__(self):
+            self.T1 = 24
+            self.nVariables = 4
+    pm = Params()
 
-    model = FCResNetCylindrical(nVariables=nVariables, nBlocks=18, mid_channels=32,
-                                in_channels=in_channels).to(device)
+    model = ResNetCylindrical(pm).to(device)
     model.eval()
+    
+    num_params = sum(p.numel() for p in model.parameters())
+    print(f"Total parameters: {num_params:,}")
 
-    x = torch.randn(2, in_channels, 72, 144, device=device)
+    x = torch.randn(2, in_channels, 720, 1440, device=device)
 
     loops = 5
     start = time.time()

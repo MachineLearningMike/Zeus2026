@@ -53,7 +53,7 @@ class BottleneckSame(nn.Module):
 
 
 # ---------- FCResNet with head ----------
-class FCResNetCylindrical(nn.Module):
+class ResNetCylindrical(nn.Module):
     def __init__(self, nVariables=4, nBlocks=18, in_channels=None, mid_channels=32):
         super().__init__()
         if in_channels is None:
@@ -86,9 +86,12 @@ if __name__ == "__main__":
     nVariables = 4
     in_channels = 24 * nVariables  # 96
 
-    model = FCResNetCylindrical(nVariables=nVariables, nBlocks=18,
+    model = ResNetCylindrical(nVariables=nVariables, nBlocks=18,
                                 mid_channels=32, in_channels=in_channels).to(device)
     model.eval()
+
+    num_params = sum(p.numel() for p in model.parameters())
+    print(f"✅ Total parameters: {num_params:,}")
 
     x = torch.randn(2, in_channels, 72, 144, device=device)
 
