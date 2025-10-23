@@ -259,6 +259,14 @@ class Flash2DEncLayer(nn.Module):
 if __name__ == "__main__":
     
     import time
+    import sys
+    from pathlib import Path
+    # Get path to sibling folder
+    sibling_path = Path(__file__).resolve().parent.parent / "models"
+    sys.path.insert(0, str(sibling_path))
+    from config import config
+    from params import Params
+    from models.AdaptiveLRLearner import AdaptiveLRLearner
     
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     
@@ -275,8 +283,8 @@ if __name__ == "__main__":
     tokens_per_chunk = None
     heads_per_chunk = None
     kv_full_sequence = True
-    lr = 1e-3
-    steps = 100
+    lr = 1e-3 # 1e-3
+    steps = 1000
 
     layerFFN = "GLU"  # "GLU", "FFN"
     model = Flash2DEncLayer(d_model=d_model, nHeads=nHeads, heads_per_chunk=heads_per_chunk, dim_layerFFN=4*d_model, dropout=0.0, layerFFN=layerFFN, device=device)
@@ -298,6 +306,12 @@ if __name__ == "__main__":
     x_train = torch.randn(batch_size, seq_len, d_model)
     y_train = torch.randn(batch_size, seq_len, d_model)
 
+    learnLR = True
+
+    if learnLR:
+        optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
+        lr_controller = AdaptiveLRLearner(optimizer, accum_steps=5)
+
     start = time.time()
     for step in range(steps):
         optimizer.zero_grad()
@@ -313,9 +327,14 @@ if __name__ == "__main__":
             loss = criterion(out, y_train.to(out.device))
             loss.backward(retain_graph=False)
         gradient = out.grad
-        
+
         gradient = model.backward(gradient)
-        optimizer.step()
+        
+        if learnLR:
+            performed_step, lr, grad_norm = lr_controller.step(loss.item())
+            print(f"performed_step: {performed_step}, new_lr: {lr:.7f}")
+        else:
+            optimizer.step()
 
         end = time.time()
         duration = end - start

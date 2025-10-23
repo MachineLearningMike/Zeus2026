@@ -180,6 +180,8 @@ class Flash2DZeusBlock(nn.Module):
             x = rearrange(x, '(b n) t d -> b t n d', b=b)     # (B, T, N, dim)
         x.backward(gradient, retain_graph=False)
         gradient = src.grad                                       # (B*T, N, dim)
+        if self.add_spatial_conv:
+            self.spaial_conv_2.to("cpu")
         self.temporal_transformer_2.to("cpu")
 
         # in_spatial2_saved.grad
@@ -220,6 +222,8 @@ class Flash2DZeusBlock(nn.Module):
             x = self.temporal_transformer_1(x, train=False, modules_to_cpu=False)                                  # (B*N, T, dim) 
         x.backward(gradient, retain_graph=False)
         gradient = src.grad                                       # (B, N, T, dim)
+        if self.add_spatial_conv:
+            self.spaial_conv_1.to("cpu")
         self.temporal_transformer_1.to("cpu")
         
         return gradient

@@ -87,6 +87,8 @@ class Params:
         self.div_factor = config['div_factor']
         self.final_div_factor = config['final_div_factor']
         self.epoch_patience = config['epoch_patience']
+        self.useLRLearner = config['useLRLearner']
+        self.accum_steps = config['accum_steps']
         
         self.data_years = config['data_years']
         

@@ -204,23 +204,40 @@ class Zeus(nn.Module):
         # with autocast(device_type=self.device_type, dtype=torch.bfloat16):
         #     with torch.set_grad_enabled(trainable): 
 
+        s = time.time()
         with torch.set_grad_enabled(False):
             pred = self(input, train=True, modules_to_cpu=True)
+        e = time.time()
+        # print(f"time1 {e-s:.5f}")
 
-        pred = unnormal_fn(pred)   # torch.float32 !!!, cuda, True !!!
-        target = unnormal_fn(target)   # torch.float32, cuda, False
+        s = time.time()
+        if unnormal_fn is not None:
+            pred = unnormal_fn(pred)   # torch.float32 !!!, cuda, True !!!
+            target = unnormal_fn(target)   # torch.float32, cuda, False
+        e = time.time()
+        # print(f"time2 {e-s:.5f}")
 
+        s = time.time()
         if trainable:
             pred.requires_grad_(trainable)
             pred.retain_grad()
-        
+        e = time.time()
+        # print(f"time3 {e-s:.5f}")
+
+        s = time.time()
         lossAndMetrics = loss_fn(target, pred, batch_diff, era5_data_vars)
         loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
+        e = time.time()
+        # print(f"time4 {e-s:.5f}")
         
-        if trainable:    
+        s = time.time()
+        if trainable:
             loss.backward()
             gradient = pred.grad
             _ = self.backward(gradient)
+        e = time.time()
+        # print(f"time5 {e-s:.5f}")
+
 
         return lossAndMetrics
 
@@ -250,12 +267,12 @@ if __name__ == "__main__":
     # config['self.add_spatial_conv'] = False
     # config['layerFFN'] = "GLU"   
 
-    # config['zeusBlocks'] = 4
-    
+    config['zeusBlocks'] = 1
+
     pm = Params(config)
     batch_size, T1, N, d_model = pm.batch_size, pm.T1, pm.nPatches, pm.d_model
 
-    lr = 5e-5               # -4
+    lr = 1e-4               # -4
     steps = 100
     
     model = Zeus(pm, device=device)
@@ -274,42 +291,70 @@ if __name__ == "__main__":
 
     #------------------ training test --------------------
     
+    ERA5_DATA_VARS = {
+        "2m_temperature": 0.3,
+        "total_precipitation": 0.4,
+        "100m_u_component_of_wind": 0.15,
+        "100m_v_component_of_wind": 0.15,
+    }
+    era5_data_vars = torch.tensor([value for value in ERA5_DATA_VARS.values()])
+    
+    def loss_fun(target, pred, batch_diff, era5_data_vars):
+        device = pred.device
+        target = target.to(device)
+        rmse = ((pred - target) ** 2).mean(dim=(0,1,3,4)).sqrt()    # (C,), 32, cuda, True !!!        
+        era5_data_vars = era5_data_vars.to(device)
+        reward = rmse * era5_data_vars   # (C,), 32, cuda, True !!!, the-higher-the-worse
+        reward = reward.mean()  # (,)
+        return reward, rmse # (,), (C,)     32, cuda, True
+    
     # optimizer (params are on CPU at construction time)
     optimizer = optim.AdamW(model.parameters(), lr=lr)
     criterion = nn.MSELoss()
 
     # dummy data (CPU)
-    x_train = torch.randn(1, config['T1'], len(config['variables']), 72 * config['factor10'], 144 * config['factor10'])
-    y_train = torch.randn(1, config['T1'], len(config['variables']), 72 * config['factor10'], 144 * config['factor10'])
+    x_train = torch.randn(config['batch_size'], config['T1'], len(config['variables']), 72 * config['factor10'], 144 * config['factor10'])
+    y_train = torch.randn(config['batch_size'], config['T1'], len(config['variables']), 72 * config['factor10'], 144 * config['factor10'])
 
+    scaler = GradScaler()
+    
     start = time.time()
-    for step in range(steps):
+    for step in range(steps):    
+        
         optimizer.zero_grad()
+        
+        # with autocast(device_type="cuda", dtype=torch.bfloat16):
+        with torch.set_grad_enabled(True):
+            (loss, rmse) = model.sigle_GPU_forward_loss_backward(x_train, y_train, loss_fun, None, None, era5_data_vars, trainable=True)
                 
-        with autocast(device_type="cuda", dtype=torch.bfloat16):
-            with torch.no_grad():
-                out = model(x_train, train=True, modules_to_cpu=True)
-        gc.collect()
-        torch.cuda.empty_cache()
+        # with autocast(device_type="cuda", dtype=torch.bfloat16):
+        #     with torch.no_grad():
+        #         out = model(x_train, train=True, modules_to_cpu=True)
+        # gc.collect()
+        # torch.cuda.empty_cache()
             
-        # target -> same device as out for loss
-        out.requires_grad_(True)
-        out.retain_grad()
-        with autocast(device_type="cuda", dtype=torch.bfloat16):
-            with torch.enable_grad():   # redundant for readability
-                loss = criterion(out, y_train.to(out.device))
-            loss.backward()
-        gradient = out.grad
+        # # target -> same device as out for loss
+        # out.requires_grad_(True)
+        # out.retain_grad()
+        # with autocast(device_type="cuda", dtype=torch.bfloat16):
+        #     with torch.enable_grad():   # redundant for readability
+        #         loss = criterion(out, y_train.to(out.device))
+        #     loss.backward()
+        # gradient = out.grad
 
-        with autocast(device_type="cuda", dtype=torch.bfloat16):
-            gradient = model.backward(gradient)
-        gc.collect()
-        torch.cuda.empty_cache()
+        # with autocast(device_type="cuda", dtype=torch.bfloat16):
+        #     gradient = model.backward(gradient)
+        # gc.collect()
+        # torch.cuda.empty_cache()
 
-        optimizer.step()
+        s = time.time()
+        if step % 10 == 0:
+            optimizer.step()
+        e = time.time()
+        print(f"optimizer time: {e-s :.5f}")
 
         end = time.time()
         duration = end - start
-        print(f"Step {step+1}/{steps}, Loss: {loss.item():.12f}, avg time: {duration / (step+1): .3f}")
+        print(f"Step {step+1}/{steps}, Loss: {loss.item():.12f}, avg time: {duration/(step+1): .3f}")
 
     print("Training done.")

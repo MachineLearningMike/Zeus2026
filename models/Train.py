@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 import json, tzlocal
 from torch.amp import autocast, GradScaler
 from concurrent.futures import ThreadPoolExecutor
@@ -8,6 +9,12 @@ import logging
 from datetime import datetime
 import sys, gc, copy, time, math
 import importlib
+
+# import matplotlib
+# matplotlib.use("Agg")  # non-GUI backend, safe in threads
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
@@ -35,6 +42,8 @@ from modules_zeus.constants import (
 from modules.read_cursor_keys import read_key, init_key_listener
 init_key_listener()  # optional, read_key() will auto-init too
 
+from AdaptiveLRLearner import AdaptiveLRLearner
+
 def print_data_attrs(obj):
     for name, value in vars(obj).items():
         print(f"{name}: {value}")
@@ -59,6 +68,7 @@ class Train():
         min_sota_delta = torch.tensor([value for (key, value) in REWARD_IMPROVEMENT_MIN_DELTA.items() if key in self.pm.variables])  # (C,)
         self.min_sota_delta = rearrange(min_sota_delta, 'c -> c 1 1')
         self.era5_data_vars = self.load_era5_data_vars()
+        self.scaler = GradScaler()
 
         #=========================== Varing train state =========
         # Identified by bayesProject.
@@ -95,6 +105,9 @@ class Train():
             self.rmses_old = torch.ones_like(self.era5_data_vars) * 1e9
             self.transient_step = 0
             self.learning_rate = None
+            
+        if self.trainable:
+            self.lr_controller = AdaptiveLRLearner(self.optimizer, accum_steps=self.pm.accum_steps)
             
         self.total_losses = []
 
@@ -232,6 +245,10 @@ class Train():
         torch.save(checkpoint, self.bayes_path / (name + '.pth.bak'))   # Create a backup, as creating takes a long time and may fail by the cloud Spot service.
         # logging.info(f"Checkpoint '{name}' saved, including model, optimizer, scheduler, scaler, rmses_old, and dataset state")
     
+        self.save_total_losses(name)
+        
+    def save_total_losses(self, name=None):
+        if name is None: name = 'train_state' # + '-' + self.get_train_id_string()
         with open(str(self.bayes_path / name) + '.json', 'w') as f:
             json.dump(self.total_losses, f)
     
@@ -540,7 +557,6 @@ class Train():
         else:
             _epoch_loss, _epoch_rmses = [], []
         
-        if trainable: self.optimizer.zero_grad()                     # trainable
         pbar = zeus_tqdm(self.dataset)
         pbar.start_prefetch_thread()
 
@@ -555,6 +571,40 @@ class Train():
             if not pbar.no_more_data():  pbar.prefetch(x_set_label)        # Prefetch ensures getting new bacthes.
             if batch_normalized is None: break     # just in case
             batch_x, batch_y, batch_diff, era5_data_vars = batch_normalized    # (B, T1FG, C, H, W), (B, T2FG, C, H, W), None or (B, C, H, W), (C,)
+
+            if False:
+                B, T, C, H, W = batch_x.shape
+                # Pick random b, t, c indices
+                b = torch.randint(0, B, (1,)).item()
+                t = torch.randint(0, T, (1,)).item()
+                c = torch.randint(0, C, (1,)).item()
+                print(f"Selected slice: b={b}, t={t}, c={c}")
+
+                # Extract 2D slice
+                slice_2d = batch_x[b, t, c].cpu().numpy()  # shape (H, W)
+                mean = np.mean(slice_2d)
+                std = np.std(slice_2d)
+
+                # Create coordinate grid
+                x = np.arange(W)
+                y = np.arange(H)
+                Xg, Yg = np.meshgrid(x, y)
+
+                # Plot as 3D surface
+                fig = plt.figure(figsize=(8, 6))
+                ax = fig.add_subplot(111, projection='3d')
+
+                ax.plot_surface(Xg, Yg, slice_2d, cmap='viridis', edgecolor='none')
+
+                ax.set_xlabel('Width')
+                ax.set_ylabel('Height')
+                ax.set_zlabel('Value')
+                ax.set_title(f"3D Surface of X[b={b}, t={t}, c={c}, mean={mean}, std={std}]")
+
+                plt.tight_layout()
+                plt.show()
+
+                continue
 
             batch_x = batch_x.pin_memory()     # torch.float32, cpu
             batch_y = batch_y.pin_memory()     # torch.float32, cpu
@@ -579,9 +629,13 @@ class Train():
 
             elif not self.pm.abundant_GPUs and trainable:
                 if self.nDevices <= 1:
-                    with autocast(device_type=self.device_type, dtype=torch.bfloat16):
-                        with torch.set_grad_enabled(trainable):    
-                            (loss, rmse) = self.model.sigle_GPU_forward_loss_backward(batch_x, batch_y, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars, trainable=trainable)
+                    # s = time.time()
+                    # Mike!!! autocast, to bfloat16, makes it 10x (?) slower to reduce loss, though it takes 14.5/11.2 longer.
+                    # with autocast(device_type=self.device_type, dtype=torch.bfloat16):
+                    with torch.set_grad_enabled(trainable):
+                        (loss, rmse) = self.model.sigle_GPU_forward_loss_backward(batch_x, batch_y, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars, trainable=trainable)
+                    # e = time.time()
+                    # print("core time: {:.5f}".format(e-s))    # 16.7s
                     step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
                     step_rmses.append(rmse.detach().cpu())      # (C,) - list.  If no cpu(), their stack results in cuda
                     self.total_losses.append(loss.item())
@@ -610,7 +664,16 @@ class Train():
                     self.average_gradients_to_master(self.model, grads_list)
                     
             if trainable:
-                self.optimizer.step()
+                # for name, param in self.model.named_parameters():
+                #     grad_dev = param.grad.device if param.grad is not None else None
+                #     print(f"{name}: param device = {param.device}, grad device = {grad_dev}")
+                
+                if self.pm.useLRLearner:
+                    # loss = loss.to(self.device)
+                    performed_step, lr, grad_norm = self.lr_controller.step(loss.item())
+                else:         
+                    self.optimizer.step()
+                # self.scaler.update()
                 
                 # I choose manual control rather than sheduled control.
                 # try:                   

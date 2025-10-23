@@ -24,6 +24,7 @@ import os, sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.params import Params
+# Make they're from sure modules_zeus
 from modules_zeus.constants import ERA5_DATA_VARS
 from modules_zeus.sample import Era5Sample
 from modules_zeus.coordinates import get_bbox, slice_bbox
@@ -335,20 +336,37 @@ class Zeus_Dataset(Dataset):
             # print('------', data, torch.tensor(data['mean']).shape)
         mean, std = torch.tensor(data['mean']), torch.tensor(data['std'])
         
-        std = std * self.pm.factor10 / 10   #=============================== Mike!!!
+        std = std # * (self.pm.factor10 / 10)   # Mike!!! This multiplication make sdt deviate from 1.
         
         self.mean, self.std = mean, std
+        
+        # This violence may cause inconsistency, I know.
+        self.mean_ready_cpu = rearrange(self.mean, 'c -> c 1 1').to("cpu")
+        self.std_ready_cpu = rearrange(self.std, 'c -> c 1 1').to("cpu")
+        self.mean_ready_cuda = rearrange(self.mean, 'c -> c 1 1').to("cuda")
+        self.std_ready_cuda = rearrange(self.std, 'c -> c 1 1').to("cuda")
+        
         return mean, std    # (C,), (C,)
 
     def normalize(self, data):    # data: (... C, H, W)
-        ## Shall we compute it on cuda? This data is on cpu. cuda is working now. Choose not to interfere cuda with new momory allocation.
-        device = data.device
-        return ( data - rearrange(self.mean, 'c -> c 1 1').to(device) ) / rearrange(self.std, 'c -> c 1 1').to(device)
+        # device = data.device
+        # return ( data - rearrange(self.mean, 'c -> c 1 1').to(device) ) / rearrange(self.std, 'c -> c 1 1').to(device)
+        if data.is_cuda:
+            return ( data - self.mean_ready_cuda ) / self.std_ready_cuda
+        else:
+            return ( data - self.mean_ready_cpu ) / self.std_ready_cpu
     
     def unnormalize(self, data):    # data: (... C, H, W)
-        # This data is already on cuda. So computing uses the GPU(s).
-        device = data.device
-        return data * rearrange(self.std, 'c -> c 1 1').to(device) + rearrange(self.mean, 'c -> c 1 1').to(device)
+        # Mike!!! I found this error Oct 23 only. 
+        # Over 2 months of test training was based on this wrong formula, forcing neual networks to distort accordingly.
+        # return ( data - rearrange(self.mean, 'c -> c 1 1').to(device) ) / rearrange(self.std, 'c -> c 1 1').to(device)
+
+        # device = data.device
+        # return data * rearrange(self.std, 'c -> c 1 1').to(device) + rearrange(self.mean, 'c -> c 1 1').to(device)
+        if data.is_cuda:
+            return data * self.std_ready_cuda + self.mean_ready_cuda
+        else:
+            return data * self.std_ready_cpu + self.mean_ready_cpu
     
     def load_era5_data_vars(self):
         vars = [ERA5_DATA_VARS[k] for k in self.pm.variables if k in ERA5_DATA_VARS.keys()]
@@ -760,11 +778,13 @@ class Zeus_Dataset(Dataset):
         for f in range(Fm):
             frame = x[:, f]  # (B, C, H, W)
 
+            # Mike!!! DO we need circular interpolation?
+
             # circular padding along W (last dimension)
             # pad format: (pad_left, pad_right, pad_top, pad_bottom)
             frame = F.pad(frame, (1, 1, 0, 0), mode="circular")  # (B, C, H, W+2)
 
-            # interpolate
+            # interpolate. Pls make sure it interpolate inside each C plane.
             frame_resized = F.interpolate(
                 frame, size=(size_hw[0], size_hw[1] + 2),
                 mode="bicubic", align_corners=False    # mode="bilinear"
@@ -776,22 +796,30 @@ class Zeus_Dataset(Dataset):
             outs.append(frame_resized)
 
         # stack frames back
-        return torch.stack(outs, dim=1)  # (B, frames, C, H1, W1)
+        output = torch.stack(outs, dim=1)
+        # print(B, Fm, C, H, W, size_hw[0], size_hw[1],output.shape)
+        assert output.shape == torch.Size([B, Fm, C, size_hw[0], size_hw[1]])
+        
+        return output  # (B, frames, C, H1, W1)
 
     def take_batch(self):
+        
+        # batch_x = torch.randn(self.pm.batch_size, self.pm.T1, self.pm.nVariables, 72 * self.pm.factor10, 144 * self.pm.factor10)
+        # batch_y = torch.randn(self.pm.batch_size, self.pm.T1, self.pm.nVariables, 72 * self.pm.factor10, 144 * self.pm.factor10)
+        
         if len(self.x_set) <= 0: return None
 
         taken = self.x_set[:self.pm.batch_size]
         self.x_set = self.x_set[self.pm.batch_size:]
         assert len(taken) > 0
 
-        B, C, T1, FG, H, W = len(taken), len(self.pm.variables), self.pm.T1, self.pm.FG, self.pm.height, self.pm.width
+        # B, C, T1, FG, H, W = len(taken), len(self.pm.variables), self.pm.T1, self.pm.FG, self.pm.height, self.pm.width
 
         # batch_x: (B, T1*FG, C, H, W), batch_y: (B, T2*FG, C, H, W). batch_y[i] immediately follows batch_x[i]
         batch_x, batch_y = [], []  #torch.empty((B, 0, C, H, W), dtype=self.pm.dtype), torch.empty((B, 0, C, H, W), dtype=self.pm.dtype)
 
         months = []
-        for b in range(B):
+        for b in range(len(taken)):
             day, start_hour = taken[b]
             months.append(day.month)
 

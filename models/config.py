@@ -70,8 +70,10 @@ config = {
     'anneal_strategy' : 'linear',   # 'cos'
     'div_factor' : 1.0,    # Initial LR = max_lr / div_factor
     'final_div_factor' : 1.0, # Final LR = initial_lr / final_div_factor
+    'accum_steps' : 10,  # the smaller batch_size is, the larger accum_steps is.
 
     'epoch_patience' : 10,       # Mike!!!
+    'useLRLearner' : False,
     
     'abundant_GPUs' : False,
     'doubleZeus' : False,
@@ -215,8 +217,10 @@ projects["Flash2DBlocked-2"] = {
     'dim_to_layerFFN_dim': 4,
     'learn_PE': True,
     'add_spatial_conv': True,   # spatial_conv has a major improvement.
-    'lr': 5e-5,
-    'max_lr': 5e-5,
+    'useLRLearner' : True,
+    'accum_steps' : 10,
+    'lr': 1e-4,
+    'max_lr': 1e-4,
     'dropout': 0.0,
 }
 
