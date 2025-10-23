@@ -2,37 +2,36 @@ variables = ["2m_temperature", 'total_precipitation', "100m_u_component_of_wind"
 
 config = {
     'dtype' : 32,   # 16 is complicated. deffered.
-    # image h w c
+
+    'variables': variables,
     'height': 720,
     'width': 1440,
+    'patch_size':   16, #16, # 8        ----------------------  optimization param,  Chunk
+
     'FG': 1, # not 24, for a better granularity control   # frames in a frame group
-    'variables': variables,    
     'T1':           24, # 24 for Chunk, 3 for 256-head CNNs,
     'T2':           24,
-    
-    'patch_size':   16, #16, # 8        ----------------------  optimization param,  Chunk
-    'nHeads':        128, # (128) 8,     # 8    ----------------------    optimization param,  Chunk
 
+    # Transformer    
+    'nHeads':        128, # (128) 8,     # 8    ----------------------    optimization param,  Chunk
     'heads_per_chunk':  2,  # (2)             ---------------------   optimization param,  Chunk
     'tokens_per_chunk':    8,    #             ---------------------   optimization param,  Chunk
     'kv_full_sequence': True,
-
-    # 'nLayers' :   5, # (10)            ----------------------  optimization param,  Chunk
     'layerFFN' :    "GLU",  # "FFN", "GLU"    ----------------------  optimization param,  Chunk
-
+    'nLayers' :   5, # (10)            ----------------------  optimization param,  Chunk
     'zeusBlocks':   4,    #             ---------------------- optimization param
     'crossLayers':  6,
-    
     'PE': 'random',    # 'random', 'sinusodial'
     'learn_PE': True,
+
+    # CNN
     'add_spatial_conv': True,
     'blocksPerState': [3, 4, 6],
     'ObsorbHDistortion' : True,
-    'Zeus_Model' : 'Zeus_ResNet',
+    'Zeus_Model_module' : 'Zeus_ResNet',
     
-    'dropout':      0.05,
-    'attn_dropout': 0.05,
-    'drop_path':    0.05,
+    'dropout': 0.0,
+    'dropPath': 0.0,
     # 'dim_to_layerFFN_dim': 4,
 
     'nFrames': 24,
@@ -42,13 +41,11 @@ config = {
     'transient_steps' : 6000,
 
     # video length in and out
-    'maxT2': 6,
     # data split
     'train_pct': 75,
     'vali_pct': 25,
 
     # training
-    'hypers' : {},
     'seed' : 523,
     'include_difficulty' : False,
     'epochs': 50,
@@ -126,7 +123,7 @@ config['cnn_hidden_channels'] = [n*C, n*C, n*C, n*C, n*C, n*C, n*C, n*C, C] # th
 #-------------------------------------------------- project list ---------------
 projects = {}
 projects["ResNet50-24M"] = {           #
-    'Zeus_Model' : 'Zeus_ResNet',
+    'Zeus_Model_module' : 'Zeus_ResNet',
     'factor10': 1,
     'lr': 1e-3,
     'max_lr': 1e-3,
@@ -134,7 +131,7 @@ projects["ResNet50-24M"] = {           #
     'ObsorbHDistortion': True,
 }
 projects["ResNet50-24M-2"] = {           #
-    'Zeus_Model' : 'Zeus_ResNet',
+    'Zeus_Model_module' : 'Zeus_ResNet',
     'factor10': 2,
     'lr': 1e-3,
     'max_lr': 1e-3,
@@ -142,7 +139,7 @@ projects["ResNet50-24M-2"] = {           #
     'ObsorbHDistortion': True,
 }
 projects["ResNet50-NewCodec-2"] = {      # longest. 365K params CNN.
-    'Zeus_Model' : 'Zeus_ResNet',
+    'Zeus_Model_module' : 'Zeus_ResNet',
     'factor10': 2,
     'lr': 1e-3,
     'max_lr': 1e-3,
@@ -150,7 +147,7 @@ projects["ResNet50-NewCodec-2"] = {      # longest. 365K params CNN.
     'ObsorbHDistortion': True,
 }
 projects["ResNet50-3753K"] = {
-    'Zeus_Model' : 'Zeus_ResNet',
+    'Zeus_Model_module' : 'Zeus_ResNet',
     'factor10': 2,
     'lr': 1e-3,
     'max_lr': 1e-4,
@@ -158,7 +155,7 @@ projects["ResNet50-3753K"] = {
     'ObsorbHDistortion': True,
 }
 projects["ResNet50-9M"] = {
-    'Zeus_Model' : 'Zeus_ResNet',
+    'Zeus_Model_module' : 'Zeus_ResNet',
     'factor10': 2,
     'lr': 1e-3,
     'max_lr': 1e-4,
@@ -167,7 +164,7 @@ projects["ResNet50-9M"] = {
     'ObsorbHDistortion': True,
 }
 projects["ResNet50-9M-2"] = {
-    'Zeus_Model' : 'Zeus_ResNet',
+    'Zeus_Model_module' : 'Zeus_ResNet',
     'factor10': 2,
     'lr': 1e-3,
     'max_lr': 1e-4,
@@ -176,7 +173,7 @@ projects["ResNet50-9M-2"] = {
     'ObsorbHDistortion': False,
 }
 projects["ResNet50-6M-2"] = {
-    'Zeus_Model' : 'Zeus_ResNet',
+    'Zeus_Model_module' : 'Zeus_ResNet',
     'factor10': 2,
     'lr': 1e-3,
     'max_lr': 1e-4,
@@ -186,7 +183,7 @@ projects["ResNet50-6M-2"] = {
 }
 
 projects["Flash2DBlocked-1"] = {         # to check 
-    'Zeus_Model' : 'Zeus_Flash2D_Blocked',
+    'Zeus_Model_module' : 'Zeus_Flash2D_Blocked',
     'factor10': 2,
     'lr': 5e-5,
     'max_lr': 5e-5,
@@ -202,22 +199,25 @@ projects["Flash2DBlocked-1"] = {         # to check
     'add_spatial_conv': True,
 }
 
-projects["Flash2DBlocked-2"] = {         # to check 
-    'Zeus_Model' : 'Zeus_Flash2D_Blocked',
-    'factor10': 2,
-    'lr': 5e-5,
-    'max_lr': 5e-5,
+projects["Flash2DBlocked-2"] = {
+    # Step cycle is reduced from 20 sec to 18 sec.
+    'Zeus_Model_module' : 'Zeus_Flash2D_Blocked',
+    'factor10': 2,      # simulates 10
+    'patch_size': 12,   # simulates 16
     'batch_size': 1,
-    'patch_size':   8,
-    'nHeads' : 8,
-    'nLayers' : 4,
-    'zeusBlocks':   4,
+    'nHeads' : 72,      # should be 16 for 1024 dim.
+    # (zeusBlocks, nLayers) = (4, 5) dropped trainig loss earlier tha (5, 4) for a single-point data.
+    'zeusBlocks':  4,
+    'nLayers' : 5,      # This is a major upgrade, from 4.
     'heads_per_chunk' : None,
     'tokens_per_chunk' : None,
     'PE': 'sinusodial',    # 'random', 'sinusodial'
     'dim_to_layerFFN_dim': 4,
     'learn_PE': True,
-    'add_spatial_conv': False,
+    'add_spatial_conv': True,   # spatial_conv has a major improvement.
+    'lr': 5e-5,
+    'max_lr': 5e-5,
+    'dropout': 0.0,
 }
 
 #-------------------------------- select proejct -----------------------

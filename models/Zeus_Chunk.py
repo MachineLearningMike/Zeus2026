@@ -105,7 +105,7 @@ class Zeus(nn.Module):
         reshapeForMlp = ReshapeForMLP(self.pm.d_model)
         reconstruct = PatchReconstruct(
             nFramesOut=self.pm.nFramesOut, nPatches_h=self.pm.nPatches_h, nPatches_w=self.pm.nPatches_w, patch_size=self.pm.patch_size,
-            C=self.pm.nChannels, H=self.pm.image_height, W=self.pm.image_width
+            C=self.pm.nChannels, H=self.pm.height, W=self.pm.width
         )       
         
         self.mlp_head = nn.Sequential(

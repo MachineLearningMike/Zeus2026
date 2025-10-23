@@ -31,6 +31,7 @@ class ChunkMHA(nn.Module):
         self.d_model = d_model
         self.nHeads = nHeads
         self.head_dim = d_model // nHeads
+        heads_per_chunk = heads_per_chunk if heads_per_chunk is not None else nHeads
         self.num_head_chunks = nHeads // heads_per_chunk
         self.dropout = dropout
 
@@ -49,7 +50,7 @@ class ChunkMHA(nn.Module):
 
         # out proj kept on CPU until used
         self.out_proj = nn.Linear(d_model, d_model, bias=bias).cpu()
-        self.attn_dropout = nn.Dropout(dropout)
+        self.dropout = nn.Dropout(dropout)
         self.scale = 1.0 / math.sqrt(self.head_dim)
         
         self.input_saved = None
@@ -102,7 +103,7 @@ class ChunkMHA(nn.Module):
                 attn_logits = attn_logits + mask_dev.unsqueeze(1)
 
         attn = F.softmax(attn_logits, dim=-1)
-        attn = self.attn_dropout(attn)
+        attn = self.dropout(attn)
 
         out = torch.matmul(attn, v)  # (B, nHeads, S, head_dim)
 
@@ -234,15 +235,16 @@ if __name__ == "__main__":
 
     factor10 = 2
     batch_size = 1         # it's also the data simplicity in this test.
-    T1 = 1
+    T1 = 24
+    N = round(72 * factor10 * 144 * factor10 /16/16)
     seq_len = round(T1 * 72 * factor10 * 144 * factor10 /16/16)    # 97_200 for factor10 == 10
     nLayers = 5
     d_model = 1024
     nHeads = 128
-    tokens_per_chunk = seq_len // 10
-    heads_per_chunk = 32
+    tokens_per_chunk = None
+    heads_per_chunk = None
     kv_full_sequence = True
-    lr = 1e-4
+    lr = 1e-3
     steps = 100
     
     model = ChunkMHA(d_model=d_model, nHeads=nHeads, heads_per_chunk=heads_per_chunk, device=device)

@@ -55,9 +55,9 @@ class Block(nn.Module):
     
     Args:
         dim (int): Number of input channels.
-        drop_path (float): Stochastic depth rate. Default: 0.0
+        dropPath (float): Stochastic depth rate. Default: 0.0
     """
-    def __init__(self, dim, drop_path=0.):
+    def __init__(self, dim, dropPath=0.):
         super().__init__()
         self.dwconv = nn.Conv2d(dim, dim, kernel_size=7, padding=3, groups=dim) # depthwise conv
         self.norm = LayerNorm(dim, eps=1e-6)
@@ -65,7 +65,7 @@ class Block(nn.Module):
         self.act = nn.GELU()
         self.grn = GRN(4 * dim)
         self.pwconv2 = nn.Linear(4 * dim, dim)
-        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+        self.dropPath = DropPath(dropPath) if dropPath > 0. else nn.Identity()
 
     def forward(self, x):
         input = x
@@ -78,7 +78,7 @@ class Block(nn.Module):
         x = self.pwconv2(x)
         x = x.permute(0, 3, 1, 2) # (N, H, W, C) -> (N, C, H, W)
 
-        x = input + self.drop_path(x)
+        x = input + self.dropPath(x)
         return x
 
 class ConvNeXtV2(nn.Module):
@@ -116,7 +116,7 @@ class ConvNeXtV2(nn.Module):
         cur = 0
         for i in range(4):
             stage = nn.Sequential(
-                *[Block(dim=dims[i], drop_path=dp_rates[cur + j]) for j in range(depths[i])]
+                *[Block(dim=dims[i], dropPath=dp_rates[cur + j]) for j in range(depths[i])]
             )
             self.stages.append(stage)
             cur += depths[i]

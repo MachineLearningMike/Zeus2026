@@ -99,12 +99,21 @@ class Flash2DZeusBlock(nn.Module):
             device=device
         )
         
+    def save_cpu_activation(self, tensor, name):
+        buf = getattr(self, name, None)
+        if buf is None or buf.shape != tensor.shape:
+            buf = torch.empty_like(tensor, device="cpu", pin_memory=True)
+            setattr(self, name, buf)
+        buf.copy_(tensor, non_blocking=True)
+        
     def forward(self, x, train=False, modules_to_cpu=True): # (B, T, N, dim) -> (B, T, N, dim)      # (B, T1FG, H/p * W/p, dim)
         b, t, n, dim = x.shape                  # (B, T, N, dim), or (B, T1FG, H/p * W/p, dim)
         
         x = x.to(self.device)
         
-        if train: self.in_temporal1_saved = x.to("cpu")     # (B, T, N, dim)
+        if train: 
+            # self.in_temporal1_saved = x.to("cpu")     # (B, T, N, dim)
+            self.save_cpu_activation(x, "in_temporal1_saved")
         if self.add_spatial_conv:
             self.spaial_conv_1.to(self.device)
             x = self.spaial_conv_1(x)                       # (B, T, N, dim)
@@ -114,16 +123,22 @@ class Flash2DZeusBlock(nn.Module):
         x = self.temporal_transformer_1(x)                  # (B*N, T, dim)
         if modules_to_cpu: self.temporal_transformer_1.to("cpu")
 
-        if train: self.in_spatial1_saved = x.to("cpu")      # (B*N, T, dim)
+        if train: 
+            # self.in_spatial1_saved = x.to("cpu")      # (B*N, T, dim)
+            self.save_cpu_activation(x, "in_spatial1_saved")
         x = rearrange(x, '(b n) t d -> (b t) n d', b=b)     # (B*T, N, dim)
         x = self.spatial_transformer_1(x)                   # (B*T, N, dim)
         if modules_to_cpu: self.spatial_transformer_1.to("cpu")
         
-        if train: self.in_spatial2_saved = x.to("cpu")      # (B*T, N, dim)
+        if train: 
+            # self.in_spatial2_saved = x.to("cpu")      # (B*T, N, dim)
+            self.save_cpu_activation(x, "in_spatial2_saved")
         x = self.spatial_transformer_2(x)                   # (B*T, N, dim)
         if modules_to_cpu: self.spatial_transformer_2.to("cpu")
 
-        if train: self.in_temporal2_saved = x.to("cpu")     # (B*T, N, dim)
+        if train: 
+            # self.in_temporal2_saved = x.to("cpu")     # (B*T, N, dim)
+            self.save_cpu_activation(x, "in_temporal2_saved")
         if self.add_spatial_conv:
             x = rearrange(x, '(b t) n d -> b t n d', t=t)
             self.spaial_conv_2.to(self.device)
@@ -223,15 +238,16 @@ if __name__ == "__main__":
     from params import Params
 
     # config['factor10'] = 2
-    config['batch_size'] = 1
+    # config['batch_size'] = 1
+    # config['patch_size'] = 12
     # config['T1'] = 24
     # config['nLayers'] = 5
-    # config['nHeads'] = 128
+    # config['nHeads'] = 72
     # config['tokens_per_chunk'] = None
     # config['heads_per_chunk'] = None
     # config['kv_full_sequence'] = True
     # config['self.add_spatial_conv'] = False
-    # config['layerFFN'] = "GLU"
+    # config['layerFFN'] = "GLU"    
     
     pm = Params(config)
     batch_size, T1, N, d_model = pm.batch_size, pm.T1, pm.nPatches, pm.d_model

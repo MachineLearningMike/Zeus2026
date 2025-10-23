@@ -51,7 +51,7 @@ class GLU(nn.Module):
     
     def forward(self, x, train=False, modules_to_cpu=True):
         if train:
-            self.x_saved = x.to("cpu")
+            self.x_saved = x.to("cpu", non_blocking=True).pin_memory()
         
         fc1_g_gpu = self.fc1_g.to(self.gpu_device)
         fc1_x_gpu = self.fc1_x.to(self.gpu_device)
@@ -87,7 +87,7 @@ class GLU(nn.Module):
         return        
 
     def backward(self, gradient):
-        x_saved = self.x_saved.to(self.gpu_device)
+        x_saved = self.x_saved.to(self.gpu_device, non_blocking=True)
         x_saved.requires_grad_(True)
         x_saved.retain_grad()
 

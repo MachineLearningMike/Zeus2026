@@ -73,6 +73,13 @@ class Flash2DEncLayer(nn.Module):
 
         self.src_saved, self.src_mask_saved, self.src_key_padding_mask_saved, self.attn_out_saved = None, None, None, None
 
+    def save_cpu_activation(self, tensor, name):
+        buf = getattr(self, name, None)
+        if buf is None or buf.shape != tensor.shape:
+            buf = torch.empty_like(tensor, device="cpu", pin_memory=True)
+            setattr(self, name, buf)
+        buf.copy_(tensor, non_blocking=True)
+
     #---------------------------- pre_mha --------------------------
     def apply_norm_to_src_before_mha(self, src, modules_to_cpu=True):
         # --- Pre-LN ---           
@@ -150,11 +157,14 @@ class Flash2DEncLayer(nn.Module):
         # move norm1 weights temporarily to GPU
 
         if train:
-            self.src_saved = src.to("cpu")
+            # self.src_saved = src.to("cpu", non_blocking=True)
+            self.save_cpu_activation(src, "src_saved")
             if src_mask is not None:
-                self.src_mask_saved = src_mask.to("cpu")
+                # self.src_mask_saved = src_mask.to("cpu", non_blocking=True)
+                self.save_cpu_activation(src_mask, "src_mask_saved")
             if src_key_padding_mask is not None:
-                self.src_key_padding_mask_saved = src_key_padding_mask.to("cpu")
+                # self.src_key_padding_mask_saved = src_key_padding_mask.to("cpu")
+                self.save_cpu_activation(src_key_padding_mask, "src_key_padding_mask_saved")
                             
         src_ln = self.apply_norm_to_src_before_mha(src, modules_to_cpu=modules_to_cpu)
         mask = self.merge_mask(src_mask, src_key_padding_mask)
@@ -178,7 +188,8 @@ class Flash2DEncLayer(nn.Module):
         # backward: grad_in: from outside, grad_out: src.grad (= res.grad), attn_out.grad (= res.grad)
         
         if train:
-            self.attn_out_saved = attn_out.to("cpu") 
+            # self.attn_out_saved = attn_out.to("cpu", non_blocking=True)
+            self.save_cpu_activation(attn_out, "attn_out_saved")
         res = self.apply_remaining_after_mha(src, attn_out)
         # del attn_out
         # gc.collect()
@@ -197,13 +208,13 @@ class Flash2DEncLayer(nn.Module):
         return: gradient from self.src_saved through to gradient, on cpu
         state_change: gradinets are stored to parameters, for optmizer.step
         final: all submodules are back on cpu
-        """
+        """        
         assert self.src_saved is not None
         assert self.src_saved.shape == gradient.shape 
 
         # backward -------------------- post_mha --------------
-        src_saved = self.src_saved.to(self.gpu_device)
-        attn_out_saved = self.attn_out_saved.to(self.gpu_device)
+        src_saved = self.src_saved.to(self.gpu_device, non_blocking=True)
+        attn_out_saved = self.attn_out_saved.to(self.gpu_device, non_blocking=True)
         src_saved.requires_grad_(True)
         src_saved.retain_grad()
         attn_out_saved.requires_grad_(True)
@@ -213,7 +224,7 @@ class Flash2DEncLayer(nn.Module):
             res = self.apply_remaining_after_mha(src_saved, attn_out_saved)
             ff = self.layerFFN(res, modules_to_cpu=False)
             src_out = self.apply_post_LN_to_ff(res, ff, modules_to_cpu=False)
-            src_out.backward(gradient, retain_graph=False)  # gradients are saved to out_proj_gpu
+        src_out.backward(gradient, retain_graph=False)  # gradients are saved to out_proj_gpu
         src_gradient = src_saved.grad
         attn_out_gradient = attn_out_saved.grad
         self.modules_to_cpu_post_mha()
@@ -222,33 +233,36 @@ class Flash2DEncLayer(nn.Module):
         # torch.cuda.empty_cache()
 
         # backward -------------------- mha --------------
+        # mask is an inside story for this module.
         src_ln_gradient = self.self_attn.backward(attn_out_gradient)    # mask is interally used.
         
         # backward -------------------- pre_mha --------------
-        src_saved = self.src_saved.to(self.gpu_device)
-        attn_out_saved = self.attn_out_saved.to(self.gpu_device)
+        src_saved = src_saved.detach() #.to(self.gpu_device)
+        attn_out_saved = attn_out_saved.detach() # .to(self.gpu_device)
         src_saved.requires_grad_(True)
         src_saved.retain_grad()
         with torch.enable_grad():   # redundant for readability
             src_ln = self.apply_norm_to_src_before_mha(src_saved, modules_to_cpu=False)
             # No need: mask = self.merge_mask(self.src_mask_saved, self.src_key_padding_mask_saved)
-            src_ln_gradient = src_ln_gradient.to(self.gpu_device)
-            src_ln.backward(src_ln_gradient)
+        # src_ln_gradient = src_ln_gradient.to(self.gpu_device)
+        src_ln.backward(src_ln_gradient)
         src_gradient1 = src_saved.grad
         self.modules_to_cpu_pre_mha()
         # del src_saved, src_ln
         # gc.collect()
         # torch.cuda.empty_cache()
         
-        src_gradient = src_gradient + src_gradient1
+        gradient = src_gradient + src_gradient1
         
-        return src_gradient
+        return gradient
     
 if __name__ == "__main__":
     
     import time
     
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    
+    # !!! This code can handle factor10=10 and batch_size=1 at 75-second interval.
 
     factor10 = 2
     batch_size = 1         # it's also the data simplicity in this test.
@@ -258,8 +272,8 @@ if __name__ == "__main__":
     nLayers = 5
     d_model = 1024
     nHeads = 128
-    tokens_per_chunk = seq_len // 1
-    heads_per_chunk = 128
+    tokens_per_chunk = None
+    heads_per_chunk = None
     kv_full_sequence = True
     lr = 1e-3
     steps = 100

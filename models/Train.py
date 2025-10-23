@@ -16,7 +16,7 @@ from modules.zeus_tqdm import zeus_tqdm
 
 from config import config
 
-module = importlib.import_module(config['Zeus_Model'])
+module = importlib.import_module(config['Zeus_Model_module'])
 Zeus = getattr(module, 'Zeus')
 
 # from models.Zeus_ResNet import Zeus
@@ -40,11 +40,10 @@ def print_data_attrs(obj):
         print(f"{name}: {value}")
 
 class Train():
-    def __init__(self, config, root_path, bayes_path, trainable=True):
-        self.config = config
+    def __init__(self, pm, root_path, bayes_path, trainable=True):
         #======================== Fixed train state =======================
         # utils.set_seed(self.pm.seed)
-        self.pm = Params(config)
+        self.pm = pm
         print_data_attrs(self.pm)
         
         self.bayes_path = bayes_path
@@ -60,11 +59,6 @@ class Train():
         min_sota_delta = torch.tensor([value for (key, value) in REWARD_IMPROVEMENT_MIN_DELTA.items() if key in self.pm.variables])  # (C,)
         self.min_sota_delta = rearrange(min_sota_delta, 'c -> c 1 1')
         self.era5_data_vars = self.load_era5_data_vars()
-        #---------- Save config ---------
-        configPath =  self.bayes_path / ('config') # + '-' + self.get_train_id_string() +'.json')
-        utils.check_dir(configPath.parent)
-        with open(configPath, 'w') as f:
-            json.dump(config, f, indent=4)
 
         #=========================== Varing train state =========
         # Identified by bayesProject.
@@ -77,7 +71,7 @@ class Train():
             if not self.pm.doubleZeus:
                 # kernel_size = 5 # Mike!!!
                 # print('kernel_size, max_radius: ', kernel_size, 6400 * 3.1416 / 72 / self.pm.factor10 * kernel_size * len(self.pm.cnn_hidden_channels) )
-                # self.model = ZeusCNN(self.pm.nChannels, self.pm.image_height, self.pm.image_width, self.pm.cnn_hidden_channels, n_frames=self.pm.nFrames, kernel_size=kernel_size, device=self.device)
+                # self.model = ZeusCNN(self.pm.nChannels, self.pm.height, self.pm.width, self.pm.cnn_hidden_channels, n_frames=self.pm.nFrames, kernel_size=kernel_size, device=self.device)
                 self.model = Zeus(self.pm, device=self.device)                
                 # self.model = Zeus(config, self.nDevices, device_type=self.device_type, abundant_GPUs=self.pm.abundant_GPUs).float()                
                 logging.info("Zeus model created.")
@@ -117,7 +111,7 @@ class Train():
         return device_type, nDevices, default_device
 
     def get_train_id_string(self):
-        string = "-".join([str(v) for v in self.pm.hypers.values()])
+        string = "get_train_id_string" # "-".join([str(v) for v in self.pm.hypers.values()])
         return string
     
     def get_minute_stamp(self):
@@ -240,74 +234,6 @@ class Train():
     
         with open(str(self.bayes_path / name) + '.json', 'w') as f:
             json.dump(self.total_losses, f)
-    
-    def try_load_state_old(self, name=None):    # Couples with save_state
-    #-------------- My version -------------- shortens tranining step.
-        if name is None: name = 'train_state-' + self.get_train_id_string()
-        
-        train_finished = False
-        
-        try:
-            checkpoint_path = self.bayes_path / (name + '.pth')
-            # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            checkpoint = torch.load(checkpoint_path, map_location=self.device)
-
-            if checkpoint['train_finished'] == True:
-                train_finished = True
-                raise Exception()
-
-            # Load model parameters
-            epoch = checkpoint['epoch']
-            self.model.load_state_dict(checkpoint['model'])
-            # for name, param in self.model.named_parameters():
-            #     print('--------------', name, param.device, param.dtype)
-            logging.info("Model loaded with saved state")
-                
-            for param_group in self.optimizer.param_groups:
-                for p in param_group['params']:
-                    if p in self.optimizer.state:
-                        for k, v in self.optimizer.state[p].items():
-                            if isinstance(v, torch.Tensor):
-                                self.optimizer.state[p][k] = v.to(p.device)       
-            logging.info("Optimizer loaded with saved state")
-
-            self.scheduler.load_state_dict(checkpoint['scheduler'])
-            self.scaler.load_state_dict(checkpoint['scaler'])
-            logging.info("Scheduler loaded with saved state")
-
-            self.rmses_old = checkpoint['rmses_old']
-            self.epochs_since_improvement = checkpoint['epochs_since_improvement']
-            logging.info("rmses_old and epochs_since_improvement loaded with saved values")
-            
-            if checkpoint.get('dataset', None) is not None:
-                self.dataset.unpack_state(checkpoint['dataset'])
-                logging.info("dataset state loaded with saved state")
-
-            if checkpoint.get('step_state', None) is not None:
-                step_state = checkpoint['step_state']
-            else:
-                step_state = None
-    
-            # print('----------- step_state loaded is ', step_state)
-            if step_state is not None:  # The previous session was terminated after a new step was finished and before an epoch is finished.
-                epoch = epoch
-            else:   # The previous session was terminated after an epoch was finished and before a new step was finished. 
-                epoch = epoch + 1
-
-            logging.info(f"Checkpoint '{name}' loaded to {self.device}, including model, optimizer, scheduler, scaler, rmses_old, and datase state")
-        except:
-            if train_finished:
-                logging.info("You tried to start/continue a finished training. Aborting... No! specially")
-                # sys.exit()
-            else:   # Save not found.
-                # Starts a new training.
-                epoch = 0; step_state = None
-
-        length = len(self.dataset.x_set) if self.dataset.x_set is not None else 0
-        # print('-------- ', self.dataset._fetched_batches, self.dataset.total_batches, length)
-
-        return epoch, step_state
-    
     
     def try_load_state(self, name=None):    # Pairs with save_state
         if name is None: name = 'train_state' #+ self.get_train_id_string()
@@ -575,17 +501,26 @@ class Train():
     def respond_to_cursor(self):
         direction, count = read_key()
         factor = None; step = math.pow(10.0, 1/10)
-        if direction:
-            if direction == "up":
-                factor = math.pow(step, count)         
-            elif direction == "down":
-                factor = math.pow(1 / step, count)
-            else: pass
+        batch_size = None
+
+        if direction == "up":
+            factor = math.pow(step, count)         
+        elif direction == "down":
+            factor = math.pow(1 / step, count)
+        elif direction == "left":
+            batch_size = min(self.pm.batch_size - count, 1)
+        elif direction == "right":
+            batch_size == self.pm.batch_size + count
+        else: pass
+
         if factor:
             lr = self.get_learning_rate()
             assert lr is not None
             lr *= factor
             self.set_learning_rate(lr)
+        if batch_size:
+            self.pm.batch_size = batch_size     # This may cause consistency, as different objects have different copy of pm.
+
         return
 
     def run_epoch(self, epoch, x_set_label, trainable=False, step_state=None):
@@ -647,7 +582,6 @@ class Train():
                     with autocast(device_type=self.device_type, dtype=torch.bfloat16):
                         with torch.set_grad_enabled(trainable):    
                             (loss, rmse) = self.model.sigle_GPU_forward_loss_backward(batch_x, batch_y, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars, trainable=trainable)
-                            # (loss, rmse) = self.model.sigle_GPU_forward_loss(batch_x, batch_y, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars)
                     step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
                     step_rmses.append(rmse.detach().cpu())      # (C,) - list.  If no cpu(), their stack results in cuda
                     self.total_losses.append(loss.item())
@@ -677,6 +611,8 @@ class Train():
                     
             if trainable:
                 self.optimizer.step()
+                
+                # I choose manual control rather than sheduled control.
                 # try:                   
                 #   self.scheduler.step()   # Our scheduler is OneCycleLR, which is a per-batch scheduler
                 # except ValueError:        # It may go beyond the total_steps
@@ -686,7 +622,7 @@ class Train():
             step_rmses = torch.stack(step_rmses, dim=0).mean(dim=0)   # (C,)
             strC = ", ".join(f"{x:.2f}" for x in step_rmses.ravel().tolist())
             pbar.set_description("loss {:.4f} rmse ({}) wait(ms) {:.3f} lr {:1.3e}, bs {}"
-                                 .format(step_loss.item(), strC, (end-start) * 1000, self.get_learning_rate(), self.pm.batch_size))
+                                 .format(step_loss.item(), strC, (end-start) * 1000, self.get_learning_rate(), batch_x.shape[0]))
 
             _epoch_loss.append(step_loss)    # (,) - list
             _epoch_rmses.append(step_rmses)   # (C,) - list

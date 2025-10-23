@@ -58,6 +58,13 @@ class Flash2DTransformer(nn.Module):
         self.norm = norm_layer(d_model) if norm_layer is not None else None
         
         self.src_saved = None
+        
+    def save_cpu_activation(self, tensor, name):
+        buf = getattr(self, name, None)
+        if buf is None or buf.shape != tensor.shape:
+            buf = torch.empty_like(tensor, device="cpu", pin_memory=True)
+            setattr(self, name, buf)
+        buf.copy_(tensor, non_blocking=True)
 
     def forward(
         self,
@@ -72,7 +79,7 @@ class Flash2DTransformer(nn.Module):
             layered = layer(layered, src_mask=src_mask, src_key_padding_mask=src_key_padding_mask, train=train, modules_to_cpu=modules_to_cpu)        
 
         if train and self.norm is not None:
-            self.layered_saved = layered.to("cpu")
+            self.save_cpu_activation(layered, "layered_saved")
 
         output = layered
         if self.norm is not None:
@@ -98,7 +105,7 @@ class Flash2DTransformer(nn.Module):
         # gradient = gradient.to(self.device)  # redundant
         
         if self.norm is not None:
-            layered_saved = self.layered_saved.to(self.device)
+            layered_saved = self.layered_saved.to(self.device, non_blocking=True)
             layered_saved.requires_grad_(True)
             layered_saved.retain_grad()
             self.norm.to(self.device)
@@ -131,14 +138,16 @@ if __name__ == "__main__":
     nLayers = 5
     d_model = 1024
     nHeads = 128
-    tokens_per_chunk = seq_len // 1
-    heads_per_chunk = 128
+    tokens_per_chunk = None
+    heads_per_chunk = None
     kv_full_sequence = True
     lr = 1e-3
     steps = 100
     
     layerFFN = "GLU"  # "FFN", "GLU"
 
+    # nLayers == 1 is faster than a Flash2DEncLayer.
+    
     model = Flash2DTransformer(
         nLayers = nLayers,
         d_model = d_model,

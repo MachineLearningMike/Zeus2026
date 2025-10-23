@@ -6,7 +6,7 @@ _listener_started = False
 
 def _on_press(key):
     # React only if UP/DOWN is pressed while ESC is held
-    if key.name in ("up", "down") and keyboard.is_pressed("esc"):
+    if key.name in ("up", "down", "left", "right") and keyboard.is_pressed("esc"):
         pressed_keys.append(key.name)
 
 def init_key_listener():
@@ -32,15 +32,23 @@ def read_key():
 
     nUp = pressed_keys.count('up')
     nDown = pressed_keys.count('down')
-    delta = nUp - nDown
+    nRight = pressed_keys.count("right")
+    nLeft = pressed_keys.count("left")
+    deltaUpDown = nUp - nDown
+    deltaRightLeft = nRight - nLeft
 
     # Clear stored keys after reading
     pressed_keys.clear()
 
-    if delta > 0:
-        return 'up', delta
-    elif delta < 0:
-        return 'down', -delta
+    if deltaUpDown > 0:
+        return 'up', deltaUpDown
+    elif deltaUpDown < 0:
+        return 'down', -deltaUpDown
+    # We lose simultaneous vertical and horizontal moves.
+    elif deltaRightLeft > 0:
+        return 'right', deltaRightLeft
+    elif deltaRightLeft < 0:
+        return 'left', -deltaRightLeft
     else:
         return None, 0
 

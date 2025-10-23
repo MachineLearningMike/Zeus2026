@@ -43,7 +43,7 @@ class GRN(nn.Module):
 # ConvNeXtV2 Block with cylindrical padding
 # -----------------------------
 class Block_Cylindric(nn.Module):
-    def __init__(self, dim, drop_path=0.):
+    def __init__(self, dim, dropPath=0.):
         super().__init__()
         self.pad = 3
         self.dwconv = nn.Conv2d(dim, dim, kernel_size=7, stride=1, padding=0, groups=dim)
@@ -52,7 +52,7 @@ class Block_Cylindric(nn.Module):
         self.act = nn.GELU()
         self.grn = GRN(4*dim)
         self.pwconv2 = nn.Linear(4*dim, dim)
-        self.drop_path = DropPath(drop_path) if drop_path>0. else nn.Identity()
+        self.dropPath = DropPath(dropPath) if dropPath>0. else nn.Identity()
 
     def forward(self, x):
         x_padded = F.pad(x, (self.pad, self.pad, self.pad, self.pad), mode='circular')
@@ -64,7 +64,7 @@ class Block_Cylindric(nn.Module):
         out = self.grn(out)
         out = self.pwconv2(out)
         out = out.permute(0,3,1,2)  # NHWC -> NCHW
-        out = x + self.drop_path(out)  # residual
+        out = x + self.dropPath(out)  # residual
         return out
 
 # -----------------------------
@@ -99,7 +99,7 @@ class ConvNeXtV2_Cylindric_Tiny(nn.Module):
         cur = 0
         for i in range(4):
             stage = nn.Sequential(
-                *[Block_Cylindric(dim=dims[i], drop_path=dp_rates[cur+j]) for j in range(depths[i])]
+                *[Block_Cylindric(dim=dims[i], dropPath=dp_rates[cur+j]) for j in range(depths[i])]
             )
             self.stages.append(stage)
             cur += depths[i]

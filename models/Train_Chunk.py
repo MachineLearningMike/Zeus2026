@@ -416,7 +416,7 @@ class Train():
             era5_data_vars = era5_data_vars #.pin_memory() # torch.float32, cpu
 
             if self.pm.include_difficulty:
-                batch_diff = batch_diff[:, :, :self.pm.image_height, :self.pm.image_width]
+                batch_diff = batch_diff[:, :, :self.pm.height, :self.pm.width]
 
             # batch_x = batch_x.to(self.device, non_blocking=True)               # torch.float32, cuda
             # batch_y = batch_y.float().to(self.device_type + ':' + str(self.nDevices-1), non_blocking=True)       # torch.float32, cuda

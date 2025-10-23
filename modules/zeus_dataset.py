@@ -553,7 +553,6 @@ class Zeus_Dataset(Dataset):
             print("Loading failed. Creating data hours...")
 
             T1 = self.pm.T1
-            maxT2 = self.pm.maxT2                      #------------- This is an implicit dependency
             data_dates = data_dates[:-1]    # Remove the last day for safety.
             
             data_hours = []
@@ -786,7 +785,7 @@ class Zeus_Dataset(Dataset):
         self.x_set = self.x_set[self.pm.batch_size:]
         assert len(taken) > 0
 
-        B, C, T1, FG, H, W = len(taken), len(self.pm.variables), self.pm.T1, self.pm.FG, self.pm.image_height, self.pm.image_width
+        B, C, T1, FG, H, W = len(taken), len(self.pm.variables), self.pm.T1, self.pm.FG, self.pm.height, self.pm.width
 
         # batch_x: (B, T1*FG, C, H, W), batch_y: (B, T2*FG, C, H, W). batch_y[i] immediately follows batch_x[i]
         batch_x, batch_y = [], []  #torch.empty((B, 0, C, H, W), dtype=self.pm.dtype), torch.empty((B, 0, C, H, W), dtype=self.pm.dtype)
@@ -808,8 +807,8 @@ class Zeus_Dataset(Dataset):
         
         B, _, C, H, W = batch_x.shape
         
-        H1 = self.pm.image_height
-        W1 = self.pm.image_width
+        H1 = self.pm.height
+        W1 = self.pm.width
         if H1 != H or W1 != W:
             batch_x = self.resize_cylindrical(batch_x, (H1, W1))
             batch_y = self.resize_cylindrical(batch_y, (H1, W1))

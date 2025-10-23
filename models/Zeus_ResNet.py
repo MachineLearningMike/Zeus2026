@@ -29,7 +29,7 @@ class Zeus(nn.Module):
         super().__init__()
         self.pm = pm
 
-        C, H, W, self.n_frames = len(pm.variables), pm.image_height, pm.image_width, pm.nFramesIn
+        C, H, W, self.n_frames = len(pm.variables), pm.height, pm.width, pm.nFramesIn
         blocksPerState = pm.blocksPerState
         self.device = device
 
@@ -239,7 +239,7 @@ if __name__ == "__main__":
     from modules.params import Params
     
     pm = Params(config)
-    B, C, H, W, n, m, = pm.batch_size, len(pm.variables), pm.image_height, pm.image_width, pm.nFramesIn, pm.nFramesOut
+    B, C, H, W, n, m, = pm.batch_size, len(pm.variables), pm.height, pm.width, pm.nFramesIn, pm.nFramesOut
     print("B, C, H, W, n, m", B, C, H, W, n, m)
     
     epochs = 50

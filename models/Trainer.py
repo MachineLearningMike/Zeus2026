@@ -12,13 +12,12 @@ from modules.params import Params
 
 class Trainer():
     def __init__(self, config, root_path, bayes_path, bayes=None):
-        self.config = config
         self.root_path = root_path
         self.bayes_path = bayes_path
         self.bayes = bayes
         self.setup_logging(bayes_path)
 
-        self.pm = None
+        self.pm = Params(config)
         self.train = None
     
     def setup_logging(self, log_dir):
@@ -94,11 +93,8 @@ class Trainer():
         # self.config['nHeads'] = nHeads
         # self.config['nLayers'] = nLayers
         # # self.config['layerFFN'] = layerFFN
-        
-        # self.config['hypers'] = {'patch_size': patch_size, 'nHeads': nHeads, 'heads_per_chunk': heads_per_chunk, 'tokens_per_chunk': tokens_per_chunk, 'nLayers': nLayers, 'layerFFN': self.config['layerFFN']}
-        self.pm = Params(self.config)
 
-        self.train = Train(self.config, self.root_path, self.bayes_path, trainable=True)
+        self.train = Train(self.pm, self.root_path, self.bayes_path, trainable=True)
         epoch, step_state = self.train.try_load_state()
 
         profit = self.run_train(start_epoch=epoch, step_state=step_state)

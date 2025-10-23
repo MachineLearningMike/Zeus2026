@@ -33,7 +33,7 @@ class FFN(nn.Module):
         # return ff on self.gpu_device        
         # Move FFN weights to GPU temporarily
         if train:
-            self.x_saved = x.to("cpu")
+            self.x_saved = x.to("cpu", non_blocking=True).pin_memory()
         
         x = x.to(self.gpu_device)
         linear1_gpu = self.linear1.to(self.gpu_device)
@@ -52,7 +52,7 @@ class FFN(nn.Module):
         return        
 
     def backward(self, gradient):
-        x_saved = self.x_saved.to(self.gpu_device)
+        x_saved = self.x_saved.to(self.gpu_device, non_blocking=True)
         x_saved.requires_grad_(True)
         x_saved.retain_grad()
 

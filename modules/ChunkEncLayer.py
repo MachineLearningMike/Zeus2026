@@ -259,19 +259,20 @@ if __name__ == "__main__":
 
     factor10 = 2
     batch_size = 1         # it's also the data simplicity in this test.
-    T1 = 1
+    T1 = 24
+    N = round(72 * factor10 * 144 * factor10 /16/16)
     seq_len = round(T1 * 72 * factor10 * 144 * factor10 /16/16)    # 97_200 for factor10 == 10
     nLayers = 5
     d_model = 1024
     nHeads = 128
-    tokens_per_chunk = seq_len // 10
-    heads_per_chunk = 32
+    tokens_per_chunk = None
+    heads_per_chunk = None
     kv_full_sequence = True
-    lr = 1e-4
+    lr = 1e-3
     steps = 100
 
     layerFFN = "GLU"  # "GLU", "FFN"
-    model = ChunkEncLayer(d_model=d_model, nHeads=nHeads, heads_per_chunk=tokens_per_chunk, dim_layerFFN=4*d_model, dropout=0.0, layerFFN=layerFFN, device=device)
+    model = ChunkEncLayer(d_model=d_model, nHeads=nHeads, heads_per_chunk=heads_per_chunk, dim_layerFFN=4*d_model, dropout=0.0, layerFFN=layerFFN, device=device)
 
     x = torch.randn(batch_size, seq_len, d_model)  # (B, S, E)
     with torch.no_grad():

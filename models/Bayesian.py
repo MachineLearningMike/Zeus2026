@@ -25,8 +25,16 @@ class MLBayesianOptimizer:
         save_path  : Path to save optimizer state (pickle)
         log_path   : Path to CSV log file
         """
+        
         self.pm = Params(config)
         self.bayes_path = root_path / 'bayes' / self.pm.bayesProject
+
+        #---------- Save config ---------
+        configPath =  self.bayes_path / ('params') # + '-' + self.get_train_id_string() +'.json')
+        check_dir(configPath.parent)
+        with open(configPath, 'w') as f:
+            json.dump(config, f, indent=4)
+
         self.trainer = Trainer(config, root_path, self.bayes_path, bayes=self)
         self.pbounds = pbounds
         self.save_path = self.bayes_path / 'bayes_res.json'

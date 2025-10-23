@@ -14,15 +14,14 @@ class Params:
     def __init__(self, config):
         self.dtype = torch.float16 if config['dtype'] == 16 else torch.float32 if config['dtype'] == 32 else None
         
-        self.image_height = round(config['height'] * config['factor10'] / 10)                        # 720 if factor10 == 10
-        self.image_width = round(config['width'] * config['factor10'] / 10)                         # 1,440 if factor10 == 10
+        self.height = round(config['height'] * config['factor10'] / 10)                        # 720 if factor10 == 10
+        self.width = round(config['width'] * config['factor10'] / 10)                         # 1,440 if factor10 == 10
         self.variables = config['variables']
         self.nVariables = len(config['variables'])
         self.T1 = config['T1']
         self.nFramesIn = config['T1'] * config['FG']                # 2 * 24 = 48           # temporal seq_len
         self.FG = config['FG']
         self.nFramesOut = config['T2'] * config['FG']                          # 24
-        self.maxT2 = config['maxT2']
         
         self.nFrames = config['nFrames']
         self.mFrames = config['mFrames']
@@ -36,32 +35,27 @@ class Params:
         self.add_spatial_conv = config['add_spatial_conv']
 
         self.patch_size = config['patch_size']                      # 16
-        self.nPatches_h = self.image_height // self.patch_size      # 720 / 16 = 45
-        self.nPatches_w = self.image_width // self.patch_size       # 1,440 / 16 = 90
+        self.nPatches_h = self.height // self.patch_size      # 720 / 16 = 45
+        self.nPatches_w = self.width // self.patch_size       # 1,440 / 16 = 90
         self.nPatches = self.nPatches_h * self.nPatches_w           # 45 * 90 = 4,050       # spatial seq_len
-        self.nSequences = self.nFramesIn * self.nPatches            # 48 * 4,050 = 194,400
 
         self.skip_validation = config['skip_validation']
-
-        self.nChannels = len(config['variables'])                         # 5
-        self.patch_dim = self.nChannels * self.patch_size ** 2      # 16 * 16 * 5 = 1,280
+        self.patch_dim = self.nVariables * self.patch_size ** 2      # 16 * 16 * 5 = 1,280
 
         self.d_model = self.patch_dim
         self.dim_head = int(self.d_model / config['nHeads'])
         
-        self.nClasses = self.nChannels
         self.nHeads = config['nHeads']
         self.heads_per_chunk = config['heads_per_chunk']
         self.tokens_per_chunk = config['tokens_per_chunk']
         self.kv_full_sequence = config['kv_full_sequence']        
         self.dropout = config['dropout']
-        self.attn_dropout = config['attn_dropout']
-        self.drop_path = config['drop_path']
+        self.dropPath = config['dropPath']
         
         self.nLayers = config['nLayers']
         self.zeusBlocks = config['zeusBlocks']
         self.ObsorbHDistortion = config['ObsorbHDistortion']
-        self.Zeus_Model = config['Zeus_Model']
+        self.Zeus_Model_module = config['Zeus_Model_module']
         
         self.PE = config['PE']
         self.learn_PE = config['learn_PE']
@@ -95,8 +89,7 @@ class Params:
         self.epoch_patience = config['epoch_patience']
         
         self.data_years = config['data_years']
-
-        self.hypers = config['hypers']
+        
         self.seed = config['seed']
         self.bayesProject = config['bayesProject']
         
@@ -108,7 +101,7 @@ class Params:
         self.freeze_zeus1 = config['freeze_zeus1']
         self.skip_net_for_zeus2 = config['skip_net_for_zeus2']
         
-        # if self.image_height % self.patch_size != 0:
-        #     raise Exception("Image height must be divisible by the patch size: {}, {}".format(self.image_height, self.patch_size))
-        # if self.image_width % self.patch_size != 0:
-        #     raise Exception("Image height must be divisible by the patch size: {}, {}".format(self.image_width, self.patch_size))
+        # if self.height % self.patch_size != 0:
+        #     raise Exception("Image height must be divisible by the patch size: {}, {}".format(self.height, self.patch_size))
+        # if self.width % self.patch_size != 0:
+        #     raise Exception("Image height must be divisible by the patch size: {}, {}".format(self.width, self.patch_size))

@@ -38,7 +38,7 @@ class GRN(nn.Module):
 # Cylindric ConvNeXtV2 Block
 # -----------------------------
 class Block_Cylindric(nn.Module):
-    def __init__(self, dim, drop_path=0.):
+    def __init__(self, dim, dropPath=0.):
         super().__init__()
         self.dwconv = nn.Conv2d(dim, dim, kernel_size=7, stride=1, padding=3,
                                 groups=dim, padding_mode='circular')  # fused circular
@@ -47,7 +47,7 @@ class Block_Cylindric(nn.Module):
         self.act = nn.GELU()
         self.grn = GRN(4*dim)
         self.pwconv2 = nn.Conv2d(4*dim, dim, kernel_size=1)
-        self.drop_path = DropPath(drop_path) if drop_path>0 else nn.Identity()
+        self.dropPath = DropPath(dropPath) if dropPath>0 else nn.Identity()
 
     def forward(self, x):
         out = self.dwconv(x)
@@ -56,7 +56,7 @@ class Block_Cylindric(nn.Module):
         out = self.act(out)
         out = self.grn(out)
         out = self.pwconv2(out)
-        return x + self.drop_path(out)
+        return x + self.dropPath(out)
 
 # -----------------------------
 # Full-Resolution ConvNeXtV2
@@ -69,7 +69,7 @@ class ConvNeXtV2(nn.Module):
         cur = 0
         for i in range(4):
             stage = nn.Sequential(
-                *[Block_Cylindric(dim=dims[i], drop_path=dp_rates[cur+j]) for j in range(depths[i])]
+                *[Block_Cylindric(dim=dims[i], dropPath=dp_rates[cur+j]) for j in range(depths[i])]
             )
             self.stages.append(stage)
             cur += depths[i]

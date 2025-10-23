@@ -150,7 +150,7 @@ def sinusoidal_embedding_3d(sPos, dim):    # shape of positions, dim. -> (1,) + 
     return pe # (s0, s1, s2, d)
 
 class GatedTemporalAttention(nn.Module):      # ((b n), t, dim) -> ((b n), t, dim) 
-    def __init__(self, model_dict, dim, layers, nHeads, dim_head, dim_layerFFN, dropout=0., attn_dropout=0., drop_path=0.1):
+    def __init__(self, model_dict, dim, layers, nHeads, dim_head, dim_layerFFN, dropout=0., dropout=0., dropPath=0.1):
         super().__init__()
         self.model_dict = model_dict
         self.convolve = nn.ModuleList([
@@ -164,10 +164,10 @@ class GatedTemporalAttention(nn.Module):      # ((b n), t, dim) -> ((b n), t, di
 
         for _ in range(layers):
             self.layers.append(nn.ModuleList([
-                PreNorm(dim, Attention(dim, nHeads=nHeads, dim_head=dim_head, dropout=attn_dropout)),
+                PreNorm(dim, Attention(dim, nHeads=nHeads, dim_head=dim_head, dropout=dropout)),
                 PreNorm(dim, GLU(dim, dim_layerFFN, drop=dropout)),
-                DropPath(drop_path) if drop_path > 0. else nn.Identity(),
-                DropPath(drop_path) if drop_path > 0. else nn.Identity()
+                DropPath(dropPath) if dropPath > 0. else nn.Identity(),
+                DropPath(dropPath) if dropPath > 0. else nn.Identity()
             ]))
 
         self.apply(self._init_weights)  # recursive to the whole tree of children.
@@ -201,18 +201,18 @@ class GatedAttention(nn.Module):      # (b, n, dim) -> (b, n, dim)
         dim_head = pm.dim_head
         dim_layerFFN = pm.dim_layerFFN
         dropout = pm.dropout
-        attn_dropout = pm.attn_dropout
-        drop_path = pm.drop_path
+        dropout = pm.dropout
+        dropPath = pm.dropPath
 
         self.norm = nn.LayerNorm(dim)
         self.layers = nn.ModuleList([])          
 
         for _ in range(layers):
             self.layers.append(nn.ModuleList([
-                PreNorm(dim, Attention(dim, nHeads=nHeads, dim_head=dim_head, dropout=attn_dropout, skip=self.skip)),
+                PreNorm(dim, Attention(dim, nHeads=nHeads, dim_head=dim_head, dropout=dropout, skip=self.skip)),
                 PreNorm(dim, GLU(dim, dim_layerFFN, drop=dropout, skip=self.skip)),
-                DropPath(drop_path) if drop_path > 0. else nn.Identity(),
-                DropPath(drop_path) if drop_path > 0. else nn.Identity()
+                DropPath(dropPath) if dropPath > 0. else nn.Identity(),
+                DropPath(dropPath) if dropPath > 0. else nn.Identity()
             ]))
 
         self.apply(self._init_weights)  # recursive to the whole tree of children.
@@ -418,7 +418,7 @@ class Zeus(nn.Module):
         #--------------- layerFFN --------------------------------
         reconstruct = PatchReconstruct(
             nFramesOut=self.pm.nFramesOut, nPatches_h=self.pm.nPatches_h, nPatches_w=self.pm.nPatches_w, patch_size=self.pm.patch_size,
-            C=self.pm.nChannels, H=self.pm.image_height, W=self.pm.image_width
+            C=self.pm.nChannels, H=self.pm.height, W=self.pm.width
         )       
         
         self.mlp_head = nn.Sequential(
@@ -573,7 +573,7 @@ class MLP_Skip(nn.Module):
         self.reshapeForMlp = ReshapeForMLP(self.pm.d_model)
         self.reconstruct = PatchReconstruct(
             nFramesOut=self.pm.nFramesOut, nPatches_h=self.pm.nPatches_h, nPatches_w=self.pm.nPatches_w, patch_size=self.pm.patch_size,
-            C=self.pm.nChannels, H=self.pm.image_height, W=self.pm.image_width
+            C=self.pm.nChannels, H=self.pm.height, W=self.pm.width
         )
         self.mlp_head = nn.Sequential(
             self.reshapeForMlp,

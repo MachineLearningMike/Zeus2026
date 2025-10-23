@@ -71,12 +71,12 @@ class PatchReconstruct(nn.Module):
         return x
 
 class Zeus(nn.Module):
-    def __init__(self, config, device = None):
+    def __init__(self, pm, device = None):
         super().__init__()
         if device is None:
             device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.device = torch.device(device)               
-        self.pm = Params(config)
+        self.pm = pm
  
         #--------------- token embedding ---------------
         # We need to enable more complex non-linearity here.
@@ -111,7 +111,7 @@ class Zeus(nn.Module):
         reshapeForMlp = ReshapeForMLP(self.pm.d_model)
         reconstruct = PatchReconstruct(
             nFramesOut=self.pm.nFramesOut, nPatches_h=self.pm.nPatches_h, nPatches_w=self.pm.nPatches_w, patch_size=self.pm.patch_size,
-            C=self.pm.nChannels, H=self.pm.image_height, W=self.pm.image_width
+            C=self.pm.nChannels, H=self.pm.height, W=self.pm.width
         )       
         
         self.mlp_head = nn.Sequential(

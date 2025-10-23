@@ -44,6 +44,13 @@ class Flash2DMHA(nn.Module):
         
         self.input_saved, self.mask_saved = None, None
         
+    def save_cpu_activation(self, tensor, name):
+        buf = getattr(self, name, None)
+        if buf is None or buf.shape != tensor.shape:
+            buf = torch.empty_like(tensor, device="cpu", pin_memory=True)
+            setattr(self, name, buf)
+        buf.copy_(tensor, non_blocking=True)
+        
     def forward_attention(self, q_h, k_h, v_h, s_start, s_end, attn_mask):
                 
         # slice query in sequence
@@ -125,9 +132,11 @@ class Flash2DMHA(nn.Module):
         assert D == self.d_model
         #---------------------------------------------------------------------------------------    from input
         if train:
-            self.input_saved = input.to("cpu")
+            # self.input_saved = input.to("cpu", non_blocking=True).pin_memory()
+            self.save_cpu_activation(input, "input_saved")
             if attn_mask is not None:
-                self.mask_saved = attn_mask
+                # self.mask_saved = attn_mask.to("cpu", non_blocking=True).pin_memory()
+                self.save_cpu_activation(attn_mask, "attn_mask_saved")
         
         # Project QKV under autocast so weights/inputs are cast consistently
         with autocast(device_type='cuda', dtype=torch.bfloat16):
@@ -186,8 +195,8 @@ class Flash2DMHA(nn.Module):
         return out_proj
     
     def modules_to_cpu(self):
-        self.W_qkv.to("cpu")
-        self.W_o.to("cpu")
+        self.W_qkv.to("cpu", non_blocking=True)
+        self.W_o.to("cpu", non_blocking=True)
 
     def backward(self, gradient: torch.Tensor) -> torch.Tensor:
         # return gradient     # NoMHA
@@ -202,9 +211,9 @@ class Flash2DMHA(nn.Module):
 
         # Commenting out this block let error diverges from 1 to 40 for 100 loops, 
         # instead of converging from 1 to 0.294.
-        input = self.input_saved.to(self.device)
+        input = self.input_saved.to(self.device, non_blocking=True)
         if self.mask_saved is not None:
-            mask_saved = self.mask_saved.to(self.device)
+            mask_saved = self.mask_saved.to(self.device, non_blocking=True)
         else: mask_saved = None
         
         input.requires_grad_(True)
@@ -249,8 +258,8 @@ if __name__ == "__main__":
     nLayers = 5
     d_model = 1024
     nHeads = 128
-    tokens_per_chunk = seq_len // 1
-    heads_per_chunk = 128
+    tokens_per_chunk = None
+    heads_per_chunk = None
     kv_full_sequence = True
     lr = 1e-3
     steps = 100

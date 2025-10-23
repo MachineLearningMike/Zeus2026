@@ -109,24 +109,29 @@ class Zeus(nn.Module):
         reshapeForMlp = ReshapeForMLP(self.pm.d_model)
         reconstruct = PatchReconstruct(
             nFramesOut=self.pm.nFramesOut, nPatches_h=self.pm.nPatches_h, nPatches_w=self.pm.nPatches_w, patch_size=self.pm.patch_size,
-            C=self.pm.nChannels, H=self.pm.image_height, W=self.pm.image_width
+            C=self.pm.nVariables, H=self.pm.height, W=self.pm.width
         )       
         
         self.mlp_head = nn.Sequential(
             reshapeForMlp,              # to ( (b t n), d )
             nn.LayerNorm(self.pm.d_model),  # keep ( (b t n), d )
-            nn.Linear(self.pm.d_model, self.pm.nChannels * self.pm.patch_size ** 2),    # to ( (b t n), d)
+            nn.Linear(self.pm.d_model, self.pm.nVariables * self.pm.patch_size ** 2),    # to ( (b t n), d)
             reconstruct     # to (b t c h w)
         )
         return
     
-    def get_modules(self):
-        return [self.patch_module, self.transformer, self.mlp_head]
+    def save_cpu_activation(self, tensor, name):
+        buf = getattr(self, name, None)
+        if buf is None or buf.shape != tensor.shape:
+            buf = torch.empty_like(tensor, device="cpu", pin_memory=True)
+            setattr(self, name, buf)
+        buf.copy_(tensor, non_blocking=True)
 
     def forward(self, src, train=False, modules_to_cpu=True):        
         #----------------- patch --------------
         if train:
-            self.src_saved = src.to("cpu")
+            # self.src_saved = src.to("cpu")
+            self.save_cpu_activation(src, "src_saved")
         src = src.to(self.device)   # (b t c H W)
 
         patch_module = self.patch_module.to(self.device)    # (b t n d)
@@ -146,6 +151,7 @@ class Zeus(nn.Module):
         #---------------- mlp ---------------------
         if train:
             self.src_blocked_saved = src_blocked.to("cpu")
+            self.save_cpu_activation(src_blocked, "src_blocked_saved")
         mlp_head = self.mlp_head.to(self.device)
         out = mlp_head(src_blocked)
         if modules_to_cpu:
@@ -214,8 +220,7 @@ class Zeus(nn.Module):
         if trainable:    
             loss.backward()
             gradient = pred.grad
-
-        _ = self.backward(gradient)
+            _ = self.backward(gradient)
 
         return lossAndMetrics
 
@@ -233,8 +238,19 @@ if __name__ == "__main__":
     from config import config
     from modules.params import Params
 
-    config['batch_size'] = 1
-    config['zeusBlocks'] = 4
+    # config['factor10'] = 2
+    # config['batch_size'] = 1
+    # config['patch_size'] = 12
+    # config['T1'] = 24
+    # config['nLayers'] = 5
+    # config['nHeads'] = 72
+    # config['tokens_per_chunk'] = None
+    # config['heads_per_chunk'] = None
+    # config['kv_full_sequence'] = True
+    # config['self.add_spatial_conv'] = False
+    # config['layerFFN'] = "GLU"   
+
+    # config['zeusBlocks'] = 4
     
     pm = Params(config)
     batch_size, T1, N, d_model = pm.batch_size, pm.T1, pm.nPatches, pm.d_model
