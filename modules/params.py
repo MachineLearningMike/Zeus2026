@@ -96,7 +96,7 @@ class Params:
         self.seed = config['seed']
         self.bayesProject = config['bayesProject']
         
-        self.no_PE = config['no_PE']
+        self.use_PE = config['use_PE']
         
         self.abundant_GPUs = config['abundant_GPUs']
         

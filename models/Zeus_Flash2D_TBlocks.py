@@ -23,12 +23,12 @@ def sinusoidal_embedding(n_channels, dim):
     return pe    # (n_channels, dim)
 
 class PatchEmbedWithPos(nn.Module):
-    def __init__(self, to_patch_embedding, pos_embedding, no_PE=False, learn_PE=False):
+    def __init__(self, to_patch_embedding, pos_embedding, use_PE=True, learn_PE=False):
         super().__init__()
-        self.no_PE = no_PE
+        self.use_PE = use_PE
         # Assign with the name you want in state_dict
         self.to_patch_embedding = to_patch_embedding  # nn.Linear
-        if not no_PE:
+        if use_PE:
             if learn_PE:
                 self.pos_embedding = nn.Parameter(pos_embedding)    # trainable
             else:
@@ -36,7 +36,7 @@ class PatchEmbedWithPos(nn.Module):
 
     def forward(self, x):
         x = self.to_patch_embedding(x)
-        if not self.no_PE:
+        if self.use_PE:
             x = x + self.pos_embedding
         return x
 
@@ -95,7 +95,7 @@ class Zeus(nn.Module):
         elif self.pm.PE == 'random':
             pe = torch.randn(self.pm.nFramesIn * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.d_model)
         pos_embedding = rearrange(pe, '(t n) dim -> 1 t n dim', t=self.pm.nFramesIn)
-        self.patch_module = PatchEmbedWithPos(to_patch_embedding, pos_embedding, no_PE=self.pm.no_PE, learn_PE=self.pm.learn_PE)
+        self.patch_module = PatchEmbedWithPos(to_patch_embedding, pos_embedding, use_PE=self.pm.use_PE, learn_PE=self.pm.learn_PE)
 
         #-------------- blocks -----------------------------
         blocks = []

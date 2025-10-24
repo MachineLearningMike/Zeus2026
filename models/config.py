@@ -102,7 +102,7 @@ if platform.system() == "Windows":
     config['heads_per_chunk'] = None
     config['tokens_per_chunk'] = None
     
-    config['no_PE'] = False
+    config['use_PE'] = True
     
     config['epochs'] = 100
     config['steps_to_save'] = 50
@@ -214,7 +214,7 @@ projects["Flash2DBlocked-2"] = {
     'nLayers' : 5,      # This is a major upgrade, from 4.
     'heads_per_chunk' : None,
     'tokens_per_chunk' : None,
-    'no_PE' : True,
+    'use_PE' : False,
     'PE': 'sinusodial',    # 'random', 'sinusodial'
     'dim_to_layerFFN_dim': 4,
     'learn_PE': True,
@@ -239,7 +239,7 @@ projects["Flash2DBlocked-3"] = {
     'nLayers' : 5,      # This is a major upgrade, from 4.
     'heads_per_chunk' : None,
     'tokens_per_chunk' : None,
-    'no_PE' : True,
+    'use_PE' : False,
     'PE': 'sinusodial',    # 'random', 'sinusodial'
     'dim_to_layerFFN_dim': 4,
     'learn_PE': True,
@@ -264,7 +264,7 @@ projects["Flash2DBlocked-4"] = {
     'nLayers' : 5,      # This is a major upgrade, from 4.
     'heads_per_chunk' : None,
     'tokens_per_chunk' : None,
-    'no_PE' : False,
+    'use_PE' : True,
     'PE': 'sinusodial',    # 'random', 'sinusodial'
     'dim_to_layerFFN_dim': 4,
     'learn_PE': True,
