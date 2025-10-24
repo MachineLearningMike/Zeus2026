@@ -1,5 +1,7 @@
 variables = ["2m_temperature", 'total_precipitation', "100m_u_component_of_wind", '100m_v_component_of_wind']   # order matters.
 
+# "2m_dewpoint_temperature", "surface_pressure"
+
 config = {
     'dtype' : 32,   # 16 is complicated. deffered.
 
@@ -277,8 +279,42 @@ projects["Flash2DBlocked-4"] = {
     'dropout': 0.0,
 }
 
+projects["Flash2DBlocked-5"] = {
+    # Step cycle is reduced from 20 sec to 18 sec.
+    'Zeus_Model_module' : 'Zeus_Flash2D_TBlocks',
+    'factor10': 2,      # simulates 10
+    'patch_size': 12,   # 12 -> 576 dim,  16 -> 1024 dim
+    'batch_size': 1,
+    'nHeads' : 72,      #
+    # (zeusBlocks, nLayers) = (4, 5) dropped trainig loss earlier tha (5, 4) for a single-point data.
+    'zeusBlocks':  5,
+    'nLayers' : 5,      # This is a major upgrade, from 4.
+    'heads_per_chunk' : None,
+    'tokens_per_chunk' : None,
+    'use_PE' : True,
+    'PE': 'sinusodial',    # 'random', 'sinusodial'
+    'dim_to_layerFFN_dim': 4,
+    'learn_PE': True,
+    'add_spatial_conv': False,   # spatial_conv has a major improvement.
+    'useLRLearner' : True,
+    'accum_steps' : 10,
+    'use_autocast' : False,
+    'lr': 1e-6,
+    'max_lr': 1e-6,
+    'dropout': 0.0,
+}
+
+projects["ResNet50-3"] = {      # longest. 365K params CNN.
+    'Zeus_Model_module' : 'Zeus_ResNet',
+    'factor10': 2,
+    'lr': 1e-3,
+    'max_lr': 1e-3,
+    'batch_size': 5,
+    'ObsorbHDistortion': False,
+}
+
 #-------------------------------- select proejct -----------------------
-select = "Flash2DBlocked-4" # "ResNet50-NewCodec-2" #"ResNet50-9M" # "ResNet50-3753K" #"ResNet50-NewCodec-2"  #'ResNet50-24M-2'
+select = "Flash2DBlocked-5" # "ResNet50-NewCodec-2" #"ResNet50-9M" # "ResNet50-3753K" #"ResNet50-NewCodec-2"  #'ResNet50-24M-2'
 
 config['bayesProject'] = select
 config.update(projects[select])
