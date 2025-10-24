@@ -90,11 +90,14 @@ class Zeus(nn.Module):
             )
         #-------------- positional embedding ----------------
         # pe: (self.pm.nFramesIn * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.d_model)
-        if self.pm.PE == 'sinusodial':
-            pe = sinusoidal_embedding(self.pm.nFramesIn * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.d_model)
-        elif self.pm.PE == 'random':
-            pe = torch.randn(self.pm.nFramesIn * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.d_model)
-        pos_embedding = rearrange(pe, '(t n) dim -> 1 t n dim', t=self.pm.nFramesIn)
+        if self.pm.use_PE:
+            if self.pm.PE == 'sinusodial':
+                pe = sinusoidal_embedding(self.pm.nFramesIn * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.d_model)
+            elif self.pm.PE == 'random':
+                pe = torch.randn(self.pm.nFramesIn * self.pm.nPatches_h * self.pm.nPatches_w, self.pm.d_model)
+            pos_embedding = rearrange(pe, '(t n) dim -> 1 t n dim', t=self.pm.nFramesIn)
+        else: pos_embedding = None
+
         self.patch_module = PatchEmbedWithPos(to_patch_embedding, pos_embedding, use_PE=self.pm.use_PE, learn_PE=self.pm.learn_PE)
 
         #-------------- blocks -----------------------------

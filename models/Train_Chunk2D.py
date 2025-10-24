@@ -14,7 +14,7 @@ from modules.utils import check_dir
 from modules.zeus_tqdm import zeus_tqdm
 
 # from models.Zeus_Flash2D import Zeus
-from models.Zeus_Flash2D_Blocked import Zeus
+from models.Zeus_Flash2D_TBlocks import Zeus
 
 from modules.zeus_dataset import Zeus_Dataset
 import modules.utils as utils
