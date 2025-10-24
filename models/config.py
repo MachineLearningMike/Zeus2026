@@ -252,7 +252,7 @@ projects["Flash2DBlocked-3"] = {
     'dropout': 0.0,
 }
 
-projects["Flash2DBlocked-3"] = {
+projects["Flash2DBlocked-4"] = {
     # Step cycle is reduced from 20 sec to 18 sec.
     'Zeus_Model_module' : 'Zeus_Flash2D_TBlocks',
     'factor10': 2,      # simulates 10
@@ -278,7 +278,7 @@ projects["Flash2DBlocked-3"] = {
 }
 
 #-------------------------------- select proejct -----------------------
-select = "Flash2DBlocked-3" # "ResNet50-NewCodec-2" #"ResNet50-9M" # "ResNet50-3753K" #"ResNet50-NewCodec-2"  #'ResNet50-24M-2'
+select = "Flash2DBlocked-4" # "ResNet50-NewCodec-2" #"ResNet50-9M" # "ResNet50-3753K" #"ResNet50-NewCodec-2"  #'ResNet50-24M-2'
 
 config['bayesProject'] = select
 config.update(projects[select])
