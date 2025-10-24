@@ -102,7 +102,7 @@ if platform.system() == "Windows":
     config['heads_per_chunk'] = None
     config['tokens_per_chunk'] = None
     
-    config['no_PE'] = True
+    config['no_PE'] = False
     
     config['epochs'] = 100
     config['steps_to_save'] = 50
@@ -214,6 +214,7 @@ projects["Flash2DBlocked-2"] = {
     'nLayers' : 5,      # This is a major upgrade, from 4.
     'heads_per_chunk' : None,
     'tokens_per_chunk' : None,
+    'no_PE' : True,
     'PE': 'sinusodial',    # 'random', 'sinusodial'
     'dim_to_layerFFN_dim': 4,
     'learn_PE': True,
@@ -238,6 +239,32 @@ projects["Flash2DBlocked-3"] = {
     'nLayers' : 5,      # This is a major upgrade, from 4.
     'heads_per_chunk' : None,
     'tokens_per_chunk' : None,
+    'no_PE' : True,
+    'PE': 'sinusodial',    # 'random', 'sinusodial'
+    'dim_to_layerFFN_dim': 4,
+    'learn_PE': True,
+    'add_spatial_conv': False,   # spatial_conv has a major improvement.
+    'useLRLearner' : True,
+    'accum_steps' : 10,
+    'use_autocast' : False,
+    'lr': 1e-6,
+    'max_lr': 1e-6,
+    'dropout': 0.0,
+}
+
+projects["Flash2DBlocked-3"] = {
+    # Step cycle is reduced from 20 sec to 18 sec.
+    'Zeus_Model_module' : 'Zeus_Flash2D_TBlocks',
+    'factor10': 2,      # simulates 10
+    'patch_size': 12,   # 12 -> 576 dim,  16 -> 1024 dim
+    'batch_size': 1,
+    'nHeads' : 72,      #
+    # (zeusBlocks, nLayers) = (4, 5) dropped trainig loss earlier tha (5, 4) for a single-point data.
+    'zeusBlocks':  4,
+    'nLayers' : 5,      # This is a major upgrade, from 4.
+    'heads_per_chunk' : None,
+    'tokens_per_chunk' : None,
+    'no_PE' : False,
     'PE': 'sinusodial',    # 'random', 'sinusodial'
     'dim_to_layerFFN_dim': 4,
     'learn_PE': True,
