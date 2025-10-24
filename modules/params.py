@@ -89,6 +89,7 @@ class Params:
         self.epoch_patience = config['epoch_patience']
         self.useLRLearner = config['useLRLearner']
         self.accum_steps = config['accum_steps']
+        self.use_autocast = config['use_autocast']
         
         self.data_years = config['data_years']
         

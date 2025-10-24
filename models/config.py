@@ -71,6 +71,7 @@ config = {
     'div_factor' : 1.0,    # Initial LR = max_lr / div_factor
     'final_div_factor' : 1.0, # Final LR = initial_lr / final_div_factor
     'accum_steps' : 10,  # the smaller batch_size is, the larger accum_steps is.
+    'use_autocast' : True,
 
     'epoch_patience' : 10,       # Mike!!!
     'useLRLearner' : False,
@@ -219,13 +220,38 @@ projects["Flash2DBlocked-2"] = {
     'add_spatial_conv': True,   # spatial_conv has a major improvement.
     'useLRLearner' : True,
     'accum_steps' : 10,
+    'use_autocast' : False,     # autocast, to bfloat16, makes it 10x (?) slower to reduce loss, though it takes 14.5/11.2 speedier.
     'lr': 1e-4,
     'max_lr': 1e-4,
     'dropout': 0.0,
 }
 
+projects["Flash2DBlocked-3"] = {
+    # Step cycle is reduced from 20 sec to 18 sec.
+    'Zeus_Model_module' : 'Zeus_Flash2D_TBlocks',
+    'factor10': 2,      # simulates 10
+    'patch_size': 12,   # 12 -> 576 dim,  16 -> 1024 dim
+    'batch_size': 1,
+    'nHeads' : 72,      #
+    # (zeusBlocks, nLayers) = (4, 5) dropped trainig loss earlier tha (5, 4) for a single-point data.
+    'zeusBlocks':  4,
+    'nLayers' : 5,      # This is a major upgrade, from 4.
+    'heads_per_chunk' : None,
+    'tokens_per_chunk' : None,
+    'PE': 'sinusodial',    # 'random', 'sinusodial'
+    'dim_to_layerFFN_dim': 4,
+    'learn_PE': True,
+    'add_spatial_conv': False,   # spatial_conv has a major improvement.
+    'useLRLearner' : True,
+    'accum_steps' : 10,
+    'use_autocast' : False,
+    'lr': 1e-6,
+    'max_lr': 1e-6,
+    'dropout': 0.0,
+}
+
 #-------------------------------- select proejct -----------------------
-select = "Flash2DBlocked-2" # "ResNet50-NewCodec-2" #"ResNet50-9M" # "ResNet50-3753K" #"ResNet50-NewCodec-2"  #'ResNet50-24M-2'
+select = "Flash2DBlocked-3" # "ResNet50-NewCodec-2" #"ResNet50-9M" # "ResNet50-3753K" #"ResNet50-NewCodec-2"  #'ResNet50-24M-2'
 
 config['bayesProject'] = select
 config.update(projects[select])

@@ -10,7 +10,7 @@ class AdaptiveLRLearner:
                  optimizer,
                  accum_steps=4,
                  init_lr=1e-4,
-                 grad_target=0.1,
+                 grad_target=0.2,   # 0.1
                  grad_tolerance=2.0,
                  ema_decay=0.9,
                  lr_min=1e-6,
@@ -37,7 +37,7 @@ class AdaptiveLRLearner:
         for g in self.optimizer.param_groups:
             g['lr'] = init_lr
 
-    def step(self, loss_value):
+    def stepOptimizer(self, loss_value):
         """
         Call AFTER loss.backward() on every mini-batch.
         Calls optimizer.step() automatically every `accum_steps`.

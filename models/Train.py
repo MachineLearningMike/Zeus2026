@@ -8,7 +8,8 @@ from pathlib import Path
 import logging
 from datetime import datetime
 import sys, gc, copy, time, math
-import importlib
+from importlib import import_module
+from contextlib import nullcontext
 
 # import matplotlib
 # matplotlib.use("Agg")  # non-GUI backend, safe in threads
@@ -23,7 +24,7 @@ from modules.zeus_tqdm import zeus_tqdm
 
 from config import config
 
-module = importlib.import_module(config['Zeus_Model_module'])
+module = import_module(config['Zeus_Model_module'])
 Zeus = getattr(module, 'Zeus')
 
 # from models.Zeus_ResNet import Zeus
@@ -83,8 +84,10 @@ class Train():
                 # print('kernel_size, max_radius: ', kernel_size, 6400 * 3.1416 / 72 / self.pm.factor10 * kernel_size * len(self.pm.cnn_hidden_channels) )
                 # self.model = ZeusCNN(self.pm.nChannels, self.pm.height, self.pm.width, self.pm.cnn_hidden_channels, n_frames=self.pm.nFrames, kernel_size=kernel_size, device=self.device)
                 self.model = Zeus(self.pm, device=self.device)                
-                # self.model = Zeus(config, self.nDevices, device_type=self.device_type, abundant_GPUs=self.pm.abundant_GPUs).float()                
-                logging.info("Zeus model created.")
+                # self.model = Zeus(config, self.nDevices, device_type=self.device_type, abundant_GPUs=self.pm.abundant_GPUs).float()
+                num_params = sum(p.numel() for p in self.model.parameters())
+
+                logging.info("Zeus model created with a total of ========= {:,} ========= parameters".format(num_params))
                 if self.nDevices > 1:
                     self.slave_models = self.create_slave_models(self.devices)
             else:
@@ -630,10 +633,10 @@ class Train():
             elif not self.pm.abundant_GPUs and trainable:
                 if self.nDevices <= 1:
                     # s = time.time()
-                    # Mike!!! autocast, to bfloat16, makes it 10x (?) slower to reduce loss, though it takes 14.5/11.2 longer.
-                    # with autocast(device_type=self.device_type, dtype=torch.bfloat16):
-                    with torch.set_grad_enabled(trainable):
-                        (loss, rmse) = self.model.sigle_GPU_forward_loss_backward(batch_x, batch_y, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars, trainable=trainable)
+                    context = autocast(device_type=self.device_type, dtype=torch.bfloat16) if self.pm.use_autocast else nullcontext()
+                    with context:
+                        with torch.set_grad_enabled(trainable):
+                            (loss, rmse) = self.model.sigle_GPU_forward_loss_backward(batch_x, batch_y, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars, trainable=trainable)
                     # e = time.time()
                     # print("core time: {:.5f}".format(e-s))    # 16.7s
                     step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
@@ -669,8 +672,7 @@ class Train():
                 #     print(f"{name}: param device = {param.device}, grad device = {grad_dev}")
                 
                 if self.pm.useLRLearner:
-                    # loss = loss.to(self.device)
-                    performed_step, lr, grad_norm = self.lr_controller.step(loss.item())
+                    performed_step, lr, grad_norm = self.lr_controller.stepOptimizer(loss.item())
                 else:         
                     self.optimizer.step()
                 # self.scaler.update()
