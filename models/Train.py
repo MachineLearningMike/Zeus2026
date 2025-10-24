@@ -60,7 +60,8 @@ class Train():
         self.trainable = trainable
         
         self.dataset = Zeus_Dataset(self.pm, root_path)
-        logging.info("Zeus_Dataset created.")
+        self.dataset.load_data()
+        logging.info("Zeus_Dataset created and loaded.")
         self.device_type, self.nDevices, self.device = self._acquire_device()
         self.devices = [ self.device_type + ':' + str(id) for id in range(self.nDevices)]
         # if self.trainable: assert self.nDevices == self.pm.zeusBlocks

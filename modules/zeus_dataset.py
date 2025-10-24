@@ -51,7 +51,7 @@ class Zeus_Dataset(Dataset):
         self.train_set, self.vali_set, self.test_set = None, None, None
         self.x_set, self.x_set_len = None, 0
 
-        self.load_data()
+        # self.load_data()
         
         self._fetched_batches = 0
         self.total_batches = 0
@@ -343,8 +343,9 @@ class Zeus_Dataset(Dataset):
         # This violence may cause inconsistency, I know.
         self.mean_ready_cpu = rearrange(self.mean, 'c -> c 1 1').to("cpu")
         self.std_ready_cpu = rearrange(self.std, 'c -> c 1 1').to("cpu")
-        self.mean_ready_cuda = rearrange(self.mean, 'c -> c 1 1').to("cuda")
-        self.std_ready_cuda = rearrange(self.std, 'c -> c 1 1').to("cuda")
+        if torch.cuda.is_available():
+            self.mean_ready_cuda = rearrange(self.mean, 'c -> c 1 1').to("cuda")
+            self.std_ready_cuda = rearrange(self.std, 'c -> c 1 1').to("cuda")
         
         return mean, std    # (C,), (C,)
 
