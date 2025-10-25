@@ -1,5 +1,5 @@
 
-# This is the source of all functionality.
+
 
 config = {
     'dtype' : 32,   # 16 is complicated. deffered.
