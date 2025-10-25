@@ -1,11 +1,13 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.amp import autocast, GradScaler
+
 from Flash2DMHA import Flash2DMHA  # adjust import path if needed
 
 # ----------------- settings -----------------
 device = "cuda" if torch.cuda.is_available() else "cpu"
-B, L, D = 2, 16, 32  # small sizes for testing
+B, L, D = 2, 16, 16  # small sizes for testing
 nHeads = 4
 torch.manual_seed(42)
 
@@ -21,7 +23,8 @@ flash_mha = Flash2DMHA(d_model=D, nHeads=nHeads,
 flash_mha.eval()
 
 # Forward
-out_flash = flash_mha(x)
+with autocast(device_type="cuda", dtype=torch.bfloat16):
+    out_flash = flash_mha(x)
 # Backward
 out_flash.backward(grad_output)
 grad_flash = x.grad.clone()
@@ -43,7 +46,8 @@ with torch.no_grad():
     mha.out_proj.bias.copy_(flash_mha.W_o.bias)
 
 # Forward
-out_mha, _ = mha(x, x, x)  # batch_first=True
+with autocast(device_type="cuda", dtype=torch.bfloat16):
+    out_mha, _ = mha(x, x, x)  # batch_first=True
 # Backward
 out_mha.backward(grad_output)
 grad_mha = x.grad.clone()
@@ -52,5 +56,5 @@ grad_mha = x.grad.clone()
 max_diff_out = (out_flash - out_mha).abs().max()
 max_diff_grad = (grad_flash - grad_mha).abs().max()
 
-print(f"Max difference in outputs: {max_diff_out.item():.6f}")
-print(f"Max difference in input gradients: {max_diff_grad.item():.6f}")
+print(f"Max difference in outputs, which is reduced for heavily sized data: {max_diff_out.item():.6f}")
+print(f"Max difference in input gradients, which is reduced for heavily sized data: {max_diff_grad.item():.6f}")

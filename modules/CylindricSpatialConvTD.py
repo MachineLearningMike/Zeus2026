@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.optim as optim
+from torch.amp import autocast, GradScaler
 from einops import rearrange
 import time
 
@@ -14,14 +16,16 @@ class CylindricSpatialConvTD(nn.Module):
     Horizontal cylindrical convolution
     Vertical zero padding
     """
-    def __init__(self, pm, kernel_size=3):
-        pass
-    def __init__(self, pm, kernel_size=3):
+    def __init__(self, pm, kernel_size=3, device=None):
         super().__init__()
         in_channels_time = pm.T1
         in_channels_dim = pm.patch_dim
         self.H = pm.nPatches_h
         self.W = pm.nPatches_w
+        
+        if device is None:
+            device = "cuda:0" if torch.cuda.is_available() else "cpu"
+        self.device = torch.device(device)
         
         # Use circular padding for horizontal axis via PyTorch padding_mode
         self.conv2d_time = nn.Conv2d(
@@ -45,24 +49,55 @@ class CylindricSpatialConvTD(nn.Module):
             bias=True
         )
 
-    def forward(self, x):   # (b t n d) -> (b t n d)
+    def save_cpu_activation(self, tensor, name):
+        buf = getattr(self, name, None)
+        if buf is None or buf.shape != tensor.shape:
+            buf = torch.empty_like(tensor, device="cpu", pin_memory=True)
+            setattr(self, name, buf)
+        buf.copy_(tensor, non_blocking=True)
+
+    def forward(self, x, train=False, modules_to_cpu=True):   # (b t n d) -> (b t n d)
         B, T, N, D = x.shape
         H, W = self.H, self.W
         assert H*W == N, "N must equal H*W"
 
-        x = rearrange(x, 'b t (h w) d -> (b d) t h w', h=H, w=W)
+        if train:
+            self.save_cpu_activation(x, "input_saved")
+
+        self.conv2d_time.to(self.device)
+        self.conv2d_dim.to(self.device)
+
+        x = rearrange(x, 'b t (h w) d -> (b d) t h w', h=H, w=W).contiguous()
         x = self.conv2d_time(x)        
-        x = rearrange(x, '(b d) t h w -> (b t) d h w', h=H, w=W, b=B)
+        x = rearrange(x, '(b d) t h w -> (b t) d h w', h=H, w=W, b=B).contiguous()
         x = self.conv2d_dim(x)
-        x = rearrange(x, '(b t) d h w -> b t (h w) d', b=B, t=T)
+        x = rearrange(x, '(b t) d h w -> b t (h w) d', b=B, t=T).contiguous()
+
+        if modules_to_cpu:
+            self.conv2d_time.to("cpu")
+            self.conv2d_dim.to("cpu")
 
         return x
-
 
         # x = rearrange(x, 'b t n d -> (b d) t n')
         # x = rearrange(x, 'B t (h w) -> B t h w', h=self.pm.nPatches_h)
         # x = self.convolve(x)    # preserves shape
         # x = rearrange(x, '(b d) t h w -> b t (h w) d', d=self.pm.d_model)
+
+    def backward(self, gradient):
+        
+        input = self.input_saved.to(self.device, non_blocking=True)        
+        input.requires_grad_(True)
+        # input.retain_grad()  # No need, it's a leaf tensor.
+        self.to(self.device)
+        gradient = gradient.to(self.device)
+        # with torch.enable_grad():   # redundant for readability
+        out = self(input, train=False, modules_to_cpu=False)
+        out.backward(gradient, retain_graph=False)  # gradients are saved to out_proj_gpu
+        gradient = input.grad
+        self.to("cpu")
+        
+        return gradient
 
 # -----------------------------
 # Demo
@@ -78,7 +113,7 @@ if __name__ == "__main__":
     from config import config
     from params import Params
 
-    config['factor10'] = 10
+    config['factor10'] = 2
     config['batch_size'] = 1
     config['T1'] = 24
     
@@ -87,18 +122,49 @@ if __name__ == "__main__":
     B, T, H, W, D = pm.batch_size, pm.T1, pm.nPatches_h, pm.nPatches_w, pm.patch_dim  # example dimensions
     N = H * W
     print("B, T, H, W, D, N", B, T, H, W, D, N)
-    x = torch.randn(B, T, N, D, device=device)
+    
+    x_train = torch.randn(B, T, N, D, device=device)
+    y_train = torch.randn(B, T, N, D, device=device)
 
     model = CylindricSpatialConvTD(pm, kernel_size=5).to(device)
     model.eval()
 
-    loops = 5
-    start = time.time()
-    with torch.no_grad():
-        for _ in range(loops):
-            y = model(x)
-    end = time.time()
+    steps = 100
+    lr = 1e-3
+    
+    optimizer = optim.AdamW(model.parameters(), lr=lr)
+    criterion = nn.MSELoss()
 
-    print("✅ Input shape:", x.shape)
-    print("✅ Output shape:", y.shape)
-    print("Average forward time per step: {:.3f} s".format((end-start)/loops))
+    chunkBackward = True
+
+    start = time.time()
+    print("start: ", start)
+    for step in range(steps):
+        optimizer.zero_grad()
+
+        # model.to(device)
+        # x_train.requires_grad_(True)   # it's False by default.
+
+        # forward pass (offloads chunks to GPU internally)
+        with autocast(device_type="cuda", dtype=torch.bfloat16):
+            with torch.set_grad_enabled(not chunkBackward):
+                out = model(x_train, train=chunkBackward, modules_to_cpu=chunkBackward)
+
+        if chunkBackward:
+            out.requires_grad_(chunkBackward)
+        with autocast(device_type="cuda", dtype=torch.bfloat16):
+            with torch.enable_grad():   # redundant for readability
+                loss = criterion(out, y_train.to(out.device))
+            loss.backward(retain_graph=False)
+
+        if chunkBackward:
+            gradient = out.grad
+            gradient = model.backward(gradient)
+        
+        optimizer.step()
+        
+        end = time.time()
+        duration = end - start
+        print(f"Step {step+1}/{steps}, Loss: {loss.item():.12f}, avg time: {duration/(step+1): .3f}")
+
+    print("Training done.")

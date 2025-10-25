@@ -109,49 +109,49 @@ class Flash2DZeusBlock(nn.Module):
     def forward(self, x, train=False, modules_to_cpu=True): # (B, T, N, dim) -> (B, T, N, dim)      # (B, T1FG, H/p * W/p, dim)
         b, t, n, dim = x.shape                  # (B, T, N, dim), or (B, T1FG, H/p * W/p, dim)
         
-        x = x.to(self.device)
+        x = x.to(self.device)                                       # assume it's contiguous
         
-        if train: 
-            # self.in_temporal1_saved = x.to("cpu")     # (B, T, N, dim)
-            self.save_cpu_activation(x, "in_temporal1_saved")
+        # if train: 
+        #     # self.in_temporal1_saved = x.to("cpu")                 # (B, T, N, dim)
+        #     self.save_cpu_activation(x, "in_temporal1_saved")
         if self.add_spatial_conv:
             self.spaial_conv_1.to(self.device)
-            x = self.spaial_conv_1(x)                       # (B, T, N, dim)
+            x = self.spaial_conv_1(x, train=train, modules_to_cpu=modules_to_cpu)                               # (B, T, N, dim)
             if modules_to_cpu: self.spaial_conv_1.to("cpu")
-        x = rearrange(x, 'b t n d -> (b n) t d')            # (B*N, T, dim)
+        x = rearrange(x, 'b t n d -> (b n) t d').contiguous()       # (B*N, T, dim)
         self.temporal_transformer_1.to(self.device)
-        x = self.temporal_transformer_1(x)                  # (B*N, T, dim)
+        x = self.temporal_transformer_1(x, train=train, modules_to_cpu=modules_to_cpu)                          # (B*N, T, dim)
         if modules_to_cpu: self.temporal_transformer_1.to("cpu")
 
-        if train: 
-            # self.in_spatial1_saved = x.to("cpu")      # (B*N, T, dim)
-            self.save_cpu_activation(x, "in_spatial1_saved")
-        x = rearrange(x, '(b n) t d -> (b t) n d', b=b)     # (B*T, N, dim)
-        x = self.spatial_transformer_1(x)                   # (B*T, N, dim)
+        # if train: 
+        #     # self.in_spatial1_saved = x.to("cpu")                  # (B*N, T, dim)
+        #     self.save_cpu_activation(x, "in_spatial1_saved")
+        x = rearrange(x, '(b n) t d -> (b t) n d', b=b).contiguous()# (B*T, N, dim)
+        x = self.spatial_transformer_1(x, train=train, modules_to_cpu=modules_to_cpu)                           # (B*T, N, dim)
         if modules_to_cpu: self.spatial_transformer_1.to("cpu")
         
-        if train: 
-            # self.in_spatial2_saved = x.to("cpu")      # (B*T, N, dim)
-            self.save_cpu_activation(x, "in_spatial2_saved")
-        x = self.spatial_transformer_2(x)                   # (B*T, N, dim)
+        # if train: 
+        #     # self.in_spatial2_saved = x.to("cpu")                  # (B*T, N, dim)
+        #     self.save_cpu_activation(x, "in_spatial2_saved")
+        x = self.spatial_transformer_2(x, train=train, modules_to_cpu=modules_to_cpu)                           # (B*T, N, dim)
         if modules_to_cpu: self.spatial_transformer_2.to("cpu")
 
-        if train: 
-            # self.in_temporal2_saved = x.to("cpu")     # (B*T, N, dim)
-            self.save_cpu_activation(x, "in_temporal2_saved")
+        # if train: 
+        #     # self.in_temporal2_saved = x.to("cpu")                 # (B*T, N, dim)
+        #     self.save_cpu_activation(x, "in_temporal2_saved")
         if self.add_spatial_conv:
-            x = rearrange(x, '(b t) n d -> b t n d', t=t)
             self.spaial_conv_2.to(self.device)
-            x = self.spaial_conv_2(x)                       # (B, T, N, dim)
-            x = rearrange(x, 'b t n d -> (b t) n d')
+            x = rearrange(x, '(b t) n d -> b t n d', t=t)           # contiguous
+            x = self.spaial_conv_2(x, train=train, modules_to_cpu=modules_to_cpu)                               # (B, T, N, dim)
+            x = rearrange(x, 'b t n d -> (b t) n d').contiguous()   # contiguous
             if modules_to_cpu: self.spaial_conv_2.to("cpu")
-        x = rearrange(x, '(b t) n d -> b t n d', b=b)       # (B, T, N, dim)
-        x = rearrange(x, 'b t n d -> (b n) t d')            # (B*N, T, dim)
-        x = self.temporal_transformer_2(x)                  # (B*N, T, dim)        
-        x = rearrange(x, '(b n) t d -> b t n d', b=b)       # (B, T, N, dim)
+        x = rearrange(x, '(b t) n d -> b t n d', b=b).contiguous()  # (B, T, N, dim)  # contiguous
+        x = rearrange(x, 'b t n d -> (b n) t d').contiguous()       # (B*N, T, dim)    # contiguous
+        x = self.temporal_transformer_2(x, train=train, modules_to_cpu=modules_to_cpu)                          # (B*N, T, dim)        
+        x = rearrange(x, '(b n) t d -> b t n d', b=b).contiguous()  # (B, T, N, dim)   # contiguous
         if modules_to_cpu: self.temporal_transformer_2.to("cpu")
               
-        return x                                            # (B, T, N, dim)
+        return x                                                    # (B, T, N, dim)
 
     def modules_to_cpu(self):
         self.temporal_transformer_1.modules_to_cpu()
@@ -160,68 +160,160 @@ class Flash2DZeusBlock(nn.Module):
         self.temporal_transformer_2.modules_to_cpu()
 
     def backward(self, gradient: torch.Tensor) -> torch.Tensor:
-        gradient = gradient.to(self.device)  # redundant
-        b, t, n, dim = gradient.shape        
+        gradient = gradient.to(self.device)                          # redundant
+        b, t, n, dim = gradient.shape      
         
-        # in_temporal2_saved.grad
-        src = self.in_temporal2_saved.to(self.device)             # (B*T, N, dim)
-        src.requires_grad_(True)
-        src.retain_grad()
-        self.temporal_transformer_2.to(self.device)
-        with torch.enable_grad():   # redundant for readability            
+        # # detached leaf on correct device
+        # src = self.in_temporal2_saved.to(self.device).detach().requires_grad_(True)
+        # with torch.enable_grad():   # redundant for readability
+        #     if self.add_spatial_conv:
+        #         # self.spaial_conv_2.to(self.device)
+        #         x = rearrange(src, '(b t) n d -> b t n d', t=t)           # contiguous
+        #         x = self.spaial_conv_2(x, train=False, modules_to_cpu=False)                               # (B, T, N, dim)
+        #         x = rearrange(x, 'b t n d -> (b t) n d')   # contiguous
+        #     else:
+        #         x = rearrange(src, 'b t n d -> (b t) n d')   # contiguous
+
+        #     x = rearrange(x, '(b t) n d -> b t n d', b=b).contiguous()  # (B, T, N, dim)  # contiguous
+        #     x = rearrange(x, 'b t n d -> (b n) t d').contiguous()       # (B*N, T, dim)    # contiguous
+        #     # self.temporal_transformer_2.to(self.device)
+        #     x = self.temporal_transformer_2(x, train=False, modules_to_cpu=False)                          # (B*N, T, dim)        
+        #     x = rearrange(x, '(b n) t d -> b t n d', b=b).contiguous()  # (B, T, N, dim)   # contiguous
+
+        # x.backward(gradient, retain_graph=False)
+        # gradient = src.grad                                         # (B*T, N, dim)
+        # if self.add_spatial_conv:
+        #     self.spaial_conv_2.to("cpu")
+        # self.temporal_transformer_2.to("cpu")
+        
+        gradient = rearrange(gradient, 'b t n d -> (b n) t d').contiguous()
+        gradient = self.temporal_transformer_2.backward(gradient)
+        gradient = rearrange(gradient, '(b n) t d -> b t n d', n=n).contiguous()
+        gradient = rearrange(gradient, 'b t n d -> (b t) n d')
+        if self.add_spatial_conv:
+            gradient = rearrange(gradient, '(b t) n d -> b t n d', t=t)
+            gradient = self.spaial_conv_2.backward(gradient)
+            gradient = rearrange(gradient, 'b t n d -> (b t) n d')
+        else:
+            pass
+        
+        # src = self.in_spatial2_saved.to(self.device).detach().requires_grad_(True)
+        # self.spatial_transformer_2.to(self.device)
+        # with torch.enable_grad():   # redundant for readability
+        #     x = self.spatial_transformer_2(src, train=False, modules_to_cpu=False)                 # (B*T, N, dim)
+        # x.backward(gradient, retain_graph=False)
+        # gradient = src.grad                                         # (B*T, N, dim)
+        # self.spatial_transformer_2.to("cpu")
+        
+        gradient = self.spatial_transformer_2.backward(gradient)
+
+        # src = self.in_spatial1_saved.to(self.device).detach().requires_grad_(True)
+        # self.spatial_transformer_1.to(self.device)
+        # with torch.enable_grad():   # redundant for readability
+        #     x = rearrange(src, '(b n) t d -> (b t) n d', b=b).contiguous()     # (B*T, N, dim)
+        #     x = self.spatial_transformer_1(x, train=False, modules_to_cpu=False)                                  # (B*T, N, dim) 
+        # x.backward(gradient, retain_graph=False)
+        # gradient = src.grad                                         # (B*N, T, dim)
+        # self.spatial_transformer_1.to("cpu")
+        
+        gradient = self.spatial_transformer_1.backward(gradient)
+        gradient = rearrange(gradient, '(b t) n d -> (b n) t d', t=t)
+        
+        
+        # src = self.in_temporal1_saved.to(self.device).detach().requires_grad_(True)
+        # src.requires_grad_(True)
+        # src.retain_grad()
+        # self.temporal_transformer_1.to(self.device)
+        # with torch.enable_grad():   # redundant for readability
+        #     if self.add_spatial_conv:
+        #         self.spaial_conv_1.to(self.device)
+        #         x = self.spaial_conv_1(src)                         # (B, T, N, dim)
+        #         x = rearrange(x, 'b t n d -> (b n) t d').contiguous()
+        #     else:
+        #         x = rearrange(src, 'b t n d -> (b n) t d')            # (B*N, T, dim)
+        #     x = self.temporal_transformer_1(x, train=False, modules_to_cpu=False)                                  # (B*N, T, dim) 
+        # x.backward(gradient, retain_graph=False)
+        # gradient = src.grad                                         # (B, N, T, dim)
+        # if self.add_spatial_conv:
+        #     self.spaial_conv_1.to("cpu")
+        # self.temporal_transformer_1.to("cpu")
+        
+        gradient = self.temporal_transformer_1.backward(gradient)
+        if self.add_spatial_conv:
+            gradient = rearrange(gradient, '(b n) t d -> b t n d', n=n).contiguous()
+            gradient = self.spaial_conv_1.backward(gradient)
+        else:
+            gradient = rearrange(gradient, '(b n) t d -> b t n d', n=n)
+                
+        return gradient
+
+    def backward_old(self, gradient: torch.Tensor) -> torch.Tensor:
+        gradient = gradient.to(self.device)                          # redundant
+        b, t, n, dim = gradient.shape      
+        
+        # detached leaf on correct device
+        src = self.in_temporal2_saved.to(self.device).detach().requires_grad_(True)
+        with torch.enable_grad():   # redundant for readability
             if self.add_spatial_conv:
-                x = rearrange(src, '(b t) n d -> b t n d', t=t)
-                self.spaial_conv_2.to(self.device)
-                x = self.spaial_conv_2(x)                       # (B, T, N, dim)
+                # self.spaial_conv_2.to(self.device)
+                x = rearrange(src, '(b t) n d -> b t n d', t=t)           # contiguous
+                x = self.spaial_conv_2(x, train=False, modules_to_cpu=False)                               # (B, T, N, dim)
+                x = rearrange(x, 'b t n d -> (b t) n d')   # contiguous
             else:
-                x = rearrange(src, '(b t) n d -> b t n d', b=b)       # (B, T, N, dim)
-            x = rearrange(x, 'b t n d -> (b n) t d')            # (B*N, T, dim)
-            x = self.temporal_transformer_2(x, train=False, modules_to_cpu=False)                  # (B*N, T, dim) 
-            x = rearrange(x, '(b n) t d -> b t n d', b=b)     # (B, T, N, dim)
+                x = rearrange(src, 'b t n d -> (b t) n d')   # contiguous
+            x = rearrange(x, '(b t) n d -> b t n d', b=b).contiguous()  # (B, T, N, dim)  # contiguous
+            x = rearrange(x, 'b t n d -> (b n) t d').contiguous()       # (B*N, T, dim)    # contiguous
+            # self.temporal_transformer_2.to(self.device)
+            x = self.temporal_transformer_2(x, train=False, modules_to_cpu=False)                          # (B*N, T, dim)        
+            x = rearrange(x, '(b n) t d -> b t n d', b=b).contiguous()  # (B, T, N, dim)   # contiguous
+
         x.backward(gradient, retain_graph=False)
-        gradient = src.grad                                       # (B*T, N, dim)
+        gradient = src.grad                                         # (B*T, N, dim)
         if self.add_spatial_conv:
             self.spaial_conv_2.to("cpu")
         self.temporal_transformer_2.to("cpu")
+        
+        
+        # gradient = rearrange(gradient, 'b t n d -> (b n) t d').contiguous()
+        # gradient = self.temporal_transformer_2.backward(gradient)
+        # gradient = rearrange(gradient, '(b n) t d -> b t n d')
+        # if self.add_spatial_conv:
+        #     gradient = self.spaial_conv_2.backward(gradient)
+        # gradient = rearrange(gradient, 'b t n d -> (b t) n d')
 
-        # in_spatial2_saved.grad
-        src = self.in_spatial2_saved.to(self.device)              # (B*T, N, dim)
-        src.requires_grad_(True)
-        src.retain_grad()
+        
+        src = self.in_spatial2_saved.to(self.device).detach().requires_grad_(True)
         self.spatial_transformer_2.to(self.device)
         with torch.enable_grad():   # redundant for readability
             x = self.spatial_transformer_2(src, train=False, modules_to_cpu=False)                 # (B*T, N, dim)
         x.backward(gradient, retain_graph=False)
-        gradient = src.grad                                       # (B*T, N, dim)
+        gradient = src.grad                                         # (B*T, N, dim)
         self.spatial_transformer_2.to("cpu")
 
-        # in_spatial1_saved.grad
-        src = self.in_spatial1_saved.to(self.device)              # (B*N, T, dim)
-        src.requires_grad_(True)
-        src.retain_grad()
+        src = self.in_spatial1_saved.to(self.device).detach().requires_grad_(True)
         self.spatial_transformer_1.to(self.device)
         with torch.enable_grad():   # redundant for readability
-            x = rearrange(src, '(b n) t d -> (b t) n d', b=b)     # (B*T, N, dim)
+            x = rearrange(src, '(b n) t d -> (b t) n d', b=b).contiguous()     # (B*T, N, dim)
             x = self.spatial_transformer_1(x, train=False, modules_to_cpu=False)                                  # (B*T, N, dim) 
         x.backward(gradient, retain_graph=False)
-        gradient = src.grad                                       # (B*N, T, dim)
+        gradient = src.grad                                         # (B*N, T, dim)
         self.spatial_transformer_1.to("cpu")
         
         # in_temporal1_saved.grad
-        src = self.in_temporal1_saved.to(self.device)              # (B, N, T, dim)
+        src = self.in_temporal1_saved.to(self.device).detach().requires_grad_(True)
         src.requires_grad_(True)
         src.retain_grad()
         self.temporal_transformer_1.to(self.device)
         with torch.enable_grad():   # redundant for readability
             if self.add_spatial_conv:
                 self.spaial_conv_1.to(self.device)
-                x = self.spaial_conv_1(src)                       # (B, T, N, dim)
-                x = rearrange(x, 'b t n d -> (b n) t d')
+                x = self.spaial_conv_1(src)                         # (B, T, N, dim)
+                x = rearrange(x, 'b t n d -> (b n) t d').contiguous()
             else:
                 x = rearrange(src, 'b t n d -> (b n) t d')            # (B*N, T, dim)
             x = self.temporal_transformer_1(x, train=False, modules_to_cpu=False)                                  # (B*N, T, dim) 
         x.backward(gradient, retain_graph=False)
-        gradient = src.grad                                       # (B, N, T, dim)
+        gradient = src.grad                                         # (B, N, T, dim)
         if self.add_spatial_conv:
             self.spaial_conv_1.to("cpu")
         self.temporal_transformer_1.to("cpu")
@@ -253,21 +345,26 @@ if __name__ == "__main__":
     # config['self.add_spatial_conv'] = False
     # config['layerFFN'] = "GLU"    
     
+    config['factor10'] = 10
+    config['nLayers'] = 1
+    config['add_spatial_conv'] = False
+    
     pm = Params(config)
     batch_size, T1, N, d_model = pm.batch_size, pm.T1, pm.nPatches, pm.d_model
 
-    lr = 1e-4               # -4
+    lr = 1e-3               # -4
     steps = 100
        
     model = Flash2DZeusBlock(pm, device = device)
 
     x = torch.randn(batch_size, T1, N, d_model)
-    with torch.no_grad():
-        out = model(x, train=True, modules_to_cpu=True)
+    with autocast(device_type="cuda", dtype=torch.bfloat16):
+        with torch.set_grad_enabled(False):
+            out = model(x, train=True, modules_to_cpu=True)
     print("Output:", out.shape, out.device)
-    gradient = torch.ones_like(x)
-    gradient = model.backward(gradient)
-    model.modules_to_cpu()
+    gradient = torch.ones_like(x)    
+    with autocast(device_type="cuda", dtype=torch.bfloat16):
+        gradient = model.backward(gradient)
     print("Gradient:", gradient.shape, gradient.device)
     
     #------------------ training test --------------------
@@ -280,36 +377,34 @@ if __name__ == "__main__":
     x_train = torch.randn(batch_size, T1, N, d_model)
     y_train = torch.randn(batch_size, T1, N, d_model)
 
+    chunkBackward = True
+
     start = time.time()
+    print("start: ", start)
     for step in range(steps):
         optimizer.zero_grad()
 
+        # model.to(device)
+        # x_train.requires_grad_(True)   # it's False by default.
+
         # forward pass (offloads chunks to GPU internally)
         with autocast(device_type="cuda", dtype=torch.bfloat16):
-            with torch.no_grad():
-                # start1 = time.time()
-                out = model(x_train, train=True, modules_to_cpu=True)
-                # end1 = time.time()
-                # print("block-forward time {:.3f}".format(end1-start1))
-            
-        # target -> same device as out for loss
-        out.requires_grad_(True)
-        out.retain_grad()
+            with torch.set_grad_enabled(not chunkBackward):
+                out = model(x_train, train=chunkBackward, modules_to_cpu=chunkBackward)
+
+        if chunkBackward:
+            out.requires_grad_(chunkBackward)
         with autocast(device_type="cuda", dtype=torch.bfloat16):
             with torch.enable_grad():   # redundant for readability
                 loss = criterion(out, y_train.to(out.device))
             loss.backward(retain_graph=False)
-        gradient = out.grad
 
-        with autocast(device_type="cuda", dtype=torch.bfloat16):
-            # start1 = time.time()
-            gradient = model.backward(gradient)
-            # end1 = time.time()
-            # print("block-backward time {:.3f}".format(end1-start1))
-        optimizer.step()
+        if chunkBackward:
+            gradient = out.grad
+            with autocast(device_type="cuda", dtype=torch.bfloat16):
+                gradient = model.backward(gradient)
         
-        gc.collect()
-        torch.cuda.empty_cache()
+        optimizer.step()
         
         end = time.time()
         duration = end - start

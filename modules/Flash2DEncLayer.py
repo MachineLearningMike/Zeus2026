@@ -3,6 +3,7 @@ from typing import Optional, Callable, List
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.amp import autocast, GradScaler
 import torch.optim as optim
 
 from pathlib import Path
@@ -284,17 +285,19 @@ if __name__ == "__main__":
     heads_per_chunk = None
     kv_full_sequence = True
     lr = 1e-3 # 1e-3
-    steps = 1000
+    steps = 100
 
     layerFFN = "GLU"  # "GLU", "FFN"
     model = Flash2DEncLayer(d_model=d_model, nHeads=nHeads, heads_per_chunk=heads_per_chunk, dim_layerFFN=4*d_model, dropout=0.0, layerFFN=layerFFN, device=device)
 
     x = torch.randn(batch_size, seq_len, d_model)  # (B, S, E)
-    with torch.no_grad():
-        out = model(x, train=True, modules_to_cpu=True)
+    with autocast(device_type="cuda", dtype=torch.bfloat16):
+        with torch.no_grad():
+            out = model(x, train=True, modules_to_cpu=True)
     print("Output:", out.shape, out.device)
     gradient = torch.ones_like(x)
-    gradient = model.backward(gradient)
+    with autocast(device_type="cuda", dtype=torch.bfloat16):
+        gradient = model.backward(gradient)
     print("Gradient:", gradient.shape, gradient.device)
     #------------------ training test --------------------
     
@@ -306,38 +309,50 @@ if __name__ == "__main__":
     x_train = torch.randn(batch_size, seq_len, d_model)
     y_train = torch.randn(batch_size, seq_len, d_model)
 
-    learnLR = True
+    learnLR = False
 
     if learnLR:
         optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
         lr_controller = AdaptiveLRLearner(optimizer, accum_steps=5)
 
+
+    chunkBackward = True
+
     start = time.time()
+    print("start: ", start)
     for step in range(steps):
         optimizer.zero_grad()
 
-        # forward pass (offloads chunks to GPU internally)
-        with torch.no_grad():
-            out = model(x_train, train=True, modules_to_cpu=True)
-            
-        # target -> same device as out for loss
-        out.requires_grad_(True)
-        out.retain_grad()
-        with torch.enable_grad():   # redundant for readability
-            loss = criterion(out, y_train.to(out.device))
-            loss.backward(retain_graph=False)
-        gradient = out.grad
+        # model.to(device)
+        # x_train.requires_grad_(True)   # it's False by default.
 
-        gradient = model.backward(gradient)
+        # forward pass (offloads chunks to GPU internally)
+        with autocast(device_type="cuda", dtype=torch.bfloat16):
+            with torch.set_grad_enabled(not chunkBackward):
+                out = model(x_train, train=chunkBackward, modules_to_cpu=chunkBackward)
+
+        if chunkBackward:
+            out.requires_grad_(chunkBackward)
+        with autocast(device_type="cuda", dtype=torch.bfloat16):
+            with torch.enable_grad():   # redundant for readability
+                loss = criterion(out, y_train.to(out.device))
+            loss.backward(retain_graph=False)
+
+        if chunkBackward:
+            gradient = out.grad
+            with autocast(device_type="cuda", dtype=torch.bfloat16):
+                gradient = model.backward(gradient)
         
         if learnLR:
-            performed_step, lr, grad_norm = lr_controller.step(loss.item())
-            print(f"performed_step: {performed_step}, new_lr: {lr:.7f}")
+            performed_step, lr, grad_norm = lr_controller.stepOptimizer(loss.item())
+            # print(f"performed_step: {performed_step}, new_lr: {lr:.7f}")
         else:
             optimizer.step()
-
+        
         end = time.time()
         duration = end - start
         print(f"Step {step+1}/{steps}, Loss: {loss.item():.12f}, avg time: {duration/(step+1): .3f}")
 
     print("Training done.")
+
+

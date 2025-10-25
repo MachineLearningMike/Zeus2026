@@ -83,9 +83,10 @@ class Flash2DTransformer(nn.Module):
 
         output = layered
         if self.norm is not None:
-            norm = self.norm.to(self.device)
+            self.norm.to(self.device)
             output = self.norm(layered)
-            norm.to("cpu")
+            if modules_to_cpu:
+                self.norm.to("cpu")
         # output is on GPU (self.device)
 
         # del layered
@@ -135,7 +136,7 @@ if __name__ == "__main__":
     T1 = 24
     N = round(72 * factor10 * 144 * factor10 /16/16)
     seq_len = round(T1 * 72 * factor10 * 144 * factor10 /16/16)    # 97_200 for factor10 == 10
-    nLayers = 5
+    nLayers = 1
     d_model = 1024
     nHeads = 128
     tokens_per_chunk = None
@@ -162,12 +163,13 @@ if __name__ == "__main__":
     )
 
     x = torch.randn(batch_size, seq_len, d_model)  # (B, S, E)
-    with torch.no_grad():
-        out = model(x, train=True, modules_to_cpu=False)
+    with autocast(device_type="cuda", dtype=torch.bfloat16):
+        with torch.no_grad():
+            out = model(x, train=True, modules_to_cpu=False)
     print("Output:", out.shape, out.device)
     gradient = torch.ones_like(x)
-    gradient = model.backward(gradient)
-    model.modules_to_cpu()
+    with autocast(device_type="cuda", dtype=torch.bfloat16):
+        gradient = model.backward(gradient)
     print("Gradient:", gradient.shape, gradient.device)
     
     #------------------ training test --------------------
@@ -180,27 +182,35 @@ if __name__ == "__main__":
     x_train = torch.randn(batch_size, seq_len, d_model)
     y_train = torch.randn(batch_size, seq_len, d_model)
 
+    model.layers[0].src_saved = None    # test in test
+
+    chunkBackward = False
+
     start = time.time()
+    print("start: ", start)
     for step in range(steps):
         optimizer.zero_grad()
 
         # model.to(device)
+        # x_train.requires_grad_(True)   # it's False by default.
 
         # forward pass (offloads chunks to GPU internally)
         with autocast(device_type="cuda", dtype=torch.bfloat16):
-            with torch.no_grad():
-                out = model(x_train, train=True, modules_to_cpu=True)
-            
-        # target -> same device as out for loss
-        out.requires_grad_(True)
-        out.retain_grad()
+            with torch.set_grad_enabled(not chunkBackward):
+                out = model(x_train, train=chunkBackward, modules_to_cpu=chunkBackward)
+
+        if chunkBackward:
+            out.requires_grad_(chunkBackward)
         with autocast(device_type="cuda", dtype=torch.bfloat16):
             with torch.enable_grad():   # redundant for readability
                 loss = criterion(out, y_train.to(out.device))
             loss.backward(retain_graph=False)
-        gradient = out.grad
-                
-        gradient = model.backward(gradient)
+
+        if chunkBackward:
+            gradient = out.grad
+            with autocast(device_type="cuda", dtype=torch.bfloat16):
+                gradient = model.backward(gradient)
+        
         optimizer.step()
         
         end = time.time()

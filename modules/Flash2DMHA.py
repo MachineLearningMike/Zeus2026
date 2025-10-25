@@ -9,6 +9,34 @@ from pathlib import Path
 import os, sys, gc
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+"""
+Standard MHA does:
+scores = Q @ K^T / sqrt(d_k)          # (B, H, Lq, Lk)
+attn = softmax(scores)                # apply mask, dropout
+out = attn @ V
+
+This requires storing scores, which is size (B, H, Lq, Lk) — huge for long sequences.
+E.g., B=1, H=16, L=8192, d_k=64 → scores = 8 GB in float32!
+
+FlashAttention solves this by:
+Computing softmax in a streaming fashion
+Only a small chunk of QK^T is in memory at any time.
+Fusing operations
+QK^T → masked softmax → dropout → multiply with V in one kernel.
+Supporting fp16/bf16
+Reduces memory footprint without significant precision loss.
+Optional causal masking
+Handles autoregressive models efficiently.
+
+Important constraints:
+Inputs must be fp16 or bf16 (cannot use float32).
+Must run on CUDA (GPU).
+Supports optional causal masking for autoregressive models
+
+NOTE: FlashAttention shines with long sequences!!!!!!!!!!
+
+"""
+
 class Flash2DMHA(nn.Module):
     """
     FlashAttention-2 (Windows) MHA with:
@@ -139,10 +167,8 @@ class Flash2DMHA(nn.Module):
                 self.save_cpu_activation(attn_mask, "attn_mask_saved")
         
         # Project QKV under autocast so weights/inputs are cast consistently
-        with autocast(device_type='cuda', dtype=torch.bfloat16):
-            qkv = self.W_qkv(input)  # [B, L, 3*D], weights/autocast -> fp16 for kernel
-            # reshape to [B, H, L, 3*head_dim]
-            qkv = qkv.view(B, L, self.nHeads, 3 * self.head_dim).permute(0, 2, 1, 3)
+        qkv = self.W_qkv(input)  # [B, L, 3*D], weights/autocast -> fp16 for kernel
+        qkv = qkv.view(B, L, self.nHeads, 3 * self.head_dim).permute(0, 2, 1, 3).contiguous()
         
         # split into q,k,v: each [B, H, L, head_dim]
         q, k, v = torch.chunk(qkv, 3, dim=-1)
@@ -186,8 +212,7 @@ class Flash2DMHA(nn.Module):
         
         #-------------------------------------------------------------------------     from out_final
         # final output projection (you can wrap in autocast as needed)
-        with autocast(device_type='cuda', dtype=torch.bfloat16):
-            out_proj = self.W_o(out_final)
+        out_proj = self.W_o(out_final)
             
         #--------------------------------------------------------------------------     out_proj   
         if modules_to_cpu: self.to("cpu")
@@ -273,31 +298,39 @@ if __name__ == "__main__":
     scaler = GradScaler()
 
     # dummy data (CPU)
-    x_train = torch.randn(batch_size, seq_len, d_model)
-    y_train = torch.randn(batch_size, seq_len, d_model)
+    x_train = torch.randn(batch_size, seq_len, d_model).to(device)
+    y_train = torch.randn(batch_size, seq_len, d_model).to(device)
+
+    chunkBackward = False
 
     start = time.time()
+    print("start: ", start)
     for step in range(steps):
         optimizer.zero_grad()
 
-        with autocast(device_type='cuda', dtype=torch.bfloat16):
-            # forward pass (offloads chunks to GPU internally)
-            out = model(x_train.to(device), modules_to_cpu=False)
-            loss = criterion(out, y_train.to(out.device))
-        
-        loss.backward(retain_graph=False)
-        # scaler.scale(loss).backward()
-        
-        model.to("cpu")
-        
+        # model.to(device)
+        # x_train.requires_grad_(True)   # it's False by default.
+
+        # forward pass (offloads chunks to GPU internally)
+        with autocast(device_type="cuda", dtype=torch.bfloat16):
+            with torch.set_grad_enabled(not chunkBackward):
+                out = model(x_train, train=chunkBackward, modules_to_cpu=chunkBackward)
+
+        if chunkBackward:
+            out.requires_grad_(chunkBackward)
+        with autocast(device_type="cuda", dtype=torch.bfloat16):
+            with torch.enable_grad():   # redundant for readability
+                loss = criterion(out, y_train.to(out.device))
+            loss.backward(retain_graph=False)
+
+        if chunkBackward:
+            gradient = out.grad
+            gradient = model.backward(gradient)
+
         optimizer.step()
-        # scaler.step(optimizer)
-        # scaler.update()
         
         end = time.time()
         duration = end - start
-        print(f"Step {step+1}/{steps}, Loss: {loss.item():.10f}, avg time: {duration / (step+1): .3f} s")
-    
-    end = time.time()
-    duration = end - start
-    print(f"Training done. time taken: {duration: .3f} seconds")
+        print(f"Step {step+1}/{steps}, Loss: {loss.item():.12f}, avg time: {duration/(step+1): .3f}")
+
+    print("Training done.")
