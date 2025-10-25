@@ -145,8 +145,9 @@ class Flash2DZeusBlock(nn.Module):
             x = self.spaial_conv_2(x, train=train, modules_to_cpu=modules_to_cpu)                               # (B, T, N, dim)
             x = rearrange(x, 'b t n d -> (b t) n d').contiguous()   # contiguous
             if modules_to_cpu: self.spaial_conv_2.to("cpu")
-        x = rearrange(x, '(b t) n d -> b t n d', b=b).contiguous()  # (B, T, N, dim)  # contiguous
-        x = rearrange(x, 'b t n d -> (b n) t d').contiguous()       # (B*N, T, dim)    # contiguous
+        x = rearrange(x, '(b t) n d -> (b n) t d', t=t, n=n).contiguous()
+        # x = rearrange(x, '(b t) n d -> b t n d', b=b).contiguous()  # (B, T, N, dim)  # contiguous
+        # x = rearrange(x, 'b t n d -> (b n) t d').contiguous()       # (B*N, T, dim)    # contiguous
         x = self.temporal_transformer_2(x, train=train, modules_to_cpu=modules_to_cpu)                          # (B*N, T, dim)        
         x = rearrange(x, '(b n) t d -> b t n d', b=b).contiguous()  # (B, T, N, dim)   # contiguous
         if modules_to_cpu: self.temporal_transformer_2.to("cpu")
@@ -188,8 +189,9 @@ class Flash2DZeusBlock(nn.Module):
         
         gradient = rearrange(gradient, 'b t n d -> (b n) t d').contiguous()
         gradient = self.temporal_transformer_2.backward(gradient)
-        gradient = rearrange(gradient, '(b n) t d -> b t n d', n=n).contiguous()
-        gradient = rearrange(gradient, 'b t n d -> (b t) n d')
+        gradient = rearrange(gradient, '(b n) t d -> (b t) n d', n=n, t=t).contiguous()
+        # gradient = rearrange(gradient, '(b n) t d -> b t n d', n=n).contiguous()
+        # gradient = rearrange(gradient, 'b t n d -> (b t) n d')
         if self.add_spatial_conv:
             gradient = rearrange(gradient, '(b t) n d -> b t n d', t=t)
             gradient = self.spaial_conv_2.backward(gradient)
@@ -345,7 +347,7 @@ if __name__ == "__main__":
     # config['self.add_spatial_conv'] = False
     # config['layerFFN'] = "GLU"    
     
-    config['factor10'] = 10
+    config['factor10'] = 2
     config['nLayers'] = 1
     config['add_spatial_conv'] = False
     
