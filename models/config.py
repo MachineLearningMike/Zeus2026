@@ -1,11 +1,8 @@
-variables = ["2m_temperature", 'total_precipitation', "100m_u_component_of_wind", '100m_v_component_of_wind']   # order matters.
-
-# "2m_dewpoint_temperature", "surface_pressure"
 
 config = {
     'dtype' : 32,   # 16 is complicated. deffered.
 
-    'variables': variables,
+    'variables': [],
     'height': 720,
     'width': 1440,
     'patch_size':   16, #16, # 8        ----------------------  optimization param,  Chunk
@@ -92,7 +89,7 @@ config = {
 from pathlib import Path
 import platform
 if platform.system() == "Windows":  
-    
+    config['variables'] = ["2m_temperature", 'total_precipitation', "100m_u_component_of_wind", "100m_v_component_of_wind"]    
     root_path = Path("D:/Zeus_Data")
 
     # GPU: RTX 4070, Chunk2D
@@ -111,8 +108,9 @@ if platform.system() == "Windows":
     config['abundant_GPUs'] = False
     
 else:
+    config['variables'] = variables = ["2m_temperature", 'total_precipitation', "100m_u_component_of_wind", '100m_v_component_of_wind', "2m_dewpoint_temperature", "surface_pressure"]
     root_path = Path("/mnt/Data/Zeus_Data")
-
+    
     # GPU: 
     config['factor10'] = 10  # 2 is the minimum, as 1 causes a non-float parameter error.
     config['tokens_per_chunk'] = round(config['T1'] * 72 * config['factor10'] * 144 * config['factor10'] /config['patch_size']/config['patch_size']) // 2

@@ -13,7 +13,7 @@ class AdaptiveLRLearner:
                  grad_target=0.1,   # 0.1
                  grad_tolerance=2.0,
                  ema_decay=0.9,
-                 lr_min=1e-6,
+                 lr_min=1e-9,
                  lr_max=1e-3,
                  step_down=0.8,
                  step_up=1.05,
