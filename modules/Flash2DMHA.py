@@ -9,6 +9,8 @@ from pathlib import Path
 import os, sys, gc
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+from modules.utils import check_dir, check_gradient
+
 """
 Standard MHA does:
 scores = Q @ K^T / sqrt(d_k)          # (B, H, Lq, Lk)
@@ -233,6 +235,8 @@ class Flash2DMHA(nn.Module):
         """
         # assert self.input_saved is not None
         # assert self.input_saved.shape == gradient.shape        
+        
+        self.to(self.device)
 
         # Commenting out this block let error diverges from 1 to 40 for 100 loops, 
         # instead of converging from 1 to 0.294.
@@ -325,7 +329,10 @@ if __name__ == "__main__":
 
         if chunkBackward:
             gradient = out.grad
-            gradient = model.backward(gradient)
+            with autocast(device_type="cuda", dtype=torch.bfloat16):
+                gradient = model.backward(gradient)
+
+        # check_gradient(model)
 
         optimizer.step()
         

@@ -19,9 +19,8 @@ from mpl_toolkits.mplot3d import Axes3D
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from modules.utils import check_dir
+from modules.utils import check_dir, check_gradient
 from modules.zeus_tqdm import zeus_tqdm
-
 from config import config
 
 module = import_module(config['Zeus_Model_module'])
@@ -634,10 +633,13 @@ class Train():
             elif not self.pm.abundant_GPUs and trainable:
                 if self.nDevices <= 1:
                     # s = time.time()
-                    context = autocast(device_type=self.device_type, dtype=torch.bfloat16) if self.pm.use_autocast else nullcontext()
-                    with context:
-                        with torch.set_grad_enabled(trainable):
-                            (loss, rmse) = self.model.sigle_GPU_forward_loss_backward(batch_x, batch_y, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars, trainable=trainable)
+                    
+                    # !!! This context leads lots of parameters that don't receive gradient. Move into sigle_GPU_forward_loss_backward.
+                    # context = autocast(device_type=self.device_type, dtype=torch.bfloat16) if self.pm.use_autocast else nullcontext()
+                    # with context:
+                    #     with torch.set_grad_enabled(trainable):
+                    (loss, rmse) = self.model.sigle_GPU_forward_loss_backward(batch_x, batch_y, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars, trainable=trainable)
+                            # (loss, rmse) = self.model.sigle_GPU_forward_loss_backward(batch_x.detach().clone(), batch_y.detach().clone(), self.loss, None, batch_diff, era5_data_vars, trainable=trainable)
                     # e = time.time()
                     # print("core time: {:.5f}".format(e-s))    # 16.7s
                     step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
@@ -672,9 +674,18 @@ class Train():
                 #     grad_dev = param.grad.device if param.grad is not None else None
                 #     print(f"{name}: param device = {param.device}, grad device = {grad_dev}")
                 
+                # check_gradient(self.model)                
+                
                 if self.pm.useLRLearner:
                     performed_step, lr, grad_norm = self.lr_controller.stepOptimizer(loss.item())
-                else:         
+                else:        
+                #     for name, param in self.model.named_parameters():
+                #         print(name, param.device, None if param.grad is None else param.grad.device)
+                # for p in self.optimizer.state.values():
+                #     for k, v in p.items():
+                #         if isinstance(v, torch.Tensor):
+                #             print(k, v.device)
+                    
                     self.optimizer.step()
                 # self.scaler.update()
                 

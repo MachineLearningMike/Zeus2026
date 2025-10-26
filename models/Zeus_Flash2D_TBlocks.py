@@ -14,6 +14,7 @@ import os, sys, gc
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.Flash2DZeusBlock import Flash2DZeusBlock
+from modules.utils import check_gradient
 
 def sinusoidal_embedding(n_channels, dim):
     pe = torch.FloatTensor([[p / (10000 ** (2 * (i // 2) / dim)) for i in range(dim)]
@@ -23,11 +24,11 @@ def sinusoidal_embedding(n_channels, dim):
     return pe    # (n_channels, dim)
 
 class PatchEmbedWithPos(nn.Module):
-    def __init__(self, to_patch_embedding, pos_embedding, use_PE=True, learn_PE=False):
+    def __init__(self, patch_embedding, pos_embedding, use_PE=True, learn_PE=False):
         super().__init__()
         self.use_PE = use_PE
         # Assign with the name you want in state_dict
-        self.to_patch_embedding = to_patch_embedding  # nn.Linear
+        self.patch_embedding = patch_embedding  # nn.Linear
         if use_PE:
             if learn_PE:
                 self.pos_embedding = nn.Parameter(pos_embedding)    # trainable
@@ -35,7 +36,7 @@ class PatchEmbedWithPos(nn.Module):
                 self.pos_embedding = pos_embedding
 
     def forward(self, x):
-        x = self.to_patch_embedding(x)
+        x = self.patch_embedding(x)
         if self.use_PE:
             x = x + self.pos_embedding
         return x
@@ -82,7 +83,7 @@ class Zeus(nn.Module):
  
         #--------------- token embedding ---------------
         # We need to enable more complex non-linearity here.
-        to_patch_embedding = nn.Sequential(
+        patch_embedding = nn.Sequential(
             Rearrange('b t c (h p1) (w p2) -> b t (h w) (p1 p2 c)', p1=self.pm.patch_size, p2=self.pm.patch_size),
             nn.Linear(self.pm.patch_dim, 2 * self.pm.d_model),
             nn.Tanh(),
@@ -98,7 +99,7 @@ class Zeus(nn.Module):
             pos_embedding = rearrange(pe, '(t n) dim -> 1 t n dim', t=self.pm.nFramesIn)
         else: pos_embedding = None
 
-        self.patch_module = PatchEmbedWithPos(to_patch_embedding, pos_embedding, use_PE=self.pm.use_PE, learn_PE=self.pm.learn_PE)
+        self.patch_module = PatchEmbedWithPos(patch_embedding, pos_embedding, use_PE=self.pm.use_PE, learn_PE=self.pm.learn_PE)
 
         #-------------- blocks -----------------------------
         blocks = []
@@ -147,13 +148,14 @@ class Zeus(nn.Module):
         for block in self.blocks:
             gc.collect()
             torch.cuda.empty_cache()
-            src_blocked = block(src_patched, train=train, modules_to_cpu=modules_to_cpu)    # (b t n d)
+            src_patched = block(src_patched, train=train, modules_to_cpu=modules_to_cpu)    # (b t n d)
+        src_blocked = src_patched
         # end = time.time()
         # print("block-forward time {:.3f}".format(end-start))
                     
         #---------------- mlp ---------------------
+        
         if train:
-            self.src_blocked_saved = src_blocked.to("cpu")
             self.save_cpu_activation(src_blocked, "src_blocked_saved")
         mlp_head = self.mlp_head.to(self.device)
         out = mlp_head(src_blocked)
@@ -166,12 +168,12 @@ class Zeus(nn.Module):
         # #---------------- mlp ---------------------
         src_blocked = self.src_blocked_saved.to(self.device)
         src_blocked.requires_grad_(True)
-        src_blocked.retain_grad()
+        # src_blocked.retain_grad() # Ne need
         mlp_head = self.mlp_head.to(self.device)
         gradient = gradient.to(self.device)
         with torch.enable_grad():   # redundant for readability
             out = mlp_head(src_blocked)
-        out.backward(gradient, retain_graph=False)  
+        out.backward(gradient)  
         gradient = src_blocked.grad
         self.mlp_head.to("cpu")
         del src_blocked, out
@@ -188,12 +190,12 @@ class Zeus(nn.Module):
         #---------------- patch -----------------------
         src = self.src_saved.to(self.device)
         src.requires_grad_(True)
-        src.retain_grad()
+        # src.retain_grad()
         patch_module = self.patch_module.to(self.device)
         gradient = gradient.to(self.device)
-        with torch.enable_grad():   # redundant for readability
-            out = patch_module(src)  # (b t n d)
-        out.backward(gradient, retain_graph=False)  
+        # with torch.enable_grad():   # redundant for readability
+        out = patch_module(src)  # (b t n d)
+        out.backward(gradient)  
         gradient = src.grad
         self.patch_module.to("cpu")
         del src, out
@@ -202,48 +204,66 @@ class Zeus(nn.Module):
         
         return gradient
    
-    def sigle_GPU_forward_loss_backward(self, input, target, loss_fn, unnormal_fn, batch_diff, era5_data_vars, trainable=True):
-        # The caller creates this context:
-        # with autocast(device_type=self.device_type, dtype=torch.bfloat16):
-        #     with torch.set_grad_enabled(trainable): 
+    # def sigle_GPU_forward_loss_backward(self, input, target, loss_fn, unnormal_fn, batch_diff, era5_data_vars, trainable=True):
 
-        s = time.time()
-        with torch.set_grad_enabled(False):
-            pred = self(input, train=True, modules_to_cpu=True)
-        e = time.time()
-        # print(f"time1 {e-s:.5f}")
+    #     with autocast(device_type="cuda", dtype=torch.bfloat16):
+    #         with torch.no_grad():
+    #             pred = self(input, train=trainable, modules_to_cpu=trainable)
+    #     gc.collect()
+    #     torch.cuda.empty_cache()
 
-        s = time.time()
-        if unnormal_fn is not None:
-            pred = unnormal_fn(pred)   # torch.float32 !!!, cuda, True !!!
-            target = unnormal_fn(target)   # torch.float32, cuda, False
-        e = time.time()
-        # print(f"time2 {e-s:.5f}")
+    #     if trainable:
+    #         pred = pred.requires_grad_(trainable)
 
-        s = time.time()
-        if trainable:
-            pred.requires_grad_(trainable)
-            pred.retain_grad()
-        e = time.time()
-        # print(f"time3 {e-s:.5f}")
+    #     with autocast(device_type="cuda", dtype=torch.bfloat16):
+    #         # Since no gradients are being tracked if not trainable (pred.requires_grad=False), this whole section is pure inference.
+    #         if unnormal_fn is not None:
+    #             pred = unnormal_fn(pred)
+    #             target = unnormal_fn(target)
 
-        s = time.time()
-        lossAndMetrics = loss_fn(target, pred, batch_diff, era5_data_vars)
-        loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
-        e = time.time()
-        # print(f"time4 {e-s:.5f}")
+    #         lossAndMetrics = loss_fn(target, pred, batch_diff, era5_data_vars)
+    #         loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
         
-        s = time.time()
+    #     if trainable:
+    #         with autocast(device_type="cuda", dtype=torch.bfloat16):
+    #             with torch.enable_grad():
+    #                 loss.backward()
+    #                 gradient = pred.grad
+    #                 _ = self.backward(gradient)
+        
+    #     return lossAndMetrics
+
+
+    def sigle_GPU_forward_loss_backward(self, input, target, loss_fn, unnormal_fn, batch_diff, era5_data_vars, trainable=True):
+        # Forward pass (no grad, in bf16)
+        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            with torch.no_grad():
+                pred = self(input, train=trainable, modules_to_cpu=trainable)
+
         if trainable:
+            pred = pred.requires_grad_(True)
+            # pred.retain_grad()    # pred is not a leaf tensor but this line is nor required.
+
+        # Loss computation (grad only for pred)
+        # This part is simply an inference if pred.requires_grad == False
+        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            if unnormal_fn is not None:
+                pred2 = unnormal_fn(pred)
+                target = unnormal_fn(target)
+            lossAndMetrics = loss_fn(target, pred2, batch_diff, era5_data_vars)
+            loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
+
+        # Backward pass
+        if trainable:
+            # Compute dL/d(pred)
             loss.backward()
             gradient = pred.grad
-            _ = self.backward(gradient)
-        e = time.time()
-        # print(f"time5 {e-s:.5f}")
 
+            # Custom backward, with forward ops inside, needs autocast
+            with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                _ = self.backward(gradient)
 
         return lossAndMetrics
-
 
 
 if __name__ == "__main__":    
@@ -285,12 +305,15 @@ if __name__ == "__main__":
 
     #------------------- simple test -------------------
     x = torch.randn(1, config['T1'], len(config['variables']), 72 * config['factor10'], 144 * config['factor10'])
-    with torch.no_grad():
-        out = model(x, train=True, modules_to_cpu=True)
-    print("Output:", out.shape, out.device)
-    gradient = torch.ones_like(x)
-    gradient = model.backward(gradient)
-    print("Gradient:", gradient.shape, gradient.device)
+    
+    # with autocast(device_type="cuda", dtype=torch.bfloat16):    
+    #     with torch.no_grad():
+    #         out = model(x, train=True, modules_to_cpu=True)
+    # print("Output:", out.shape, out.device)
+    # gradient = torch.ones_like(x)
+    # with autocast(device_type="cuda", dtype=torch.bfloat16):
+    #     gradient = model.backward(gradient)
+    # print("Gradient:", gradient.shape, gradient.device)
 
     #------------------ training test --------------------
     
@@ -326,10 +349,9 @@ if __name__ == "__main__":
         
         optimizer.zero_grad()
         
-        # with autocast(device_type="cuda", dtype=torch.bfloat16):
-        with torch.set_grad_enabled(True):
-            (loss, rmse) = model.sigle_GPU_forward_loss_backward(x_train, y_train, loss_fun, None, None, era5_data_vars, trainable=True)
+        (loss, rmse) = model.sigle_GPU_forward_loss_backward(x_train.detach().clone(), y_train.detach().clone(), loss_fun, None, None, era5_data_vars, trainable=True)
                 
+
         # with autocast(device_type="cuda", dtype=torch.bfloat16):
         #     with torch.no_grad():
         #         out = model(x_train, train=True, modules_to_cpu=True)
@@ -338,7 +360,6 @@ if __name__ == "__main__":
             
         # # target -> same device as out for loss
         # out.requires_grad_(True)
-        # out.retain_grad()
         # with autocast(device_type="cuda", dtype=torch.bfloat16):
         #     with torch.enable_grad():   # redundant for readability
         #         loss = criterion(out, y_train.to(out.device))
@@ -349,12 +370,10 @@ if __name__ == "__main__":
         #     gradient = model.backward(gradient)
         # gc.collect()
         # torch.cuda.empty_cache()
+        
+        # check_gradient(model)
 
-        s = time.time()
-        if step % 10 == 0:
-            optimizer.step()
-        e = time.time()
-        print(f"optimizer time: {e-s :.5f}")
+        optimizer.step()
 
         end = time.time()
         duration = end - start

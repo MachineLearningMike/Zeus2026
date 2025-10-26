@@ -39,3 +39,10 @@ def check_dir(path):
     if not path.exists():
         path.mkdir(parents=True)
 
+def check_gradient(model):
+    
+    for name, param in model.named_parameters():
+        if param.grad is None:
+            print(f"Parameter '{name}' did NOT receive a gradient --------------------------------------------")
+        else:
+            print(f"Parameter '{name}' received gradient, shape: {param.grad.shape}, device: {param.grad.device}")

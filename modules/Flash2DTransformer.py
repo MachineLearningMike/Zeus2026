@@ -10,8 +10,11 @@ from pathlib import Path
 import os, sys, gc
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from modules.Flash2DEncLayer import Flash2DEncLayer
+from modules.Flash2DEncLayer_shallow import Flash2DEncLayer
+# from modules.Flash2DEncLayer_deep import Flash2DEncLayer
+
 # from modules.Flash2DEncLayer_MSave import Flash2DEncLayer     # Weird, its slower.
+from modules.utils import check_gradient
 
 class Flash2DTransformer(nn.Module):
     def __init__(
@@ -108,7 +111,7 @@ class Flash2DTransformer(nn.Module):
         if self.norm is not None:
             layered_saved = self.layered_saved.to(self.device, non_blocking=True)
             layered_saved.requires_grad_(True)
-            layered_saved.retain_grad()
+            # layered_saved.retain_grad()
             self.norm.to(self.device)
             with torch.enable_grad():   # redundant for readability
                 out = self.norm(layered_saved)
@@ -130,7 +133,106 @@ if __name__ == "__main__":
     import time
     
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    
+    def demonstrate(chunkBackward):
 
+        factor10 = 2
+        batch_size = 1         # it's also the data simplicity in this test.
+        T1 = 24
+        N = round(72 * factor10 * 144 * factor10 /16/16)
+        seq_len = round(T1 * 72 * factor10 * 144 * factor10 /16/16)    # 97_200 for factor10 == 10
+        nLayers = 1
+        d_model = 1024
+        nHeads = 128
+        tokens_per_chunk = None
+        heads_per_chunk = None
+        kv_full_sequence = True
+        lr = 1e-3
+        steps = 100
+        
+        layerFFN = "GLU"  # "FFN", "GLU"
+
+        # nLayers == 1 is faster than a Flash2DEncLayer.    
+        model = Flash2DTransformer(
+            nLayers = nLayers,
+            d_model = d_model,
+            nHeads = nHeads, 
+            heads_per_chunk = heads_per_chunk,
+            tokens_per_chunk = tokens_per_chunk,
+            dim_layerFFN = 4*d_model,
+            kv_full_sequence = kv_full_sequence,
+            dropout=0.0, 
+            layerFFN = layerFFN, 
+            device=device
+        )
+
+        # x = torch.randn(batch_size, seq_len, d_model)  # (B, S, E)
+        # with autocast(device_type="cuda", dtype=torch.bfloat16):
+        #     with torch.no_grad():
+        #         out = model(x, train=True, modules_to_cpu=False)
+        # print("Output:", out.shape, out.device)
+        # gradient = torch.ones_like(x)
+        # with autocast(device_type="cuda", dtype=torch.bfloat16):
+        #     gradient = model.backward(gradient)
+        # print("Gradient:", gradient.shape, gradient.device)
+        
+        #------------------ training test --------------------
+        
+        # optimizer (params are on CPU at construction time)
+        optimizer = optim.AdamW(model.parameters(), lr=lr)
+        criterion = nn.MSELoss()
+
+        # dummy data (CPU)
+        x_train = torch.randn(batch_size, seq_len, d_model)
+        y_train = torch.randn(batch_size, seq_len, d_model)
+
+        model.layers[0].src_saved = None    # test in test
+
+        start = time.time()
+        print("start: ", start)
+        for step in range(steps):
+            optimizer.zero_grad()
+
+            # model.to(device)
+            # x_train.requires_grad_(True)   # it's False by default.
+
+            # forward pass (offloads chunks to GPU internally)
+            with autocast(device_type="cuda", dtype=torch.bfloat16):
+                with torch.set_grad_enabled(not chunkBackward):
+                    out = model(x_train.clone(), train=chunkBackward, modules_to_cpu=chunkBackward)
+
+            if chunkBackward:
+                out.requires_grad_(chunkBackward)
+            with autocast(device_type="cuda", dtype=torch.bfloat16):
+                with torch.enable_grad():   # redundant for readability
+                    loss = criterion(out, y_train.clone().to(out.device))
+                loss.backward(retain_graph=False)
+
+            if chunkBackward:
+                gradient = out.grad
+                with autocast(device_type="cuda", dtype=torch.bfloat16):
+                    gradient = model.backward(gradient)
+            
+            # check_gradient(model)
+            
+            optimizer.step()
+            
+            end = time.time()
+            duration = end - start
+            print(f"Step {step+1}/{steps}, Loss: {loss.item():.12f}, avg time: {duration/(step+1): .3f}")
+
+        print("Training done.")
+        
+        return model
+        
+    model_true = demonstrate(chunkBackward=True)
+    model_false = demonstrate(chunkBackward=False)
+
+
+
+
+
+    # Dummy input for comparison
     factor10 = 2
     batch_size = 1         # it's also the data simplicity in this test.
     T1 = 24
@@ -144,77 +246,70 @@ if __name__ == "__main__":
     kv_full_sequence = True
     lr = 1e-3
     steps = 100
-    
-    layerFFN = "GLU"  # "FFN", "GLU"
+            
 
-    # nLayers == 1 is faster than a Flash2DEncLayer.
-    
-    model = Flash2DTransformer(
-        nLayers = nLayers,
-        d_model = d_model,
-        nHeads = nHeads, 
-        heads_per_chunk = heads_per_chunk,
-        tokens_per_chunk = tokens_per_chunk,
-        dim_layerFFN = 4*d_model,
-        kv_full_sequence = kv_full_sequence,
-        dropout=0.0, 
-        layerFFN = layerFFN, 
-        device=device
-    )
+    x_test = torch.randn(batch_size, seq_len, d_model)
+    y_test = torch.randn(batch_size, seq_len, d_model)
 
-    x = torch.randn(batch_size, seq_len, d_model)  # (B, S, E)
-    with autocast(device_type="cuda", dtype=torch.bfloat16):
-        with torch.no_grad():
-            out = model(x, train=True, modules_to_cpu=False)
-    print("Output:", out.shape, out.device)
-    gradient = torch.ones_like(x)
-    with autocast(device_type="cuda", dtype=torch.bfloat16):
-        gradient = model.backward(gradient)
-    print("Gradient:", gradient.shape, gradient.device)
-    
-    #------------------ training test --------------------
-    
-    # optimizer (params are on CPU at construction time)
-    optimizer = optim.AdamW(model.parameters(), lr=lr)
     criterion = nn.MSELoss()
 
-    # dummy data (CPU)
-    x_train = torch.randn(batch_size, seq_len, d_model)
-    y_train = torch.randn(batch_size, seq_len, d_model)
+    # ------------------ Forward comparison ------------------
+    model_true.eval()
+    model_false.eval()
 
-    model.layers[0].src_saved = None    # test in test
+    with autocast(device_type="cuda", dtype=torch.bfloat16):
+        with torch.no_grad():
+            out_true = model_true(x_test.to(device))
+            out_false = model_false(x_test.to(device))
 
-    chunkBackward = False
+    forward_max_diff = (out_true - out_false).abs().max().item()
+    forward_mean_diff = (out_true - out_false).abs().mean().item()
+    print(f"Forward max absolute difference: {forward_max_diff}")
+    print(f"Forward mean absolute difference: {forward_mean_diff}")
 
-    start = time.time()
-    print("start: ", start)
-    for step in range(steps):
-        optimizer.zero_grad()
+    # ------------------ Backward comparison ------------------
+    # Make sure both models are in train mode
+    model_true.train()
+    model_false.train()
 
-        # model.to(device)
-        # x_train.requires_grad_(True)   # it's False by default.
+    # Forward pass with grad enabled
+    x_true = x_test.clone().to(device).requires_grad_(True)
+    x_false = x_test.clone().to(device).requires_grad_(True)
 
-        # forward pass (offloads chunks to GPU internally)
-        with autocast(device_type="cuda", dtype=torch.bfloat16):
-            with torch.set_grad_enabled(not chunkBackward):
-                out = model(x_train, train=chunkBackward, modules_to_cpu=chunkBackward)
+    with autocast(device_type="cuda", dtype=torch.bfloat16):
+        out_true = model_true(x_true, train=True, modules_to_cpu=False)
+        out_false = model_false(x_false, train=True, modules_to_cpu=False)
 
-        if chunkBackward:
-            out.requires_grad_(chunkBackward)
-        with autocast(device_type="cuda", dtype=torch.bfloat16):
-            with torch.enable_grad():   # redundant for readability
-                loss = criterion(out, y_train.to(out.device))
-            loss.backward(retain_graph=False)
+    loss_true = criterion(out_true, y_test.to(device))
+    loss_false = criterion(out_false, y_test.to(device))
 
-        if chunkBackward:
-            gradient = out.grad
-            with autocast(device_type="cuda", dtype=torch.bfloat16):
-                gradient = model.backward(gradient)
-        
-        optimizer.step()
-        
-        end = time.time()
-        duration = end - start
-        print(f"Step {step+1}/{steps}, Loss: {loss.item():.12f}, avg time: {duration/(step+1): .3f}")
+    # Standard backward for chunkBackward=False
+    model_false.zero_grad()
+    with autocast(device_type="cuda", dtype=torch.bfloat16):
+        loss_false.backward()
 
-    print("Training done.")
+    # Manual backward for chunkBackward=True
+    model_true.zero_grad()
+    gradient = out_true.grad if out_true.grad is not None else torch.ones_like(out_true)
+    with autocast(device_type="cuda", dtype=torch.bfloat16):
+        model_true.backward(gradient)
+
+    # Compare parameter gradients
+    grad_diffs = {}
+    for (name_true, param_true), (name_false, param_false) in zip(model_true.named_parameters(),
+                                                                model_false.named_parameters()):
+        if param_true.grad is not None and param_false.grad is not None:
+            diff = (param_true.grad.to(device) - param_false.grad.to(device)).abs().max().item()
+            grad_diffs[name_true] = diff
+
+    # Print summary
+    max_grad_diff = max(grad_diffs.values())
+    mean_grad_diff = sum(grad_diffs.values()) / len(grad_diffs)
+    print(f"Backward max gradient difference: {max_grad_diff}")
+    print(f"Backward mean gradient difference: {mean_grad_diff}")
+
+    # Optional: show layers with largest differences
+    sorted_grads = sorted(grad_diffs.items(), key=lambda x: x[1], reverse=True)
+    print("Top 5 layers by max gradient difference:")
+    for name, diff in sorted_grads[:5]:
+        print(f"{name}: {diff}")

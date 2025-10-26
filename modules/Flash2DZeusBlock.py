@@ -16,6 +16,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.Flash2DTransformer import Flash2DTransformer
 from modules.CylindricSpatialConvTD import CylindricSpatialConvTD
+from modules.utils import check_gradient
 
 class SpatialConvolution(nn.Module):
     def __init__(self, pm):
@@ -349,7 +350,7 @@ if __name__ == "__main__":
     
     config['factor10'] = 2
     config['nLayers'] = 1
-    config['add_spatial_conv'] = False
+    config['add_spatial_conv'] = True
     
     pm = Params(config)
     batch_size, T1, N, d_model = pm.batch_size, pm.T1, pm.nPatches, pm.d_model
@@ -360,14 +361,15 @@ if __name__ == "__main__":
     model = Flash2DZeusBlock(pm, device = device)
 
     x = torch.randn(batch_size, T1, N, d_model)
-    with autocast(device_type="cuda", dtype=torch.bfloat16):
-        with torch.set_grad_enabled(False):
-            out = model(x, train=True, modules_to_cpu=True)
-    print("Output:", out.shape, out.device)
-    gradient = torch.ones_like(x)    
-    with autocast(device_type="cuda", dtype=torch.bfloat16):
-        gradient = model.backward(gradient)
-    print("Gradient:", gradient.shape, gradient.device)
+
+    # with autocast(device_type="cuda", dtype=torch.bfloat16):
+    #     with torch.set_grad_enabled(False):
+    #         out = model(x, train=True, modules_to_cpu=True)
+    # print("Output:", out.shape, out.device)
+    # gradient = torch.ones_like(x)    
+    # with autocast(device_type="cuda", dtype=torch.bfloat16):
+    #     gradient = model.backward(gradient)
+    # print("Gradient:", gradient.shape, gradient.device)
     
     #------------------ training test --------------------
     
@@ -405,6 +407,8 @@ if __name__ == "__main__":
             gradient = out.grad
             with autocast(device_type="cuda", dtype=torch.bfloat16):
                 gradient = model.backward(gradient)
+                
+        check_gradient(model)
         
         optimizer.step()
         
