@@ -674,7 +674,7 @@ class Train():
                 #     grad_dev = param.grad.device if param.grad is not None else None
                 #     print(f"{name}: param device = {param.device}, grad device = {grad_dev}")
                 
-                # check_gradient(self.model)                
+                check_gradient(self.model)                
                 
                 if self.pm.useLRLearner:
                     performed_step, lr, grad_norm = self.lr_controller.stepOptimizer(loss.item())

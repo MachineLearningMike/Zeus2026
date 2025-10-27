@@ -56,6 +56,7 @@ class Params:
         self.zeusBlocks = config['zeusBlocks']
         self.ObsorbHDistortion = config['ObsorbHDistortion']
         self.Zeus_Model_module = config['Zeus_Model_module']
+        self.EncLayer = config['EncLayer']
         
         self.PE = config['PE']
         self.learn_PE = config['learn_PE']

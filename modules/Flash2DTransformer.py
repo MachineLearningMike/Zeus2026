@@ -5,15 +5,27 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.amp import autocast, GradScaler
 import torch.optim as optim
+from importlib import import_module
 
 from pathlib import Path
 import os, sys, gc
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from modules.Flash2DEncLayer_shallow import Flash2DEncLayer
-# from modules.Flash2DEncLayer_deep import Flash2DEncLayer
-
 # from modules.Flash2DEncLayer_MSave import Flash2DEncLayer     # Weird, its slower.
+# from modules.Flash2DEncLayer_shallow import Flash2DEncLayer
+from modules.Flash2DEncLayer_deep import Flash2DEncLayer
+
+sibling_path = Path(__file__).resolve().parent.parent / "models"
+sys.path.insert(0, str(sibling_path))
+# from config import config
+# from params import Params
+
+# from models.config import config
+# if config['EncLayer'] == "lash2DEncLayer_shallow":
+#     from modules.Flash2DEncLayer_shallow import Flash2DEncLayer
+# elif config['EncLayer'] == "lash2DEncLayer_deep":
+#     from modules.Flash2DEncLayer_deep import Flash2DEncLayer
+
 from modules.utils import check_gradient
 
 class Flash2DTransformer(nn.Module):

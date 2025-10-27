@@ -45,4 +45,5 @@ def check_gradient(model):
         if param.grad is None:
             print(f"Parameter '{name}' did NOT receive a gradient --------------------------------------------")
         else:
-            print(f"Parameter '{name}' received gradient, shape: {param.grad.shape}, device: {param.grad.device}")
+            pass
+            # print(f"Parameter '{name}' received gradient, shape: {param.grad.shape}, device: {param.grad.device}")

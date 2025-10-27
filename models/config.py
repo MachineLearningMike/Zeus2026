@@ -30,6 +30,7 @@ config = {
     'blocksPerState': [3, 4, 6],
     'ObsorbHDistortion' : True,
     'Zeus_Model_module' : 'Zeus_ResNet',
+    'EncLayer' : 'Flash2DEncLayer_shallow', # 'Flash2DEncLayer_deep'
     
     'dropout': 0.0,
     'dropPath': 0.0,
@@ -60,11 +61,11 @@ config = {
     'data_years' : 100,    # The latest 'data_years' years of the databased years are accounted for. 
 
     'optimizer': 'adam',    # 'adamw' takes more momory for optimizer.
-    # 'lr' : 1e-5,    # ---> changed below
+    'lr' : 1e-5,    # ---> changed below
     
     # Scheduler
     # (initial_lr = max_lr / div_factor, for pct_start of the total_steps) -> max_lr -> (Final LR = initial_lr/final_div_factor, for the remaining steps)
-    # 'max_lr' : 1e-5,    # ----> changed below
+    'max_lr' : 1e-5,    # ----> changed below
     'total_steps' : 60000,
     'weight_decay': 0.0,    # disable weight_decay, in AdamW
     'pct_start' : 1.0,      #
@@ -329,6 +330,25 @@ projects["Flash2DBlocked-6"] = {
     'dropout': 0.0,
 }
 
+projects["Flash2DBlocked-7"] = projects["Flash2DBlocked-6"]
+projects["Flash2DBlocked-7"].update({
+    'zeusBlocks':  3,
+    'nLayers' : 3,      # This is a major upgrade, from 4.
+    'PE': 'random',    # 'random', 'sinusodial'
+})
+
+projects["Flash2DBlocked-8"] = projects["Flash2DBlocked-7"]
+projects["Flash2DBlocked-8"].update({
+    'useLRLearner' : False,
+})
+
+projects["Flash2DBlocked-9"] = projects["Flash2DBlocked-8"]
+projects["Flash2DBlocked-8"].update({
+    'useLRLearner' : False,
+    'zeusBlocks':  2,
+    'nLayers' : 2,      # This is a major upgrade, from 4.
+})
+
 projects["ResNet50-3"] = {      # longest. 365K params CNN.
     'Zeus_Model_module' : 'Zeus_ResNet',
     'factor10': 2,
@@ -339,7 +359,7 @@ projects["ResNet50-3"] = {      # longest. 365K params CNN.
 }
 
 #-------------------------------- select proejct -----------------------
-select = "Flash2DBlocked-6" # "ResNet50-NewCodec-2" #"ResNet50-9M" # "ResNet50-3753K" #"ResNet50-NewCodec-2"  #'ResNet50-24M-2'
+select = "Flash2DBlocked-9" # "ResNet50-NewCodec-2" #"ResNet50-9M" # "ResNet50-3753K" #"ResNet50-NewCodec-2"  #'ResNet50-24M-2'
 
 config['bayesProject'] = select
 config.update(projects[select])
