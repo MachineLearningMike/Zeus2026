@@ -344,22 +344,39 @@ projects["Flash2DBlocked-8"].update({
 
 projects["Flash2DBlocked-9"] = projects["Flash2DBlocked-8"]
 projects["Flash2DBlocked-8"].update({
-    'useLRLearner' : False,
-    'zeusBlocks':  2,
-    'nLayers' : 2,      # This is a major upgrade, from 4.
+    'useLRLearner' : True,
+    'zeusBlocks':  5,
+    'nLayers' : 5,      # This is a major upgrade, from 4.
 })
 
-projects["ResNet50-3"] = {      # longest. 365K params CNN.
-    'Zeus_Model_module' : 'Zeus_ResNet',
-    'factor10': 2,
-    'lr': 1e-3,
-    'max_lr': 1e-3,
-    'batch_size': 5,
-    'ObsorbHDistortion': False,
+
+projects["Flash2DBlocked-10"] = {
+    # Step cycle is reduced from 20 sec to 18 sec.
+    'Zeus_Model_module' : 'Zeus_Flash2D_TBlocks',
+    'factor10': 10,      # simulates 10
+    'patch_size': 12,   # 12 -> 576 dim,  16 -> 1024 dim
+    'batch_size': 1,
+    'nHeads' : 72,      #
+    # (zeusBlocks, nLayers) = (4, 5) dropped trainig loss earlier tha (5, 4) for a single-point data.
+    'zeusBlocks':  5,
+    'nLayers' : 5,      # This is a major upgrade, from 4.
+    'heads_per_chunk' : None,
+    'tokens_per_chunk' : None,
+    'use_PE' : True,
+    'PE': 'random',    # 'random', 'sinusodial'
+    'dim_to_layerFFN_dim': 4,
+    'learn_PE': True,
+    'add_spatial_conv': True,   # spatial_conv has a major improvement.
+    'useLRLearner' : True,
+    'accum_steps' : 10,
+    'use_autocast' : True, # should be True as flash_attn_func requires bf16.
+    'lr': 1e-6,
+    'max_lr': 1e-6,
+    'dropout': 0.0,
 }
 
 #-------------------------------- select proejct -----------------------
-select = "Flash2DBlocked-9" # "ResNet50-NewCodec-2" #"ResNet50-9M" # "ResNet50-3753K" #"ResNet50-NewCodec-2"  #'ResNet50-24M-2'
+select = "Flash2DBlocked-10" # "ResNet50-NewCodec-2" #"ResNet50-9M" # "ResNet50-3753K" #"ResNet50-NewCodec-2"  #'ResNet50-24M-2'
 
 config['bayesProject'] = select
 config.update(projects[select])
