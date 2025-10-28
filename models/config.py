@@ -92,7 +92,7 @@ config = {
 from pathlib import Path
 import platform
 if platform.system() == "Windows":  
-    config['variables'] = ["2m_temperature", 'total_precipitation', "100m_u_component_of_wind", "100m_v_component_of_wind"]    
+    config['variables'] = variables = ["2m_temperature", 'total_precipitation', "100m_u_component_of_wind", '100m_v_component_of_wind', "2m_dewpoint_temperature", "surface_pressure"]
     root_path = Path("D:/Zeus_Data")
 
     # GPU: RTX 4070, Chunk2D

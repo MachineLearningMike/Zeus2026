@@ -30,6 +30,7 @@ from modules_zeus.sample import Era5Sample
 from modules_zeus.coordinates import get_bbox, slice_bbox
 from modules_zeus.era5_cds import Era5CDSLoader, get_today
 
+from zeus_dataset_codec import encode_variables, save_variables, load_decoded_variables
 
 class Zeus_Dataset(Dataset):
     def __init__(self, pm, root_path):
@@ -104,44 +105,91 @@ class Zeus_Dataset(Dataset):
     def get_last_day_of_month(self, year, month):
         return calendar.monthrange(year, month)[1]
 
-    def lownload_day_data(self, total_ds, year, month, day):
+    def lownload_day_data_old(self, total_ds, year, month, day):
         files_to_remove = []
         file_path_npy = self.get_file_path_npy(year, month, day, 'all')
         file_path_npz = self.get_file_path(year, month, day, 'all')
+        
+        # Convert existing npz files to npy files.
         try:
-            data = np.load(file_path_npy)   # ok
+            data = np.load(file_path_npz)   # ok
+            data = load[load.files[0]]
+            np.save(file_path_npy, data)
             if file_path_npz.exists(): files_to_remove.append(file_path_npz)
         except:
+            if file_path_npz.exists(): files_to_remove.append(file_path_npz)
+
+            data_list = []
+            for variable in self.pm.variables:
+                print("{}/{}/{} {}...".format(year, str(month).zfill(2), str(day).zfill(2), variable))
+
+                try:
+                    file_path_npz = self.get_file_path(year, month, day, variable)
+                    load = np.load(file_path_npz)
+                    array = load[load.files[0]]
+                    files_to_remove.append(file_path_npz)
+                except:
+                    ds = total_ds[[variable]]
+                    dayStr = str(year) + '-' + str(month).zfill(2) + '-' + str(day).zfill(2)
+                    ds = ds.sel(time=slice(dayStr, dayStr))               # day data
+                    array = ds[variable].values     # Actual downloading happens.
+                    array = np.clip(array, -65504, 65504).astype(np.float16)
+                    has_nan = np.isnan(array).any()
+                    assert not has_nan                        
+                data_list.append(array)
+
+            data = np.stack(data_list, axis=1)      # (24, C, 721, 1440)
+            assert data.shape[1] == len(self.pm.variables)
+
+            file_path_npy.parent.mkdir(parents=True, exist_ok=True)
+            np.save(file_path_npy, data)
+
+        return files_to_remove
+    
+    
+    def download_day_data(self, total_ds, year, month, day):
+        files_to_remove = []
+        file_path_npy = self.get_file_path_npy(year, month, day, 'all')
+        file_path_npz = self.get_file_path(year, month, day, 'all')
+
+        try:
+            data = None
+            data = np.load(file_path_npy) # npY
+            # We have no way but trust the data integrity, as there is no vairable name in data.
+            
+            if file_path_npy.exists(): files_to_remove.append(file_path_npy)
+        except:
             try:
-                load = np.load(file_path_npz)
-                data = load[load.files[0]]
-                np.save(file_path_npy, data)
-                files_to_remove.append(file_path_npz)
+                load = load_decoded_variables(file_path_npz)    # npZ
+                idx = 0; values = []
+                for key, value in load.items():
+                    assert key == self.pm.variables[idx]; idx += 1
+                    values.append(value)
+                data = np.stack(values, axis=1)  # expected: (24, C, 721, 1440), read 
+            except: pass    # data == None
+            
+        var_dict = {}
+        for idx, variable in enumerate(self.pm.variables):
+            print("{}/{}/{} {}...".format(year, str(month).zfill(2), str(day).zfill(2), variable))
+
+            try:
+                array = data[:, idx, :, :]
+                assert array.shape == (24, 721, 1440)
             except:
-                if file_path_npz.exists(): files_to_remove.append(file_path_npz)
+                ds = total_ds[[variable]]
+                dayStr = str(year) + '-' + str(month).zfill(2) + '-' + str(day).zfill(2)
+                ds = ds.sel(time=slice(dayStr, dayStr))               # day data
+                array = ds[variable].values     # Actual downloading happens.
+                array = np.clip(array, -65504, 65504).astype(np.float16)
+                array.shape == (24, 721, 1440)
+                has_nan = np.isnan(array).any()
+                assert not has_nan
 
-                data_list = []
-                for variable in self.pm.variables:
-                    print("{}/{}/{} {}...".format(year, str(month).zfill(2), str(day).zfill(2), variable))
+            var_dict.update({variable: array})
 
-                    try:
-                        file_path_npz = self.get_file_path(year, month, day, variable)
-                        load = np.load(file_path_npz)
-                        array = load[load.files[0]]
-                        files_to_remove.append(file_path_npz)
-                    except:
-                        ds = total_ds[[variable]]
-                        dayStr = str(year) + '-' + str(month).zfill(2) + '-' + str(day).zfill(2)
-                        ds = ds.sel(time=slice(dayStr, dayStr))               # day data
-                        array = ds[variable].values     # Actual downloading happens.
-                        array = array.astype(np.float16)    # (24, 721, 1440)           #-------- float16
-                    data_list.append(array)
-
-                data = np.stack(data_list, axis=1)      # (24, C, 721, 1440)
-                assert data.shape[1] == len(self.pm.variables)
-
-                file_path_npy.parent.mkdir(parents=True, exist_ok=True)
-                np.save(file_path_npy, data)
+        encoded, meta = encode_variables(var_dict)
+        file_path_npz.parent.mkdir(parents=True, exist_ok=True)
+        save_variables(file_path_npz, encoded, meta)        # npz only. npy doesn't support meta data and takes more space. Speed is no problem for us.
 
         return files_to_remove
 
@@ -159,7 +207,7 @@ class Zeus_Dataset(Dataset):
                 for day in range(self.get_last_day_of_month(year, month), 0, -1):
                     if date(year, month, day) > end_date: continue
                     print(year, month, day)
-                    files_to_remove = self.lownload_day_data(total_ds, year, month, day)
+                    files_to_remove = self.download_day_data(total_ds, year, month, day)
                     for f in files_to_remove: os.remove(f)
         return
     
@@ -229,7 +277,7 @@ class Zeus_Dataset(Dataset):
     
 
     def analyze_dataset(self):
-        mean = np.zeros((len(self.pm.variables),), dtype=np.float32)
+        mean = np.zeros((len(self.pm.variables),), dtype=np.float32) # (C,)
         n = 0
         for year_dir in sorted(self.cds_folder.iterdir()):
             if not year_dir.is_dir():
@@ -243,15 +291,14 @@ class Zeus_Dataset(Dataset):
                                         
                     file_path = day_dir / 'all.npy'
                     arr = np.load(str(file_path))   # (24, C, 721, 1440)
-                    arr = arr[:, :, :720, :]        # (24, C, 720, 1440)    # Exclude the north pole at this time.
-                    # _mean = np.mean(arr, axis=(0, 2, 3))    # (C,)
-                    _mean = torch.tensor(arr, dtype=torch.float32).cuda().mean(dim=(0,2,3)).cpu().numpy()
+                    arr = arr[:, :, :, :]        # (24, C, 721, 1440)    # Do not exclude the north pole
+                    _mean = torch.tensor(arr, dtype=torch.float32).cuda().mean(dim=(0,2,3)).cpu().numpy()   # (C,)
                     has_nan = np.any(np.isnan(_mean))
                     if has_nan:
                         raise Exception("NAN found: ", str(day_dir))
                     print("mean", str(day_dir), _mean)
                     n += 1
-                    mean = mean * (n-1)/n + _mean / n   # (C,)
+                    mean = mean * (n-1)/n + _mean / n   # (C,) # mean of mean = total mean 
             #         break
             #     break
             # break
@@ -259,12 +306,9 @@ class Zeus_Dataset(Dataset):
 
         #-------------------------------- std -------------------
         C = len(self.pm.variables)
-        # mean = np.zeros((C,), dtype=np.float64)
-        # M2   = np.zeros((C,), dtype=np.float64)
-        # n = 0
 
         self_mean = torch.tensor(self.mean).cuda()
-        var = np.zeros((len(self.pm.variables),), dtype=np.float32)
+        var = np.zeros((len(self.pm.variables),), dtype=np.float32) # (C,)
         n = 0
 
         for year_dir in sorted(self.cds_folder.iterdir()):
@@ -278,36 +322,18 @@ class Zeus_Dataset(Dataset):
                         continue
 
                     file_path = day_dir / 'all.npy'
-
-                    # arr = np.load(file_path)[:, :, :720, :]   # (24, C, 720, 1440)
-                    # x = arr.transpose(0, 2, 3, 1).reshape(-1, C)  # flatten all samples
-                    # for batch in np.array_split(x, 10):  # optional: process in chunks
-                    #     n_batch = batch.shape[0]
-                    #     batch_mean = batch.mean(axis=0)
-                    #     batch_var  = ((batch - batch_mean)**2).sum(axis=0)
-                    #     # Update running stats (Welford)
-                    #     delta = batch_mean - mean
-                    #     total_n = n + n_batch
-                    #     mean += delta * n_batch / total_n
-                    #     M2   += batch_var + delta**2 * n * n_batch / total_n
-                    #     n = total_n
-                    # print("var", str(day_dir), M2)
-
                     arr = np.load(str(file_path))   # (24, C, 721, 1440)
-                    arr = arr[:, :, :720, :]        # (24, C, 720, 1440)    # Exclude the north pole, at this time.
-
-                    arr = arr.transpose(0, 2, 3, 1) # (24, 720, 1440, C)
-                    # _var = np.mean(np.power(arr - self.mean, 2), axis=(0,1,2))    # (C,)
-                    
-                    ten = torch.tensor(arr, dtype=torch.float32).cuda()
-                    _var = torch.mean(torch.pow(ten - self_mean, 2), dim=(0,1,2)).cpu().numpy()
+                    arr = arr[:, :, :, :]        # (24, C, 721, 1440)    # Do not exclude the north pole, at this time.
+                    arr = arr.transpose(0, 2, 3, 1) # (24, 721, 1440, C)                    
+                    ten = torch.tensor(arr, dtype=torch.float32).cuda() # (24, 721, 1440, C)
+                    _var = torch.mean(torch.pow(ten - self_mean, 2), dim=(0,1,2)).cpu().numpy() # (C,)
 
                     has_nan = np.any(np.isnan(_var))
                     if has_nan:
                         raise Exception("NAN found: ", str(day_dir))
                     print("var", str(day_dir), _var)
                     n += 1
-                    var = var * (n-1)/n + _var / n   # (C,)
+                    var = var * (n-1)/n + _var / n   # (C,) # mean of mean = total mean 
 
             #         break
             #     break
@@ -667,7 +693,7 @@ class Zeus_Dataset(Dataset):
             day_data = None
         return day_data
     
-    def load_day_all_data(self, day):
+    def load_day_all_data_outdated(self, day):
         all_path = self.get_file_path(day.year, day.month, day.day, 'all')
         if all_path.exists():
             try:
@@ -681,29 +707,34 @@ class Zeus_Dataset(Dataset):
         else:
             return None
         
-    def load_day_all_data_npy(self, day):
+    def load_day_all_data(self, day):
         all_path = self.get_file_path_npy(day.year, day.month, day.day, 'all')
         try:
-            load = np.load(all_path)
-            data = torch.tensor(load, dtype=self.pm.dtype)[:, :, :720, :]    # (24, C, H, W)
+            load = load_decoded_variables(all_path)
+            idx = 0; values = []
+            for key, value in load.items():
+                assert key == self.pm.variables[idx]; idx += 1
+                values.append(value)
+            data = np.stack(values, axis=1)  # expected: (24, C, 721, 1440), read 
+            assert data.shape == (24, len(self.pm.variables), 721, 1440)            
             return data
         except:
-            raise Exception("No data found for {}".format(day))
+            raise Exception("load_day_all_data error for {}".format(day))
         
-    def load_hours_all_data_npy(self, day, start_hour, hours):
+    def load_hours_all_data(self, day, start_hour, hours):
         try:
             assert isinstance(start_hour, int)
             assert isinstance(hours, int)
             assert 0 <= start_hour and start_hour < 24 and 0 < hours and hours <= 48
 
-            day_data = self.load_day_all_data_npy(day)
+            day_data = self.load_day_all_data(day)
             data = day_data[start_hour : start_hour + hours]
             if start_hour + hours <= 24:
                 # print(day, start_hour)
                 return data
             else:
                 day2 = day + timedelta(days=1)
-                day_data = self.load_day_all_data_npy(day2)
+                day_data = self.load_day_all_data(day2)
                 data2 = day_data[: start_hour + hours - 24]
                 data = np.concatenate([data, data2], axis=0)
                 # print(day, start_hour, day2, start_hour + hours - 24)
@@ -743,7 +774,7 @@ class Zeus_Dataset(Dataset):
                 data = np.load(file_path_npy)
                 np.save(file_path_npy, data[:, :720, :])
             except:
-                data = self.load_day_all_data(day)
+                data = self.load_day_all_data_outdated(day)
             if data is not None:
                 folder_path = file_path_npy.parent
                 self.remove_all(folder_path)
@@ -825,7 +856,7 @@ class Zeus_Dataset(Dataset):
             # hours = self.pm.T1 * self.pm.FG
             nHours = self.pm.nFrames
             mHours = self.pm.mFrames
-            data = self.load_hours_all_data_npy(day, start_hour, nHours + mHours)                    # (2 * T1FG, C, H, W)
+            data = self.load_hours_all_data(day, start_hour, nHours + mHours)                    # (2 * T1FG, C, H, W)
             batch_x.append(torch.tensor(data[:nHours]))
             batch_y.append(torch.tensor(data[nHours:]))
 
@@ -954,8 +985,8 @@ if __name__ == "__main__":
 
     dataset = Zeus_Dataset(pm, root_path)
 
-    end_date = date(2025, 10, 17)
-    dataset.download_dataset(2015, end_date)   # downloads day data in reverse order.
+    end_date = date(2025, 10, 21)
+    dataset.download_dataset(2010, end_date)   # downloads day data in reverse order.
 
     total_days, start_day, end_day, complete, data_dates = dataset.count_data_days()
     print(start_day, end_day)
