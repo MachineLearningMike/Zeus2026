@@ -151,7 +151,9 @@ class Zeus_Dataset(Dataset):
         files_to_remove = []
         file_path_npy = self.get_file_path_npy(year, month, day, 'all')
         file_path_npz = self.get_file_path(year, month, day, 'all')
-
+        
+        exists = False
+        
         try:
             data = None
             data = np.load(file_path_npy) # npY
@@ -166,30 +168,32 @@ class Zeus_Dataset(Dataset):
                     assert key == self.pm.variables[idx]; idx += 1
                     values.append(value)
                 data = np.stack(values, axis=1)  # expected: (24, C, 721, 1440), read 
+                if data.shape == (24, len(self.pm.variables), 721, 1440): exists = True
             except: pass    # data == None
-            
-        var_dict = {}
-        for idx, variable in enumerate(self.pm.variables):
-            print("{}/{}/{} {}...".format(year, str(month).zfill(2), str(day).zfill(2), variable))
+        
+        if not exists:
+        
+            var_dict = {}
+            for idx, variable in enumerate(self.pm.variables):
+                print("{}/{}/{} {}...".format(year, str(month).zfill(2), str(day).zfill(2), variable))
 
-            try:
-                array = data[:, idx, :, :]
-                assert array.shape == (24, 721, 1440)
-            except:
-                ds = total_ds[[variable]]
-                dayStr = str(year) + '-' + str(month).zfill(2) + '-' + str(day).zfill(2)
-                ds = ds.sel(time=slice(dayStr, dayStr))               # day data
-                array = ds[variable].values     # Actual downloading happens.
-                array = np.clip(array, -65504, 65504).astype(np.float16)
-                array.shape == (24, 721, 1440)
-                has_nan = np.isnan(array).any()
-                assert not has_nan
+                try:
+                    array = data[:, idx, :, :]
+                    assert array.shape == (24, 721, 1440)
+                except:
+                    ds = total_ds[[variable]]
+                    dayStr = str(year) + '-' + str(month).zfill(2) + '-' + str(day).zfill(2)
+                    ds = ds.sel(time=slice(dayStr, dayStr))               # day data
+                    array = ds[variable].values     # Actual downloading happens.
+                    assert array.shape == (24, 721, 1440)
+                    has_nan = np.isnan(array).any()
+                    assert not has_nan
 
-            var_dict.update({variable: array})
+                var_dict.update({variable: array})
 
-        encoded, meta = encode_variables(var_dict)
-        file_path_npz.parent.mkdir(parents=True, exist_ok=True)
-        save_variables(file_path_npz, encoded, meta)        # npz only. npy doesn't support meta data and takes more space. Speed is no problem for us.
+            encoded, meta = encode_variables(var_dict)
+            file_path_npz.parent.mkdir(parents=True, exist_ok=True)
+            save_variables(file_path_npz, encoded, meta)        # npz only. npy doesn't support meta data and takes more space. Speed is no problem for us.
 
         return files_to_remove
 
@@ -985,7 +989,7 @@ if __name__ == "__main__":
 
     dataset = Zeus_Dataset(pm, root_path)
 
-    end_date = date(2025, 10, 21)
+    end_date = date(2025, 10, 22)
     dataset.download_dataset(2010, end_date)   # downloads day data in reverse order.
 
     total_days, start_day, end_day, complete, data_dates = dataset.count_data_days()
