@@ -253,7 +253,7 @@ class Zeus_Dataset(Dataset):
                     if not day_dir.is_dir():
                         continue
 
-                    files = {f.stem for f in day_dir.glob("*.npy")}
+                    files = {f.stem for f in day_dir.glob("*.npz")}
                     missing_vars = [var for var in ['all'] if var not in files]
                     if len(missing_vars) > 0:
                         print('missing...', day_dir)
@@ -281,8 +281,10 @@ class Zeus_Dataset(Dataset):
     
 
     def analyze_dataset(self):
-        mean = np.zeros((len(self.pm.variables),), dtype=np.float32) # (C,)
+        cuda_available = torch.cuda.is_available()
+        
         n = 0
+        mean = np.zeros((len(self.pm.variables),), dtype=np.float32) # (C,)
         for year_dir in sorted(self.cds_folder.iterdir()):
             if not year_dir.is_dir():
                 continue
@@ -293,25 +295,43 @@ class Zeus_Dataset(Dataset):
                     if not day_dir.is_dir():
                         continue
                                         
-                    file_path = day_dir / 'all.npy'
-                    arr = np.load(str(file_path))   # (24, C, 721, 1440)
+                    file_path = day_dir / 'all.npz'
+                    
+                    values = []
+                    load = load_decoded_variables(file_path)    # npZ
+                    idx = 0; values = []
+                    for key, value in load.items():
+                        assert key == self.pm.variables[idx]; idx += 1
+                        values.append(value)
+                    arr = np.stack(values, axis=1)  # expected: (24, C, 721, 1440), read 
                     arr = arr[:, :, :, :]        # (24, C, 721, 1440)    # Do not exclude the north pole
-                    _mean = torch.tensor(arr, dtype=torch.float32).cuda().mean(dim=(0,2,3)).cpu().numpy()   # (C,)
+
+                    if cuda_available:
+                        _mean = torch.tensor(arr, dtype=torch.float32).cuda().mean(dim=(0,2,3)).cpu().numpy()   # (C,)
+                    else:
+                        _mean = np.mean(arr, axis=(0, 2, 3))   # (C,)
+
                     has_nan = np.any(np.isnan(_mean))
                     if has_nan:
-                        raise Exception("NAN found: ", str(day_dir))
-                    print("mean", str(day_dir), _mean)
+                        raise Exception("mean nan found: ", str(day_dir))
+                    formatter = {'float_kind': lambda x: f"{x:.4g}"}
+                    print("mean", str(day_dir), np.array2string(_mean, formatter=formatter))
                     n += 1
                     mean = mean * (n-1)/n + _mean / n   # (C,) # mean of mean = total mean 
             #         break
             #     break
             # break
+        
         self.mean = mean        # (C,)
 
         #-------------------------------- std -------------------
         C = len(self.pm.variables)
 
-        self_mean = torch.tensor(self.mean).cuda()
+        if cuda_available: 
+            self_mean = torch.tensor(self.mean).cuda()
+        else:
+            self_mean = self.mean
+        
         var = np.zeros((len(self.pm.variables),), dtype=np.float32) # (C,)
         n = 0
 
@@ -324,21 +344,33 @@ class Zeus_Dataset(Dataset):
                 for day_dir in sorted(month_dir.iterdir()):
                     if not day_dir.is_dir():
                         continue
+                    
+                    file_path = day_dir / 'all.npz'
 
-                    file_path = day_dir / 'all.npy'
-                    arr = np.load(str(file_path))   # (24, C, 721, 1440)
-                    arr = arr[:, :, :, :]        # (24, C, 721, 1440)    # Do not exclude the north pole, at this time.
+                    values = []
+                    load = load_decoded_variables(file_path)    # npZ
+                    idx = 0; values = []
+                    for key, value in load.items():
+                        assert key == self.pm.variables[idx]; idx += 1
+                        values.append(value)
+                    arr = np.stack(values, axis=1)  # expected: (24, C, 721, 1440), read 
+                    arr = arr[:, :, :, :]        # (24, C, 721, 1440)    # Do not exclude the north pole
+
                     arr = arr.transpose(0, 2, 3, 1) # (24, 721, 1440, C)                    
-                    ten = torch.tensor(arr, dtype=torch.float32).cuda() # (24, 721, 1440, C)
-                    _var = torch.mean(torch.pow(ten - self_mean, 2), dim=(0,1,2)).cpu().numpy() # (C,)
+
+                    if cuda_available:
+                        tensor_arr = torch.tensor(arr, dtype=torch.float32).cuda() # (24, 721, 1440, C)
+                        _var = torch.mean(torch.pow(tensor_arr - self_mean, 2), dim=(0,1,2)).cpu().numpy() # (C,)                    
+                    else:
+                        _var = np.mean(np.power(arr - self_mean, 2), axis=(0,1,2)) # (C,)
 
                     has_nan = np.any(np.isnan(_var))
                     if has_nan:
-                        raise Exception("NAN found: ", str(day_dir))
-                    print("var", str(day_dir), _var)
+                        raise Exception("Std nan found: ", str(day_dir))
+                    formatter = {'float_kind': lambda x: f"{x:.4g}"}
+                    print("var", str(day_dir), np.array2string(_var, formatter=formatter))
                     n += 1
                     var = var * (n-1)/n + _var / n   # (C,) # mean of mean = total mean 
-
             #         break
             #     break
             # break
@@ -989,8 +1021,8 @@ if __name__ == "__main__":
 
     dataset = Zeus_Dataset(pm, root_path)
 
-    end_date = date(2025, 10, 22)
-    dataset.download_dataset(2010, end_date)   # downloads day data in reverse order.
+    # end_date = date(2013, 1, 1)
+    # dataset.download_dataset(2013, end_date)   # downloads day data in reverse order.
 
     total_days, start_day, end_day, complete, data_dates = dataset.count_data_days()
     print(start_day, end_day)
@@ -999,8 +1031,8 @@ if __name__ == "__main__":
     # for _ in range(100):
     #     print(dataset.get_T2_new())
 
-    # mean, std = dataset.analyze_dataset()
-    # print(mean, std)
+    mean, std = dataset.analyze_dataset()
+    print(mean, std)
 
     # mean, std = dataset.load_dataset_params()
     # print("mean: {}, std: {}".format(mean, std))

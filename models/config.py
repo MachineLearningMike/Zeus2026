@@ -44,8 +44,8 @@ config = {
 
     # video length in and out
     # data split
-    'train_pct': 75,
-    'vali_pct': 25,
+    'train_pct': 80,
+    'vali_pct': 20,
 
     # training
     'seed' : 523,
@@ -112,7 +112,7 @@ if platform.system() == "Windows":
     
 else:
     config['variables'] = variables = ["2m_temperature", 'total_precipitation', "100m_u_component_of_wind", '100m_v_component_of_wind', "2m_dewpoint_temperature", "surface_pressure"]
-    root_path = Path("/mnt/Data/Zeus_Data")
+    root_path = Path("/mnt/data/zeus_data")
     
     # GPU: 
     config['factor10'] = 10  # 2 is the minimum, as 1 causes a non-float parameter error.
