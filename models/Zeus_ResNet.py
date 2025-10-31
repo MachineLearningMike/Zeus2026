@@ -17,7 +17,9 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 # from modules.ResNet50_Zeus_GroupNorm_24M import ResNetCylindrical
 # from modules.ResNet50_Zeus_noStage_GroupNorm_xM import ResNetCylindrical
 # from modules.ResNet50_Zeus_noStage_GroupNorm_365K import ResNetCylindrical
-from modules.ResNet50_Zeus_GroupNorm import ResNetCylindrical
+# from modules.ResNet50_Zeus_GroupNorm import ResNetCylindrical
+from modules.ResNet_CircularBottleneckStack import CircularBottleneckStack
+
 # -----------------------------
 # ZeusCNN model
 # -----------------------------
@@ -42,7 +44,8 @@ class Zeus(nn.Module):
         print("ZeusResNet being created...")
         # self.cnn = ResNetCylindrical(nVariables=C, nBlocks=36, mid_channels=in_channels, in_channels=in_channels).to(device)    # 3753K params, from ResNet50_Zeus_GroupNorm_3753K
         # self.cnn = ResNetCylindrical(in_channels=pm.T1*C).to(device)  # 365K params, from ResNet50_Zeus_GroupNorm_365K
-        self.cnn = ResNetCylindrical(self.pm).to(device)
+        # self.cnn = ResNetCylindrical(self.pm).to(device)
+        self.cnn = CircularBottleneckStack(channels=pm.T1 * pm.nVariables, num_blocks=pm.nCCNNBlocks, bottlenectRate=pm.bottleneckRate).to(device)
 
         num_params = sum(p.numel() for p in self.cnn.parameters())
         print(f"Total parameters: {num_params:,}")

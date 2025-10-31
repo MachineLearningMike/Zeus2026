@@ -28,9 +28,11 @@ config = {
     # CNN
     'add_spatial_conv': True,
     'blocksPerState': [3, 4, 6],
-    'ObsorbHDistortion' : True,
+    'ObsorbHDistortion' : False,
     'Zeus_Model_module' : 'Zeus_ResNet',
     'EncLayer' : 'Flash2DEncLayer_shallow', # 'Flash2DEncLayer_deep'
+    'nCNNBlocks' : 20,
+    'bottleneckRate' : 0.3,
     
     'dropout': 0.0,
     'dropPath': 0.0,
@@ -375,8 +377,19 @@ projects["Flash2DBlocked-10"] = {
     'dropout': 0.0,
 }
 
+projects["ResNet_NoStage_B20_BR30"] = {
+    'Zeus_Model_module' : 'Zeus_ResNet',
+    'factor10': 10,
+    'lr': 1e-5,
+    'max_lr': 1e-5,
+    'batch_size': 1,
+    'ObsorbHDistortion': False,
+    'nCNNBlocks' : 20,
+    'bottleneckRate' : 0.30,
+}
+
 #-------------------------------- select proejct -----------------------
-select = "Flash2DBlocked-10" # "ResNet50-NewCodec-2" #"ResNet50-9M" # "ResNet50-3753K" #"ResNet50-NewCodec-2"  #'ResNet50-24M-2'
+select = "ResNet_NoStage_B20_BR30" # "ResNet50-NewCodec-2" #"ResNet50-9M" # "ResNet50-3753K" #"ResNet50-NewCodec-2"  #'ResNet50-24M-2'
 
 config['bayesProject'] = select
 config.update(projects[select])

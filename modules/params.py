@@ -62,6 +62,8 @@ class Params:
         self.learn_PE = config['learn_PE']
         self.ObsorbHDistortion = config['ObsorbHDistortion']
 
+        self.nCNNBlocks = config['nCNNBlocks']
+        self.bottleneckRate = config['bottleneckRate']        
         
         self.crossLayers = config['crossLayers']
         self.layerFFN = config['layerFFN']

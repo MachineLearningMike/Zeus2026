@@ -54,7 +54,7 @@ class BottleneckSame(nn.Module):
 
 # ---------- FCResNet with head ----------
 class ResNetCylindrical(nn.Module):
-    def __init__(self, nVariables=4, nBlocks=18, in_channels=None, mid_channels=32):
+    def __init__(self, nVariables=6, nBlocks=18, in_channels=None, mid_channels=32):
         super().__init__()
         if in_channels is None:
             in_channels = 24 * nVariables
@@ -83,8 +83,8 @@ class ResNetCylindrical(nn.Module):
 # ---------- Demo ----------
 if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    nVariables = 4
-    in_channels = 24 * nVariables  # 96
+    nVariables = 6
+    in_channels = 24 * nVariables   # 144
 
     model = ResNetCylindrical(nVariables=nVariables, nBlocks=18,
                                 mid_channels=32, in_channels=in_channels).to(device)

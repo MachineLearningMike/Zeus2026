@@ -30,7 +30,7 @@ from modules_zeus.sample import Era5Sample
 from modules_zeus.coordinates import get_bbox, slice_bbox
 from modules_zeus.era5_cds import Era5CDSLoader, get_today
 
-from zeus_dataset_codec import encode_variables, save_variables, load_decoded_variables
+from modules.zeus_dataset_codec import encode_variables, save_variables, load_decoded_variables
 
 class Zeus_Dataset(Dataset):
     def __init__(self, pm, root_path):
@@ -1019,20 +1019,20 @@ if __name__ == "__main__":
     from models.config import config, root_path
     pm = Params(config)
 
-    dataset = Zeus_Dataset(pm, root_path)
+    # dataset = Zeus_Dataset(pm, root_path)
 
-    # end_date = date(2013, 1, 1)
+    # end_date = date(2025, 10, 23)
     # dataset.download_dataset(2013, end_date)   # downloads day data in reverse order.
 
-    total_days, start_day, end_day, complete, data_dates = dataset.count_data_days()
-    print(start_day, end_day)
-    print(total_days, complete)
+    # total_days, start_day, end_day, complete, data_dates = dataset.count_data_days()
+    # print(start_day, end_day)
+    # print(total_days, complete)
 
     # for _ in range(100):
     #     print(dataset.get_T2_new())
 
-    mean, std = dataset.analyze_dataset()
-    print(mean, std)
+    # mean, std = dataset.analyze_dataset()
+    # print(mean, std)
 
     # mean, std = dataset.load_dataset_params()
     # print("mean: {}, std: {}".format(mean, std))
