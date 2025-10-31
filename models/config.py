@@ -65,6 +65,7 @@ config = {
 
     'optimizer': 'adam',    # 'adamw' takes more momory for optimizer.
     'lr' : 1e-5,    # ---> changed below
+    'overwrite_saved_lr': False,
     
     # Scheduler
     # (initial_lr = max_lr / div_factor, for pct_start of the total_steps) -> max_lr -> (Final LR = initial_lr/final_div_factor, for the remaining steps)
@@ -391,10 +392,11 @@ projects["ResNet_NoStage_B20_BR30"] = {
     'factor10': 10,
     'lr': 1e-5,
     'max_lr': 1e-5,
+    'overwrite_saved_lr': True,
     'batch_size': 1,
-    'useLRLearner' : True,
+    'useLRLearner' : False,
     'ObsorbHDistortion': False,
-    'nCNNBlocks' : 30,
+    'nCNNBlocks' : 20,
     'bottleneckRate' : 0.30,
 }
 

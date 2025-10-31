@@ -3,6 +3,8 @@ import torch
 import torch.nn.functional as F
 import xarray as xr
 import threading
+import shutil
+from concurrent.futures import ThreadPoolExecutor
 import calendar
 import json
 import gc
@@ -39,6 +41,7 @@ class Zeus_Dataset(Dataset):
         self.root_path = root_path
 
         self.cds_folder = root_path / "CDS"
+
         self.cds_folder.mkdir(parents=True, exist_ok=True)
         
         self.param_path = root_path / 'dataset_params.json'
@@ -78,6 +81,9 @@ class Zeus_Dataset(Dataset):
 
         self._worker_thread = threading.Thread(target=self._prefetch_loop, daemon=True)
         self._worker_thread.start()
+        
+        self._disk_threadPool = ThreadPoolExecutor(max_workers=2)
+        
         return
 
     def get_normalized_dataset(self):
@@ -868,6 +874,11 @@ class Zeus_Dataset(Dataset):
         
         return output  # (B, frames, C, H1, W1)
 
+    def load_and_normalize(self, day):
+        d = torch.tensor(self.load_day_all_data(day))
+        d = self.normalize(d)
+        return d
+
     def take_batch(self):
         
         # batch_x = torch.randn(self.pm.batch_size, self.pm.T1, self.pm.nVariables, 72 * self.pm.factor10, 144 * self.pm.factor10)
@@ -888,20 +899,31 @@ class Zeus_Dataset(Dataset):
         for b in range(len(taken)):
             day, start_hour = taken[b]
             months.append(day.month)
-
             # hours = self.pm.T1 * self.pm.FG
             nHours = self.pm.nFrames
             mHours = self.pm.mFrames
-            data = self.load_hours_all_data(day, start_hour, nHours + mHours)                    # (2 * T1FG, C, H, W)
-            batch_x.append(torch.tensor(data[:nHours]))
-            batch_y.append(torch.tensor(data[nHours:]))
+            
+            if nHours != 24 or mHours != 24:
+                data = self.load_hours_all_data(day, start_hour, nHours + mHours)                    # (2 * T1FG, C, H, W)
+                
+                d = torch.tensor(data[:nHours])
+                d = self.normalize(d)
+                batch_x.append(d)
 
+                d = torch.tensor(data[nHours:])
+                d = self.normalize(d)
+                batch_y.append(d)
+                                
+            else:
+                future_x = self._disk_threadPool.submit(self.load_and_normalize, day)
+                future_y = self._disk_threadPool.submit(self.load_and_normalize, day + timedelta(days=1))                
+                x = future_x.result()
+                y = future_y.result()                
+                batch_x.append(x)
+                batch_y.append(y)                
+                
         batch_x = torch.stack(batch_x, dim=0)     # (B, T1FG, C, 721, 1440)
         batch_y = torch.stack(batch_y, dim=0)     # (B, T2FG, C, 721, 1440)
-
-        # from params.py        
-        # self.height = int(config['org_height'] * config['factor10'] / 10)       # int not round , config['org_height'] = 721 (transformer) or 720 (CNN)
-        # self.width = int(config['org_width'] * config['factor10'] / 10)         # int not round , config['org_width'] = 1440
 
         # Required.
         batch_x = batch_x[:, :, :, :self.pm.height, :]  # 721 -> 720 for transformer and factor10 == 10
@@ -911,10 +933,7 @@ class Zeus_Dataset(Dataset):
         if self.pm.height != H or self.pm.width != W:
             batch_x = self.resize_cylindrical(batch_x, (self.pm.height, self.pm.width))
             batch_y = self.resize_cylindrical(batch_y, (self.pm.height, self.pm.width))
-            
-        batch_x = self.normalize(batch_x)
-        batch_y = self.normalize(batch_y)
-            
+                    
         # self.visualize_frames(batch_x[0])
 
         if self.pm.include_difficulty:
@@ -931,8 +950,8 @@ class Zeus_Dataset(Dataset):
                 batch_diff.append(variable_diff)
             batch_diff = torch.stack(batch_diff, dim=0)                     # (B, C, 720, 1440)
 
-            if H1 != H or W1 != W:
-                batch_diff = self.resize_cylindrical(batch_diff, (H1, W1))
+            if self.pm.height != H or self.pm.width != W:
+                batch_diff = self.resize_cylindrical(batch_diff, (self.pm.height, self.pm.width))
             
         else:
             batch_diff = None
@@ -1015,11 +1034,70 @@ class Zeus_Dataset(Dataset):
         self._stop_event.set()
         self._request_event.set()
         self._worker_thread.join()
+        
+        self._disk_threadPool.shutdown(wait=True)
         # print(' ...shutdown')
 
+def divide_cds_by_day(src_root, drive_even, drive_odd, origin_date=datetime(1970,1,1)):
+    """
+    Divide CDS content between two drives by day number from origin_date.
+    Supports multiple year folders.
+    
+    Parameters:
+    - src_root: path to 'CDS' folder
+    - drive_even: path to drive for even days
+    - drive_odd: path to drive for odd days
+    - origin_date: datetime object for day 0 (default 1970-01-01)
+    """
+    
+    for year_folder in sorted(os.listdir(src_root)):
+        year_path = os.path.join(src_root, year_folder)
+        if not os.path.isdir(year_path) or not year_folder.isdigit():
+            continue
+        year = int(year_folder)
+        
+        for month_folder in sorted(os.listdir(year_path)):
+            month_path = os.path.join(year_path, month_folder)
+            if not os.path.isdir(month_path) or not month_folder.isdigit():
+                continue
+            month = int(month_folder)
+            
+            for day_folder in sorted(os.listdir(month_path)):
+                day_path = os.path.join(month_path, day_folder)
+                if not os.path.isdir(day_path) or not day_folder.isdigit():
+                    continue
+                day = int(day_folder)
+                
+                # Compute the day number from origin_date
+                current_date = datetime(year, month, day)
+                day_number = (current_date - origin_date).days
+                
+                # Decide target drive
+                target_drive = drive_even if day_number % 2 == 0 else drive_odd
+                
+                # Create corresponding folder structure in target
+                target_path = os.path.join(target_drive, year_folder, month_folder, day_folder)
+                os.makedirs(target_path, exist_ok=True)
+                
+                # Copy all files from day folder
+                for filename in os.listdir(day_path):
+                    src_file = os.path.join(day_path, filename)
+                    dst_file = os.path.join(target_path, filename)
+                    if os.path.isfile(src_file):
+                        shutil.copy2(src_file, dst_file)
+                
+                print(f"Copied {day_path} → {target_path} (day_number={day_number})")
 
 #-------------------------------------- test ----------------------------------------
 if __name__ == "__main__":
+
+    src_root = "/mnt/data/zeus_data/CDS"           # source CDS folder
+    drive_even = "/mnt/data_even/CDS"  # target drive for even days
+    drive_odd = "/mnt/data_odd/CDS"   # target drive for odd days
+
+    divide_cds_by_day(src_root, drive_even, drive_odd)
+
+
 
     from models.config import config, root_path
     pm = Params(config)

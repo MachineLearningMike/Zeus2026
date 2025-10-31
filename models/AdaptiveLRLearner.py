@@ -9,7 +9,7 @@ class AdaptiveLRLearner:
     def __init__(self,
                  optimizer,
                  accum_steps=4,
-                 init_lr=1e-4,
+                 init_lr=1e-5,
                  grad_target=0.1,   # 0.1
                  grad_tolerance=2.0,
                  ema_decay=0.9,

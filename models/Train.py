@@ -110,7 +110,7 @@ class Train():
             self.learning_rate = None
             
         if self.trainable:
-            self.lr_controller = AdaptiveLRLearner(self.optimizer, accum_steps=self.pm.accum_steps)
+            self.lr_controller = AdaptiveLRLearner(self.optimizer, accum_steps=self.pm.accum_steps, init_lr=self.get_learning_rate())
             
         self.total_losses = []
 
@@ -381,12 +381,12 @@ class Train():
 
                 else:
                     missing_keys, unexpected_keys = self.model.load_state_dict(state_dict, strict=False)
-                    logging.info("Model loaded with saved state: \nmissing_keys: {}, \nunexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
+                    logging.info("Model loaded with saved state: \n_missing_keys: {}, \n_unexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
 
                 step_state = None
                 if self.trainable:
                     
-                    try:                       
+                    try:                                               
                         if self.optimizer is not None and "optimizer" in checkpoint:
                             self.optimizer.load_state_dict(checkpoint["optimizer"])
 
@@ -421,13 +421,17 @@ class Train():
                             self.transient_step = checkpoint['transient_step']
                             logging.info("transient_step loaded: {}".format(self.transient_step))
                             
-                        if checkpoint.get('learning_rate', None) is not None:
-                            self.learning_rate = checkpoint['learning_rate']
+                        if self.pm.overwrite_saved_lr:
+                            self.learning_rate = self.pm.lr
+                        elif checkpoint.get('learning_rate', None) is not None:
+                            self.learning_rate = checkpoint['learning_rate']                            
+                        if self.learning_rate is None:
+                            self.learning_rate = self.get_learning_rate()
+                        else:
+                            self.set_learning_rate(self.learning_rate)
+
                             logging.info("learning_rate: {}".format(self.transient_step))
-                            if self.learning_rate is None:
-                                self.learning_rate = self.get_learning_rate()
-                            else:
-                                self.set_learning_rate(self.learning_rate)
+
 
                     except Exception as e:
                         logging.info(str(e))

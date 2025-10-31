@@ -82,6 +82,7 @@ class Params:
         self.log_step = config['log_step']
         self.optimizer = config['optimizer']
         self.lr = config['lr']
+        self.overwrite_saved_lr = config['overwrite_saved_lr']
         self.max_lr = config['max_lr']
         self.total_steps = config['total_steps']
         self.weight_decay = config['weight_decay']
