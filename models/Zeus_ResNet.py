@@ -45,7 +45,7 @@ class Zeus(nn.Module):
         # self.cnn = ResNetCylindrical(nVariables=C, nBlocks=36, mid_channels=in_channels, in_channels=in_channels).to(device)    # 3753K params, from ResNet50_Zeus_GroupNorm_3753K
         # self.cnn = ResNetCylindrical(in_channels=pm.T1*C).to(device)  # 365K params, from ResNet50_Zeus_GroupNorm_365K
         # self.cnn = ResNetCylindrical(self.pm).to(device)
-        self.cnn = CircularBottleneckStack(channels=pm.T1 * pm.nVariables, num_blocks=pm.nCCNNBlocks, bottlenectRate=pm.bottleneckRate).to(device)
+        self.cnn = CircularBottleneckStack(channels=pm.T1 * pm.nVariables, num_blocks=pm.nCNNBlocks, bottlenectRate=pm.bottleneckRate).to(device)
 
         num_params = sum(p.numel() for p in self.cnn.parameters())
         print(f"Total parameters: {num_params:,}")

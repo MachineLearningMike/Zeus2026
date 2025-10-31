@@ -24,7 +24,8 @@ config = {
     'crossLayers':  6,
     'PE': 'random',    # 'random', 'sinusodial'
     'learn_PE': True,
-
+    'use_PE' : True,
+    
     # CNN
     'add_spatial_conv': True,
     'blocksPerState': [3, 4, 6],
@@ -36,7 +37,7 @@ config = {
     
     'dropout': 0.0,
     'dropPath': 0.0,
-    # 'dim_to_layerFFN_dim': 4,
+    'dim_to_layerFFN_dim': 4,
 
     'nFrames': 24,
     'mFrames' : 24,

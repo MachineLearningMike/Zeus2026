@@ -475,7 +475,7 @@ class Zeus_Dataset(Dataset):
 
                 month_data = []
                 for day in range(1, self.last_day_of_month(year, month) + 1):
-                    file_path = self.get_file_path_npy(year, month, day, 'all')
+                    file_path = self.get_file_path(year, month, day, 'all')
 
                     if not file_path.exists(): 
                         raise Exception("Data file not found. {}/{}/{}, {}".format(year, month, day))
@@ -744,7 +744,7 @@ class Zeus_Dataset(Dataset):
             return None
         
     def load_day_all_data(self, day):
-        all_path = self.get_file_path_npy(day.year, day.month, day.day, 'all')
+        all_path = self.get_file_path(day.year, day.month, day.day, 'all')
         try:
             load = load_decoded_variables(all_path)
             idx = 0; values = []
@@ -805,7 +805,7 @@ class Zeus_Dataset(Dataset):
         day = start_day
         while day <= end_day:
             print('int', day)
-            file_path_npy = self.get_file_path_npy(day.year, day.month, day.day, 'all')
+            file_path_npy = self.get_file_path(day.year, day.month, day.day, 'all')
             try:
                 data = np.load(file_path_npy)
                 np.save(file_path_npy, data[:, :720, :])
