@@ -5,8 +5,8 @@ config = {
     'dtype' : 32,   # 16 is complicated. deffered.
 
     'variables': [],
-    'height': 720,
-    'width': 1440,
+    'org_height': 721,
+    'org_width': 1440,
     'patch_size':   16, #16, # 8        ----------------------  optimization param,  Chunk
 
     'FG': 1, # not 24, for a better granularity control   # frames in a frame group
@@ -193,6 +193,7 @@ projects["ResNet50-6M-2"] = {
 
 projects["Flash2DBlocked-1"] = {         # to check 
     'Zeus_Model_module' : 'Zeus_Flash2D_Blocked',
+    'org_height': 720,
     'factor10': 2,
     'lr': 5e-5,
     'max_lr': 5e-5,
@@ -211,6 +212,7 @@ projects["Flash2DBlocked-1"] = {         # to check
 projects["Flash2DBlocked-2"] = {
     # Step cycle is reduced from 20 sec to 18 sec.
     'Zeus_Model_module' : 'Zeus_Flash2D_Blocked',
+    'org_height': 720,
     'factor10': 2,      # simulates 10
     'patch_size': 12,   # simulates 16
     'batch_size': 1,
@@ -236,6 +238,7 @@ projects["Flash2DBlocked-2"] = {
 projects["Flash2DBlocked-3"] = {
     # Step cycle is reduced from 20 sec to 18 sec.
     'Zeus_Model_module' : 'Zeus_Flash2D_TBlocks',
+    'org_height': 720,
     'factor10': 2,      # simulates 10
     'patch_size': 12,   # 12 -> 576 dim,  16 -> 1024 dim
     'batch_size': 1,
@@ -261,6 +264,7 @@ projects["Flash2DBlocked-3"] = {
 projects["Flash2DBlocked-4"] = {
     # Step cycle is reduced from 20 sec to 18 sec.
     'Zeus_Model_module' : 'Zeus_Flash2D_TBlocks',
+    'org_height': 720,
     'factor10': 2,      # simulates 10
     'patch_size': 12,   # 12 -> 576 dim,  16 -> 1024 dim
     'batch_size': 1,
@@ -286,6 +290,7 @@ projects["Flash2DBlocked-4"] = {
 projects["Flash2DBlocked-5"] = {
     # Step cycle is reduced from 20 sec to 18 sec.
     'Zeus_Model_module' : 'Zeus_Flash2D_TBlocks',
+    'org_height': 720,
     'factor10': 2,      # simulates 10
     'patch_size': 12,   # 12 -> 576 dim,  16 -> 1024 dim
     'batch_size': 1,
@@ -311,6 +316,7 @@ projects["Flash2DBlocked-5"] = {
 projects["Flash2DBlocked-6"] = {
     # Step cycle is reduced from 20 sec to 18 sec.
     'Zeus_Model_module' : 'Zeus_Flash2D_TBlocks',
+    'org_height': 720,
     'factor10': 2,      # simulates 10
     'patch_size': 12,   # 12 -> 576 dim,  16 -> 1024 dim
     'batch_size': 1,
@@ -356,6 +362,7 @@ projects["Flash2DBlocked-8"].update({
 projects["Flash2DBlocked-10"] = {
     # Step cycle is reduced from 20 sec to 18 sec.
     'Zeus_Model_module' : 'Zeus_Flash2D_TBlocks',
+    'org_height': 720,
     'factor10': 10,      # simulates 10
     'patch_size': 12,   # 12 -> 576 dim,  16 -> 1024 dim
     'batch_size': 1,
@@ -380,12 +387,14 @@ projects["Flash2DBlocked-10"] = {
 
 projects["ResNet_NoStage_B20_BR30"] = {
     'Zeus_Model_module' : 'Zeus_ResNet',
+    'org_height': 721,
     'factor10': 10,
     'lr': 1e-5,
     'max_lr': 1e-5,
     'batch_size': 1,
+    'useLRLearner' : True,
     'ObsorbHDistortion': False,
-    'nCNNBlocks' : 20,
+    'nCNNBlocks' : 30,
     'bottleneckRate' : 0.30,
 }
 

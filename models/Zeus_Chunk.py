@@ -179,7 +179,7 @@ class Zeus(nn.Module):
         
         return gradient
 
-    def sigle_GPU_forward_loss_backward(self, data, target, loss_fn, unnormal_fn, batch_diff, era5_data_vars):
+    def single_GPU_forward_loss_backward(self, data, target, loss_fn, unnormal_fn, batch_diff, era5_data_vars):
         with torch.no_grad():
             pred = self(data, train=True, modules_to_cpu=True)
         pred = unnormal_fn(pred)   # torch.float32 !!!, cuda, True !!!

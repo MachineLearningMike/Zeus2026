@@ -33,11 +33,11 @@ from modules.zeus_dataset import Zeus_Dataset
 import modules.utils as utils
 from modules.params import Params
 from modules_zeus.constants import ERA5_DATA_VARS
-from modules_zeus.constants import (
-    REWARD_DIFFICULTY_SCALER,  
-    REWARD_IMPROVEMENT_WEIGHT,
-    REWARD_IMPROVEMENT_MIN_DELTA,
-)
+# from modules_zeus.constants import (
+#     # REWARD_DIFFICULTY_SCALER,  
+#     # REWARD_IMPROVEMENT_WEIGHT,
+#     # REWARD_IMPROVEMENT_MIN_DELTA,
+# )
 
 from modules.read_cursor_keys import read_key, init_key_listener
 init_key_listener()  # optional, read_key() will auto-init too
@@ -66,8 +66,8 @@ class Train():
         # if self.trainable: assert self.nDevices == self.pm.zeusBlocks
         
         #---------- Loss ----------------
-        min_sota_delta = torch.tensor([value for (key, value) in REWARD_IMPROVEMENT_MIN_DELTA.items() if key in self.pm.variables])  # (C,)
-        self.min_sota_delta = rearrange(min_sota_delta, 'c -> c 1 1')
+        # min_sota_delta = torch.tensor([value for (key, value) in REWARD_IMPROVEMENT_MIN_DELTA.items() if key in self.pm.variables])  # (C,)
+        # self.min_sota_delta = rearrange(min_sota_delta, 'c -> c 1 1')
         self.era5_data_vars = self.load_era5_data_vars()
         self.scaler = GradScaler()
 
@@ -612,7 +612,7 @@ class Train():
             batch_x = batch_x.pin_memory()     # torch.float32, cpu
             batch_y = batch_y.pin_memory()     # torch.float32, cpu
 
-            step_loss = []; step_rmses = []
+            step_loss = []; step_metrics = []
             if trainable: self.optimizer.zero_grad() 
             
             self.transient_step += batch_x.shape[0]     # increase by batch size
@@ -627,23 +627,23 @@ class Train():
                     if trainable:
                         loss.backward()
                 step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
-                step_rmses.append(rmse.detach().cpu())      # (C,) - list.  If no cpu(), their stack results in cuda
+                step_metrics.append(rmse.detach().cpu())      # (C,) - list.  If no cpu(), their stack results in cuda
                 self.total_losses.append(loss.item())
 
             elif not self.pm.abundant_GPUs and trainable:
                 if self.nDevices <= 1:
                     # s = time.time()
                     
-                    # !!! This context leads lots of parameters that don't receive gradient. Move into sigle_GPU_forward_loss_backward.
+                    # !!! This context leads lots of parameters that don't receive gradient. Move into single_GPU_forward_loss_backward.
                     # context = autocast(device_type=self.device_type, dtype=torch.bfloat16) if self.pm.use_autocast else nullcontext()
                     # with context:
                     #     with torch.set_grad_enabled(trainable):
-                    (loss, rmse) = self.model.sigle_GPU_forward_loss_backward(batch_x, batch_y, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars, trainable=trainable)
-                            # (loss, rmse) = self.model.sigle_GPU_forward_loss_backward(batch_x.detach().clone(), batch_y.detach().clone(), self.loss, None, batch_diff, era5_data_vars, trainable=trainable)
+                    (loss, rmse), mae = self.model.single_GPU_forward_loss_backward(batch_x, batch_y, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars, trainable=trainable)
+                            # (loss, rmse) = self.model.single_GPU_forward_loss_backward(batch_x.detach().clone(), batch_y.detach().clone(), self.loss, None, batch_diff, era5_data_vars, trainable=trainable)
                     # e = time.time()
                     # print("core time: {:.5f}".format(e-s))    # 16.7s
-                    step_loss.append(loss.detach().cpu())  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
-                    step_rmses.append(rmse.detach().cpu())      # (C,) - list.  If no cpu(), their stack results in cuda
+                    step_loss.append(loss)  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
+                    step_metrics.append(mae)      # (C,) - list.  If no cpu(), their stack results in cuda
                     self.total_losses.append(loss.item())
                 else:
                     chunks_x = batch_x.chunk(self.nDevices)
@@ -654,7 +654,7 @@ class Train():
                         
                     futures = [
                         executor.submit(
-                            self.slave_models[self.devices[i]].sigle_GPU_forward_loss_backward, mb_x, mb_y, self.loss, self.dataset.unnormalize, 
+                            self.slave_models[self.devices[i]].single_GPU_forward_loss_backward, mb_x, mb_y, self.loss, self.dataset.unnormalize, 
                             batch_diff, era5_data_vars, self.devices[i]
                         )
                         for i, (mb_x, mb_y) in enumerate(zip(chunks_x, chunks_y))                        
@@ -664,7 +664,7 @@ class Train():
                         grads, (loss, rmse) = fut.result()  # blocks until the single future is done.
                         grads_list.append(grads)
                         step_loss.append(loss.detach().to('cpu'))
-                        step_rmses.append(rmse.detach().to('cpu'))
+                        step_metrics.append(rmse.detach().to('cpu'))
                         self.total_losses.append(loss.item())
                     
                     self.average_gradients_to_master(self.model, grads_list)
@@ -696,13 +696,13 @@ class Train():
                 #     pass
 
             step_loss = torch.tensor(step_loss).mean()   # (,)
-            step_rmses = torch.stack(step_rmses, dim=0).mean(dim=0)   # (C,)
-            strC = ", ".join(f"{x:.2f}" for x in step_rmses.ravel().tolist())
-            pbar.set_description("loss {:.4f} rmse ({}) wait(ms) {:.3f} lr {:1.3e}, bs {}"
+            step_metrics = torch.stack(step_metrics, dim=0).mean(dim=0)   # (C,)
+            strC = ", ".join(f"{x:.2f}" for x in step_metrics.ravel().tolist())
+            pbar.set_description("loss {:.4f} metrics ({}) wait(ms) {:.3f} lr {:1.3e}, bs {}"
                                  .format(step_loss.item(), strC, (end-start) * 1000, self.get_learning_rate(), batch_x.shape[0]))
 
             _epoch_loss.append(step_loss)    # (,) - list
-            _epoch_rmses.append(step_rmses)   # (C,) - list
+            _epoch_rmses.append(step_metrics)   # (C,) - list
             
             step += 1
             if trainable is True and step % self.pm.steps_to_save == 0:

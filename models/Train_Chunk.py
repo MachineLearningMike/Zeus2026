@@ -449,7 +449,7 @@ class Train():
             elif not self.pm.abundant_GPUs and trainable:
                 if self.nDevices <= 1:
                     
-                    # _, (loss, rmse) = self.model.sigle_GPU_forward_loss_backward(batch_x, batch_y, self.loss, 
+                    # _, (loss, rmse) = self.model.single_GPU_forward_loss_backward(batch_x, batch_y, self.loss, 
                     #                   self.dataset.unnormalize, batch_diff, era5_data_vars)
                 
                     with autocast(device_type=self.device_type, dtype=torch.bfloat16):  
@@ -490,7 +490,7 @@ class Train():
                     
                     futures = [
                         executor.submit(
-                            self.slave_models[self.devices[i]].sigle_GPU_forward_loss_backward, mb_x, mb_y, self.loss, self.dataset.unnormalize, 
+                            self.slave_models[self.devices[i]].single_GPU_forward_loss_backward, mb_x, mb_y, self.loss, self.dataset.unnormalize, 
                             batch_diff, era5_data_vars)
                         for i, (mb_x, mb_y) in enumerate(zip(chunks_x, chunks_y))                        
                     ]   # returns immediately.

@@ -458,7 +458,7 @@ class Zeus(nn.Module):
 
         return x    # (B,FG,C,H,W)
     
-    def sigle_GPU_forward_loss_backward(self, data, target, loss_fn, denormal_fn, batch_diff, era5_data_vars, device):
+    def single_GPU_forward_loss_backward(self, data, target, loss_fn, denormal_fn, batch_diff, era5_data_vars, device):
         acts_on_cpu = False
                 
         if acts_on_cpu:
@@ -657,7 +657,7 @@ class Zeus_Skip(nn.Module):
 
         return x    # (B,FG,C,H,W)
     
-    def sigle_GPU_forward_loss_backward(self, data, target, loss_fn, denormal_fn, batch_diff, era5_data_vars):        
+    def single_GPU_forward_loss_backward(self, data, target, loss_fn, denormal_fn, batch_diff, era5_data_vars):        
         # data, target = data.to("cpu"), target.to("cpu")
         acts_cpu = []
         x = data.to("cuda:0")  # input on GPU
@@ -769,7 +769,7 @@ class DoubleZeus(nn.Module):
         return x.to("cpu:0")
     
     
-    def sigle_GPU_forward_loss_backward(self, data, target, loss_fn, denormal_fn, batch_diff, era5_data_vars):
+    def single_GPU_forward_loss_backward(self, data, target, loss_fn, denormal_fn, batch_diff, era5_data_vars):
         acts_on_cpu = False
         
         if self.pm.freeze_zeus1:

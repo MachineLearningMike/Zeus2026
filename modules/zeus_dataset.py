@@ -896,16 +896,21 @@ class Zeus_Dataset(Dataset):
             batch_x.append(torch.tensor(data[:nHours]))
             batch_y.append(torch.tensor(data[nHours:]))
 
-        batch_x = torch.stack(batch_x, dim=0)     # (B, T1FG, C, H, W)
-        batch_y = torch.stack(batch_y, dim=0)     # (B, T2FG, C, H, W)        
+        batch_x = torch.stack(batch_x, dim=0)     # (B, T1FG, C, 721, 1440)
+        batch_y = torch.stack(batch_y, dim=0)     # (B, T2FG, C, 721, 1440)
+
+        # from params.py        
+        # self.height = int(config['org_height'] * config['factor10'] / 10)       # int not round , config['org_height'] = 721 (transformer) or 720 (CNN)
+        # self.width = int(config['org_width'] * config['factor10'] / 10)         # int not round , config['org_width'] = 1440
+
+        # Required.
+        batch_x = batch_x[:, :, :, :self.pm.height, :]  # 721 -> 720 for transformer and factor10 == 10
+        batch_y = batch_y[:, :, :, :self.pm.height, :]  # 721 -> 720 for transformer and factor10 == 10
         
         B, _, C, H, W = batch_x.shape
-        
-        H1 = self.pm.height
-        W1 = self.pm.width
-        if H1 != H or W1 != W:
-            batch_x = self.resize_cylindrical(batch_x, (H1, W1))
-            batch_y = self.resize_cylindrical(batch_y, (H1, W1))
+        if self.pm.height != H or self.pm.width != W:
+            batch_x = self.resize_cylindrical(batch_x, (self.pm.height, self.pm.width))
+            batch_y = self.resize_cylindrical(batch_y, (self.pm.height, self.pm.width))
             
         batch_x = self.normalize(batch_x)
         batch_y = self.normalize(batch_y)

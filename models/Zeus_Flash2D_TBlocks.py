@@ -204,7 +204,7 @@ class Zeus(nn.Module):
         
         return gradient
    
-    # def sigle_GPU_forward_loss_backward(self, input, target, loss_fn, unnormal_fn, batch_diff, era5_data_vars, trainable=True):
+    # def single_GPU_forward_loss_backward(self, input, target, loss_fn, unnormal_fn, batch_diff, era5_data_vars, trainable=True):
 
     #     with autocast(device_type="cuda", dtype=torch.bfloat16):
     #         with torch.no_grad():
@@ -234,36 +234,37 @@ class Zeus(nn.Module):
     #     return lossAndMetrics
 
 
-    def sigle_GPU_forward_loss_backward(self, input, target, loss_fn, unnormal_fn, batch_diff, era5_data_vars, trainable=True):
-        # Forward pass (no grad, in bf16)
+    def single_GPU_forward_loss_backward(self, input, target, loss_fn, unnormal_fn, batch_diff, era5_data_vars, trainable=True):       
+        assert input.requires_grad == False
+        assert target.requires_grad == False
+        target = target.to(self.device)
+        
         with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
             with torch.no_grad():
                 pred = self(input, train=trainable, modules_to_cpu=trainable)
 
         if trainable:
             pred = pred.requires_grad_(True)
-            # pred.retain_grad()    # pred is not a leaf tensor but this line is nor required.
+            pred.retain_grad()
 
-        # Loss computation (grad only for pred)
-        # This part is simply an inference if pred.requires_grad == False
         with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
-            if unnormal_fn is not None:
-                pred2 = unnormal_fn(pred)
-                target = unnormal_fn(target)
-            lossAndMetrics = loss_fn(target, pred2, batch_diff, era5_data_vars)
+            lossAndMetrics = loss_fn(target, pred, batch_diff, era5_data_vars)
             loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
-
-        # Backward pass
-        if trainable:
-            # Compute dL/d(pred)
-            loss.backward()
-            gradient = pred.grad
-
-            # Custom backward, with forward ops inside, needs autocast
-            with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            if trainable:
+                loss.backward()
+                gradient = pred.grad
                 _ = self.backward(gradient)
 
-        return lossAndMetrics
+        if isinstance(lossAndMetrics, (tuple, list)):
+            detached_loss_metrics = [x.detach().cpu() if torch.is_tensor(x) else x for x in lossAndMetrics]
+        else:
+            detached_loss_metrics = lossAndMetrics.detach().cpu()
+        
+        target = unnormal_fn(target)    # (B, T, C, H, W)
+        pred = unnormal_fn(pred.detach())        # (B, T, C, H, W)
+        mae = torch.abs(pred - target).mean(dim=(0, 1, 3, 4)).cpu()    # (C,)
+                        
+        return detached_loss_metrics, mae
 
 
 if __name__ == "__main__":    
@@ -349,7 +350,7 @@ if __name__ == "__main__":
         
         optimizer.zero_grad()
         
-        (loss, rmse) = model.sigle_GPU_forward_loss_backward(x_train.detach().clone(), y_train.detach().clone(), loss_fun, None, None, era5_data_vars, trainable=True)
+        (loss, rmse) = model.single_GPU_forward_loss_backward(x_train.detach().clone(), y_train.detach().clone(), loss_fun, None, None, era5_data_vars, trainable=True)
                 
 
         # with autocast(device_type="cuda", dtype=torch.bfloat16):

@@ -90,27 +90,33 @@ class Zeus(nn.Module):
 
         return preds
 
-    def sigle_GPU_forward_loss_backward(self, input, target, loss_fn, unnormal_fn, batch_diff, era5_data_vars, trainable=True):
-
-        # The caller creates this context:
+    def single_GPU_forward_loss_backward(self, input, target, loss_fn, unnormal_fn, batch_diff, era5_data_vars, trainable=True):
+        # Do not cast to 16bit for CNN networks.
         # with autocast(device_type=self.device_type, dtype=torch.bfloat16):
-        #     with torch.set_grad_enabled(trainable): 
-        
-        # input.requires_grad_(trainable)  # defalut is False
-        # # input.retain_grad()   # No deed for a leaf tensor
-        
-        pred = self(input, target.shape[1], target)
-        target = unnormal_fn(target)
-        pred = unnormal_fn(pred)
-        
-        lossAndMetrics = loss_fn(target, pred, batch_diff, era5_data_vars)     
-        loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
+        #     with torch.set_grad_enabled(trainable):         
+        assert input.requires_grad == False
+        assert target.requires_grad == False
+        target = target.to(self.device)
 
-        if trainable:
-            loss.backward()
-            # grads = [p.grad.detach().clone() for p in self.parameters()]
+        context = torch.enable_grad if trainable else torch.no_grad
+        with context():
+            pred = self(input, target.shape[1], target)
+            lossAndMetrics = loss_fn(target, pred, batch_diff, era5_data_vars)
+            loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
+            if trainable:
+                loss.backward()
+                # grads = [p.grad.detach().clone() for p in self.parameters()]
+
+        if isinstance(lossAndMetrics, (tuple, list)):
+            detached_loss_metrics = [x.detach().cpu() if torch.is_tensor(x) else x for x in lossAndMetrics]
+        else:
+            detached_loss_metrics = lossAndMetrics.detach().cpu()
         
-        return lossAndMetrics
+        target = unnormal_fn(target)    # (B, T, C, H, W)
+        pred = unnormal_fn(pred.detach())        # (B, T, C, H, W)
+        mae = torch.abs(pred - target).mean(dim=(0, 1, 3, 4)).cpu()    # (C,)
+                        
+        return detached_loss_metrics, mae
 
 # -----------------------------
 # Sinusoidal dataset

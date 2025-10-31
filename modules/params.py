@@ -14,8 +14,8 @@ class Params:
     def __init__(self, config):
         self.dtype = torch.float16 if config['dtype'] == 16 else torch.float32 if config['dtype'] == 32 else None
         
-        self.height = round(config['height'] * config['factor10'] / 10)                        # 720 if factor10 == 10
-        self.width = round(config['width'] * config['factor10'] / 10)                         # 1,440 if factor10 == 10
+        self.height = int(config['org_height'] * config['factor10'] / 10)       # int not round , config['org_height'] = 721 (transformer) or 720 (CNN)
+        self.width = int(config['org_width'] * config['factor10'] / 10)         # int not round , config['org_width'] = 1440
         self.variables = config['variables']
         self.nVariables = len(config['variables'])
         self.T1 = config['T1']
