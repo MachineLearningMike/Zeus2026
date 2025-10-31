@@ -11,16 +11,20 @@ FORWARD_DELAY_SECONDS = 90
 
 # how many miners proxy queries
 PROXY_QUERY_K = 10
+# after how many percent of above it yields results
+PROXY_CUTOFF_PERCENT = 0.6
 
 # wandb website refuses to update logs after roughly 100k, so reset run if this happens
 WANDB_MAX_LOGS = 95_000
 
 # the variables miners are tested on, with their respective sampling weight
 ERA5_DATA_VARS: Dict[str, float] = {
-    "2m_temperature": 0.3,
-    "total_precipitation": 0.4,
-    "100m_u_component_of_wind": 0.15,
-    "100m_v_component_of_wind": 0.15,
+    "2m_temperature": 0.15,
+    "total_precipitation": 0.15,
+    "100m_u_component_of_wind": 0.2,
+    "100m_v_component_of_wind": 0.2,
+    "2m_dewpoint_temperature": 0.2,
+    "surface_pressure": 0.1
 }
 ERA5_LATITUDE_RANGE: Tuple[float, float] = (-90.0, 90.0)
 ERA5_LONGITUDE_RANGE: Tuple[float, float] = (-180.0, 179.75)  # real ERA5 ranges
@@ -31,17 +35,18 @@ ERA5_AREA_SAMPLE_RANGE: Tuple[float, float] = (4, 16)
 # ------------------ Reward Constants -----------------
 # ------------------------------------------------------
 # 1.0 would imply no difficulty scaling, should be >= 1.
-REWARD_DIFFICULTY_SCALER = 3.0
-
-REWARD_IMPROVEMENT_WEIGHT = 0.5 # 50% of emission for improving SOTA
-
-# RMSE improvement over OpenMeteo only counts if more than this
-REWARD_IMPROVEMENT_MIN_DELTA: Dict[str, float] = {
-    "2m_temperature": 0.1, 
-    "total_precipitation": 0.00001,
-    "100m_u_component_of_wind": 0.1,
-    "100m_v_component_of_wind": 0.1,
-}
+REWARD_DIFFICULTY_SCALER = 2.0
+# 70% of emission for quality, 30% for speed
+REWARD_RMSE_WEIGHT = 0.8
+REWARD_EFFICIENCY_WEIGHT = 0.2
+# score is percentage worse/better than OpenMeteo baseline. Capped between these percentages (as float)
+MIN_RELATIVE_SCORE = -1.0
+MAX_RELATIVE_SCORE = 0.8
+# when curving scores, above cap * median_speed = 0
+# to prevent reward curve from being shifted by really bad outlier
+CAP_FACTOR_EFFICIENCY = 2.0
+# Faster than this is considered 'perfect'
+EFFICIENCY_THRESHOLD = 0.4
 
 # ------------------------------------------------------
 # --------------- Current/Future prediction-------------
