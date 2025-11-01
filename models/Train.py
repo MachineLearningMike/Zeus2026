@@ -39,8 +39,10 @@ from modules_zeus.constants import ERA5_DATA_VARS
 #     # REWARD_IMPROVEMENT_MIN_DELTA,
 # )
 
-from modules.read_cursor_keys import read_key, init_key_listener
-init_key_listener()  # optional, read_key() will auto-init too
+from modules.read_cursor_keys_linux_windows import KeyReader
+
+kr = KeyReader()
+kr.init_key_listener()
 
 from AdaptiveLRLearner import AdaptiveLRLearner
 
@@ -523,7 +525,7 @@ class Train():
         return self.optimizer.param_groups[0]['lr']
             
     def respond_to_cursor(self):
-        direction, count = read_key()
+        direction, count = kr.read_key()
         factor = None; step = math.pow(10.0, 1/10)
         batch_size = None
 
