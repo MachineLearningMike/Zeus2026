@@ -394,10 +394,11 @@ projects["ResNet_NoStage_B20_BR30"] = {
     'max_lr': 1e-5,
     'overwrite_saved_lr': True,
     'batch_size': 1,
-    'useLRLearner' : False,
+    'useLRLearner' : True,
+    'accum_steps' : 10,
     'ObsorbHDistortion': False,
-    'nCNNBlocks' : 20,
-    'bottleneckRate' : 0.30,
+    'nCNNBlocks' : 20,  # NO change - paramemters
+    'bottleneckRate' : 0.30,    # NO change - parameters
 }
 
 #-------------------------------- select proejct -----------------------
