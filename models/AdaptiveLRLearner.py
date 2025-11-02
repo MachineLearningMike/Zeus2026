@@ -10,7 +10,7 @@ class AdaptiveLRLearner:
                  optimizer,
                  accum_steps=4,
                  init_lr=1e-5,
-                 grad_target=0.5,   # 0.1
+                 grad_target=0.4,   # 0.1
                  grad_tolerance=2.0,
                  ema_decay=0.9,
                  lr_min=1e-9,
