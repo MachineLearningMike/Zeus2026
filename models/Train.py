@@ -615,8 +615,9 @@ class Train():
 
                 continue
 
-            batch_x = batch_x.pin_memory()     # torch.float32, cpu
-            batch_y = batch_y.pin_memory()     # torch.float32, cpu
+            # Now, they are pinned in the take_batch thread of zeus_dataset.
+            # batch_x = batch_x.pin_memory()     # torch.float32, cpu
+            # batch_y = batch_y.pin_memory()     # torch.float32, cpu
 
             step_loss = []; step_metrics = []
             if trainable: self.optimizer.zero_grad() 

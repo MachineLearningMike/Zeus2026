@@ -401,8 +401,23 @@ projects["ResNet_NoStage_B20_BR30"] = {
     'bottleneckRate' : 0.30,    # NO change - parameters
 }
 
+projects["ResNet_NoStage_B15_BR30"] = {
+    'Zeus_Model_module' : 'Zeus_ResNet',
+    'org_height': 721,
+    'factor10': 10,
+    'lr': 1e-5,
+    'max_lr': 1e-5,
+    'overwrite_saved_lr': True,
+    'batch_size': 1,
+    'useLRLearner' : True,
+    'accum_steps' : 10,
+    'ObsorbHDistortion': False,
+    'nCNNBlocks' : 15,  # NO change - paramemters
+    'bottleneckRate' : 0.30,    # NO change - parameters
+}
+
 #-------------------------------- select proejct -----------------------
-select = "ResNet_NoStage_B20_BR30" # "ResNet50-NewCodec-2" #"ResNet50-9M" # "ResNet50-3753K" #"ResNet50-NewCodec-2"  #'ResNet50-24M-2'
+select = "ResNet_NoStage_B15_BR30" # "ResNet50-NewCodec-2" #"ResNet50-9M" # "ResNet50-3753K" #"ResNet50-NewCodec-2"  #'ResNet50-24M-2'
 
 config['bayesProject'] = select
 config.update(projects[select])

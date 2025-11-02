@@ -94,9 +94,10 @@ class Zeus(nn.Module):
         # Do not cast to 16bit for CNN networks.
         # with autocast(device_type=self.device_type, dtype=torch.bfloat16):
         #     with torch.set_grad_enabled(trainable):         
-        assert input.requires_grad == False
-        assert target.requires_grad == False
-        target = target.to(self.device)
+        # assert input.requires_grad == False
+        # assert target.requires_grad == False
+        input = input.to(self.device, non_blocking=True)
+        target = target.to(self.device, non_blocking=True)
 
         context = torch.enable_grad if trainable else torch.no_grad
         with context():

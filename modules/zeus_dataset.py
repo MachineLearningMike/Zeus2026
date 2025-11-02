@@ -959,6 +959,7 @@ class Zeus_Dataset(Dataset):
 
         # print("batch_x, y shape: ", batch_x.shape, batch_y.shape)
         # print('-------- type ', batch_x.dtype, batch_y.dtype, batch_diff.dtype, self.era5_data_vars.dtype)
+        # return batch_x.pin_memory(), batch_y.pin_memory(), batch_diff, self.era5_data_vars     # (B, T1FG, C, H, W), (B, T2FG, C, H, W), (B, 1, C, H, W), (C,)
         return batch_x, batch_y, batch_diff, self.era5_data_vars     # (B, T1FG, C, H, W), (B, T2FG, C, H, W), (B, 1, C, H, W), (C,)
     
 
