@@ -405,15 +405,16 @@ projects["ResNet_NoStage_B15_BR30"] = {
     'Zeus_Model_module' : 'Zeus_ResNet',
     'org_height': 721,
     'factor10': 10,
-    'lr': 1e-5,
-    'max_lr': 1e-5,
+    'lr': 1e-3,
+    'max_lr': 1e-3,
     'overwrite_saved_lr': True,
     'batch_size': 1,
     'useLRLearner' : True,
     'accum_steps' : 10,
-    'ObsorbHDistortion': False,
-    'nCNNBlocks' : 15,  # NO change - paramemters
-    'bottleneckRate' : 0.30,    # NO change - parameters
+    'skip_validation' : False,
+    'ObsorbHDistortion': False, # NO mid-change
+    'nCNNBlocks' : 15,  # NO mid-change
+    'bottleneckRate' : 0.30,    # NO mid-change
 }
 
 #-------------------------------- select proejct -----------------------

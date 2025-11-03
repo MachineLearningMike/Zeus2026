@@ -561,10 +561,10 @@ class Train():
         
         FG = self.pm.FG; T1 = self.pm.nFramesIn // FG
         if step_state is not None:
-            _epoch_loss, _epoch_rmses = self.unpack_step_state(step_state)
+            _epoch_loss, _epoch_metrics = self.unpack_step_state(step_state)
             logging.info("Step state restored with saved one")
         else:
-            _epoch_loss, _epoch_rmses = [], []
+            _epoch_loss, _epoch_metrics = [], []
         
         pbar = zeus_tqdm(self.dataset)
         pbar.start_prefetch_thread()
@@ -709,26 +709,26 @@ class Train():
                                  .format(step_loss.item(), strC, (end-start) * 1000, self.get_learning_rate(), batch_x.shape[0]))
 
             _epoch_loss.append(step_loss)    # (,) - list
-            _epoch_rmses.append(step_metrics)   # (C,) - list
+            _epoch_metrics.append(step_metrics)   # (C,) - list
             
             step += 1
             if trainable is True and step % self.pm.steps_to_save == 0:
-                step_state = self.pack_step_state(_epoch_loss, _epoch_rmses)
+                step_state = self.pack_step_state(_epoch_loss, _epoch_metrics)
                 self.save_state(step_state=step_state)  # Step_save
             self.clean_gpu_every(50, step)
             self.respond_to_cursor()
             start = time.time()
             
         _epoch_loss = torch.stack(_epoch_loss, dim=0).mean(dim=0)  # (,)
-        _epoch_rmses = torch.stack(_epoch_rmses, dim=0).mean(dim=0)       # (C,)
-        strC = ", ".join(f"{x:.2f}" for x in _epoch_rmses.ravel().tolist())
+        _epoch_metrics = torch.stack(_epoch_metrics, dim=0).mean(dim=0)       # (C,)
+        strC = ", ".join(f"{x:.2f}" for x in _epoch_metrics.ravel().tolist())
         pbar.set_description('Loss: {:.3f}, rmses: {}'.format(_epoch_loss.item(), strC))
         pbar.stop_prefetch_thread()
         
         if trainable is True: self.save_state()   # Epoch_save. No step_state saved.
         if self.nDevices > 1: executor.shutdown()
 
-        return _epoch_loss, _epoch_rmses  # (,), (C,)
+        return _epoch_loss, _epoch_metrics  # (,), (C,)
     
     
     def compare_save_load(self):
@@ -744,9 +744,9 @@ class Train():
             print(torch.allclose(param1, param2))
 
     
-    def get_epoch_display(self, _epoch_loss, _epoch_rmses):
+    def get_epoch_display(self, _epoch_loss, _epoch_metrics):
         loss = "Loss: {:.4f}".format(_epoch_loss.item())
-        rmses = "RMSE: " + ", ".join(f"{x:.5f}" for x in _epoch_rmses.ravel().tolist())
+        rmses = "RMSE: " + ", ".join(f"{x:.5f}" for x in _epoch_metrics.ravel().tolist())
         display = loss + ', ' + rmses
         return display
     
