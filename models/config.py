@@ -396,6 +396,7 @@ projects["ResNet_NoStage_B20_BR30"] = {
     'batch_size': 1,
     'useLRLearner' : True,
     'accum_steps' : 10,
+    'skip_validation' : True,
     'ObsorbHDistortion': False,
     'nCNNBlocks' : 20,  # NO change - paramemters
     'bottleneckRate' : 0.30,    # NO change - parameters
