@@ -27,12 +27,12 @@ from modules_zeus.constants import (
 )
 
 class Train():
-    def __init__(self, config, root_path, bayes_path, trainable=True):
+    def __init__(self, config, root_path, project_path, trainable=True):
         self.config = config
         #======================== Fixed train state =======================
         # utils.set_seed(self.pm.seed)
         self.pm = Params(config)
-        self.bayes_path = bayes_path
+        self.project_path = project_path
         self.trainable = trainable
         
         self.dataset = Zeus_Dataset(config, root_path)
@@ -46,7 +46,7 @@ class Train():
         self.min_sota_delta = rearrange(min_sota_delta, 'c -> c 1 1')
         self.era5_data_vars = self.load_era5_data_vars()
         #---------- Save config ---------
-        configPath =  self.bayes_path / ('config-' + self.get_train_id_string() +'.json')
+        configPath =  self.project_path / ('config-' + self.get_train_id_string() +'.json')
         utils.check_dir(configPath.parent)
         with open(configPath, 'w') as f:
             json.dump(config, f, indent=4)
@@ -212,12 +212,12 @@ class Train():
             'dataset': self.dataset.pack_state(),
             'step_state': step_state,
         }
-        utils.check_dir(self.bayes_path)
-        torch.save(checkpoint, self.bayes_path / (name + '.pth'))
-        torch.save(checkpoint, self.bayes_path / (name + '.pth.bak'))   # Create a backup, as creating takes a long time and may fail by the cloud Spot service.
+        utils.check_dir(self.project_path)
+        torch.save(checkpoint, self.project_path / (name + '.pth'))
+        torch.save(checkpoint, self.project_path / (name + '.pth.bak'))   # Create a backup, as creating takes a long time and may fail by the cloud Spot service.
         # logging.info(f"Checkpoint '{name}' saved, including model, optimizer, scheduler, scaler, rmses_old, and dataset state")
     
-        with open(str(self.bayes_path / name) + '.json', 'w') as f:
+        with open(str(self.project_path / name) + '.json', 'w') as f:
             json.dump(self.total_losses, f)
 
     
@@ -227,13 +227,13 @@ class Train():
         file_not_found = False; train_finished = False; file_loaded = False
 
         try:
-            checkpoint_path = self.bayes_path / (name + '.pth')
+            checkpoint_path = self.project_path / (name + '.pth')
             checkpoint = torch.load(checkpoint_path, map_location="cpu")
             logging.info("Checkpoint loaded from the .pth file")
         except Exception as e:
             logging.info(str(e))
             try:
-                checkpoint_path = self.bayes_path / (name + '.pth.bak')     # Maybe the previous save.
+                checkpoint_path = self.project_path / (name + '.pth.bak')     # Maybe the previous save.
                 checkpoint = torch.load(checkpoint_path, map_location="cpu")
                 logging.info("Checkpoint loaded from the .pth.bak file")
             except Exception as e:
@@ -341,7 +341,7 @@ class Train():
             epoch = epoch; step_state = step_state
 
         try:
-            with open(str(self.bayes_path / name) + '.json', 'r') as f:
+            with open(str(self.project_path / name) + '.json', 'r') as f:
                 self.total_losses = json.load(f)
         except:
             pass
@@ -621,7 +621,7 @@ if __name__ == "__main__":
     
     from models.config import config, root_path
 
-    bayes_path = root_path / 'bayes' / 'test'
+    project_path = root_path / 'bayes' / 'test'
     pbounds = {     # Mike!!!
         "patch_size": (8, 8, int),
         "nHeads": (8, 8, int),
@@ -629,5 +629,5 @@ if __name__ == "__main__":
         "zeusBlocks": (8, 8, int),  # 
     }
     
-    train = Train(config, root_path, bayes_path)
+    train = Train(config, root_path, project_path)
     

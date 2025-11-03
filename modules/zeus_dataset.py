@@ -40,12 +40,22 @@ class Zeus_Dataset(Dataset):
         self.pm = pm
         self.root_path = root_path
 
-        self.cds_folder = root_path / "CDS"
+        # define self.cds_folder, self.cds_folder_even, self.cds_folder_odd, self.param_path, and self.split_hours_path, independently
 
-        self.cds_folder.mkdir(parents=True, exist_ok=True)
-        
-        self.param_path = root_path / 'dataset_params.json'
-        self.split_hours_path = root_path / 'split_hours.json'
+        if not self.pm.dual_drive:
+            self.cds_folder = root_path / "CDS"
+            self.cds_folder.mkdir(parents=True, exist_ok=True)
+            self.param_path = root_path / 'dataset_params.json'
+            self.split_hours_path = root_path / 'split_hours.json'
+        else:
+            self.cds_folder_even = root_path / "data_even" / "CDS"            
+            self.cds_folder_even.mkdir(parents=True, exist_ok=True)
+            self.cds_folder_odd = root_path / "data_odd" / "CDS"
+            self.cds_folder_odd.mkdir(parents=True, exist_ok=True)
+    
+            self.param_path = root_path / "data_even" /'dataset_params.json'
+            self.split_hours_path = root_path / "data_even" / 'split_hours.json'
+
         
         self.difficulties = None
         self.era5_data_vars = None
@@ -57,8 +67,13 @@ class Zeus_Dataset(Dataset):
 
         self._fetched_batches = 0
         self.total_batches = 0
+        
+        self.origin_date = datetime(1970,1,1)
 
     #------------------------------------- Download dataset -----------------------
+
+    def get_day_number(year, month, day):
+        return (datetime(year, month, day) - datetime(1970,1,1)).days
 
     def load_data(self):
         self.load_dataset_params()
@@ -1038,7 +1053,7 @@ class Zeus_Dataset(Dataset):
         self._disk_threadPool.shutdown(wait=True)
         # print(' ...shutdown')
 
-def divide_cds_by_day(src_root, drive_even, drive_odd, origin_date=datetime(1970,1,1)):
+def divide_cds_by_day(src_root, drive_even, drive_odd):
     """
     Divide CDS content between two drives by day number from origin_date.
     Supports multiple year folders.
@@ -1049,6 +1064,7 @@ def divide_cds_by_day(src_root, drive_even, drive_odd, origin_date=datetime(1970
     - drive_odd: path to drive for odd days
     - origin_date: datetime object for day 0 (default 1970-01-01)
     """
+    origin_date=datetime(1970,1,1)
     
     for year_folder in sorted(os.listdir(src_root)):
         year_path = os.path.join(src_root, year_folder)
@@ -1087,17 +1103,46 @@ def divide_cds_by_day(src_root, drive_even, drive_odd, origin_date=datetime(1970
                         shutil.copy2(src_file, dst_file)
                 
                 print(f"Copied {day_path} → {target_path} (day_number={day_number})")
+                
+def copy_except_cds(src, dst):
+    """
+    Copy all contents of src to dst, excluding any folder named 'CDS'.
+    """
+    if not os.path.exists(src):
+        raise FileNotFoundError(f"Source folder not found: {src}")
+    os.makedirs(dst, exist_ok=True)
+
+    for root, dirs, files in os.walk(src):
+        # Compute relative path from src
+        rel_path = os.path.relpath(root, src)
+
+        # Skip the CDS folder and anything inside it
+        if 'CDS' in rel_path.split(os.sep):
+            continue
+
+        # Create corresponding folder in destination
+        dst_dir = os.path.join(dst, rel_path)
+        os.makedirs(dst_dir, exist_ok=True)
+
+        # Copy files
+        for file in files:
+            src_file = os.path.join(root, file)
+            dst_file = os.path.join(dst_dir, file)
+            shutil.copy2(src_file, dst_file)
+
+    print(f"✅ All contents (except 'CDS') copied from {src} → {dst}")
 
 #-------------------------------------- test ----------------------------------------
 if __name__ == "__main__":
 
-    src_root = "/mnt/data/zeus_data/CDS"           # source CDS folder
+    src = "/mnt/data/zeus_data/CDS"           # source CDS folder
     drive_even = "/mnt/data_even/CDS"  # target drive for even days
     drive_odd = "/mnt/data_odd/CDS"   # target drive for odd days
-
-    divide_cds_by_day(src_root, drive_even, drive_odd)
-
-
+    divide_cds_by_day(src, drive_even, drive_odd)
+    
+    src = "/mnt/data/zeus_data"
+    dst = "/mnt/data_even"
+    copy_except_cds(src, dst)
 
     from models.config import config, root_path
     pm = Params(config)

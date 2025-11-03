@@ -92,13 +92,16 @@ class Zeus(nn.Module):
 
     def single_GPU_forward_loss_backward(self, input, target, loss_fn, unnormal_fn, batch_diff, era5_data_vars, trainable=True):
         # Do not cast to 16bit for CNN networks.
+
         # with autocast(device_type=self.device_type, dtype=torch.bfloat16):
         #     with torch.set_grad_enabled(trainable):         
-        assert input.requires_grad == False
-        assert target.requires_grad == False
+
+        # assert input.requires_grad == False
+        # assert target.requires_grad == False
+
         target = target.to(self.device)
 
-        context = torch.enable_grad if trainable else torch.no_grad
+        context = torch.enable_grad # if trainable else torch.no_grad       # commented out for test, as validation loss is weirdly larger than training loss.
         with context():
             pred = self(input, target.shape[1], target)
             lossAndMetrics = loss_fn(target, pred, batch_diff, era5_data_vars)

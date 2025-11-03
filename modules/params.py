@@ -103,6 +103,8 @@ class Params:
         self.use_PE = config['use_PE']
         
         self.abundant_GPUs = config['abundant_GPUs']
+        self.dual_drive = config['dual_drive']
+        self.root_path = config['root_path']
         
         self.doubleZeus = config['doubleZeus']
         self.freeze_zeus1 = config['freeze_zeus1']

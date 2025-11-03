@@ -85,6 +85,8 @@ config = {
     'abundant_GPUs' : False,
     'doubleZeus' : False,
 
+    'dual_drive' : False,
+
     # for 'doubleZeus' == True
     'freeze_zeus1' : False,
     'skip_net_for_zeus2' : True,
@@ -98,7 +100,7 @@ import platform
 if platform.system() == "Windows":  
     config['variables'] = variables = ["2m_temperature", 'total_precipitation', "100m_u_component_of_wind", '100m_v_component_of_wind', "2m_dewpoint_temperature", "surface_pressure"]
     root_path = Path("D:/Zeus_Data")
-
+    
     # GPU: RTX 4070, Chunk2D
     config['factor10'] = 2  # 2 is the minimum, as 1 causes a non-float parameter error.
     config['dim_to_layerFFN_dim'] = 4
@@ -116,7 +118,11 @@ if platform.system() == "Windows":
     
 else:
     config['variables'] = variables = ["2m_temperature", 'total_precipitation', "100m_u_component_of_wind", '100m_v_component_of_wind', "2m_dewpoint_temperature", "surface_pressure"]
-    root_path = Path("/mnt/data/zeus_data")
+    
+    if not config['dual_drive']:
+        config['root_path'] = "/mnt/data/zeus_data"
+    else:
+        config['root_path'] = "/mnt"
     
     # GPU: 
     config['factor10'] = 10  # 2 is the minimum, as 1 causes a non-float parameter error.
@@ -402,8 +408,24 @@ projects["ResNet_NoStage_B20_BR30"] = {
     'bottleneckRate' : 0.30,    # NO change - parameters
 }
 
+projects["ResNet_NoStage_B15_BR30"] = {
+    'Zeus_Model_module' : 'Zeus_ResNet',
+    'org_height': 721,
+    'factor10': 10,
+    'lr': 1e-3,
+    'max_lr': 1e-3,
+    'overwrite_saved_lr': True,
+    'batch_size': 1,
+    'useLRLearner' : True,
+    'accum_steps' : 10,
+    'skip_validation' : False,
+    'ObsorbHDistortion': False,
+    'nCNNBlocks' : 15,  # NO change - paramemters
+    'bottleneckRate' : 0.30,    # NO change - parameters
+}
+
 #-------------------------------- select proejct -----------------------
-select = "ResNet_NoStage_B20_BR30" # "ResNet50-NewCodec-2" #"ResNet50-9M" # "ResNet50-3753K" #"ResNet50-NewCodec-2"  #'ResNet50-24M-2'
+select = "ResNet_NoStage_B15_BR30" # "ResNet50-NewCodec-2" #"ResNet50-9M" # "ResNet50-3753K" #"ResNet50-NewCodec-2"  #'ResNet50-24M-2'
 
 config['bayesProject'] = select
 config.update(projects[select])

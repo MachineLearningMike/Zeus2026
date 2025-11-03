@@ -18,7 +18,7 @@ from modules.utils import check_dir
 # plt.ion()
 
 class MLBayesianOptimizer:
-    def __init__(self, config, root_path, pbounds, random_state=42):
+    def __init__(self, config, pbounds, random_state=42):
         """
         trainer    : Your ML trainer instance (must have train(hp_dict) -> score)
         pbounds    : Dict of hyperparameter bounds
@@ -26,19 +26,27 @@ class MLBayesianOptimizer:
         log_path   : Path to CSV log file
         """
         
-        self.pm = Params(config)
-        self.bayes_path = root_path / 'bayes' / self.pm.bayesProject
+        self.pm = Params(config)        
+        root_path = Path(self.pm.root_path)
+        
+        if not self.pm.dual_drive:
+            self.project_path = root_path / 'bayes' / self.pm.bayesProject
+        else:
+            # A different root_path (/mnt)
+            self.project_path = root_path / "data_even" / "projects" / self.pm.bayesProject
+
+        self.project_path.mkdir(parents=True, exist_ok=True)
 
         #---------- Save config ---------
-        configPath =  self.bayes_path / ('params') # + '-' + self.get_train_id_string() +'.json')
+        configPath =  self.project_path / ('params') # + '-' + self.get_train_id_string() +'.json')
         check_dir(configPath.parent)
         with open(configPath, 'w') as f:
             json.dump(config, f, indent=4)
 
-        self.trainer = Trainer(config, root_path, self.bayes_path, bayes=self)
+        self.trainer = Trainer(self.pm, root_path, self.project_path, bayes=self)
         self.pbounds = pbounds
-        self.save_path = self.bayes_path / 'bayes_res.json'
-        self.log_path = self.bayes_path / 'bayes_log.csv'
+        self.save_path = self.project_path / 'bayes_res.json'
+        self.log_path = self.project_path / 'bayes_log.csv'
         self.random_state = random_state
 
         self.finished = False
@@ -138,7 +146,7 @@ class MLBayesianOptimizer:
 
 if __name__ == "__main__":
 
-    from models.config import config, root_path
+    from models.config import config
 
     from pathlib import Path
     import platform
@@ -172,7 +180,7 @@ if __name__ == "__main__":
             # # "layerFFN" : (layerFFN, layerFFN, str),
         }
         
-    bayes = MLBayesianOptimizer(config, root_path, pbounds, random_state=523)
+    bayes = MLBayesianOptimizer(config, pbounds, random_state=523)
 
     best = bayes.maximize(init_points=3, n_iter=10)     # Mike!!!
 

@@ -11,13 +11,13 @@ import modules.utils as utils
 from modules.params import Params
 
 class Trainer():
-    def __init__(self, config, root_path, bayes_path, bayes=None):
+    def __init__(self, pm, root_path, project_path, bayes=None):
+        self.pm = pm
         self.root_path = root_path
-        self.bayes_path = bayes_path
+        self.project_path = project_path
         self.bayes = bayes
-        self.setup_logging(bayes_path)
+        self.setup_logging(project_path)
 
-        self.pm = Params(config)
         self.train = None
     
     def setup_logging(self, log_dir):
@@ -94,7 +94,7 @@ class Trainer():
         # self.config['nLayers'] = nLayers
         # # self.config['layerFFN'] = layerFFN
 
-        self.train = Train(self.pm, self.root_path, self.bayes_path, trainable=True)
+        self.train = Train(self.pm, self.root_path, self.project_path, trainable=True)
         epoch, step_state = self.train.try_load_state()
 
         profit = self.run_train(start_epoch=epoch, step_state=step_state)
