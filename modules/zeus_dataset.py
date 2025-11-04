@@ -10,6 +10,7 @@ import json
 import gc
 import math
 import platform
+import heapq
 from datetime import datetime, date, timedelta
 import random
 from torch.utils.data import Dataset
@@ -302,19 +303,17 @@ class Zeus_Dataset(Dataset):
 
     def iter_day_folders(self):
         """
-        Yield Path objects for all day folders under the correct cds folder(s),
-        depending on pm.dual_drive.
+        Yield (year, month, day, Path) for all day folders under the correct cds folder(s),
+        ordered by date, lazily and memory-efficiently.
         """
         if not self.pm.dual_drive:
             base_folders = [Path(self.cds_folder)]
         else:
             base_folders = [Path(self.cds_folder_even), Path(self.cds_folder_odd)]
 
-        for base in base_folders:
-            if not base.is_dir():
-                continue
-
-            for year_path in sorted(base.iterdir()):
+        def day_iter(base_folder):
+            """Yield (year, month, day, Path) for one base folder, sorted by date."""
+            for year_path in sorted(base_folder.iterdir()):
                 if not year_path.is_dir() or not year_path.name.isdigit():
                     continue
                 year = int(year_path.name)
@@ -331,14 +330,21 @@ class Zeus_Dataset(Dataset):
 
                         dn = self.get_day_number(year, month, day)
 
-                        # Apply even/odd filtering if dual_drive
                         if self.pm.dual_drive:
-                            if base == Path(self.cds_folder_even) and dn % 2 != 0:
+                            if base_folder == Path(self.cds_folder_even) and dn % 2 != 0:
                                 continue
-                            if base == Path(self.cds_folder_odd) and dn % 2 == 0:
+                            if base_folder == Path(self.cds_folder_odd) and dn % 2 == 0:
                                 continue
 
-                        yield year, month, day, day_path
+                        yield (year, month, day, day_path)
+
+        # Create iterators for all base folders
+        iterators = [day_iter(base) for base in base_folders if base.is_dir()]
+
+        # Merge all iterators in order by (year, month, day)
+        # key=lambda x: (year, month, day)
+        for item in heapq.merge(*iterators, key=lambda x: (x[0], x[1], x[2])):
+            yield item
 
     def count_data_days(self):
         start, end = None, None
