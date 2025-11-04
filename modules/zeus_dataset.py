@@ -1250,9 +1250,9 @@ if __name__ == "__main__":
     # mean, std = dataset.load_dataset_params()
     # print("mean: {}, std: {}".format(mean, std))
 
-    train_hours, vali_hours, test_hours = dataset.split_data_hours(renew=True, seed=523)
-    print("Lengths:", len(train_hours), len(vali_hours), len(test_hours))
-    print("train_hours[:3]", train_hours[:3])
+    # train_hours, vali_hours, test_hours = dataset.split_data_hours(renew=True, seed=523)
+    # print("Lengths:", len(train_hours), len(vali_hours), len(test_hours))
+    # print("train_hours[:3]", train_hours[:3])
 
     # train_set, vali_set, test_set = dataset.generate_x_sets(seed=523)
     # print("train_set, vali_set, test_set lengths:", len(train_set), len(vali_set), len(test_set))
