@@ -67,6 +67,8 @@ config = {
     'lr' : 1e-5,    # ---> changed below
     'overwrite_saved_lr': False,
     
+    'bottleneck_dropout' : 0.03,
+    
     # Scheduler
     # (initial_lr = max_lr / div_factor, for pct_start of the total_steps) -> max_lr -> (Final LR = initial_lr/final_div_factor, for the remaining steps)
     'max_lr' : 1e-5,    # ----> changed below
@@ -422,6 +424,7 @@ projects["ResNet_NoStage_B15_BR30"] = {
     'ObsorbHDistortion': False,
     'nCNNBlocks' : 15,  # NO change - paramemters
     'bottleneckRate' : 0.30,    # NO change - parameters
+    'bottleneck_dropout' : 0.03
 }
 
 #-------------------------------- select proejct -----------------------

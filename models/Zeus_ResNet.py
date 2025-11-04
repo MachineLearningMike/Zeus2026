@@ -45,7 +45,7 @@ class Zeus(nn.Module):
         # self.cnn = ResNetCylindrical(nVariables=C, nBlocks=36, mid_channels=in_channels, in_channels=in_channels).to(device)    # 3753K params, from ResNet50_Zeus_GroupNorm_3753K
         # self.cnn = ResNetCylindrical(in_channels=pm.T1*C).to(device)  # 365K params, from ResNet50_Zeus_GroupNorm_365K
         # self.cnn = ResNetCylindrical(self.pm).to(device)
-        self.cnn = CircularBottleneckStack(channels=pm.T1 * pm.nVariables, num_blocks=pm.nCNNBlocks, bottlenectRate=pm.bottleneckRate).to(device)
+        self.cnn = CircularBottleneckStack(channels=pm.T1 * pm.nVariables, num_blocks=pm.nCNNBlocks, bottlenectRate=pm.bottleneckRate, dropout=pm.bottleneck_dropout).to(device)
 
         num_params = sum(p.numel() for p in self.cnn.parameters())
         print(f"Total parameters: {num_params:,}")
@@ -101,7 +101,7 @@ class Zeus(nn.Module):
 
         target = target.to(self.device)
 
-        context = torch.enable_grad # if trainable else torch.no_grad       # commented out for test, as validation loss is weirdly larger than training loss.
+        context = torch.enable_grad if trainable else torch.no_grad       # commented out for test, as validation loss is weirdly larger than training loss.
         with context():
             pred = self(input, target.shape[1], target)
             lossAndMetrics = loss_fn(target, pred, batch_diff, era5_data_vars)

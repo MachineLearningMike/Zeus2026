@@ -60,7 +60,7 @@ class FusedHorizontalCircularConv3x3(nn.Module):
 # Residual Bottleneck with SE
 # ----------------------
 class CircularBottleneck(nn.Module):
-    def __init__(self, channels, bottlenectRate=0.5):
+    def __init__(self, channels, bottlenectRate=0.5, dropout=0.05):
         super().__init__()
         mid_channels = max(1, int(channels * bottlenectRate))
 
@@ -75,6 +75,8 @@ class CircularBottleneck(nn.Module):
 
         self.se = SEBlock(channels)
         self.act = nn.GELU()
+        
+        self.dropout = nn.Dropout(0.03)
 
     def forward(self, x):
         identity = x
@@ -82,6 +84,9 @@ class CircularBottleneck(nn.Module):
         out = self.act(self.ln2(self.conv2(out)))
         out = self.ln3(self.conv3(out))
         out = self.se(out)
+        
+        out = self.dropout(out)
+        
         out = out + identity
         out = self.act(out)
         return out

@@ -51,6 +51,7 @@ class Params:
         self.kv_full_sequence = config['kv_full_sequence']        
         self.dropout = config['dropout']
         self.dropPath = config['dropPath']
+        self.bottleneck_dropout = config['bottleneck_dropout']
         
         self.nLayers = config['nLayers']
         self.zeusBlocks = config['zeusBlocks']
