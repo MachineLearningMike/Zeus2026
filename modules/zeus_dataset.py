@@ -351,7 +351,7 @@ class Zeus_Dataset(Dataset):
         missing = False
         total_days = 0
         
-        for year, month, day, day_dir in self.iter_day_folders():
+        for year, month, day, day_dir in self.iter_day_folders():   # assume the return is chronologically increasingly ordered.
             files = {f.stem for f in day_dir.glob("*.npz")}
             missing_vars = [var for var in ['all'] if var not in files]
             if len(missing_vars) > 0:
@@ -693,27 +693,38 @@ class Zeus_Dataset(Dataset):
         return t2
     
     def split_data_hours(self, renew=False, seed=None):
-        total_days, start_day, end_day, complete, data_dates = self.count_data_days()
-
-        train_pct = self.pm.train_pct; vali_pct = self.pm.vali_pct
+        existing_train_hours = []
+        existing_vali_hours = []
+        existing_test_hours = []
 
         try:
-            assert renew == False
             # print("Loading data dates...")
             with open(self.split_hours_path, "r") as f:
                 data = json.load(f)
 
-            self.train_hours = [(datetime.fromisoformat(d).date(), h) for (d, h) in data["train_hours"]]
-            self.vali_hours = [(datetime.fromisoformat(d).date(), h) for (d, h) in data["vali_hours"]]
-            self.test_hours = [(datetime.fromisoformat(d).date(), h) for (d, h) in data["test_hours"]]
+            existing_train_hours = [(datetime.fromisoformat(d).date(), h) for (d, h) in data["train_hours"]]
+            existing_vali_hours = [(datetime.fromisoformat(d).date(), h) for (d, h) in data["vali_hours"]]
+            existing_test_hours = [(datetime.fromisoformat(d).date(), h) for (d, h) in data["test_hours"]]
         except:
             print("Loading failed. Creating data hours...")
+            
+        if renew == False:
+            self.train_hours = existing_train_hours
+            self.vali_hours = existing_vali_hours
+            self.test_hours = existing_test_hours
+        else:
+            total_days, start_day, end_day, complete, data_dates = self.count_data_days()   # assume: data_dates is ordered.
+            train_pct = self.pm.train_pct; vali_pct = self.pm.vali_pct
 
             T1 = self.pm.T1
             data_dates = data_dates[:-1]    # Remove the last day for safety.
             
+            existing_dates = [d for (d, _) in existing_train_hours] + [ d for (d, _) in existing_vali_hours] + [d for (d, _) in existing_test_hours]
+            existing_dates = list(set(existing_dates))
+            new_data_dates = [d for d in data_dates if d not in existing_dates]
+            
             data_hours = []
-            for day in data_dates:
+            for day in new_data_dates:
                 # data_hours += [(day, hour) for hour in range(24)]
                 data_hours += [(day, hour) for hour in range(1)]    # day, 0 hour
 
@@ -724,9 +735,13 @@ class Zeus_Dataset(Dataset):
             n = len(shuffled_hours)
             train_size = int(n * train_pct / 100)
             vali_size = int(n * vali_pct / 100)
-            self.train_hours = shuffled_hours[:train_size]
-            self.vali_hours = shuffled_hours[train_size : train_size + vali_size]
-            self.test_hours = shuffled_hours[train_size + vali_size :]
+            new_train_hours = shuffled_hours[:train_size]
+            new_vali_hours = shuffled_hours[train_size : train_size + vali_size]
+            new_test_hours = shuffled_hours[train_size + vali_size :]
+            
+            self.train_hours = existing_train_hours + new_train_hours
+            self.vali_hours = existing_vali_hours + new_vali_hours
+            self.test_hours = existing_test_hours + new_test_hours
 
             data = {
                 "train_hours":  [(d.isoformat(), h) for (d, h) in self.train_hours],
@@ -737,7 +752,6 @@ class Zeus_Dataset(Dataset):
                 json.dump(data, f, indent=2)
         
         return self.train_hours, self.vali_hours, self.test_hours
-
 
     def generate_x_hours(self, seed=None):
         if seed is not None: random.seed(seed)
@@ -1206,26 +1220,26 @@ def copy_except_cds(src, dst):
 #-------------------------------------- test ----------------------------------------
 if __name__ == "__main__":
 
-    src = "/mnt/data/zeus_data/CDS"           # source CDS folder
-    drive_even = "/mnt/data_even/CDS"  # target drive for even days
-    drive_odd = "/mnt/data_odd/CDS"   # target drive for odd days
-    divide_cds_by_day(src, drive_even, drive_odd)
+    # src = "/mnt/data/zeus_data/CDS"           # source CDS folder
+    # drive_even = "/mnt/data_even/CDS"  # target drive for even days
+    # drive_odd = "/mnt/data_odd/CDS"   # target drive for odd days
+    # divide_cds_by_day(src, drive_even, drive_odd)
     
-    src = "/mnt/data/zeus_data"
-    dst = "/mnt/data_even"
-    copy_except_cds(src, dst)
+    # src = "/mnt/data/zeus_data"
+    # dst = "/mnt/data_even"
+    # copy_except_cds(src, dst)
 
-    from models.config import config, root_path
+    from models.config import config
     pm = Params(config)
 
-    # dataset = Zeus_Dataset(pm, root_path)
+    dataset = Zeus_Dataset(pm, Path(config['root_path']))
 
     # end_date = date(2025, 10, 23)
     # dataset.download_dataset(2013, end_date)   # downloads day data in reverse order.
 
-    # total_days, start_day, end_day, complete, data_dates = dataset.count_data_days()
-    # print(start_day, end_day)
-    # print(total_days, complete)
+    total_days, start_day, end_day, complete, data_dates = dataset.count_data_days()
+    print(start_day, end_day)
+    print(total_days, complete)
 
     # for _ in range(100):
     #     print(dataset.get_T2_new())
@@ -1236,9 +1250,9 @@ if __name__ == "__main__":
     # mean, std = dataset.load_dataset_params()
     # print("mean: {}, std: {}".format(mean, std))
 
-    # train_dates, vali_dates, test_dates = dataset.split_data_dates(renew=True, seed=523)
-    # print("Lengths of dates:", len(train_dates), len(vali_dates), len(test_dates))
-    # print("train_dates[:3]", train_dates[:3])
+    train_hours, vali_hours, test_hours = dataset.split_data_hours(renew=True, seed=523)
+    print("Lengths:", len(train_hours), len(vali_hours), len(test_hours))
+    print("train_hours[:3]", train_hours[:3])
 
     # train_set, vali_set, test_set = dataset.generate_x_sets(seed=523)
     # print("train_set, vali_set, test_set lengths:", len(train_set), len(vali_set), len(test_set))
