@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import xarray as xr
 import threading
 import shutil
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import calendar
 import json
 import gc
@@ -72,7 +72,7 @@ class Zeus_Dataset(Dataset):
 
     #------------------------------------- Download dataset -----------------------
 
-    def get_day_number(year, month, day):
+    def get_day_number(self, year, month, day):
         return (datetime(year, month, day) - datetime(1970,1,1)).days
 
     def load_data(self):
@@ -120,9 +120,11 @@ class Zeus_Dataset(Dataset):
         return dataset
 
     def get_file_path(self, year, month, day, variable):
-        return self.cds_folder / str(year) / str(month).zfill(2) / str(day).zfill(2) / (variable + ".npz")
+        cds_folder = self.cds_folder if not self.pm.dual_drive else self.cds_folder_even if self.get_day_number(year, month, day) % 2 == 0 else self.cds_folder_odd        
+        return cds_folder / str(year) / str(month).zfill(2) / str(day).zfill(2) / (variable + ".npz")
     def get_file_path_npy(self, year, month, day, variable):
-        return self.cds_folder / str(year) / str(month).zfill(2) / str(day).zfill(2) / (variable + ".npy")
+        cds_folder = self.cds_folder if not self.pm.dual_drive else self.cds_folder_even if self.get_day_number(year, month, day) % 2 == 0 else self.cds_folder_odd        
+        return cds_folder / str(year) / str(month).zfill(2) / str(day).zfill(2) / (variable + ".npy")
     def get_last_day_of_month(self, year, month):
         return calendar.monthrange(year, month)[1]
 
@@ -218,7 +220,7 @@ class Zeus_Dataset(Dataset):
 
         return files_to_remove
 
-    def download_dataset(self, start_year, end_date):
+    def download_dataset_old(self, start_year, end_date):
         total_ds = self.get_normalized_dataset()
 
         print(list(total_ds.data_vars))
@@ -236,6 +238,45 @@ class Zeus_Dataset(Dataset):
                     for f in files_to_remove: os.remove(f)
         return
     
+    def process_day(self, total_ds, year, month, day):
+        """Helper to download and clean up one day."""
+        files_to_remove = self.download_day_data(total_ds, year, month, day)
+        for f in files_to_remove:
+            os.remove(f)
+        return (year, month, day)  # optional return for logging    
+    
+    def download_dataset(self, start_year, end_date, max_workers=4):
+        """Run self.download_day_data in parallel for multiple days."""
+        total_ds = self.get_normalized_dataset()
+
+        print(list(total_ds.data_vars))
+        print(total_ds["latitude"].min(), total_ds["latitude"].max(), total_ds["longitude"].min(), total_ds["longitude"].max())
+        
+        year_list = list(range(end_date.year, start_year-1, -1))
+        month_list = list(range(12, 0, -1))
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
+
+            for year in year_list:
+                for month in month_list:
+                    for day in range(self.get_last_day_of_month(year, month), 0, -1):
+                        if date(year, month, day) > end_date:
+                            continue
+
+                        # Submit each day's work to thread pool
+                        futures.append(
+                            executor.submit(self.process_day, total_ds, year, month, day)
+                        )
+
+            # Optionally: wait for all to finish and handle results
+            for future in as_completed(futures):
+                try:
+                    y, m, d = future.result()
+                    print(f"Finished {y}-{m:02d}-{d:02d}")
+                except Exception as e:
+                    print(f"Error processing a day: {e}")    
+        
     def next_month(self, dt):
         return dt + relativedelta(month=1)
     def last_day_of_month(self, year, month):
@@ -259,32 +300,63 @@ class Zeus_Dataset(Dataset):
         sorted_files = sorted(files, key=lambda f: stem_rank.get(f.stem, float('inf')))
         return sorted_files
 
+    def iter_day_folders(self):
+        """
+        Yield Path objects for all day folders under the correct cds folder(s),
+        depending on pm.dual_drive.
+        """
+        if not self.pm.dual_drive:
+            base_folders = [Path(self.cds_folder)]
+        else:
+            base_folders = [Path(self.cds_folder_even), Path(self.cds_folder_odd)]
+
+        for base in base_folders:
+            if not base.is_dir():
+                continue
+
+            for year_path in sorted(base.iterdir()):
+                if not year_path.is_dir() or not year_path.name.isdigit():
+                    continue
+                year = int(year_path.name)
+
+                for month_path in sorted(year_path.iterdir()):
+                    if not month_path.is_dir() or not month_path.name.isdigit():
+                        continue
+                    month = int(month_path.name)
+
+                    for day_path in sorted(month_path.iterdir()):
+                        if not day_path.is_dir() or not day_path.name.isdigit():
+                            continue
+                        day = int(day_path.name)
+
+                        dn = self.get_day_number(year, month, day)
+
+                        # Apply even/odd filtering if dual_drive
+                        if self.pm.dual_drive:
+                            if base == Path(self.cds_folder_even) and dn % 2 != 0:
+                                continue
+                            if base == Path(self.cds_folder_odd) and dn % 2 == 0:
+                                continue
+
+                        yield year, month, day, day_path
 
     def count_data_days(self):
         start, end = None, None
         missing = False
         total_days = 0
-        for year_dir in sorted(self.cds_folder.iterdir())[ - self.pm.data_years : ]:
-            if not year_dir.is_dir():
-                continue
-            for month_dir in sorted(year_dir.iterdir()):
-                if not month_dir.is_dir():
-                    continue
-                for day_dir in sorted(month_dir.iterdir()):
-                    if not day_dir.is_dir():
-                        continue
+        
+        for year, month, day, day_dir in self.iter_day_folders():
+            files = {f.stem for f in day_dir.glob("*.npz")}
+            missing_vars = [var for var in ['all'] if var not in files]
+            if len(missing_vars) > 0:
+                print('missing...', day_dir)
+                missing = True
 
-                    files = {f.stem for f in day_dir.glob("*.npz")}
-                    missing_vars = [var for var in ['all'] if var not in files]
-                    if len(missing_vars) > 0:
-                        print('missing...', day_dir)
-                        missing = True
-
-                    total_days += 1
-                    if start is None:
-                        start = day_dir
-                    end = day_dir
-                    end_day = date(year=int(end.parts[-3]), month=int(end.parts[-2]), day=int(end.parts[-1]))
+            total_days += 1
+            if start is None:
+                start = day_dir
+            end = day_dir
+            end_day = date(year=int(end.parts[-3]), month=int(end.parts[-2]), day=int(end.parts[-1]))
 
         complete = not missing
         start_day = date(year=int(start.parts[-3]), month=int(start.parts[-2]), day=int(start.parts[-1]))
@@ -306,41 +378,31 @@ class Zeus_Dataset(Dataset):
         
         n = 0
         mean = np.zeros((len(self.pm.variables),), dtype=np.float32) # (C,)
-        for year_dir in sorted(self.cds_folder.iterdir()):
-            if not year_dir.is_dir():
-                continue
-            for month_dir in sorted(year_dir.iterdir()):
-                if not month_dir.is_dir():
-                    continue
-                for day_dir in sorted(month_dir.iterdir()):
-                    if not day_dir.is_dir():
-                        continue
-                                        
-                    file_path = day_dir / 'all.npz'
-                    
-                    values = []
-                    load = load_decoded_variables(file_path)    # npZ
-                    idx = 0; values = []
-                    for key, value in load.items():
-                        assert key == self.pm.variables[idx]; idx += 1
-                        values.append(value)
-                    arr = np.stack(values, axis=1)  # expected: (24, C, 721, 1440), read 
-                    arr = arr[:, :, :, :]        # (24, C, 721, 1440)    # Do not exclude the north pole
+        
+        for year, month, day, day_dir in self.iter_day_folders():                                        
+            file_path = day_dir / 'all.npz'
+            
+            values = []
+            load = load_decoded_variables(file_path)    # npZ
+            idx = 0; values = []
+            for key, value in load.items():
+                assert key == self.pm.variables[idx]; idx += 1
+                values.append(value)
+            arr = np.stack(values, axis=1)  # expected: (24, C, 721, 1440), read 
+            arr = arr[:, :, :, :]        # (24, C, 721, 1440)    # Do not exclude the north pole
 
-                    if cuda_available:
-                        _mean = torch.tensor(arr, dtype=torch.float32).cuda().mean(dim=(0,2,3)).cpu().numpy()   # (C,)
-                    else:
-                        _mean = np.mean(arr, axis=(0, 2, 3))   # (C,)
+            if cuda_available:
+                _mean = torch.tensor(arr, dtype=torch.float32).cuda().mean(dim=(0,2,3)).cpu().numpy()   # (C,)
+            else:
+                _mean = np.mean(arr, axis=(0, 2, 3))   # (C,)
 
-                    has_nan = np.any(np.isnan(_mean))
-                    if has_nan:
-                        raise Exception("mean nan found: ", str(day_dir))
-                    formatter = {'float_kind': lambda x: f"{x:.4g}"}
-                    print("mean", str(day_dir), np.array2string(_mean, formatter=formatter))
-                    n += 1
-                    mean = mean * (n-1)/n + _mean / n   # (C,) # mean of mean = total mean 
-            #         break
-            #     break
+            has_nan = np.any(np.isnan(_mean))
+            if has_nan:
+                raise Exception("mean nan found: ", str(day_dir))
+            formatter = {'float_kind': lambda x: f"{x:.4g}"}
+            print("mean", str(day_dir), np.array2string(_mean, formatter=formatter))
+            n += 1
+            mean = mean * (n-1)/n + _mean / n   # (C,) # mean of mean = total mean 
             # break
         
         self.mean = mean        # (C,)
@@ -356,44 +418,33 @@ class Zeus_Dataset(Dataset):
         var = np.zeros((len(self.pm.variables),), dtype=np.float32) # (C,)
         n = 0
 
-        for year_dir in sorted(self.cds_folder.iterdir()):
-            if not year_dir.is_dir():
-                continue
-            for month_dir in sorted(year_dir.iterdir()):
-                if not month_dir.is_dir():
-                    continue
-                for day_dir in sorted(month_dir.iterdir()):
-                    if not day_dir.is_dir():
-                        continue
-                    
-                    file_path = day_dir / 'all.npz'
+        for year, month, day, day_dir in self.iter_day_folders():                                                            
+            file_path = day_dir / 'all.npz'
 
-                    values = []
-                    load = load_decoded_variables(file_path)    # npZ
-                    idx = 0; values = []
-                    for key, value in load.items():
-                        assert key == self.pm.variables[idx]; idx += 1
-                        values.append(value)
-                    arr = np.stack(values, axis=1)  # expected: (24, C, 721, 1440), read 
-                    arr = arr[:, :, :, :]        # (24, C, 721, 1440)    # Do not exclude the north pole
+            values = []
+            load = load_decoded_variables(file_path)    # npZ
+            idx = 0; values = []
+            for key, value in load.items():
+                assert key == self.pm.variables[idx]; idx += 1
+                values.append(value)
+            arr = np.stack(values, axis=1)  # expected: (24, C, 721, 1440), read 
+            arr = arr[:, :, :, :]        # (24, C, 721, 1440)    # Do not exclude the north pole
 
-                    arr = arr.transpose(0, 2, 3, 1) # (24, 721, 1440, C)                    
+            arr = arr.transpose(0, 2, 3, 1) # (24, 721, 1440, C)                    
 
-                    if cuda_available:
-                        tensor_arr = torch.tensor(arr, dtype=torch.float32).cuda() # (24, 721, 1440, C)
-                        _var = torch.mean(torch.pow(tensor_arr - self_mean, 2), dim=(0,1,2)).cpu().numpy() # (C,)                    
-                    else:
-                        _var = np.mean(np.power(arr - self_mean, 2), axis=(0,1,2)) # (C,)
+            if cuda_available:
+                tensor_arr = torch.tensor(arr, dtype=torch.float32).cuda() # (24, 721, 1440, C)
+                _var = torch.mean(torch.pow(tensor_arr - self_mean, 2), dim=(0,1,2)).cpu().numpy() # (C,)                    
+            else:
+                _var = np.mean(np.power(arr - self_mean, 2), axis=(0,1,2)) # (C,)
 
-                    has_nan = np.any(np.isnan(_var))
-                    if has_nan:
-                        raise Exception("Std nan found: ", str(day_dir))
-                    formatter = {'float_kind': lambda x: f"{x:.4g}"}
-                    print("var", str(day_dir), np.array2string(_var, formatter=formatter))
-                    n += 1
-                    var = var * (n-1)/n + _var / n   # (C,) # mean of mean = total mean 
-            #         break
-            #     break
+            has_nan = np.any(np.isnan(_var))
+            if has_nan:
+                raise Exception("Std nan found: ", str(day_dir))
+            formatter = {'float_kind': lambda x: f"{x:.4g}"}
+            print("var", str(day_dir), np.array2string(_var, formatter=formatter))
+            n += 1
+            var = var * (n-1)/n + _var / n   # (C,) # mean of mean = total mean 
             # break
             
         # var = M2 / n
@@ -1052,6 +1103,16 @@ class Zeus_Dataset(Dataset):
         
         self._disk_threadPool.shutdown(wait=True)
         # print(' ...shutdown')
+        
+def copy_day_foler(day_path, target_path):                
+    os.makedirs(target_path, exist_ok=True)
+    # Copy all files from day folder
+    for filename in os.listdir(day_path):
+        src_file = os.path.join(day_path, filename)
+        dst_file = os.path.join(target_path, filename)
+        if os.path.isfile(src_file):
+            shutil.copy2(src_file, dst_file)
+    return day_path, target_path
 
 def divide_cds_by_day(src_root, drive_even, drive_odd):
     """
@@ -1066,43 +1127,47 @@ def divide_cds_by_day(src_root, drive_even, drive_odd):
     """
     origin_date=datetime(1970,1,1)
     
-    for year_folder in sorted(os.listdir(src_root)):
-        year_path = os.path.join(src_root, year_folder)
-        if not os.path.isdir(year_path) or not year_folder.isdigit():
-            continue
-        year = int(year_folder)
-        
-        for month_folder in sorted(os.listdir(year_path)):
-            month_path = os.path.join(year_path, month_folder)
-            if not os.path.isdir(month_path) or not month_folder.isdigit():
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        futures = []
+
+        for year_folder in sorted(os.listdir(src_root)):
+            year_path = os.path.join(src_root, year_folder)
+            if not os.path.isdir(year_path) or not year_folder.isdigit():
                 continue
-            month = int(month_folder)
+            year = int(year_folder)
             
-            for day_folder in sorted(os.listdir(month_path)):
-                day_path = os.path.join(month_path, day_folder)
-                if not os.path.isdir(day_path) or not day_folder.isdigit():
+            for month_folder in sorted(os.listdir(year_path)):
+                month_path = os.path.join(year_path, month_folder)
+                if not os.path.isdir(month_path) or not month_folder.isdigit():
                     continue
-                day = int(day_folder)
+                month = int(month_folder)
                 
-                # Compute the day number from origin_date
-                current_date = datetime(year, month, day)
-                day_number = (current_date - origin_date).days
-                
-                # Decide target drive
-                target_drive = drive_even if day_number % 2 == 0 else drive_odd
-                
-                # Create corresponding folder structure in target
-                target_path = os.path.join(target_drive, year_folder, month_folder, day_folder)
-                os.makedirs(target_path, exist_ok=True)
-                
-                # Copy all files from day folder
-                for filename in os.listdir(day_path):
-                    src_file = os.path.join(day_path, filename)
-                    dst_file = os.path.join(target_path, filename)
-                    if os.path.isfile(src_file):
-                        shutil.copy2(src_file, dst_file)
-                
-                print(f"Copied {day_path} → {target_path} (day_number={day_number})")
+                for day_folder in sorted(os.listdir(month_path)):
+                    day_path = os.path.join(month_path, day_folder)
+                    if not os.path.isdir(day_path) or not day_folder.isdigit():
+                        continue
+                    day = int(day_folder)
+                    
+                    # Compute the day number from origin_date
+                    current_date = datetime(year, month, day)
+                    day_number = (current_date - origin_date).days
+                    
+                    # Decide target drive
+                    target_drive = drive_even if day_number % 2 == 0 else drive_odd
+                    
+                    # Create corresponding folder structure in target
+                    target_path = os.path.join(target_drive, year_folder, month_folder, day_folder)
+                    
+                    futures.append(
+                        executor.submit(copy_day_foler, day_path, target_path)
+                    )
+                    
+        for future in as_completed(futures):
+            try:
+                day_path, target_path = future.result()
+                print(f"Copied {day_path} → {target_path}")
+            except Exception as e:
+                print(f"Error processing a day: {e}")
                 
 def copy_except_cds(src, dst):
     """

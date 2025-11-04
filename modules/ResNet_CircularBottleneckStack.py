@@ -76,17 +76,17 @@ class CircularBottleneck(nn.Module):
         self.se = SEBlock(channels)
         self.act = nn.GELU()
         
-        self.dropout = nn.Dropout(0.03)
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
         identity = x
+
+        x = self.dropout(x)
+
         out = self.act(self.ln1(self.conv1(x)))
         out = self.act(self.ln2(self.conv2(out)))
         out = self.ln3(self.conv3(out))
         out = self.se(out)
-        
-        out = self.dropout(out)
-        
         out = out + identity
         out = self.act(out)
         return out
@@ -95,10 +95,10 @@ class CircularBottleneck(nn.Module):
 # Stack of Bottlenecks preserving shape
 # ----------------------
 class CircularBottleneckStack(nn.Module):
-    def __init__(self, channels, num_blocks=4, bottlenectRate=0.5):
+    def __init__(self, channels, num_blocks=4, bottlenectRate=0.5, dropout=0.05):
         super().__init__()
         self.blocks = nn.Sequential(*[
-            CircularBottleneck(channels, bottlenectRate)
+            CircularBottleneck(channels, bottlenectRate, dropout=dropout)
             for _ in range(num_blocks)
         ])
 

@@ -569,7 +569,8 @@ class Train():
         pbar = zeus_tqdm(self.dataset)
         pbar.start_prefetch_thread()
 
-        if self.nDevices > 1: executor = ThreadPoolExecutor(max_workers=len(self.devices))
+        if self.nDevices > 1: gpu_executor = ThreadPoolExecutor(max_workers=len(self.devices))
+        else: gpu_executor = None
         
         if not pbar.no_more_data():  pbar.prefetch(x_set_label)        # Fetch one batch asynchronously
 
@@ -659,7 +660,7 @@ class Train():
                         self.slave_models[device].load_state_dict(self.model.state_dict())
                         
                     futures = [
-                        executor.submit(
+                        gpu_executor.submit(
                             self.slave_models[self.devices[i]].single_GPU_forward_loss_backward, mb_x, mb_y, self.loss, self.dataset.unnormalize, 
                             batch_diff, era5_data_vars, self.devices[i]
                         )
@@ -721,11 +722,11 @@ class Train():
         _epoch_loss = torch.stack(_epoch_loss, dim=0).mean(dim=0)  # (,)
         _epoch_rmses = torch.stack(_epoch_rmses, dim=0).mean(dim=0)       # (C,)
         strC = ", ".join(f"{x:.2f}" for x in _epoch_rmses.ravel().tolist())
-        pbar.set_description('Loss: {:.3f}, rmses: {}'.format(_epoch_loss.item(), strC))
+        pbar.set_description('Loss: {:.3f}, metrics: {}'.format(_epoch_loss.item(), strC))
         pbar.stop_prefetch_thread()
         
         if trainable is True: self.save_state()   # Epoch_save. No step_state saved.
-        if self.nDevices > 1: executor.shutdown()
+        if gpu_executor is not None: gpu_executor.shutdown()
 
         return _epoch_loss, _epoch_rmses  # (,), (C,)
     
