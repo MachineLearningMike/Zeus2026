@@ -60,7 +60,7 @@ class FusedHorizontalCircularConv3x3(nn.Module):
 # Residual Bottleneck with SE
 # ----------------------
 class CircularBottleneck(nn.Module):
-    def __init__(self, channels, bottlenectRate=0.5, dropout=0.05):
+    def __init__(self, channels, bottlenectRate=0.5, dropout=0.0):
         super().__init__()
         mid_channels = max(1, int(channels * bottlenectRate))
 
@@ -95,7 +95,7 @@ class CircularBottleneck(nn.Module):
 # Stack of Bottlenecks preserving shape
 # ----------------------
 class CircularBottleneckStack(nn.Module):
-    def __init__(self, channels, num_blocks=4, bottlenectRate=0.5, dropout=0.05):
+    def __init__(self, channels, num_blocks=4, bottlenectRate=0.5, dropout=0.0):
         super().__init__()
         self.blocks = nn.Sequential(*[
             CircularBottleneck(channels, bottlenectRate, dropout=dropout)
