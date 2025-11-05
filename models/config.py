@@ -424,7 +424,7 @@ projects["ResNet_NoStage_B15_BR30"] = {
     'ObsorbHDistortion': False,
     'nCNNBlocks' : 15,  # NO change - paramemters
     'bottleneckRate' : 0.30,    # NO change - parameters
-    'bottleneck_dropout' : 0.10,
+    'bottleneck_dropout' : 0.00,
 }
 
 #-------------------------------- select proejct -----------------------

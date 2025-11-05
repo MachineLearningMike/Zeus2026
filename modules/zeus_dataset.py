@@ -48,6 +48,7 @@ class Zeus_Dataset(Dataset):
             self.cds_folder.mkdir(parents=True, exist_ok=True)
             self.param_path = root_path / 'dataset_params.json'
             self.split_hours_path = root_path / 'split_hours.json'
+            self.analysis_path = root_path / "analysis.pth"
         else:
             self.cds_folder_even = root_path / "data_even" / "CDS"            
             self.cds_folder_even.mkdir(parents=True, exist_ok=True)
@@ -56,6 +57,7 @@ class Zeus_Dataset(Dataset):
     
             self.param_path = root_path / "data_even" /'dataset_params.json'
             self.split_hours_path = root_path / "data_even" / 'split_hours.json'
+            self.analysis_path = root_path / "data_even" / "analysis.pth"
 
         
         self.difficulties = None
@@ -80,7 +82,7 @@ class Zeus_Dataset(Dataset):
         self.load_dataset_params()
         if self.pm.include_difficulty: self.load_difficulties()
         self.load_era5_data_vars()
-        self.split_data_hours(seed=self.pm.seed)
+        self.split_data_hours(renew=True, seed=self.pm.seed)
         return
     
     def start_prefetch_thread(self):
@@ -346,15 +348,15 @@ class Zeus_Dataset(Dataset):
         for item in heapq.merge(*iterators, key=lambda x: (x[0], x[1], x[2])):
             yield item
 
-    def count_data_days(self, inclusive_left_boundary=None, inclusive_right_boundary=None):
+    def count_data_days(self, inclusive_left=None, inclusive_right=None):
         start, end = None, None
         missing = False
         total_days = 0
         
         for year, month, day, day_dir in self.iter_day_folders():   # assume the return is chronologically increasingly ordered.
             current = date(year, month, day)
-            if inclusive_left_boundary is not None and current < inclusive_left_boundary: continue
-            if inclusive_right_boundary is not None and current > inclusive_right_boundary: continue
+            if inclusive_left is not None and current < inclusive_left: continue
+            if inclusive_right is not None and current > inclusive_right: continue
                         
             files = {f.stem for f in day_dir.glob("*.npz")}
             missing_vars = [var for var in ['all'] if var not in files]
@@ -382,17 +384,42 @@ class Zeus_Dataset(Dataset):
 
         return total_days, start_day, end_day, complete, data_dates
     
-
-    def analyze_dataset(self, save=False, inclusive_left_boundary=None, inclusive_right_boundary=None):
+    def read_checkpoint(self, path, keys):
+        checkpoint = torch.load(path, weights_only=False)
+        values = []
+        for key in keys:
+            if checkpoint.get(key, None) is not None:
+                values.append(checkpoint[key])
+        return tuple(values)
+    
+    def save_checkpoint(self, path, items):
+        try:
+            data = torch.load(path)
+        except:
+            data = {}
+        data.update(items)
+        torch.save(data, path)
+        return        
+        
+    def get_mean_of_dataset(self, inclusive_left=None, inclusive_right=None):
         cuda_available = torch.cuda.is_available()
+
+        try:
+            mean, step = self.read_checkpoint(self.analysis_path, ["mean", "mean_step"])
+            print(f"mean: {mean}, step: {step}")
+        except:
+            print("read_checkpoint failed. Starting a new analysis...")
+            mean = np.zeros((len(self.pm.variables),), dtype=np.float32) # (C,)
+            step = 0
         
-        n = 0
-        mean = np.zeros((len(self.pm.variables),), dtype=np.float32) # (C,)
-        
+        skip = -1
         for year, month, day, day_dir in self.iter_day_folders():
             current = date(year, month, day)
-            if inclusive_left_boundary is not None and current < inclusive_left_boundary: continue
-            if inclusive_right_boundary is not None and current > inclusive_right_boundary: continue
+            if inclusive_left is not None and current < inclusive_left: continue
+            if inclusive_right is not None and current > inclusive_right: continue
+
+            skip += 1   # the 0-based id of data item
+            if skip < step: continue
 
             file_path = day_dir / 'all.npz'
             
@@ -415,27 +442,37 @@ class Zeus_Dataset(Dataset):
                 raise Exception("mean nan found: ", str(day_dir))
             formatter = {'float_kind': lambda x: f"{x:.4g}"}
             print("mean", str(day_dir), np.array2string(_mean, formatter=formatter))
-            n += 1
-            mean = mean * (n-1)/n + _mean / n   # (C,) # mean of mean = total mean 
+            step += 1
+            mean = mean * (step-1)/step + _mean / step   # (C,) # mean of mean = total mean 
+
+            if step % 200 == 0:
+                self.save_checkpoint(self.analysis_path, {"mean": mean, "mean_step": step})
+                # print(f"saved. step: {step}")
+
             # break
+        self.save_checkpoint(self.analysis_path, {"mean": mean, "mean_step": step})
+        return mean, step  # numpy, scalar
+    
+    def get_std_of_dataset(self, mean, inclusive_left=None, inclusive_right=None): 
+        cuda_available = torch.cuda.is_available()
+        if cuda_available: mean = torch.tensor(mean).cuda()
+
+        try:
+            var, step = self.read_checkpoint(self.analysis_path, ["var", "var_step"])
+            print(f"var: {var}, step: {step}")
+        except:
+            print("read_checkpoint failed. Starting a new analysis...")
+            var = np.zeros((len(self.pm.variables),), dtype=np.float32) # (C,)
+            step = 0
         
-        self.mean = mean        # (C,)
-
-        #-------------------------------- std -------------------
-        C = len(self.pm.variables)
-
-        if cuda_available: 
-            self_mean = torch.tensor(self.mean).cuda()
-        else:
-            self_mean = self.mean
-        
-        var = np.zeros((len(self.pm.variables),), dtype=np.float32) # (C,)
-        n = 0
-
+        skip = -1
         for year, month, day, day_dir in self.iter_day_folders():
             current = date(year, month, day)
-            if inclusive_left_boundary is not None and current < inclusive_left_boundary: continue
-            if inclusive_right_boundary is not None and current > inclusive_right_boundary: continue
+            if inclusive_left is not None and current < inclusive_left: continue
+            if inclusive_right is not None and current > inclusive_right: continue
+                                                   
+            skip += 1   # the 0-based id of data item
+            if skip < step: continue
                                                                         
             file_path = day_dir / 'all.npz'
 
@@ -452,56 +489,43 @@ class Zeus_Dataset(Dataset):
 
             if cuda_available:
                 tensor_arr = torch.tensor(arr, dtype=torch.float32).cuda() # (24, 721, 1440, C)
-                _var = torch.mean(torch.pow(tensor_arr - self_mean, 2), dim=(0,1,2)).cpu().numpy() # (C,)                    
+                _var = torch.mean(torch.pow(tensor_arr - mean, 2), dim=(0,1,2)).cpu().numpy() # (C,)                    
             else:
-                _var = np.mean(np.power(arr - self_mean, 2), axis=(0,1,2)) # (C,)
+                _var = np.mean(np.power(arr - mean, 2), axis=(0,1,2)) # (C,)
 
             has_nan = np.any(np.isnan(_var))
             if has_nan:
                 raise Exception("Std nan found: ", str(day_dir))
             formatter = {'float_kind': lambda x: f"{x:.4g}"}
             print("var", str(day_dir), np.array2string(_var, formatter=formatter))
-            n += 1
-            var = var * (n-1)/n + _var / n   # (C,) # mean of mean = total mean 
-            # break
-            
-        # var = M2 / n
-        std = np.sqrt(var)
-        self.std = std
+            step += 1
+            var = var * (step-1)/step + _var / step   # (C,) # mean of mean = total mean
+
+            if step % 200 == 0:
+                self.save_checkpoint(self.analysis_path, {"var": var, "var_step": step})
+                # print(f"saved. step: {step}")
+
+            # break                
+        self.save_checkpoint(self.analysis_path, {"var": var, "var_step": step})
+        return np.sqrt(var), step   # numpy, scalar
+
+    def analyze_dataset(self, save=False, inclusive_left=None, inclusive_right=None):
+
+        mean, m = self.get_mean_of_dataset(inclusive_left=inclusive_left, inclusive_right=inclusive_right)        # (C,)
+        std, n = self.get_std_of_dataset(mean, inclusive_left=inclusive_left, inclusive_right=inclusive_right)        # (C,)
+        assert m == n
 
         if save:
             data = {
-                "mean": self.mean.tolist(),
-                "std":  self.std.tolist(),
+                "mean": mean.tolist(),
+                "std":  std.tolist(),
             }
             if self.param_path.exists() and self.param_path.is_file():
                 self.param_path.unlink()  # deletes the file
             with open(self.param_path, "w") as f:
                 json.dump(data, f)
 
-        return self.mean, self.std  # (C,), (C,)
-    
-    def integrate_statistics(self, m, n, new_mean, new_std, save=False):
-        # new_mean and new_std come from analyze_dataset and are numpy arrays.
-        
-        original_mean, original_std = self.load_dataset_params()    # tensors.
-        original_mean, original_std = original_mean.numpy(), original_std.numpy()
-        
-        integrated_mean = (original_mean * m + new_mean * n ) / (m + n)
-        
-        integrated_std = np.sqrt( (np.square(original_std) * m + np.square(new_std) * n) / (m + n) )
-        
-        if save:
-            data = {
-                "mean": integrated_mean.tolist(),
-                "std":  integrated_std.tolist(),
-            }
-            if self.param_path.exists() and self.param_path.is_file():
-                self.param_path.unlink()  # deletes the file
-            with open(self.param_path, "w") as f:
-                json.dump(data, f)
-                
-        return integrated_mean, integrated_std
+        return mean, std  # (C,), (C,)
             
     def load_dataset_params(self):
         with open(self.param_path, "r") as f:
@@ -727,7 +751,7 @@ class Zeus_Dataset(Dataset):
 
         return t2
     
-    def split_data_hours(self, renew=False, seed=None):
+    def split_data_hours(self, renew=False, save=True, seed=None):
         existing_train_hours = []
         existing_vali_hours = []
         existing_test_hours = []
@@ -778,13 +802,14 @@ class Zeus_Dataset(Dataset):
             self.vali_hours = existing_vali_hours + new_vali_hours
             self.test_hours = existing_test_hours + new_test_hours
 
-            data = {
-                "train_hours":  [(d.isoformat(), h) for (d, h) in self.train_hours],
-                "vali_hours":   [(d.isoformat(), h) for (d, h) in self.vali_hours],
-                "test_hours":   [(d.isoformat(), h) for (d, h) in self.test_hours],
-            }
-            with open(self.split_hours_path, "w") as f:
-                json.dump(data, f, indent=2)
+            if save:
+                data = {
+                    "train_hours":  [(d.isoformat(), h) for (d, h) in self.train_hours],
+                    "vali_hours":   [(d.isoformat(), h) for (d, h) in self.vali_hours],
+                    "test_hours":   [(d.isoformat(), h) for (d, h) in self.test_hours],
+                }
+                with open(self.split_hours_path, "w") as f:
+                    json.dump(data, f, indent=2)
         
         return self.train_hours, self.vali_hours, self.test_hours
 
@@ -1272,24 +1297,8 @@ if __name__ == "__main__":
     # end_date = date(2004, 2, 26)
     # dataset.download_dataset(2004, end_date)   # downloads day data in reverse order.
     
-    total_days, start_day, end_day, complete, data_dates = dataset.count_data_days(inclusive_left_boundary=date(2013, 1, 1))
-    print("original start, end", start_day, end_day)
-    print("original total, complete", total_days, complete)
-    m = total_days; complete_m = complete
-    
-    total_days, start_day, end_day, complete, data_dates = dataset.count_data_days(inclusive_right_boundary=date(2012, 12, 31))
-    print("new start, end", start_day, end_day)
-    print("new total, complete", total_days, complete)
-    n = total_days; complete_n = complete
-
-    # Test
-    if complete_n and complete_n:
-        new_mean, new_std = dataset.analyze_dataset(inclusive_right_boundary=date(2012, 12, 31))
-        # new_mean, new_std = dataset.analyze_dataset(inclusive_left_boundary=date(2025, 10, 20))     # few days for a try.
-        print(new_mean, new_std)
-        mean, std = dataset.integrate_statistics(m, n, new_mean, new_std, save=True)   # save=False for a try
-        print(mean, std)
-
+    mean, std = dataset.analyze_dataset(save=True)
+    print(mean, std)
 
     # for _ in range(100):
     #     print(dataset.get_T2_new())
@@ -1300,7 +1309,7 @@ if __name__ == "__main__":
     # mean, std = dataset.load_dataset_params()
     # print("mean: {}, std: {}".format(mean, std))
 
-    # train_hours, vali_hours, test_hours = dataset.split_data_hours(renew=True, seed=523)
+    # train_hours, vali_hours, test_hours = dataset.split_data_hours(renew=True, save=False, seed=523)
     # print("Lengths:", len(train_hours), len(vali_hours), len(test_hours))
     # print("train_hours[:3]", train_hours[:3])
 

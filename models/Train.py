@@ -705,7 +705,7 @@ class Train():
             step_loss = torch.tensor(step_loss).mean()   # (,)
             step_metrics = torch.stack(step_metrics, dim=0).mean(dim=0)   # (C,)
             strC = ", ".join(f"{x:.2f}" for x in step_metrics.ravel().tolist())
-            pbar.set_description("loss {:.4f} metrics ({}) wait(ms) {:.3f} lr {:1.3e}, bs {}"
+            pbar.set_description("loss {:.4f} mtrx ({}) wait(ms) {:.3f} lr {:1.3e}, bs {}"
                                  .format(step_loss.item(), strC, (end-start) * 1000, self.get_learning_rate(), batch_x.shape[0]))
 
             _epoch_loss.append(step_loss)    # (,) - list
