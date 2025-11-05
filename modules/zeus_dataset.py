@@ -346,12 +346,16 @@ class Zeus_Dataset(Dataset):
         for item in heapq.merge(*iterators, key=lambda x: (x[0], x[1], x[2])):
             yield item
 
-    def count_data_days(self):
+    def count_data_days(self, inclusive_left_boundary=None, inclusive_right_boundary=None):
         start, end = None, None
         missing = False
         total_days = 0
         
         for year, month, day, day_dir in self.iter_day_folders():   # assume the return is chronologically increasingly ordered.
+            current = date(year, month, day)
+            if inclusive_left_boundary is not None and current < inclusive_left_boundary: continue
+            if inclusive_right_boundary is not None and current > inclusive_right_boundary: continue
+                        
             files = {f.stem for f in day_dir.glob("*.npz")}
             missing_vars = [var for var in ['all'] if var not in files]
             if len(missing_vars) > 0:
@@ -379,13 +383,17 @@ class Zeus_Dataset(Dataset):
         return total_days, start_day, end_day, complete, data_dates
     
 
-    def analyze_dataset(self):
+    def analyze_dataset(self, save=False, inclusive_left_boundary=None, inclusive_right_boundary=None):
         cuda_available = torch.cuda.is_available()
         
         n = 0
         mean = np.zeros((len(self.pm.variables),), dtype=np.float32) # (C,)
         
-        for year, month, day, day_dir in self.iter_day_folders():                                        
+        for year, month, day, day_dir in self.iter_day_folders():
+            current = date(year, month, day)
+            if inclusive_left_boundary is not None and current < inclusive_left_boundary: continue
+            if inclusive_right_boundary is not None and current > inclusive_right_boundary: continue
+
             file_path = day_dir / 'all.npz'
             
             values = []
@@ -424,7 +432,11 @@ class Zeus_Dataset(Dataset):
         var = np.zeros((len(self.pm.variables),), dtype=np.float32) # (C,)
         n = 0
 
-        for year, month, day, day_dir in self.iter_day_folders():                                                            
+        for year, month, day, day_dir in self.iter_day_folders():
+            current = date(year, month, day)
+            if inclusive_left_boundary is not None and current < inclusive_left_boundary: continue
+            if inclusive_right_boundary is not None and current > inclusive_right_boundary: continue
+                                                                        
             file_path = day_dir / 'all.npz'
 
             values = []
@@ -457,17 +469,40 @@ class Zeus_Dataset(Dataset):
         std = np.sqrt(var)
         self.std = std
 
-        data = {
-            "mean": self.mean.tolist(),
-            "std":  self.std.tolist(),
-        }
-        if self.param_path.exists() and self.param_path.is_file():
-            self.param_path.unlink()  # deletes the file
-        with open(self.param_path, "w") as f:
-            json.dump(data, f)
+        if save:
+            data = {
+                "mean": self.mean.tolist(),
+                "std":  self.std.tolist(),
+            }
+            if self.param_path.exists() and self.param_path.is_file():
+                self.param_path.unlink()  # deletes the file
+            with open(self.param_path, "w") as f:
+                json.dump(data, f)
 
         return self.mean, self.std  # (C,), (C,)
-
+    
+    def integrate_statistics(self, m, n, new_mean, new_std, save=False):
+        # new_mean and new_std come from analyze_dataset and are numpy arrays.
+        
+        original_mean, original_std = self.load_dataset_params()    # tensors.
+        original_mean, original_std = original_mean.numpy(), original_std.numpy()
+        
+        integrated_mean = (original_mean * m + new_mean * n ) / (m + n)
+        
+        integrated_std = np.sqrt( (np.square(original_std) * m + np.square(new_std) * n) / (m + n) )
+        
+        if save:
+            data = {
+                "mean": integrated_mean.tolist(),
+                "std":  integrated_std.tolist(),
+            }
+            if self.param_path.exists() and self.param_path.is_file():
+                self.param_path.unlink()  # deletes the file
+            with open(self.param_path, "w") as f:
+                json.dump(data, f)
+                
+        return integrated_mean, integrated_std
+            
     def load_dataset_params(self):
         with open(self.param_path, "r") as f:
             data = json.load(f)
@@ -1234,12 +1269,27 @@ if __name__ == "__main__":
 
     dataset = Zeus_Dataset(pm, Path(config['root_path']))
 
-    end_date = date(2012, 12, 31)
-    dataset.download_dataset(2000, end_date)   # downloads day data in reverse order.
+    # end_date = date(2004, 2, 26)
+    # dataset.download_dataset(2004, end_date)   # downloads day data in reverse order.
+    
+    total_days, start_day, end_day, complete, data_dates = dataset.count_data_days(inclusive_left_boundary=date(2013, 1, 1))
+    print("original start, end", start_day, end_day)
+    print("original total, complete", total_days, complete)
+    m = total_days; complete_m = complete
+    
+    total_days, start_day, end_day, complete, data_dates = dataset.count_data_days(inclusive_right_boundary=date(2012, 12, 31))
+    print("new start, end", start_day, end_day)
+    print("new total, complete", total_days, complete)
+    n = total_days; complete_n = complete
 
-    total_days, start_day, end_day, complete, data_dates = dataset.count_data_days()
-    print(start_day, end_day)
-    print(total_days, complete)
+    # Test
+    if complete_n and complete_n:
+        new_mean, new_std = dataset.analyze_dataset(inclusive_right_boundary=date(2012, 12, 31))
+        # new_mean, new_std = dataset.analyze_dataset(inclusive_left_boundary=date(2025, 10, 20))     # few days for a try.
+        print(new_mean, new_std)
+        mean, std = dataset.integrate_statistics(m, n, new_mean, new_std, save=True)   # save=False for a try
+        print(mean, std)
+
 
     # for _ in range(100):
     #     print(dataset.get_T2_new())
