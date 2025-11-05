@@ -30,7 +30,7 @@ class MLBayesianOptimizer:
         root_path = Path(self.pm.root_path)
         
         if not self.pm.dual_drive:
-            self.project_path = root_path / 'bayes' / self.pm.bayesProject
+            self.project_path = root_path / "projects" / self.pm.bayesProject
         else:
             # A different root_path (/mnt)
             self.project_path = root_path / "data_even" / "projects" / self.pm.bayesProject

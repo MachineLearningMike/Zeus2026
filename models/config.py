@@ -87,7 +87,7 @@ config = {
     'abundant_GPUs' : False,
     'doubleZeus' : False,
 
-    'dual_drive' : False,
+    'dual_drive' : True,
 
     # for 'doubleZeus' == True
     'freeze_zeus1' : False,
@@ -101,7 +101,7 @@ from pathlib import Path
 import platform
 if platform.system() == "Windows":  
     config['variables'] = variables = ["2m_temperature", 'total_precipitation', "100m_u_component_of_wind", '100m_v_component_of_wind', "2m_dewpoint_temperature", "surface_pressure"]
-    root_path = Path("D:/Zeus_Data")
+    root_path = Path("D:/zeus_data")
     
     # GPU: RTX 4070, Chunk2D
     config['factor10'] = 2  # 2 is the minimum, as 1 causes a non-float parameter error.
@@ -122,7 +122,7 @@ else:
     config['variables'] = variables = ["2m_temperature", 'total_precipitation', "100m_u_component_of_wind", '100m_v_component_of_wind', "2m_dewpoint_temperature", "surface_pressure"]
     
     if not config['dual_drive']:
-        config['root_path'] = "/mnt/data/zeus_data"
+        config['root_path'] = "/mnt/data"
     else:
         config['root_path'] = "/mnt"
     
