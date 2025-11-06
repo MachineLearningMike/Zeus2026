@@ -394,7 +394,7 @@ class Zeus_Dataset(Dataset):
     
     def save_checkpoint(self, path, items):
         try:
-            data = torch.load(path)
+            data = torch.load(path, weights_only=False)
         except:
             data = {}
         data.update(items)
@@ -1297,8 +1297,11 @@ if __name__ == "__main__":
     # end_date = date(2004, 2, 26)
     # dataset.download_dataset(2004, end_date)   # downloads day data in reverse order.
     
-    mean, std = dataset.analyze_dataset(save=True)
-    print(mean, std)
+    total_days, start_day, end_day, complete, data_dates = dataset.count_data_days()
+    print(f"total_days {total_days}, start_day {start_day}, end_day {end_day}, complete {complete}")
+    
+    # mean, std = dataset.analyze_dataset(save=False)
+    # print(mean, std)
 
     # for _ in range(100):
     #     print(dataset.get_T2_new())
