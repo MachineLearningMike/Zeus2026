@@ -105,13 +105,13 @@ class Zeus(nn.Module):
         input_normalized = normalize(input_unnormalized)
         target_normalized = normalize(target_unnormalized)
 
-        context = torch.enable_grad if trainable else torch.no_grad       # commented out for test, as validation loss is weirdly larger than training loss.
+        context = torch.enable_grad if trainable else torch.no_grad       # This is the only place where grad is managed.
         with context():
             pred = self(input_normalized, target_normalized.shape[1])
             lossAndMetrics = loss_fn(target_normalized, pred, batch_diff, era5_data_vars)
             loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
-            if trainable:
-                loss.backward()
+        if trainable:
+            loss.backward()
                 # grads = [p.grad.detach().clone() for p in self.parameters()]
 
         if isinstance(lossAndMetrics, (tuple, list)):

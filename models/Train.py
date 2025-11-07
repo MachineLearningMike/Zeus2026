@@ -642,8 +642,8 @@ class Train():
                     # !!! This context leads lots of parameters that don't receive gradient. Move into single_GPU_forward_loss_backward.
                     # context = autocast(device_type=self.device_type, dtype=torch.bfloat16) if self.pm.use_autocast else nullcontext()
                     # with context:
-                    with torch.set_grad_enabled(trainable):
-                        (loss, rmse), mae = self.model.single_GPU_forward_loss_backward(batch_x, batch_y, self.loss, self.dataset.normalize, self.dataset.unnormalize, batch_diff, era5_data_vars, trainable=trainable)
+                    # with torch.set_grad_enabled(trainable):   # grad is managed by single_GPU_forward_loss_backward
+                    (loss, rmse), mae = self.model.single_GPU_forward_loss_backward(batch_x, batch_y, self.loss, self.dataset.normalize, self.dataset.unnormalize, batch_diff, era5_data_vars, trainable=trainable)
                             # (loss, rmse) = self.model.single_GPU_forward_loss_backward(batch_x.detach().clone(), batch_y.detach().clone(), self.loss, None, batch_diff, era5_data_vars, trainable=trainable)
                     step_loss.append(loss)  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
                     step_metrics.append(mae)      # (C,) - list.  If no cpu(), their stack results in cuda
