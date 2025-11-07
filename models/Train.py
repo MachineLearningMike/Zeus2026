@@ -551,8 +551,8 @@ class Train():
 
     def run_epoch(self, epoch, x_set_label, trainable=False, step_state=None):
         self.epoch = epoch
-        self.model.train(trainable)     # regulate how dropout and normalization works.
-       
+        self.model.train(trainable)
+
         if step_state is not None:
             logging.info("Continuing saved epoch...")
         else:
@@ -620,11 +620,11 @@ class Train():
             batch_y = batch_y.pin_memory()     # torch.float32, cpu
 
             step_loss = []; step_metrics = []
-            if trainable: self.optimizer.zero_grad() 
+            if trainable: self.optimizer.zero_grad(set_to_none=True) # None instead of zero.
             
             self.transient_step += batch_x.shape[0]     # increase by batch size
             
-            if self.pm.abundant_GPUs or (not self.pm.abundant_GPUs and not trainable):
+            if self.pm.abundant_GPUs: # or (not self.pm.abundant_GPUs and not trainable):
                 with autocast(device_type=self.device_type, dtype=torch.bfloat16):
                     with torch.set_grad_enabled(trainable):
                         pred = self.model(batch_x, self.pm.mFrames)
@@ -637,18 +637,14 @@ class Train():
                 step_metrics.append(rmse.detach().cpu())      # (C,) - list.  If no cpu(), their stack results in cuda
                 self.total_losses.append(loss.item())
 
-            elif not self.pm.abundant_GPUs and trainable:
+            elif not self.pm.abundant_GPUs:
                 if self.nDevices <= 1:
-                    # s = time.time()
-                    
                     # !!! This context leads lots of parameters that don't receive gradient. Move into single_GPU_forward_loss_backward.
                     # context = autocast(device_type=self.device_type, dtype=torch.bfloat16) if self.pm.use_autocast else nullcontext()
                     # with context:
-                    #     with torch.set_grad_enabled(trainable):
-                    (loss, rmse), mae = self.model.single_GPU_forward_loss_backward(batch_x, batch_y, self.loss, self.dataset.normalize, self.dataset.unnormalize, batch_diff, era5_data_vars, trainable=trainable)
+                    with torch.set_grad_enabled(trainable):
+                        (loss, rmse), mae = self.model.single_GPU_forward_loss_backward(batch_x, batch_y, self.loss, self.dataset.normalize, self.dataset.unnormalize, batch_diff, era5_data_vars, trainable=trainable)
                             # (loss, rmse) = self.model.single_GPU_forward_loss_backward(batch_x.detach().clone(), batch_y.detach().clone(), self.loss, None, batch_diff, era5_data_vars, trainable=trainable)
-                    # e = time.time()
-                    # print("core time: {:.5f}".format(e-s))    # 16.7s
                     step_loss.append(loss)  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
                     step_metrics.append(mae)      # (C,) - list.  If no cpu(), their stack results in cuda
                     self.total_losses.append(loss.item())
