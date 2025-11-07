@@ -422,7 +422,7 @@ projects["ResNet_NoStage_B15_BR30"] = {
     'GPUWaitsData' : True,
     'useLRLearner' : False,
     'accum_steps' : 10,
-    'skip_validation' : False,
+    'skip_validation' : True,
     'ObsorbHDistortion': False,
     'nCNNBlocks' : 15,  # NO change - paramemters
     'bottleneckRate' : 0.30,    # NO change - parameters
