@@ -80,6 +80,7 @@ config = {
     'final_div_factor' : 1.0, # Final LR = initial_lr / final_div_factor
     'accum_steps' : 10,  # the smaller batch_size is, the larger accum_steps is.
     'use_autocast' : True,
+    'GPUWaitsData' : True,
 
     'epoch_patience' : 10,       # Mike!!!
     'useLRLearner' : False,
@@ -418,13 +419,14 @@ projects["ResNet_NoStage_B15_BR30"] = {
     'max_lr': 1e-3,
     'overwrite_saved_lr': True,
     'batch_size': 1,
-    'useLRLearner' : True,
+    'GPUWaitsData' : True,
+    'useLRLearner' : False,
     'accum_steps' : 10,
     'skip_validation' : False,
     'ObsorbHDistortion': False,
     'nCNNBlocks' : 15,  # NO change - paramemters
     'bottleneckRate' : 0.30,    # NO change - parameters
-    'bottleneck_dropout' : 0.10,
+    'bottleneck_dropout' : 0.00,
 }
 
 #-------------------------------- select proejct -----------------------

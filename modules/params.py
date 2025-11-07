@@ -95,6 +95,7 @@ class Params:
         self.useLRLearner = config['useLRLearner']
         self.accum_steps = config['accum_steps']
         self.use_autocast = config['use_autocast']
+        self.GPUWaitsData = config['GPUWaitsData']
         
         self.data_years = config['data_years']
         

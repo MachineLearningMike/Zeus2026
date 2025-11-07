@@ -1020,10 +1020,12 @@ class Zeus_Dataset(Dataset):
         
         return output  # (B, frames, C, H1, W1)
 
-    def load_and_normalize(self, day):
-        d = torch.tensor(self.load_day_all_data(day))
-        d = self.normalize(d)
-        return d
+    def load_from_drive(self, day, with_normalized=True):
+        unnormalied = torch.tensor(self.load_day_all_data(day))
+        normalized = None
+        if with_normalized:
+            normalized = self.normalize(unnormalied)
+        return unnormalied, normalized
 
     def take_batch(self):
         
@@ -1061,12 +1063,13 @@ class Zeus_Dataset(Dataset):
                 batch_y.append(d)
                                 
             else:
-                future_x = self._disk_threadPool.submit(self.load_and_normalize, day)
-                future_y = self._disk_threadPool.submit(self.load_and_normalize, day + timedelta(days=1))                
-                x = future_x.result()
-                y = future_y.result()                
-                batch_x.append(x)
-                batch_y.append(y)                
+                with_normalized = False
+                future_x = self._disk_threadPool.submit(self.load_from_drive, day, with_normalized)
+                future_y = self._disk_threadPool.submit(self.load_from_drive, day + timedelta(days=1), with_normalized)                
+                unnormalized_x, _ = future_x.result()
+                unnormalized_y, _ = future_y.result()
+                batch_x.append(unnormalized_x)
+                batch_y.append(unnormalized_y)
                 
         batch_x = torch.stack(batch_x, dim=0)     # (B, T1FG, C, 721, 1440)
         batch_y = torch.stack(batch_y, dim=0)     # (B, T2FG, C, 721, 1440)

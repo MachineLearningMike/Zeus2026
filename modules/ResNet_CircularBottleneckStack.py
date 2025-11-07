@@ -76,13 +76,11 @@ class CircularBottleneck(nn.Module):
         self.se = SEBlock(channels)
         self.act = nn.GELU()
         
-        self.dropout = nn.Dropout(dropout)
+        self.dropout = nn.Dropout(dropout) if dropout > 0 else None
 
     def forward(self, x):
         identity = x
-
-        x = self.dropout(x)
-
+        if self.dropout is not None: x = self.dropout(x)
         out = self.act(self.ln1(self.conv1(x)))
         out = self.act(self.ln2(self.conv2(out)))
         out = self.ln3(self.conv3(out))

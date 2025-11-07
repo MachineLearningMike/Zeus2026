@@ -551,7 +551,7 @@ class Train():
 
     def run_epoch(self, epoch, x_set_label, trainable=False, step_state=None):
         self.epoch = epoch
-        self.model.train(trainable)     # regularize how dropout and normalization works.
+        self.model.train(trainable)     # regulate how dropout and normalization works.
        
         if step_state is not None:
             logging.info("Continuing saved epoch...")
@@ -645,7 +645,7 @@ class Train():
                     # context = autocast(device_type=self.device_type, dtype=torch.bfloat16) if self.pm.use_autocast else nullcontext()
                     # with context:
                     #     with torch.set_grad_enabled(trainable):
-                    (loss, rmse), mae = self.model.single_GPU_forward_loss_backward(batch_x, batch_y, self.loss, self.dataset.unnormalize, batch_diff, era5_data_vars, trainable=trainable)
+                    (loss, rmse), mae = self.model.single_GPU_forward_loss_backward(batch_x, batch_y, self.loss, self.dataset.normalize, self.dataset.unnormalize, batch_diff, era5_data_vars, trainable=trainable)
                             # (loss, rmse) = self.model.single_GPU_forward_loss_backward(batch_x.detach().clone(), batch_y.detach().clone(), self.loss, None, batch_diff, era5_data_vars, trainable=trainable)
                     # e = time.time()
                     # print("core time: {:.5f}".format(e-s))    # 16.7s
@@ -705,8 +705,8 @@ class Train():
             step_loss = torch.tensor(step_loss).mean()   # (,)
             step_metrics = torch.stack(step_metrics, dim=0).mean(dim=0)   # (C,)
             strC = ", ".join(f"{x:.2f}" for x in step_metrics.ravel().tolist())
-            pbar.set_description("loss {:.4f} mtrx ({}) wait(ms) {:.3f} lr {:1.3e}, bs {}"
-                                 .format(step_loss.item(), strC, (end-start) * 1000, self.get_learning_rate(), batch_x.shape[0]))
+            pbar.set_description("RMSE {:.4f} MAE ({}) wait {:.3f} lr {:1.3e} bs {} do {}"
+                                 .format(step_loss.item(), strC, (end-start) * 1000, self.get_learning_rate(), batch_x.shape[0], self.pm.bottleneck_dropout))
 
             _epoch_loss.append(step_loss)    # (,) - list
             _epoch_rmses.append(step_metrics)   # (C,) - list
@@ -722,7 +722,7 @@ class Train():
         _epoch_loss = torch.stack(_epoch_loss, dim=0).mean(dim=0)  # (,)
         _epoch_rmses = torch.stack(_epoch_rmses, dim=0).mean(dim=0)       # (C,)
         strC = ", ".join(f"{x:.2f}" for x in _epoch_rmses.ravel().tolist())
-        pbar.set_description('Loss: {:.3f}, metrics: {}'.format(_epoch_loss.item(), strC))
+        pbar.set_description('RMSE: {:.3f}, MAE: {}'.format(_epoch_loss.item(), strC))
         pbar.stop_prefetch_thread()
         
         if trainable is True: self.save_state()   # Epoch_save. No step_state saved.
@@ -745,8 +745,8 @@ class Train():
 
     
     def get_epoch_display(self, _epoch_loss, _epoch_rmses):
-        loss = "Loss: {:.4f}".format(_epoch_loss.item())
-        rmses = "RMSE: " + ", ".join(f"{x:.5f}" for x in _epoch_rmses.ravel().tolist())
+        loss = "RMSE: {:.4f}".format(_epoch_loss.item())
+        rmses = "MAE: " + ", ".join(f"{x:.5f}" for x in _epoch_rmses.ravel().tolist())
         display = loss + ', ' + rmses
         return display
     

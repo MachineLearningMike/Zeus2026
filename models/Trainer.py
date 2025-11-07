@@ -55,6 +55,8 @@ class Trainer():
         for epoch in range(start_epoch, self.pm.epochs):
             run = True
             print("---------- epoch {} ------------".format(epoch))
+            
+            # self.validate(epoch, None, None)     #----------------------------------
                         
             train_loss, train_metrics = self.train.run_epoch(epoch, "train_set", trainable=True, step_state=step_state)   # (,), (C,)
             step_state = None # Valid initially only.
@@ -78,7 +80,7 @@ class Trainer():
         return - best_rmse_yet
 
     def validate(self, epoch, train_loss, train_metrics):
-        vali_loss, vali_metrics = self.train.run_epoch(epoch, "vali_set", trainable=False)     # (,), (C,)
+        vali_loss, vali_metrics = self.train.run_epoch(epoch, "vali_set", trainable=False)     # (,), (C,)   #------------------------
 
         display = self.train.get_epoch_display(vali_loss, vali_metrics)
         logging.info("Vali epoch: {}, {}".format(epoch, display))

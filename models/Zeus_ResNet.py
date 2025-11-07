@@ -90,7 +90,7 @@ class Zeus(nn.Module):
 
         return preds
 
-    def single_GPU_forward_loss_backward(self, input, target, loss_fn, unnormal_fn, batch_diff, era5_data_vars, trainable=True):
+    def single_GPU_forward_loss_backward(self, input_unnormalized, target_unnormalized, loss_fn, normalize, unnormalize, batch_diff, era5_data_vars, trainable=True):
         # Do not cast to 16bit for CNN networks.
 
         # with autocast(device_type=self.device_type, dtype=torch.bfloat16):
@@ -99,12 +99,16 @@ class Zeus(nn.Module):
         # assert input.requires_grad == False
         # assert target.requires_grad == False
 
-        target = target.to(self.device)
+        input_unnormalized = input_unnormalized.to(self.device)
+        target_unnormalized = target_unnormalized.to(self.device)
+        
+        input_normalized = normalize(input_unnormalized)
+        target_normalized = normalize(target_unnormalized)
 
         context = torch.enable_grad if trainable else torch.no_grad       # commented out for test, as validation loss is weirdly larger than training loss.
         with context():
-            pred = self(input, target.shape[1], target)
-            lossAndMetrics = loss_fn(target, pred, batch_diff, era5_data_vars)
+            pred = self(input_normalized, target_normalized.shape[1])
+            lossAndMetrics = loss_fn(target_normalized, pred, batch_diff, era5_data_vars)
             loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
             if trainable:
                 loss.backward()
@@ -115,9 +119,8 @@ class Zeus(nn.Module):
         else:
             detached_loss_metrics = lossAndMetrics.detach().cpu()
         
-        target = unnormal_fn(target)    # (B, T, C, H, W)
-        pred = unnormal_fn(pred.detach())        # (B, T, C, H, W)
-        mae = torch.abs(pred - target).mean(dim=(0, 1, 3, 4)).cpu()    # (C,)
+        pred = unnormalize(pred.detach())        # (B, T, C, H, W)
+        mae = torch.abs(pred - target_unnormalized).mean(dim=(0, 1, 3, 4)).cpu()    # (C,)
                         
         return detached_loss_metrics, mae
 
