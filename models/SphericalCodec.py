@@ -68,9 +68,10 @@ class ObsorbH(nn.Module):
         return y_out
 
 class SphericalEncoder(nn.Module):
-    def __init__(self, C, H, W, ObsorbHDistortion=True):
+    def __init__(self, C, H, W, ObsorbHDistortion=True, exclude_poles=0):
         super().__init__()
         self.C, self.H, self.W = C, H, W
+        self.exclude_poles = exclude_poles
         self.ObsorbHDistortion = ObsorbHDistortion
         if ObsorbHDistortion:
             self.obsorb = ObsorbH(C, H, W)
@@ -79,15 +80,15 @@ class SphericalEncoder(nn.Module):
     def forward(self, x):
         if self.ObsorbHDistortion:
             x = self.obsorb(x)
-        x = x + self.positional_codes
+        x = x + self.positional_codes[:, self.exclude_poles:-self.exclude_poles, :]
         return x
 
 
 class SphericalDecoder(SphericalEncoder):
     """Decoder is the same as Encoder, optionally could take different in_C"""
-    def __init__(self, in_C, C, H, W, ObsorbHDistortion=True):
+    def __init__(self, in_C, C, H, W, ObsorbHDistortion=True, exclude_poles=0):
         assert in_C == C, "in_C must equal C for this simple decoder"
-        super().__init__(C, H, W, ObsorbHDistortion)
+        super().__init__(C, H, W, ObsorbHDistortion, exclude_poles=exclude_poles)
 
 
 # -----------------------------

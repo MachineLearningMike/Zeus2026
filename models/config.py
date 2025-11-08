@@ -13,6 +13,8 @@ config = {
     'T1':           24, # 24 for Chunk, 3 for 256-head CNNs,
     'T2':           24,
 
+    'pole_boundary_angle': 60.0,      #
+
     # Transformer    
     'nHeads':        128, # (128) 8,     # 8    ----------------------    optimization param,  Chunk
     'heads_per_chunk':  2,  # (2)             ---------------------   optimization param,  Chunk

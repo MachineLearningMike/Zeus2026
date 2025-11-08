@@ -36,8 +36,8 @@ class Zeus(nn.Module):
         self.device = device
 
         # Encoder/Decoder always work per-frame
-        self.encoder = SphericalEncoder(C, H, W, pm.ObsorbHDistortion).to(device)
-        self.decoder = SphericalDecoder(C, C, H, W, pm.ObsorbHDistortion).to(device)
+        self.encoder = SphericalEncoder(C, H, W, pm.ObsorbHDistortion, exclude_poles=self.pm.exclude_poles).to(device)
+        self.decoder = SphericalDecoder(C, C, H, W, pm.ObsorbHDistortion, exclude_poles=self.pm.exclude_poles).to(device)
 
         in_channels = self.n_frames * C    # stacked frames
         # self.cnn = Convolutions(in_channels, cnn_hidden_channels, kernel_size=kernel_size).to(device)
@@ -119,10 +119,13 @@ class Zeus(nn.Module):
         else:
             detached_loss_metrics = lossAndMetrics.detach().cpu()
         
+        
         pred = unnormalize(pred.detach())        # (B, T, C, H, W)
-        mae = torch.abs(pred - target_unnormalized).mean(dim=(0, 1, 3, 4)).cpu()    # (C,)
+        lossAndMetrics = loss_fn(target_unnormalized, pred, batch_diff, era5_data_vars)
+        unnormalized_rmse = lossAndMetrics[1] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
+        unnormalized_mae = torch.abs(pred - target_unnormalized).mean(dim=(0, 1, 3, 4)).cpu()    # (C,)
                         
-        return detached_loss_metrics, mae
+        return detached_loss_metrics, unnormalized_rmse, unnormalized_mae
 
 # -----------------------------
 # Sinusoidal dataset
