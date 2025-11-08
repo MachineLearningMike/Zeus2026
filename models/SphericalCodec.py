@@ -80,7 +80,10 @@ class SphericalEncoder(nn.Module):
     def forward(self, x):
         if self.ObsorbHDistortion:
             x = self.obsorb(x)
-        x = x + self.positional_codes[:, self.exclude_poles:-self.exclude_poles, :]
+        if self.exclude_poles > 0:
+            x = x + self.positional_codes[:, self.exclude_poles:-self.exclude_poles, :]
+        else:
+            x = x + self.positional_codes
         return x
 
 
@@ -96,17 +99,20 @@ class SphericalDecoder(SphericalEncoder):
 # -----------------------------
 if __name__ == "__main__":
     C, H, W = 8, 72 * 2, 144 * 2
-    model = SphericalEncoder(C, H, W)
+    
+    exclude_poles_angle = 0
+    exclude_poles = int(H/180*(90-exclude_poles_angle))
+    model = SphericalEncoder(C, H, W, exclude_poles=exclude_poles)
 
     # Latitude values
     latitudes = [h / (W/2) * 180 - 90 for h in range(H)]
 
     # Extract floor, ceil, differences, and interpolation weights
-    floor_sizes = model.layer.floor.cpu().numpy()
-    ceil_sizes  = model.layer.ceil.cpu().numpy()
+    floor_sizes = model.obsorb.floor.cpu().numpy()
+    ceil_sizes  = model.obsorb.ceil.cpu().numpy()
     diffs       = ceil_sizes - floor_sizes
-    floorW      = model.layer.floorW.cpu().numpy()
-    ceilW       = model.layer.ceilW.cpu().numpy()
+    floorW      = model.obsorb.floorW.cpu().numpy()
+    ceilW       = model.obsorb.ceilW.cpu().numpy()
 
     # Plot kernel sizes and difference
     plt.figure(figsize=(10, 4))
@@ -143,7 +149,7 @@ if __name__ == "__main__":
     model.eval()
 
     # Random input tensor
-    x = torch.randn(2, C, H, W, device=device)  # batch of 2
+    x = torch.randn(2, C, H - exclude_poles * 2, W, device=device)  # batch of 2
 
     # Optional: mixed precision
     import torch.amp as amp
