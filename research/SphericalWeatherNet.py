@@ -6,6 +6,7 @@ import numpy as np
 import h5py
 import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
+from scipy.ndimage import gaussian_filter
 
 S2Activation = F.relu
 from s2cnn import S2Convolution
@@ -93,55 +94,59 @@ def s2cnn_to_era5_batch(Y_s2cnn, lat, lon):
 # 5️⃣ Dataset (streaming version)
 # ------------------------------
 class ERA5StreamingDataset(Dataset):
-    def __init__(self, file_list, T_in=3, lat_crop=(0,90), bandwidth=64):
-        self.file_list = file_list
+    """
+    Dummy ERA5 dataset generator.
+    Produces smooth, realistic random data for testing SphericalWeatherNet or similar models.
+    """
+
+    def __init__(self, file_list=None, T_in=6, lat_crop=(0, 90), bandwidth=30):
+        super().__init__()
+        print("[Info] Initializing dummy ERA5StreamingDataset (random synthetic data).")
+
+        # Parameters
         self.T_in = T_in
-        self.lat_min, self.lat_max = lat_crop
+        self.lat_crop = lat_crop
         self.bandwidth = bandwidth
+        self.num_samples = 1000
+        self.channels = 4  # Example: [T2M, U10, V10, MSLP]
+        self.lat_size = 721
+        self.lon_size = 1440
 
-        # Load grid from first file
-        with h5py.File(file_list[0], 'r') as f:
-            self.lat = f['lat'][:]
-            self.lon = f['lon'][:]
+        # Generate base random data
+        raw = np.random.randn(self.num_samples, self.channels, self.lat_size, self.lon_size).astype(np.float32)
 
-        # Precompute S2CNN grid & mask
-        self.grid_s2cnn, self.mask = make_era5_to_s2cnn_grid_lat_range(
-            self.lat, self.lon, bandwidth=self.bandwidth,
-            lat_min=self.lat_min, lat_max=self.lat_max
-        )
-        self.grid_s2cnn = self.grid_s2cnn.cuda()
-        self.mask = self.mask.cuda()
+        # Add spatial smoothness
+        for i in range(self.num_samples):
+            for c in range(self.channels):
+                raw[i, c] = gaussian_filter(raw[i, c], sigma=8.0)
 
-        # Compute sample offsets
-        self.sample_offsets = []
-        offset = 0
-        for fname in file_list:
-            with h5py.File(fname,'r') as f:
-                N = f['X'].shape[0]
-                self.sample_offsets.append((offset, offset+N))
-                offset += N
-        self.total_samples = offset
+        # Add a latitude-dependent gradient (like temperature decreasing toward poles)
+        lats = np.linspace(90, -90, self.lat_size).reshape(1, 1, -1, 1)
+        lat_gradient = np.cos(np.deg2rad(lats))
+        raw[:, 0] += 0.5 * lat_gradient  # apply to temperature-like channel
+
+        # Crop to selected latitudes
+        lat0, lat1 = lat_crop
+        lat_idx0 = int((90 - lat1) / 0.25)
+        lat_idx1 = int((90 - lat0) / 0.25)
+        self.data = raw[:, :, lat_idx1:lat_idx0, :]
+
+        print(f"[Info] Dummy data generated with shape {self.data.shape} (samples, channels, lat, lon)")
 
     def __len__(self):
-        return self.total_samples - self.T_in
+        # Example: return total samples minus T_in (to form input-output pairs)
+        return self.num_samples - self.T_in
 
     def __getitem__(self, idx):
-        for file_idx, (start,end) in enumerate(self.sample_offsets):
-            if start <= idx < end - self.T_in:
-                idx_in_file = idx - start
-                file_name = self.file_list[file_idx]
-                break
-        else:
-            raise IndexError(f"{idx} out of range")
+        # Return a sequence of T_in timesteps + next-step target
+        x = self.data[idx : idx + self.T_in]
+        y = self.data[idx + self.T_in]
 
-        with h5py.File(file_name,'r') as f:
-            X_seq = f['X'][idx_in_file:idx_in_file+self.T_in]
-            Y = f['Y'][idx_in_file+self.T_in]
+        # Convert to torch tensors
+        x = torch.tensor(x, dtype=torch.float32)
+        y = torch.tensor(y, dtype=torch.float32)
 
-        X_seq = torch.from_numpy(X_seq).float()
-        Y = torch.from_numpy(Y).float()
-        X_s2cnn = era5_to_s2cnn_batch(X_seq, self.grid_s2cnn, self.mask)
-        return X_s2cnn, Y
+        return x, y
 
 # ------------------------------
 # 6️⃣ Recursive multi-day forecast

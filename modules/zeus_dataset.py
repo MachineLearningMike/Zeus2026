@@ -1302,8 +1302,8 @@ if __name__ == "__main__":
 
     dataset = Zeus_Dataset(pm, Path(config['root_path']))
 
-    # end_date = date(2004, 2, 26)
-    # dataset.download_dataset(2004, end_date)   # downloads day data in reverse order.
+    end_date = date(2025, 10, 31)
+    dataset.download_dataset(2016, end_date, max_workers=10)   # downloads day data in reverse order.
     
     total_days, start_day, end_day, complete, data_dates = dataset.count_data_days()
     print(f"total_days {total_days}, start_day {start_day}, end_day {end_day}, complete {complete}")
