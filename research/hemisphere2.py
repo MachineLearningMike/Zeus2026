@@ -5,7 +5,7 @@ from scipy.interpolate import RegularGridInterpolator
 R = 6371  # sphere radius
 
 # --- Generate Fibonacci points ---
-def latlon_to_fibonacci(lat_grid, lon_grid, data_grid, d_target=300):
+def latlon_to_fibonacci(lat_grid, lon_grid, data_grid, d_target=2000):
     A = 4 * np.pi * R**2
     N = int(A / d_target**2)
     indices = np.arange(0, N, dtype=float) + 0.5
