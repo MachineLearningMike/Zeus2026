@@ -229,11 +229,16 @@ class GeoViTHierarchical(nn.Module):
 # ------------------- Demo -------------------
 if __name__=="__main__":
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
-    B,T,C,H,W = 1,24,6,720,1440
+    B,T,C,H,W = 1,24,6,72,144
     x = torch.randn(B,T,C,H,W,device=device)
     model = GeoViTHierarchical(C=C,T=T,H=H,W=W,embed_dim=128,nHeads=8,nLayers=[1,1],
-                               mha_class=Flash2DMHA,mha_kwargs={"tokens_per_chunk":None,"heads_per_chunk":None,"kv_full_sequence":True})
+                               mha_class=Flash2DMHA,mha_kwargs={"tokens_per_chunk":None,"heads_per_chunk":2,"kv_full_sequence":True})
     model.to(device)
+    
+    import time
+    s = time.time()
     out = model(x)
+    e = time.time()
     print("Input shape:", x.shape)
     print("Output shape:", out.shape)
+    print("time: {}".format(e-s))
