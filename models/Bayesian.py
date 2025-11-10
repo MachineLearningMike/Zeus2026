@@ -10,7 +10,8 @@ from pathlib import Path
 import os, sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from models.Trainer import Trainer
+from models.Train import Train
+# from models.Trainer import Trainer
 from modules.params import Params
 from modules.utils import check_dir
 
@@ -43,7 +44,8 @@ class MLBayesianOptimizer:
         with open(configPath, 'w') as f:
             json.dump(config, f, indent=4)
 
-        self.trainer = Trainer(self.pm, dataset_path, management_path, self.project_path, bayes=self)
+        # self.trainer = Trainer(self.pm, dataset_path, management_path, self.project_path, bayes=self)
+        self.train = Train(self.pm, dataset_path, management_path, self.project_path, bayes=self, trainable=True)
         self.pbounds = pbounds
         self.random_state = random_state
 
@@ -64,12 +66,21 @@ class MLBayesianOptimizer:
         print("ptach*patch*nChannels, nHeads, dim, dim_head", self.pm.patch_dim, self.pm.nHeads, self.pm.d_model, self.pm.dim_head)
 
     def _objective(self, **params):     # a part of self.bayes_optimizer
-        # print('_objective', params)
-        score = self.trainer.bayesian_target(*params.values())  # Higher is better
+        score = self.train.run_train()
         self._log(params, score)
-        # self._save()  # self.trainer calls this at every end of epoch
-        # self._plot_progress()
         return score
+    
+    def bayesian_target(self): #, layerFFN):
+        # Update with new hyper-parameters
+        # self.config['patch_size'] = patch_size
+        # self.config['nHeads'] = nHeads
+        # self.config['nLayers'] = nLayers
+        # # self.config['layerFFN'] = layerFFN
+
+        self.train = Train(self.pm, self.dataset_path, self.management_path, self.project_path, trainable=True)
+        profit = self.run_train()
+
+        return profit
 
     def maximize(self, init_points=2, n_iter=25, acq='ei'):
         self.bayes_optimizer = BayesianOptimization(

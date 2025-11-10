@@ -51,14 +51,18 @@ def print_data_attrs(obj):
         print(f"{name}: {value}")
 
 class Train():
-    def __init__(self, pm, dataset_path, management_path, project_path, trainable=True):
+    def __init__(self, pm, dataset_path, management_path, project_path, bayes=None, trainable=True):
         #======================== Fixed train state =======================
         # utils.set_seed(self.pm.seed)
         self.pm = pm
         print_data_attrs(self.pm)
-        
+                
         self.project_path = project_path
+        check_dir(self.project_path)
+
+        self.bayes = bayes
         self.trainable = trainable
+        self.setup_logging(project_path)
         
         self.dataset = Zeus_Dataset(self.pm, dataset_path, management_path)
         self.dataset.load_data()
@@ -559,6 +563,76 @@ class Train():
             self.pm.batch_size = batch_size     # This may cause consistency, as different objects have different copy of pm.
 
         return
+
+    def setup_logging(self, log_dir):
+        """
+        logging.info("This is an info message")
+        logging.warning("Watch out! This is a warning")
+        logging.error("An error happened")
+        logging.debug("Debug details here (won't show unless level is DEBUG)")
+        """
+        # Remove all handlers associated with the root logger
+        for handler in logging.root.handlers[:]:
+            logging.root.removeHandler(handler)
+
+        log_path = log_dir / 'log.log'
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+
+        # File handler (append mode)
+        utils.check_dir(log_path.parent)
+        file_handler = logging.FileHandler(log_path, mode='a')
+        file_handler.setFormatter(formatter)
+
+        # Console handler (stdout)
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setFormatter(formatter)
+
+        logging.root.setLevel(logging.INFO)
+        logging.root.addHandler(file_handler)
+        logging.root.addHandler(console_handler)
+        
+    def run_train(self):
+        start_epoch, step_state = self.try_load_state()
+        
+        run = False
+        keep_go_next_epoch = True
+        best_rmse_yet = 1e10
+            
+        for epoch in range(start_epoch, self.pm.epochs):
+            run = True
+            print("---------- epoch {} ------------".format(epoch))
+                        
+            train_loss, train_metrics = self.run_epoch(epoch, "train_set", trainable=True, step_state=step_state)   # (,), (C,)
+            step_state = None # Valid initially only.
+            # self.scheduler.step()   # Commented out, because our scheduler is OneCycleLR, which is a per-batch scheduler
+            display = self.get_epoch_display(train_loss, train_metrics)
+            logging.info("Train epoch: {}, {}".format(epoch, display))
+    
+            if self.pm.skip_validation:              # Mike!!!
+                logging.info("Validation skipped as configured with 'skip_validation'")
+            else:
+                keep_go_next_epoch, best_rmse_yet = self.validate(epoch, train_loss, train_metrics)
+
+            if self.bayes is not None:  self.bayes.on_epoch_end()
+
+            if not keep_go_next_epoch: break
+
+        if run:
+            self.save_state(train_finished=True)  # Train_save. Save no step_state. Do not take care of validate()
+            logging.info("Train finishes or breaks after epoch: {}".format(epoch))
+
+        return - best_rmse_yet
+
+    def validate(self, epoch, train_loss, train_metrics):
+        vali_loss, vali_metrics = self.run_epoch(epoch, "vali_set", trainable=False)     # (,), (C,)   #------------------------
+
+        display = self.get_epoch_display(vali_loss, vali_metrics)
+        logging.info("Vali epoch: {}, {}".format(epoch, display))
+
+        keep_go_next_epoch, best_rmse_yet = self.save_best_train(train_metrics, vali_metrics) # (C,), (C,)
+        
+        return keep_go_next_epoch, best_rmse_yet
+
 
     def run_epoch(self, epoch, x_set_label, trainable=False, step_state=None):
         self.epoch = epoch

@@ -50,7 +50,9 @@ class Trainer():
         logging.root.addHandler(file_handler)
         logging.root.addHandler(console_handler)
         
-    def run_train(self, start_epoch=0, step_state=None):
+    def run_train(self):
+        start_epoch, step_state = self.train.try_load_state()
+        
         run = False
         keep_go_next_epoch = True
         best_rmse_yet = 1e10
@@ -98,9 +100,7 @@ class Trainer():
         # # self.config['layerFFN'] = layerFFN
 
         self.train = Train(self.pm, self.dataset_path, self.management_path, self.project_path, trainable=True)
-        epoch, step_state = self.train.try_load_state()
-
-        profit = self.run_train(start_epoch=epoch, step_state=step_state)
+        profit = self.run_train()
 
         return profit
 

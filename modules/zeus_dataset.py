@@ -27,6 +27,7 @@ import os, sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.params import Params
+from modules.utils import check_dir
 # Make they're from sure modules_zeus
 from modules_zeus.constants import ERA5_DATA_VARS
 from modules_zeus.sample import Era5Sample
@@ -39,9 +40,9 @@ class Zeus_Dataset(Dataset):
     def __init__(self, pm, dataset_path, management_path):
         super().__init__()
         self.pm = pm
-        self.dataset_path = dataset_path
-
-        # define self.cds_folder, self.cds_folder_even, self.cds_folder_odd, self.param_path, and self.split_hours_path, independently
+        
+        check_dir(dataset_path)
+        check_dir(management_path)
 
         if not self.pm.dual_drive:
             self.cds_folder = dataset_path / "CDS"
