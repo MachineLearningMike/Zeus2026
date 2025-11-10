@@ -217,7 +217,7 @@ class Train():
             name = 'best_model' # + '-' + self.get_train_id_string()
             logging.info("saving best train_state... avg rmse: {:.3f}, name: {}".format(torch.mean(rmses).item(), name))
             # train==True means the next possible loading should train not validate.
-            self.save_state(name=name)  # Extra epoch_save after as a conlusion of validate()
+            self.save_state(name=name, model_only=True)  # Extra epoch_save after as a conlusion of validate()
             # print('----------- best_saved')
 
         self.epochs_since_improvement = self.epochs_since_improvement + 1 if not wasBestEpoch else 0
@@ -227,33 +227,36 @@ class Train():
 
         return keep_go_next_epoch, best_rmse_yet
        
-    def save_state(self, name=None, train_finished=False, step_state=None):
+    def save_state(self, name=None, train_finished=False, step_state=None, model_only=False):
     #-------------- My version
         assert self.trainable, "Non-trainable train object cannot be saved."
         if name is None: name = 'train_state' # + '-' + self.get_train_id_string()
         checkpoint = {
             'model': self.model.state_dict(),
-            'optimizer': self.optimizer.state_dict(),
-            'scheduler': self.scheduler.state_dict(),
-            'scaler':   self.scaler.state_dict(),
-            'epoch': self.epoch,
-            'rmses_old': self.rmses_old,
-            'epochs_since_improvement': self.epochs_since_improvement,
-            'train_finished' : train_finished,
-            'dataset': self.dataset.pack_state(),
-            'step_state': step_state,
-            'transient_step': self.transient_step,
-            'learning_rate': self.learning_rate,
         }
+        if not model_only:
+            checkpoint.update({
+                'optimizer': self.optimizer.state_dict(),
+                'scheduler': self.scheduler.state_dict(),
+                'scaler':   self.scaler.state_dict(),
+                'epoch': self.epoch,
+                'rmses_old': self.rmses_old,
+                'epochs_since_improvement': self.epochs_since_improvement,
+                'train_finished' : train_finished,
+                'dataset': self.dataset.pack_state(),
+                'step_state': step_state,
+                'transient_step': self.transient_step,
+                'learning_rate': self.learning_rate,
+            })
         utils.check_dir(self.project_path)
         torch.save(checkpoint, self.project_path / (name + '.pth'))
         torch.save(checkpoint, self.project_path / (name + '.pth.bak'))   # Create a backup, as creating takes a long time and may fail by the cloud Spot service.
         # logging.info(f"Checkpoint '{name}' saved, including model, optimizer, scheduler, scaler, rmses_old, and dataset state")
     
-        self.save_total_losses(name)
+        self.save_total_losses("train_history")
         
     def save_total_losses(self, name=None):
-        if name is None: name = 'train_state' # + '-' + self.get_train_id_string()
+        if name is None: name = "train_history" # + '-' + self.get_train_id_string()
         with open(str(self.project_path / name) + '.json', 'w') as f:
             json.dump(self.total_losses, f)
     
@@ -475,7 +478,7 @@ class Train():
             epoch = epoch; step_state = step_state
             
         try:
-            with open(str(self.project_path / name) + '.json', 'r') as f:
+            with open(str(self.project_path / "train_history") + '.json', 'r') as f:
                 self.total_losses = json.load(f)
         except:
             pass
