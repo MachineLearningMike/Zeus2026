@@ -58,7 +58,7 @@ class Flash2DMHA(nn.Module):
             assert nHeads % heads_per_chunk == 0, "heads_per_chunk must divide nHeads"
 
         self.d_model = d_model
-        self.nHeads = nHeads
+        self.nHeads = nHeads 
         self.head_dim = d_model // nHeads
         self.dropout = dropout
         self.causal = causal

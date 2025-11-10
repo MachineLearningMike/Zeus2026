@@ -146,7 +146,17 @@ if __name__ == "__main__":
     
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     
+    import random
+    
     def demonstrate(chunkBackward):
+
+        # ------------------- Set reproducible seed -------------------
+        SEED = 42
+        random.seed(SEED)
+        torch.manual_seed(SEED)
+        torch.cuda.manual_seed_all(SEED)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
 
         factor10 = 2
         batch_size = 1         # it's also the data simplicity in this test.
@@ -195,7 +205,9 @@ if __name__ == "__main__":
         criterion = nn.MSELoss()
 
         # dummy data (CPU)
+        torch.manual_seed(SEED)
         x_train = torch.randn(batch_size, seq_len, d_model)
+        torch.manual_seed(SEED)
         y_train = torch.randn(batch_size, seq_len, d_model)
 
         model.layers[0].src_saved = None    # test in test
