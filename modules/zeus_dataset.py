@@ -752,25 +752,25 @@ class Zeus_Dataset(Dataset):
         return t2
     
     def split_data_hours(self, renew=False, save=True, seed=None):
-        existing_train_hours = []
-        existing_vali_hours = []
-        existing_test_hours = []
+        old_train_hours = []
+        old_vali_hours = []
+        old_test_hours = []
 
         try:
             # print("Loading data dates...")
             with open(self.split_hours_path, "r") as f:
                 data = json.load(f)
 
-            existing_train_hours = [(datetime.fromisoformat(d).date(), h) for (d, h) in data["train_hours"]]
-            existing_vali_hours = [(datetime.fromisoformat(d).date(), h) for (d, h) in data["vali_hours"]]
-            existing_test_hours = [(datetime.fromisoformat(d).date(), h) for (d, h) in data["test_hours"]]
+            old_train_hours = [(datetime.fromisoformat(d).date(), h) for (d, h) in data["train_hours"]]
+            old_vali_hours = [(datetime.fromisoformat(d).date(), h) for (d, h) in data["vali_hours"]]
+            old_test_hours = [(datetime.fromisoformat(d).date(), h) for (d, h) in data["test_hours"]]
         except:
             print("Loading failed. Creating data hours...")
             
         if renew == False:
-            self.train_hours = existing_train_hours
-            self.vali_hours = existing_vali_hours
-            self.test_hours = existing_test_hours
+            self.train_hours = old_train_hours
+            self.vali_hours = old_vali_hours
+            self.test_hours = old_test_hours
         else:
             total_days, start_day, end_day, complete, data_dates = self.count_data_days()   # assume: data_dates is ordered.
             train_pct = self.pm.train_pct; vali_pct = self.pm.vali_pct
@@ -778,9 +778,14 @@ class Zeus_Dataset(Dataset):
             T1 = self.pm.T1
             data_dates = data_dates[:-1]    # Remove the last day for safety.
             
-            existing_dates = [d for (d, _) in existing_train_hours] + [ d for (d, _) in existing_vali_hours] + [d for (d, _) in existing_test_hours]
-            existing_dates = list(set(existing_dates))
-            new_data_dates = [d for d in data_dates if d not in existing_dates]
+            # Remove dates that are not found in data_dates
+            inherited_train_hours = [(d, h) for (d, h) in old_train_hours if d in data_dates]
+            inherited_vali_hours = [(d, h) for (d, h) in old_vali_hours if d in data_dates]
+            inherited_test_hours = [(d, h) for (d, h) in old_test_hours if d in data_dates]
+            
+            inherited_dates = [d for (d, _) in inherited_train_hours] + [ d for (d, _) in inherited_vali_hours] + [d for (d, _) in inherited_test_hours]
+            inherited_dates = list(set(inherited_dates))
+            new_data_dates = [d for d in data_dates if d not in inherited_dates]
             
             data_hours = []
             for day in new_data_dates:
@@ -798,9 +803,9 @@ class Zeus_Dataset(Dataset):
             new_vali_hours = shuffled_hours[train_size : train_size + vali_size]
             new_test_hours = shuffled_hours[train_size + vali_size :]
             
-            self.train_hours = existing_train_hours + new_train_hours
-            self.vali_hours = existing_vali_hours + new_vali_hours
-            self.test_hours = existing_test_hours + new_test_hours
+            self.train_hours = random.shuffle(inherited_train_hours + new_train_hours)
+            self.vali_hours = random.shuffle(inherited_vali_hours + new_vali_hours)
+            self.test_hours = random.shuffle(inherited_test_hours + new_test_hours)
 
             if save:
                 data = {
@@ -1303,7 +1308,7 @@ if __name__ == "__main__":
     dataset = Zeus_Dataset(pm, Path(config['root_path']))
 
     end_date = date(2025, 10, 31)
-    dataset.download_dataset(2016, end_date, max_workers=10)   # downloads day data in reverse order.
+    dataset.download_dataset(2010, end_date, max_workers=10)   # downloads day data in reverse order.
     
     total_days, start_day, end_day, complete, data_dates = dataset.count_data_days()
     print(f"total_days {total_days}, start_day {start_day}, end_day {end_day}, complete {complete}")
