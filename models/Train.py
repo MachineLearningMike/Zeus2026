@@ -253,9 +253,9 @@ class Train():
         torch.save(checkpoint, self.project_path / (name + '.pth.bak'))   # Create a backup, as creating takes a long time and may fail by the cloud Spot service.
         # logging.info(f"Checkpoint '{name}' saved, including model, optimizer, scheduler, scaler, rmses_old, and dataset state")
     
-        self.save_total_losses("train_history")
+        self.save_train_history("train_history")
         
-    def save_total_losses(self, name=None):
+    def save_train_history(self, name=None):
         if name is None: name = "train_history" # + '-' + self.get_train_id_string()
         with open(str(self.project_path / name) + '.json', 'w') as f:
             json.dump(self.total_losses, f)
@@ -480,6 +480,7 @@ class Train():
         try:
             with open(str(self.project_path / "train_history") + '.json', 'r') as f:
                 self.total_losses = json.load(f)
+                logging.info("train_history read")
         except:
             pass
 
