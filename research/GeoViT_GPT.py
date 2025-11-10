@@ -42,8 +42,8 @@ class Flash2DMHA(nn.Module):
 
         del q_seq, k_seq, v_seq
         if attn_mask is not None: del attn_mask
-        gc.collect()
-        torch.cuda.empty_cache()
+        # gc.collect()
+        # torch.cuda.empty_cache()
 
         if mask_chunk is not None:
             out_seq = flash_attn_func(q_seq_for, k_seq_for, v_seq_for,

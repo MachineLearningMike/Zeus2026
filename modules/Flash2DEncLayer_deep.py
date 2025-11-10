@@ -275,7 +275,7 @@ if __name__ == "__main__":
     
     # !!! This code can handle factor10=10 and batch_size=1 at 75-second interval.
 
-    factor10 = 2
+    factor10 = 10
     batch_size = 1         # it's also the data simplicity in this test.
     T1 = 24
     N = round(72 * factor10 * 144 * factor10 /16/16)
