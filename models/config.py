@@ -427,7 +427,7 @@ projects["ResNet_NoStage_B15_BR30"] = {
     'factor10': 10,
     'lr': 1e-5,     # 1e-3 for the first 120,000 steps
     'max_lr': 1e-5,
-    'overwrite_saved_lr': True,
+    'overwrite_saved_lr': False,
     'batch_size': 1,
     'GPUWaitsData' : True,
     'useLRLearner' : False,
