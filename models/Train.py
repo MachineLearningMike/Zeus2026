@@ -591,15 +591,15 @@ class Train():
         logging.root.addHandler(file_handler)
         logging.root.addHandler(console_handler)
         
-    def run_train(self):
+    def train(self):
         start_epoch, step_state = self.try_load_state()
         
-        run = False
+        ran_epochs = False
         keep_go_next_epoch = True
         best_rmse_yet = 1e10
             
         for epoch in range(start_epoch, self.pm.epochs):
-            run = True
+            ran_epochs = True
             print("---------- epoch {} ------------".format(epoch))
                         
             train_loss, train_metrics = self.run_epoch(epoch, "train_set", trainable=True, step_state=step_state)   # (,), (C,)
@@ -611,28 +611,20 @@ class Train():
             if self.pm.skip_validation:              # Mike!!!
                 logging.info("Validation skipped as configured with 'skip_validation'")
             else:
-                keep_go_next_epoch, best_rmse_yet = self.validate(epoch, train_loss, train_metrics)
+                vali_loss, vali_metrics = self.run_epoch(epoch, "vali_set", trainable=False)     # (,), (C,)   #------------------------
+                display = self.get_epoch_display(vali_loss, vali_metrics)
+                logging.info("Vali epoch: {}, {}".format(epoch, display))
+
+                keep_go_next_epoch, best_rmse_yet = self.save_best_train(train_metrics, vali_metrics) # (C,), (C,)
 
             if self.bayes is not None:  self.bayes.on_epoch_end()
-
             if not keep_go_next_epoch: break
 
-        if run:
+        if ran_epochs:
             self.save_state(train_finished=True)  # Train_save. Save no step_state. Do not take care of validate()
             logging.info("Train finishes or breaks after epoch: {}".format(epoch))
 
         return - best_rmse_yet
-
-    def validate(self, epoch, train_loss, train_metrics):
-        vali_loss, vali_metrics = self.run_epoch(epoch, "vali_set", trainable=False)     # (,), (C,)   #------------------------
-
-        display = self.get_epoch_display(vali_loss, vali_metrics)
-        logging.info("Vali epoch: {}, {}".format(epoch, display))
-
-        keep_go_next_epoch, best_rmse_yet = self.save_best_train(train_metrics, vali_metrics) # (C,), (C,)
-        
-        return keep_go_next_epoch, best_rmse_yet
-
 
     def run_epoch(self, epoch, x_set_label, trainable=False, step_state=None):
         self.epoch = epoch

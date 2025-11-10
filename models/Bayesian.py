@@ -66,21 +66,9 @@ class MLBayesianOptimizer:
         print("ptach*patch*nChannels, nHeads, dim, dim_head", self.pm.patch_dim, self.pm.nHeads, self.pm.d_model, self.pm.dim_head)
 
     def _objective(self, **params):     # a part of self.bayes_optimizer
-        score = self.train.run_train()
+        score = self.train.train()
         self._log(params, score)
         return score
-    
-    def bayesian_target(self): #, layerFFN):
-        # Update with new hyper-parameters
-        # self.config['patch_size'] = patch_size
-        # self.config['nHeads'] = nHeads
-        # self.config['nLayers'] = nLayers
-        # # self.config['layerFFN'] = layerFFN
-
-        self.train = Train(self.pm, self.dataset_path, self.management_path, self.project_path, trainable=True)
-        profit = self.run_train()
-
-        return profit
 
     def maximize(self, init_points=2, n_iter=25, acq='ei'):
         self.bayes_optimizer = BayesianOptimization(
