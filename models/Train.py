@@ -51,7 +51,7 @@ def print_data_attrs(obj):
         print(f"{name}: {value}")
 
 class Train():
-    def __init__(self, pm, root_path, project_path, trainable=True):
+    def __init__(self, pm, dataset_path, management_path, project_path, trainable=True):
         #======================== Fixed train state =======================
         # utils.set_seed(self.pm.seed)
         self.pm = pm
@@ -60,7 +60,7 @@ class Train():
         self.project_path = project_path
         self.trainable = trainable
         
-        self.dataset = Zeus_Dataset(self.pm, root_path)
+        self.dataset = Zeus_Dataset(self.pm, dataset_path, management_path)
         self.dataset.load_data()
         logging.info("Zeus_Dataset created and loaded.")
         self.device_type, self.nDevices, self.device = self._acquire_device()
@@ -262,6 +262,13 @@ class Train():
         
         file_not_found = False; train_finished = False; file_loaded = False
 
+
+        checkpoint_path = self.project_path / ("model_params" + '.pth')
+        checkpoint = torch.load(checkpoint_path, map_location="cpu")
+        missing_keys, unexpected_keys = self.model.load_state_dict(checkpoint["model"], strict=False)
+        logging.info("========== Model loaded with saved state: \n_missing_keys: {}, \n_unexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
+
+
         try:
             checkpoint_path = self.project_path / (name + '.pth')
             checkpoint = torch.load(checkpoint_path, map_location="cpu")
@@ -286,7 +293,7 @@ class Train():
         
         if file_not_found and not self.trainable:
             logging.info("Train checkpoint not found")
-            sys.exit()
+            # sys.exit()
         
         if not file_not_found and (not train_finished or not self.trainable):
             try:
@@ -803,9 +810,9 @@ class Train():
     
 if __name__ == "__main__":
     
-    from models.config import config, root_path
+    from models.config import config, dataset_path
 
-    project_path = root_path / 'bayes' / 'test'
+    project_path = dataset_path / 'bayes' / 'test'
     pbounds = {     # Mike!!!
         "patch_size": (8, 8, int),
         "nHeads": (8, 8, int),
@@ -813,5 +820,5 @@ if __name__ == "__main__":
         "zeusBlocks": (8, 8, int),  # 
     }
     
-    train = Train(config, root_path, project_path)
+    train = Train(config, dataset_path, project_path)
     

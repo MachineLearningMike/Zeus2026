@@ -106,9 +106,11 @@ if platform.system() == "Windows":
     config['variables'] = variables = ["2m_temperature", 'total_precipitation', "100m_u_component_of_wind", '100m_v_component_of_wind', "2m_dewpoint_temperature", "surface_pressure"]
 
     if not config['dual_drive']:
-        config['root_path'] = "d:/zeus_data"
+        config['dataset_path'] = "d:/zeus_data"
+        config['management_path'] = "d:/zeus_data/management"
     else:
-        config['root_path'] = "d:/zeud_data"
+        config['dataset_path'] = "d:/zeud_data"
+        config['management_path'] = "d:/zeus_data/management"
     
     # GPU: RTX 4070, Chunk2D
     config['factor10'] = 2  # 2 is the minimum, as 1 causes a non-float parameter error.
@@ -129,9 +131,11 @@ else:
     config['variables'] = variables = ["2m_temperature", 'total_precipitation', "100m_u_component_of_wind", '100m_v_component_of_wind', "2m_dewpoint_temperature", "surface_pressure"]
     
     if not config['dual_drive']:
-        config['root_path'] = "/mnt/data"
+        config['dataset_path'] = "/mnt/data"
+        config['management_path'] = "/home/mike/zeus_management"
     else:
-        config['root_path'] = "/mnt"
+        config['dataset_path'] = "/mnt"
+        config['management_path'] = "/home/mike/zeus_management"
     
     # GPU: 
     config['factor10'] = 10  # 2 is the minimum, as 1 causes a non-float parameter error.

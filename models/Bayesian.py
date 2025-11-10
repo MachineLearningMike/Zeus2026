@@ -27,13 +27,13 @@ class MLBayesianOptimizer:
         """
         
         self.pm = Params(config)        
-        root_path = Path(self.pm.root_path)
-        
-        if not self.pm.dual_drive:
-            self.project_path = root_path / "projects" / self.pm.bayesProject
-        else:
-            # A different root_path (/mnt)
-            self.project_path = root_path / "data_even" / "projects" / self.pm.bayesProject
+        dataset_path = Path(self.pm.dataset_path)
+        management_path = Path(self.pm.management_path)
+        check_dir(management_path)
+        self.project_path = management_path / "projects" / self.pm.bayesProject
+        check_dir(self.project_path)
+        self.save_path = self.project_path / 'bayes_res.json'
+        self.log_path = self.project_path / 'bayes_log.csv'
 
         self.project_path.mkdir(parents=True, exist_ok=True)
 
@@ -43,10 +43,8 @@ class MLBayesianOptimizer:
         with open(configPath, 'w') as f:
             json.dump(config, f, indent=4)
 
-        self.trainer = Trainer(self.pm, root_path, self.project_path, bayes=self)
+        self.trainer = Trainer(self.pm, dataset_path, management_path, self.project_path, bayes=self)
         self.pbounds = pbounds
-        self.save_path = self.project_path / 'bayes_res.json'
-        self.log_path = self.project_path / 'bayes_log.csv'
         self.random_state = random_state
 
         self.finished = False

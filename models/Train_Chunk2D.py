@@ -27,7 +27,7 @@ from modules_zeus.constants import (
 )
 
 class Train():
-    def __init__(self, config, root_path, project_path, trainable=True):
+    def __init__(self, config, dataset_path, project_path, trainable=True):
         self.config = config
         #======================== Fixed train state =======================
         # utils.set_seed(self.pm.seed)
@@ -35,7 +35,7 @@ class Train():
         self.project_path = project_path
         self.trainable = trainable
         
-        self.dataset = Zeus_Dataset(config, root_path)
+        self.dataset = Zeus_Dataset(config, dataset_path)
         logging.info("Zeus_Dataset created.")
         self.device_type, self.nDevices, self.device = self._acquire_device()
         self.devices = [ self.device_type + ':' + str(id) for id in range(self.nDevices)]
@@ -619,9 +619,9 @@ class Train():
     
 if __name__ == "__main__":
     
-    from models.config import config, root_path
+    from models.config import config, dataset_path
 
-    project_path = root_path / 'bayes' / 'test'
+    project_path = dataset_path / 'bayes' / 'test'
     pbounds = {     # Mike!!!
         "patch_size": (8, 8, int),
         "nHeads": (8, 8, int),
@@ -629,5 +629,5 @@ if __name__ == "__main__":
         "zeusBlocks": (8, 8, int),  # 
     }
     
-    train = Train(config, root_path, project_path)
+    train = Train(config, dataset_path, project_path)
     

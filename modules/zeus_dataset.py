@@ -36,29 +36,29 @@ from modules_zeus.era5_cds import Era5CDSLoader, get_today
 from modules.zeus_dataset_codec import encode_variables, save_variables, load_decoded_variables
 
 class Zeus_Dataset(Dataset):
-    def __init__(self, pm, root_path):
+    def __init__(self, pm, dataset_path, management_path):
         super().__init__()
         self.pm = pm
-        self.root_path = root_path
+        self.dataset_path = dataset_path
 
         # define self.cds_folder, self.cds_folder_even, self.cds_folder_odd, self.param_path, and self.split_hours_path, independently
 
         if not self.pm.dual_drive:
-            self.cds_folder = root_path / "CDS"
+            self.cds_folder = dataset_path / "CDS"
             self.cds_folder.mkdir(parents=True, exist_ok=True)
-            self.param_path = root_path / 'dataset_params.json'
-            self.split_hours_path = root_path / 'split_hours.json'
-            self.analysis_path = root_path / "analysis.pth"
+
+            self.param_path = management_path / 'dataset_params.json'
+            self.split_hours_path = management_path / 'split_hours.json'
+            self.analysis_path = management_path / "analysis.pth"
         else:
-            self.cds_folder_even = root_path / "data_even" / "CDS"            
+            self.cds_folder_even = dataset_path / "data_even" / "CDS"            
             self.cds_folder_even.mkdir(parents=True, exist_ok=True)
-            self.cds_folder_odd = root_path / "data_odd" / "CDS"
+            self.cds_folder_odd = dataset_path / "data_odd" / "CDS"
             self.cds_folder_odd.mkdir(parents=True, exist_ok=True)
     
-            self.param_path = root_path / "data_even" /'dataset_params.json'
-            self.split_hours_path = root_path / "data_even" / 'split_hours.json'
-            self.analysis_path = root_path / "data_even" / "analysis.pth"
-
+            self.param_path = management_path /'dataset_params.json'
+            self.split_hours_path = management_path / 'split_hours.json'
+            self.analysis_path = management_path / "analysis.pth"
         
         self.difficulties = None
         self.era5_data_vars = None
@@ -803,10 +803,13 @@ class Zeus_Dataset(Dataset):
             new_vali_hours = shuffled_hours[train_size : train_size + vali_size]
             new_test_hours = shuffled_hours[train_size + vali_size :]
             
-            self.train_hours = random.shuffle(inherited_train_hours + new_train_hours)
-            self.vali_hours = random.shuffle(inherited_vali_hours + new_vali_hours)
-            self.test_hours = random.shuffle(inherited_test_hours + new_test_hours)
-
+            self.train_hours = list(set(inherited_train_hours + new_train_hours))
+            self.vali_hours = list(set(inherited_vali_hours + new_vali_hours))
+            self.test_hours = list(set(inherited_test_hours + new_test_hours))
+            random.shuffle(self.train_hours)
+            random.shuffle(self.vali_hours)
+            random.shuffle(self.test_hours)
+            
             if save:
                 data = {
                     "train_hours":  [(d.isoformat(), h) for (d, h) in self.train_hours],
@@ -1305,10 +1308,10 @@ if __name__ == "__main__":
     from models.config import config
     pm = Params(config)
 
-    dataset = Zeus_Dataset(pm, Path(config['root_path']))
+    dataset = Zeus_Dataset(pm, Path(config['dataset_path']), Path(config['management_path']))
 
-    end_date = date(2025, 10, 31)
-    dataset.download_dataset(2010, end_date, max_workers=10)   # downloads day data in reverse order.
+    # end_date = date(2025, 10, 31)
+    # dataset.download_dataset(2010, end_date, max_workers=10)   # downloads day data in reverse order.
     
     total_days, start_day, end_day, complete, data_dates = dataset.count_data_days()
     print(f"total_days {total_days}, start_day {start_day}, end_day {end_day}, complete {complete}")
@@ -1325,9 +1328,9 @@ if __name__ == "__main__":
     # mean, std = dataset.load_dataset_params()
     # print("mean: {}, std: {}".format(mean, std))
 
-    # train_hours, vali_hours, test_hours = dataset.split_data_hours(renew=True, save=False, seed=523)
-    # print("Lengths:", len(train_hours), len(vali_hours), len(test_hours))
-    # print("train_hours[:3]", train_hours[:3])
+    train_hours, vali_hours, test_hours = dataset.split_data_hours(renew=False, save=False, seed=523)
+    print("Lengths:", len(train_hours), len(vali_hours), len(test_hours))
+    print("train_hours[:3]", train_hours[:3])
 
     # train_set, vali_set, test_set = dataset.generate_x_sets(seed=523)
     # print("train_set, vali_set, test_set lengths:", len(train_set), len(vali_set), len(test_set))

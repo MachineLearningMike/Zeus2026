@@ -4,9 +4,9 @@ from pathlib import Path
 from zeus_tqdm import zeus_tqdm
 from zeus_dataset import Zeus_Dataset
 
-from models.config import config, root_path
+from models.config import config, dataset_path
 
-dataset = Zeus_Dataset(config, root_path)
+dataset = Zeus_Dataset(config, dataset_path)
 
 total_days, start_day, end_day, complete, data_dates = dataset.count_data_days()
 print(start_day, end_day)

@@ -32,16 +32,16 @@ from modules_zeus.era5_cds import Era5CDSLoader, get_today
 
 
 class Zeus_Dataset(Dataset):
-    def __init__(self, pm, root_path):
+    def __init__(self, pm, dataset_path):
         super().__init__()
         self.pm = pm
-        self.root_path = root_path
+        self.dataset_path = dataset_path
 
-        self.cds_folder = root_path / "CDS"
+        self.cds_folder = dataset_path / "CDS"
         self.cds_folder.mkdir(parents=True, exist_ok=True)
         
-        self.param_path = root_path / 'dataset_params.json'
-        self.split_hours_path = root_path / 'split_hours.json'
+        self.param_path = dataset_path / 'dataset_params.json'
+        self.split_hours_path = dataset_path / 'split_hours.json'
         
         self.difficulties = None
         self.era5_data_vars = None
@@ -971,10 +971,10 @@ class Zeus_Dataset(Dataset):
 #-------------------------------------- test ----------------------------------------
 if __name__ == "__main__":
 
-    from models.config import config, root_path
+    from models.config import config, dataset_path
     pm = Params(config)
 
-    dataset = Zeus_Dataset(pm, root_path)
+    dataset = Zeus_Dataset(pm, dataset_path)
 
     end_date = date(2025, 10, 17)
     dataset.download_dataset(2010, end_date)   # downloads day data in reverse order.

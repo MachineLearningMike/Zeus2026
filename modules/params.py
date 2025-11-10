@@ -108,7 +108,8 @@ class Params:
         
         self.abundant_GPUs = config['abundant_GPUs']
         self.dual_drive = config['dual_drive']
-        self.root_path = config['root_path']
+        self.dataset_path = config['dataset_path']
+        self.management_path = config['management_path']
         
         self.doubleZeus = config['doubleZeus']
         self.freeze_zeus1 = config['freeze_zeus1']
