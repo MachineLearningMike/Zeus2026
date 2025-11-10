@@ -263,10 +263,10 @@ class Train():
         file_not_found = False; train_finished = False; file_loaded = False
 
 
-        checkpoint_path = self.project_path / ("model_params" + '.pth')
-        checkpoint = torch.load(checkpoint_path, map_location="cpu")
-        missing_keys, unexpected_keys = self.model.load_state_dict(checkpoint["model"], strict=False)
-        logging.info("========== Model loaded with saved state: \n_missing_keys: {}, \n_unexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
+        # checkpoint_path = self.project_path / ("model_params" + '.pth')
+        # checkpoint = torch.load(checkpoint_path, map_location="cpu")
+        # missing_keys, unexpected_keys = self.model.load_state_dict(checkpoint["model"], strict=False)
+        # logging.info("========== Model loaded with saved state: \n_missing_keys: {}, \n_unexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
 
 
         try:
