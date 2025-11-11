@@ -257,12 +257,26 @@ class Train():
         torch.save(checkpoint, self.project_path / (name + '.pth.bak'))   # Create a backup, as creating takes a long time and may fail by the cloud Spot service.
         # logging.info(f"Checkpoint '{name}' saved, including model, optimizer, scheduler, scaler, rmses_old, and dataset state")
     
-        self.save_train_history("train_history")
+        self.save_train_history("train_history")        
+
+        return
         
     def save_train_history(self, name=None):
-        if name is None: name = "train_history" # + '-' + self.get_train_id_string()
-        with open(str(self.project_path / name) + '.json', 'w') as f:
-            json.dump(self.total_losses, f)
+        try:
+            if name is None: name = "train_history"
+            data = np.array(self.total_losses, dtype=np.float32)
+            np.savez(str(self.project_path / name) + ".npz", total_losses = data)
+        except:
+            pass
+
+    def load_history(self, name=None):
+        try:
+            if name is None: name = "train_history"
+            loaded = np.load(str(self.project_path / name) + ".npz")
+            total_losses = list(loaded["total_losses"])
+        except:
+            total_losses = []
+        return total_losses
     
     def try_load_state(self, name=None):    # Pairs with save_state
         if name is None: name = 'train_state' #+ self.get_train_id_string()
@@ -480,13 +494,9 @@ class Train():
         else: # file found, train not finished, file loaded
             # Continue the loaded train.
             epoch = epoch; step_state = step_state
-            
-        try:
-            with open(str(self.project_path / "train_history") + '.json', 'r') as f:
-                self.total_losses = json.load(f)
-                logging.info("train_history read")
-        except:
-            pass
+                        
+        self.total_losses = self.load_history()
+        logging.info("train history loaded. length: {}".format(len(self.total_losses)))
 
         return epoch, step_state
     

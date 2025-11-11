@@ -72,7 +72,6 @@ class Params:
         self.layerFFN = config['layerFFN']
         self.dim_layerFFN = self.d_model * config['dim_to_layerFFN_dim']
         
-        self.cnn_hidden_channels = config['cnn_hidden_channels']
         self.blocksPerState = config['blocksPerState']
 
         #----------------- Training ---------------
