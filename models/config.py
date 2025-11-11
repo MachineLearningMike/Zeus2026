@@ -3,16 +3,28 @@
 
 config = {
     'dtype' : 32,   # 16 is complicated. deffered.
+    
+    #============================ data, shared ===========================================================================
+    'variables': ["2m_temperature", 'total_precipitation', "100m_u_component_of_wind", '100m_v_component_of_wind', "2m_dewpoint_temperature", "surface_pressure"],
 
-    'variables': [],
     'org_height': 721,
     'org_width': 1440,
-    'patch_size':   16, #16, # 8        ----------------------  optimization param,  Chunk
+    'factor10' : 10,    # 10 taking the full image size.
+    'data_years' : 100,
+    'batch_size' : 10, #(10)
 
     'FG': 1, # not 24, for a better granularity control   # frames in a frame group
     'T1':           24, # 24 for Chunk, 3 for 256-head CNNs,
     'T2':           24,
+    'nFrames': 24,
+    'mFrames' : 24,
 
+    'train_pct': 80,
+    'vali_pct': 20,
+
+    'include_difficulty' : False,
+
+    #============================ model, individual ========================================================================
     'pole_boundary_angle': 60.0,      #
 
     # Transformer    
@@ -27,6 +39,8 @@ config = {
     'PE': 'random',    # 'random', 'sinusodial'
     'learn_PE': True,
     'use_PE' : True,
+    'patch_size':   16, #16, # 8        ----------------------  optimization param,  Chunk
+
     
     # CNN
     'add_spatial_conv': True,
@@ -41,38 +55,14 @@ config = {
     'dropPath': 0.0,
     'dim_to_layerFFN_dim': 4,
 
-    'nFrames': 24,
-    'mFrames' : 24,
     'radius'  : 1000,   # in kilometers
-    'factor10' : 10,    # 10 taking the full image size.
     'transient_steps' : 6000,
-
-    # video length in and out
-    # data split
-    'train_pct': 80,
-    'vali_pct': 20,
-
-    # training
-    'seed' : 523,
-    'include_difficulty' : False,
-    'epochs': 50,
-    'steps_to_save' : 50,
-    # The bottleneck is on file reading.
-    'batch_size' : 10, #(10)
-    'log_step': 10,
-    
-    'skip_validation' : False,
-    
-    'data_years' : 100,    # The latest 'data_years' years of the databased years are accounted for. 
-
     'optimizer': 'adam',    # 'adamw' takes more momory for optimizer.
     'lr' : 1e-5,    # ---> changed below
-    'overwrite_saved_lr': False,
-    
     'bottleneck_dropout' : 0.03,
-    
-    # Scheduler
-    # (initial_lr = max_lr / div_factor, for pct_start of the total_steps) -> max_lr -> (Final LR = initial_lr/final_div_factor, for the remaining steps)
+    'skip_validation' : False,
+    'epochs': 50,
+    'overwrite_saved_lr': False,
     'max_lr' : 1e-5,    # ----> changed below
     'total_steps' : 60000,
     'weight_decay': 0.0,    # disable weight_decay, in AdamW
@@ -82,10 +72,22 @@ config = {
     'final_div_factor' : 1.0, # Final LR = initial_lr / final_div_factor
     'accum_steps' : 10,  # the smaller batch_size is, the larger accum_steps is.
     'use_autocast' : True,
-    'GPUWaitsData' : True,
-
     'epoch_patience' : 10,       # Mike!!!
     'useLRLearner' : False,
+
+
+    #============================ project (data, models) ===============================
+    
+    'bayesProject': None,
+
+    # training
+    'seed' : 523,
+    'steps_to_save' : 50,
+    'log_step': 10,    
+        
+    # Scheduler
+    # (initial_lr = max_lr / div_factor, for pct_start of the total_steps) -> max_lr -> (Final LR = initial_lr/final_div_factor, for the remaining steps)
+    'GPUWaitsData' : True,
     
     'abundant_GPUs' : False,
     'doubleZeus' : False,
@@ -96,7 +98,6 @@ config = {
     'freeze_zeus1' : False,
     'skip_net_for_zeus2' : True,
 
-    'seed': 523,
     # 'bayesProject' : '16-128-8-6-GLU' # '16-128-8-6-GLU' # 'f2-k5-3', 'f4-k5-3' #'production_0923_16' #'production_0823-18' #31_12',  #23-18  # Represents an instance of a whole bayesian miximization. Mike!!!
 }
 
@@ -147,7 +148,6 @@ else:
 
 n = config['nFrames']
 C = len(config['variables'])
-config['cnn_hidden_channels'] = [n*C, n*C, n*C, n*C, n*C, n*C, n*C, n*C, C] # the last should be C. See ZeusCNN.forward. We get one frame from n frames.
    
 #-------------------------------------------------- project list ---------------
 projects = {}
