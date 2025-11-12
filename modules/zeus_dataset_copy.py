@@ -90,25 +90,6 @@ class Zeus_Dataset(Dataset):
         self.train_hours, self.vali_hours, self.test_hours = self.split_data_hours(renew=True, seed=self.pm.seed)
         return
     
-    def start_prefetch_thread(self):
-        # self.total_batches = None
-        # self._fetched_batches = None
-
-        self._lock = threading.Lock()
-        self._batch = None
-        self._param = None
-
-        self._request_event = threading.Event()
-        self._ready_event = threading.Event()
-        self._stop_event = threading.Event()
-
-        self._worker_thread = threading.Thread(target=self._prefetch_loop, daemon=True)
-        self._worker_thread.start()
-        
-        self._disk_threadPool = ThreadPoolExecutor(max_workers=2)
-        
-        return
-
     def get_normalized_dataset(self):
         dataset = xr.open_zarr("gs://gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3", chunks=None)
         # dataset = dataset[self.pm.variables]
@@ -1164,6 +1145,25 @@ class Zeus_Dataset(Dataset):
         plt.show()
         
     #---------------------------------- Prefetch -------------------------------------
+    
+    def start_prefetch_thread(self):
+        # self.total_batches = None
+        # self._fetched_batches = None
+
+        self._lock = threading.Lock()
+        self._batch = None
+        self._param = None
+
+        self._request_event = threading.Event()
+        self._ready_event = threading.Event()
+        self._stop_event = threading.Event()
+
+        self._worker_thread = threading.Thread(target=self._prefetch_loop, daemon=True)
+        self._worker_thread.start()
+        
+        self._disk_threadPool = ThreadPoolExecutor(max_workers=2)
+        
+        return
 
     def _prefetch_loop(self):
         while not self._stop_event.is_set():
@@ -1201,10 +1201,9 @@ class Zeus_Dataset(Dataset):
         if idx >= self.total_batches:
             raise IndexError("Index exceeds dataset length.")
 
-        # print('get_batch... ')
         batch = self.get_batch()
-        # print(' ...get_batch: ', batch is not None)
-        if batch is not None: self._fetched_batches += 1
+        if batch is not None:
+            self._fetched_batches += 1
         return batch
 
     def __len__(self):

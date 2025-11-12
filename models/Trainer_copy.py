@@ -358,7 +358,7 @@ class Model_Sequence_Trainer():
         for slots_normalized in pbar:              # Wait for the asynchronous .prefetch
             end = time.time()
 
-            # if not pbar.no_more_data():  pbar.prefetch(x_set_label)        # Prefetch ensures getting new bacthes.
+            if not pbar.no_more_data():  pbar.prefetch(x_set_label)        # Prefetch ensures getting new bacthes.
             if slots_normalized is None: break     # just in case
             slots, batch_diff, era5_data_vars = slots_normalized   # (slots, B, T1FG, C, H, W), (B, T2FG, C, H, W), None or (B, C, H, W), (C,)
 
