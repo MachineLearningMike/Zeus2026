@@ -29,7 +29,8 @@ from models.Model_Dom import Model_Dom
 from modules.zeus_dataset_copy import Zeus_Dataset
 import modules.utils as utils
 from modules.params_copy import Params
-from modules.read_cursor_keys_linux_windows_2 import KeyReader
+# from modules.read_cursor_keys_linux_windows_2 import KeyReader    This is crazy.
+from modules.read_cursor_keys_linux_windows import KeyReader
 
 kr = KeyReader()
 kr.init_key_listener()
@@ -64,6 +65,7 @@ class Model_Sequence_Trainer():
             
         self.focus_md_id = 0
         self.transient_step = 0
+        self.train_bombs = 1
         
     def setup_logging(self, log_dir):
         """
@@ -279,26 +281,34 @@ class Model_Sequence_Trainer():
     def respond_to_cursor(self):
         direction, count = kr.read_key()
         factor = None; step = math.pow(10.0, 1/10)
-        batch_size = None
 
-        if direction == "up":
+        if direction is None:
+            return
+        elif direction == "up":
             factor = math.pow(step, count)         
         elif direction == "down":
             factor = math.pow(1 / step, count)
         elif direction == "left":
-            batch_size = min(self.pm.batch_size - count, 1)
+            self.train_bombs = max(min(self.train_bombs - count, 1),1)
+            return
         elif direction == "right":
-            batch_size == self.pm.batch_size + count
+            self.train_bombs = self.train_bombs + count
+            return
         elif direction == "0":
             self.focus_md_id = 0
+            return
         elif direction == "1":
             self.focus_md_id = 1
+            return
         elif direction == "2":
             self.focus_md_id = 2
+            return
         elif direction == "3":
             self.focus_md_id = 3
+            return
         elif direction == "4":
             self.focus_md_id = 4
+            return
         else: return
 
         focus_md = self.get_md_focus(self.model_doms)
@@ -308,8 +318,6 @@ class Model_Sequence_Trainer():
             assert lr is not None
             lr *= factor
             focus_md.set_learning_rate(lr)
-        if batch_size:
-            self.pm.batch_size = batch_size     # This may cause consistency, as different objects have different copy of pm.
 
         return
     
@@ -346,10 +354,11 @@ class Model_Sequence_Trainer():
 
         step = 0
         start = time.time()
+        start1 = time.time()
         for slots_normalized in pbar:              # Wait for the asynchronous .prefetch
             end = time.time()
 
-            if not pbar.no_more_data():  pbar.prefetch(x_set_label)        # Prefetch ensures getting new bacthes.
+            # if not pbar.no_more_data():  pbar.prefetch(x_set_label)        # Prefetch ensures getting new bacthes.
             if slots_normalized is None: break     # just in case
             slots, batch_diff, era5_data_vars = slots_normalized   # (slots, B, T1FG, C, H, W), (B, T2FG, C, H, W), None or (B, C, H, W), (C,)
 
@@ -371,17 +380,18 @@ class Model_Sequence_Trainer():
                 # with context:
                 # with torch.set_grad_enabled(trainable):   # grad is managed by single_GPU_forward_loss_backward
 
-                for md in mds:
-                    batch_x = slots[0]
-                    batch_y = slots[md.md_id + 1]
-                    (loss, normalized_rmse), unnormalized_rmse, unnormalized_mae = md.model.single_GPU_forward_loss_backward(batch_x, batch_y, self.loss, self.dataset.normalize, self.dataset.unnormalize, batch_diff, era5_data_vars, trainable=trainable)
-                    md.store_step_loss_and_metrics(loss, unnormalized_mae)
-                    losses.append(loss.item())
-                    
-                    if trainable:
-                        check_gradient(md.model)
-                        md.lr_controller.stepOptimizer(loss.item()) if md.pm.useLRLearner else md.optimizer.step()
-                        # md.scaler.update()
+                for _ in  range(self.train_bombs):
+                    for md in mds:
+                        batch_x = slots[0]
+                        batch_y = slots[md.md_id + 1]
+                        (loss, normalized_rmse), unnormalized_rmse, unnormalized_mae = md.model.single_GPU_forward_loss_backward(batch_x, batch_y, self.loss, self.dataset.normalize, self.dataset.unnormalize, batch_diff, era5_data_vars, trainable=trainable)
+                        md.store_step_loss_and_metrics(loss, unnormalized_mae)
+                        losses.append(loss.item())
+                        
+                        if trainable:
+                            check_gradient(md.model)
+                            md.lr_controller.stepOptimizer(loss.item()) if md.pm.useLRLearner else md.optimizer.step()
+                            # md.scaler.update()
                         
             else:
                 # chunks_x = batch_x.chunk(self.nDevices)
@@ -427,8 +437,10 @@ class Model_Sequence_Trainer():
                     #     pass
                     
             md_focus = self.get_md_focus(mds)
-            pbar.set_description("{}, wt {:.3f} lr {:1.1e} bs {} do {} mds {}"
-                                 .format(md_focus.pbar_description, (end-start) * 1000, md_focus.get_learning_rate(), batch_x.shape[0], md_focus.pm.bottleneck_dropout, len(mds)))
+            end1 = time.time()
+            pbar.set_description("{}, wait/cycle {:.0f}/{:.0f} lr {:1.1e} tb {} mds {}"
+                                 .format(md_focus.pbar_description, (end-start) * 1000, (end1-start1) * 1000, md_focus.get_learning_rate(), self.train_bombs, len(mds)))
+            start1 = time.time()
             
             step += 1
             if trainable is True and step % self.pm.steps_to_save == 0:

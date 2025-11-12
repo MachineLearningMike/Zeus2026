@@ -427,7 +427,7 @@ projects["ResNet_NoStage_B15_BR30"] = {
     'management': {
     'Zeus_Model_module' : 'Zeus_ResNet',
     'GPUWaitsData' : True,
-    'models_to_play': [0, 1]
+    'models_to_play': [0,]
     },
     
     'data': {
