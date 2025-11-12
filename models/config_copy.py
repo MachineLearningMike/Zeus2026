@@ -142,7 +142,7 @@ else:
     
     # GPU: 
     config['factor10'] = 10  # 2 is the minimum, as 1 causes a non-float parameter error.
-    config['tokens_per_chunk'] = round(config['T1'] * 72 * config['factor10'] * 144 * config['factor10'] /config['patch_size']/config['patch_size']) // 2
+    # config['tokens_per_chunk'] = round(config['T1'] * 72 * config['factor10'] * 144 * config['factor10'] /config['patch_size']/config['patch_size']) // 2
 
     config['epochs'] = 100
     config['steps_to_save'] = 50
