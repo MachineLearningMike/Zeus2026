@@ -130,6 +130,11 @@ class KeyReader:
                 nDown = self._pressed_keys.count('down')
                 nRight = self._pressed_keys.count("right")
                 nLeft = self._pressed_keys.count("left")
+                n0 = self._pressed_keys.count("0")
+                n1 = self._pressed_keys.count("l")
+                n2 = self._pressed_keys.count("2")
+                n3 = self._pressed_keys.count("3")
+                n4 = self._pressed_keys.count("4")
                 self._pressed_keys.clear()
             deltaUpDown = nUp - nDown
             deltaRightLeft = nRight - nLeft
@@ -141,6 +146,16 @@ class KeyReader:
                 return 'right', deltaRightLeft
             elif deltaRightLeft < 0:
                 return 'left', -deltaRightLeft
+            elif n0 > 0:
+                return '0', n0
+            elif n1 > 0:
+                return '1', n1
+            elif n2 > 0:
+                return '2', n2
+            elif n3 > 0:
+                return '3', n3
+            elif n4 > 0:
+                return '4', n4            
             else:
                 return None, 0
         else:
@@ -154,7 +169,7 @@ class KeyReader:
                     break
             if not keys:
                 return None, 0
-            counts = {k: keys.count(k) for k in ('up','down','left','right')}
+            counts = {k: keys.count(k) for k in ('up','down','left','right','0','1','2','3','4')}
             direction, count = max(counts.items(), key=lambda x: x[1])
             return direction, count
 

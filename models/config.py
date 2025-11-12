@@ -2,9 +2,9 @@
 # Change
 
 config = {
-    'dtype' : 32,   # 16 is complicated. deffered.
     
     #============================ data, shared ===========================================================================
+    'dtype' : 32,   # 16 is complicated. deffered.
     'variables': ["2m_temperature", 'total_precipitation', "100m_u_component_of_wind", '100m_v_component_of_wind', "2m_dewpoint_temperature", "surface_pressure"],
 
     'org_height': 721,
@@ -40,7 +40,6 @@ config = {
     'learn_PE': True,
     'use_PE' : True,
     'patch_size':   16, #16, # 8        ----------------------  optimization param,  Chunk
-
     
     # CNN
     'add_spatial_conv': True,
@@ -57,6 +56,7 @@ config = {
 
     'radius'  : 1000,   # in kilometers
     'transient_steps' : 6000,
+
     'optimizer': 'adam',    # 'adamw' takes more momory for optimizer.
     'lr' : 1e-5,    # ---> changed below
     'bottleneck_dropout' : 0.03,
@@ -97,8 +97,6 @@ config = {
     # for 'doubleZeus' == True
     'freeze_zeus1' : False,
     'skip_net_for_zeus2' : True,
-
-    # 'bayesProject' : '16-128-8-6-GLU' # '16-128-8-6-GLU' # 'f2-k5-3', 'f4-k5-3' #'production_0923_16' #'production_0823-18' #31_12',  #23-18  # Represents an instance of a whole bayesian miximization. Mike!!!
 }
 
 from pathlib import Path

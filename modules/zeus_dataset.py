@@ -828,18 +828,20 @@ class Zeus_Dataset(Dataset):
         if self.train_hours is None or self.vali_hours is None or self.test_hours is None:
             print("Call split_data_hours first")
             return None, None, None
-
-        random.shuffle(self.train_hours)
-        random.shuffle(self.vali_hours)
-        random.shuffle(self.test_hours)
         
-        return self.train_hours, self.vali_hours, self.test_hours
+        train_hours, vali_hours, test_hours = self.train_hours, self.vali_hours, self.test_hours
+
+        random.shuffle(train_hours)
+        random.shuffle(vali_hours)
+        random.shuffle(test_hours)
+        
+        return train_hours, vali_hours, test_hours
     
     def get_steps_per_epoch(self):
         return math.ceil(len(self.train_hours) / self.pm.batch_size)
 
     def refresh_x_set(self, x_label, seed=None):
-        self.generate_x_hours(seed=seed)
+        self.train_hours, self.vali_hours, self.test_hours = self.generate_x_hours(seed=seed)
 
         # Mike!!! remove [:2]
         # No need to copy.copy(), as self.x_sets are re-generated above.
@@ -1311,8 +1313,8 @@ if __name__ == "__main__":
 
     dataset = Zeus_Dataset(pm, Path(config['dataset_path']), Path(config['management_path']))
 
-    end_date = date(2018, 10, 10)
-    dataset.download_dataset(2010, end_date, max_workers=10)   # downloads day data in reverse order.
+    # end_date = date(2017, 8, 28)
+    # dataset.download_dataset(2010, end_date, max_workers=10)   # downloads day data in reverse order.
     
     total_days, start_day, end_day, complete, data_dates = dataset.count_data_days()
     print(f"total_days {total_days}, start_day {start_day}, end_day {end_day}, complete {complete}")
