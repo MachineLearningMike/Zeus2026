@@ -29,7 +29,7 @@ from models.Model_Dom import Model_Dom
 from modules.zeus_dataset_copy import Zeus_Dataset
 import modules.utils as utils
 from modules.params_copy import Params
-from modules.read_cursor_keys_linux_windows import KeyReader
+from modules.read_cursor_keys_linux_windows_2 import KeyReader
 
 kr = KeyReader()
 kr.init_key_listener()
@@ -154,8 +154,9 @@ class Model_Sequence_Trainer():
         
         mds_to_keep_going = self.model_doms
         
-        for epoch in range(0, 100): #self.pm.epochs):   
+        for epoch in range(0, 100): #self.pm.epochs):
             mds_to_train = mds_to_keep_going
+            self.model_doms = mds_to_keep_going
         
             if len(mds_to_train) <= 0: break            
             ran_epochs = True
@@ -288,22 +289,37 @@ class Model_Sequence_Trainer():
             batch_size = min(self.pm.batch_size - count, 1)
         elif direction == "right":
             batch_size == self.pm.batch_size + count
-        else: pass
+        elif direction == "0":
+            self.focus_md_id = 0
+        elif direction == "1":
+            self.focus_md_id = 1
+        elif direction == "2":
+            self.focus_md_id = 2
+        elif direction == "3":
+            self.focus_md_id = 3
+        elif direction == "4":
+            self.focus_md_id = 4
+        else: return
+
+        focus_md = self.get_md_focus(self.model_doms)
 
         if factor:
-            lr = self.get_learning_rate()
+            lr = focus_md.get_learning_rate()
             assert lr is not None
             lr *= factor
-            self.set_learning_rate(lr)
+            focus_md.set_learning_rate(lr)
         if batch_size:
             self.pm.batch_size = batch_size     # This may cause consistency, as different objects have different copy of pm.
 
         return
     
-    def run_epoch(self, mds, x_set_label, trainable=True):
+    def get_md_focus(self, mds):
         md_focus_list = [md for md in mds if md.md_id == self.focus_md_id]
         md_focus = md_focus_list[0] if len(md_focus_list) == 1 else mds[0]
-        
+        return md_focus
+    
+    def run_epoch(self, mds, x_set_label, trainable=True):
+               
         data_slots = [0] + [md.md_id + 1 for md in mds]
         self.dataset.set_data_slots(data_slots)
         self.dataset.refresh_x_set(x_set_label, seed=self.pm.seed, renew=False)
@@ -409,7 +425,8 @@ class Model_Sequence_Trainer():
                     #   self.scheduler.step()   # Our scheduler is OneCycleLR, which is a per-batch scheduler
                     # except ValueError:        # It may go beyond the total_steps
                     #     pass
-            
+                    
+            md_focus = self.get_md_focus(mds)
             pbar.set_description("{}, wt {:.3f} lr {:1.1e} bs {} do {} mds {}"
                                  .format(md_focus.pbar_description, (end-start) * 1000, md_focus.get_learning_rate(), batch_x.shape[0], md_focus.pm.bottleneck_dropout, len(mds)))
             
@@ -422,6 +439,7 @@ class Model_Sequence_Trainer():
             start = time.time()
         
         [md.get_pbar_description(md.epoch_loss, md.epoch_metrics) for md in mds]
+        md_focus = self.get_md_focus(mds)
         pbar.set_description(md_focus.pbar_description)
 
         pbar.stop_prefetch_thread()
