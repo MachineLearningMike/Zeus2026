@@ -289,7 +289,7 @@ class Model_Sequence_Trainer():
         elif direction == "down":
             factor = math.pow(1 / step, count)
         elif direction == "left":
-            self.train_bombs = max(min(self.train_bombs - count, 1),1)
+            self.train_bombs = self.train_bombs - count if self.train_bombs - count >= 1 else 1
             return
         elif direction == "right":
             self.train_bombs = self.train_bombs + count
