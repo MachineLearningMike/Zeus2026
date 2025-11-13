@@ -174,7 +174,7 @@ class Model_Sequence_Trainer():
             
             train_losses, train_metrics = self.run_epoch(mds_to_train, "train_set", trainable=True)   # (,), (C,)
 
-            [md.get_epoch_display_from_list(loss_list, metric_list) for (md, loss_list, metric_list) in zip(mds_to_train, train_losses, train_metrics)]
+            [md.get_epoch_display_batch(loss_list, metric_list) for (md, loss_list, metric_list) in zip(mds_to_train, train_losses, train_metrics)]
             [logging.info("Finished train epoch {}, {}".format(md.epoch, (md.display))) for md in mds_to_train]
     
             mds_to_validate = [md for md in mds_to_train if md.pm.skip_validation is False]
@@ -189,7 +189,7 @@ class Model_Sequence_Trainer():
                 
                 vali_losses, vali_metrics = self.run_epoch(mds_to_validate, "vali_set", trainable=False)     # (,), (C,)   #------------------------
 
-                [md.get_epoch_display_from_list(loss, metric) for (md, loss, metric) in zip(mds_to_validate, vali_losses, vali_metrics)]
+                [md.get_epoch_display_batch(loss, metric) for (md, loss, metric) in zip(mds_to_validate, vali_losses, vali_metrics)]
                 [logging.info("Finished vali epoch {}, {}".format(md.epoch, (md.display))) for md in mds_to_validate]
 
                 keep_goings, best_metrics = map(list, zip(*[md.save_best_train(vm) for md, vm in zip(mds_to_validate, vali_metrics)]))
@@ -332,12 +332,12 @@ class Model_Sequence_Trainer():
                
         data_slots = [0] + [md.md_id + 1 for md in mds]
         self.dataset.set_data_slots(data_slots)
-        self.dataset.refresh_x_set(x_set_label, seed=self.pm.seed, renew=False)
-        logging.info("{} refreshed.".format(x_set_label))
+        renewed = self.dataset.refresh_x_set(x_set_label, seed=self.pm.seed, renew_if_new_epoch=True)
+        logging.info("{} {}".format(x_set_label, "renewed" if renewed else "left over from previous run"))
 
         for md in mds:
-            if md.step_state is not None:
-                logging.info("Continuing saved epoch... model {}".format(md.md_id))
+            if md.packed_losses_metrics is not None:
+                logging.info("Continuing saved epoch... epoch/model {}/{}".format(md.epoch, md.md_id))
         
         # Simulated completion and return
         # train_losses = [torch.tensor(1.1 * (n+1)) for n in range(len(mds))]
@@ -464,7 +464,7 @@ class Model_Sequence_Trainer():
         if gpu_executor is not None: gpu_executor.shutdown()
 
         epoch_losses = [torch.stack(md.epoch_losses, dim=0) if len(md.epoch_losses) > 0 else None for md in mds]
-        epoch_metrics = [torch.stack(md.epoch_metrics, dmi=0) if len(md.epoch_metrics) > 0 else None for md in mds]
+        epoch_metrics = [torch.stack(md.epoch_metrics, dim=0) if len(md.epoch_metrics) > 0 else None for md in mds]
 
         return epoch_losses, epoch_metrics  # (,), (C,)
 

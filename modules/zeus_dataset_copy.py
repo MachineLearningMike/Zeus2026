@@ -41,6 +41,7 @@ class Zeus_Dataset(Dataset):
     def __init__(self, pm, dataset_path, management_path):
         super().__init__()
         self.pm = pm
+        self.data_limit = pm.data_limit
         
         check_dir(dataset_path)
         check_dir(management_path)
@@ -792,10 +793,9 @@ class Zeus_Dataset(Dataset):
             new_vali_hours = shuffled_hours[train_size : train_size + vali_size]
             new_test_hours = shuffled_hours[train_size + vali_size :]
             
-            train_hours = list(set(inherited_train_hours + new_train_hours))
-            vali_hours = list(set(inherited_vali_hours + new_vali_hours))
-            test_hours = list(set(inherited_test_hours + new_test_hours))
-            random.shuffle(train_hours)
+            train_hours = list(set(inherited_train_hours + new_train_hours))[:self.data_limit]
+            vali_hours = list(set(inherited_vali_hours + new_vali_hours))[:self.data_limit]
+            test_hours = list(set(inherited_test_hours + new_test_hours))[:self.data_limit]
             random.shuffle(vali_hours)
             random.shuffle(test_hours)
             
@@ -831,24 +831,29 @@ class Zeus_Dataset(Dataset):
     def set_data_slots(self, data_slots):
         self.data_slots = data_slots
 
-    def refresh_x_set(self, x_label, seed=None, renew=False):
-        self.train_hours, self.vali_hours, self.test_hours = self.generate_x_hours(seed=seed)
+    def refresh_x_set(self, x_label, seed=None, renew_if_new_epoch=False):
+        renewed = False
+        if len(self.x_set) <= 0 or self.x_set is None:  # this is a branc-new epoch
+            # No need to copy.copy(), as self.x_sets are re-generated above.
+            if renew_if_new_epoch is True:
+                self.train_hours, self.vali_hours, self.test_hours = self.generate_x_hours(seed=seed)
 
-        # No need to copy.copy(), as self.x_sets are re-generated above.
-        if renew is True or self.x_set is None:
-            if platform.system() == "Windows": 
-                self.x_set = self.train_hours[:] if x_label=='train_set' \
-                    else self.vali_hours[:] if x_label=='vali_set' \
-                    else self.test_hours[:] if x_label=='test_set' else None
-            else:
-                self.x_set = self.train_hours if x_label=='train_set' \
-                    else self.vali_hours if x_label=='vali_set' \
-                    else self.test_hours if x_label=='test_set' else None            
-            
-            random.shuffle(self.x_set)
-
+                if platform.system() == "Windows": 
+                    self.x_set = self.train_hours[:] if x_label=='train_set' \
+                        else self.vali_hours[:] if x_label=='vali_set' \
+                        else self.test_hours[:] if x_label=='test_set' else None
+                else:
+                    self.x_set = self.train_hours if x_label=='train_set' \
+                        else self.vali_hours if x_label=='vali_set' \
+                        else self.test_hours if x_label=='test_set' else None            
+                
+                random.shuffle(self.x_set)
+                renewed = True
+        
         self._fetched_batches = 0
         self.total_batches = math.ceil(len(self.x_set) / self.pm.batch_size)
+        
+        return renewed
         
     def pack_state(self):
            return {
@@ -861,7 +866,7 @@ class Zeus_Dataset(Dataset):
         self.x_set = [
             (datetime.strptime(item[0], "%Y-%m-%d").date(), item[1])
             for item in data["x_set"]
-        ]
+        ][:self.data_limit]
         self._fetched_batches = 0
         # self.total_batches = data["total_batches"] - data["_fetched_batches"]
         self.total_batches = math.ceil(len(self.x_set) / self.pm.batch_size)    # This line allows to change batch_size mid-epoch

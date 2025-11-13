@@ -38,6 +38,8 @@ class Params:
         self.data_years = config['data_years']
         self.batch_size = config['batch_size']
         
+        self.data_limit = config['data_limit']
+        
         self.FG = config['FG']
         self.T1 = config['T1']
 

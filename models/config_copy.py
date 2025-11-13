@@ -33,6 +33,7 @@ config = {
     'factor10' : 10,    # 10 taking the full image size.
     'data_years' : 100,
     'batch_size' : 10, #(10)
+    'data_limit' : 10**18,
 
     'FG': 1, # not 24, for a better granularity control   # frames in a frame group
     'T1':           24, # 24 for Chunk, 3 for 256-head CNNs,
@@ -117,6 +118,8 @@ if platform.system() == "Windows":
         config['dataset_path'] = "d:/zeud_data"
         config['management_path'] = "d:/zeus_data/management"
     
+    config['data_limit'] = 12
+    
     # GPU: RTX 4070, Chunk2D
     config['factor10'] = 4  # 2 is the minimum, as 1 causes a non-float parameter error.
     config['dim_to_layerFFN_dim'] = 4
@@ -129,7 +132,7 @@ if platform.system() == "Windows":
     config['use_PE'] = True
     
     config['epochs'] = 100
-    config['steps_to_save'] = 5
+    config['steps_to_save'] = 2
     config['abundant_GPUs'] = False
     
 else:

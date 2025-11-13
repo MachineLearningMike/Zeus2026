@@ -316,10 +316,6 @@ class Model_Dom():
                         self.weighted_metric_old = checkpoint['weighted_metric_old']
                         self.epochs_since_improvement = checkpoint['epochs_since_improvement']
                         logging.info("weighted_metric_old and epochs_since_improvement loaded with saved values")
-                    
-                        if checkpoint.get('dataset', None) is not None:
-                            self.dataset.unpack_state(checkpoint['dataset'])
-                            logging.info("dataset state loaded with saved state")
 
                         if checkpoint.get('packed_losses_metrics', None) is not None:
                             packed_losses_metrics = checkpoint['packed_losses_metrics']
@@ -382,12 +378,12 @@ class Model_Dom():
         self.display = lead + loss + metrics
         return self.display
 
-    def get_epoch_display_from_list(self, loss_list, metrics_list):
-        if loss_list is None or metrics_list is None:
+    def get_epoch_display_batch(self, loss_batch, metrics_batch):
+        if loss_batch is None or metrics_batch is None:
             loss, metrics = None, None
         else:
-            loss = torch.stack(loss_list, dim=0).mean(dim=0)
-            metrics = torch.stack(metrics_list, dim=0).mean(dim=0)
+            loss = loss_batch.mean(dim=0)
+            metrics = metrics_batch.mean(dim=0)
         return self.get_epoch_display(loss, metrics)
 
     def get_curved_scores(self, raw_rmse: torch.Tensor, gamma: float) -> torch.Tensor:
@@ -422,7 +418,7 @@ class Model_Dom():
 
     def unpack_losses_metrics(self, packed_losses_metrics):
         self.epoch_losses, self.epoch_metrics = [], []
-        if self.packed_losses_metrics is not None:
+        if packed_losses_metrics is not None:
             self.epoch_losses = [torch.tensor(v) for v in packed_losses_metrics["epoch_losses"]]
             self.epoch_metrics = [torch.tensor(v) for v in packed_losses_metrics["epoch_metrics"]]
             
