@@ -351,14 +351,14 @@ class Train():
     def set_eval_mode(self):
         if self.model is not None: self.model.eval()
         
-    def pack_step_state(self, epoch_loss, epoch_rmses):
+    def pack_losses_metrics(self, epoch_loss, epoch_rmses):
         assert epoch_loss is not None and epoch_rmses is not None
         return {
             "epoch_loss": [t.item() for t in epoch_loss],          # each scalar -> float
             "epoch_rmses": [t.tolist() for t in epoch_rmses]         # each (4,) tensor -> list    
         }
 
-    def unpack_step_state(self, data):
+    def unpack_losses_metrics(self, data):
         epoch_loss, epoch_rmses = [], []
         if data is not None:
             epoch_loss = [torch.tensor(v) for v in data["epoch_loss"]]
@@ -392,7 +392,7 @@ class Train():
         
         FG = self.pm.FG; T1 = self.pm.nFramesIn // FG
         if step_state is not None:
-            _epoch_loss, _epoch_rmses = self.unpack_step_state(step_state)
+            _epoch_loss, _epoch_rmses = self.unpack_losses_metrics(step_state)
             logging.info("Step state restored with saved one")
         else:
             _epoch_loss, _epoch_rmses = [], []
@@ -520,7 +520,7 @@ class Train():
             
             step += 1
             if trainable is True and step % self.pm.steps_to_save == 0:
-                step_state = self.pack_step_state(_epoch_loss, _epoch_rmses)
+                step_state = self.pack_losses_metrics(_epoch_loss, _epoch_rmses)
                 self.save_state(step_state=step_state)  # Step_save
                 
         _epoch_loss = torch.stack(_epoch_loss, dim=0).mean(dim=0)  # (,)

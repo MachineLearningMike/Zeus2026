@@ -71,7 +71,7 @@ class Model_Dom():
             self.scaler = GradScaler(device=self.device)
 
             self.epoch = 0
-            self.step_state = None
+            self.packed_losses_metrics = None
             self.epochs_since_improvement = 0
             self.weighted_metric_old = torch.ones_like(self.load_era5_data_vars()) * 1e9
             self.learning_rate = None
@@ -159,24 +159,31 @@ class Model_Dom():
     def get_learning_rate(self):
         return self.optimizer.param_groups[0]['lr']
     
-    def save_best_train(self, vali_metric):   # (C,), (C,)
-        wasBestEpoch = False
-        weighted_metric = vali_metric * (self.era5_data_vars.to(vali_metric.device))
+    def save_best_train(self, vali_metric):   # (C,), (C,)        
+        if vali_metric is not None:
+            wasBestEpoch = False
 
-        if torch.mean(weighted_metric) < torch.mean(self.weighted_metric_old):
-            wasBestEpoch = True
-            self.weighted_metric_old = weighted_metric
-            name = "best_model_" + str(self.md_id)
-            logging.info("saving best train_state...model: {}, weighted_metric: {:.3f}, path: {}".format(self.md_id, torch.mean(weighted_metric).item(), name))
-            self.save_state(name=name, model_only=True)
+            weighted_metric = vali_metric * (self.era5_data_vars.to(vali_metric.device))
 
-        self.epochs_since_improvement = self.epochs_since_improvement + 1 if not wasBestEpoch else 0
-        
-        keep_going = self.epochs_since_improvement < self.pm.epoch_patience
-        logging.info("___Patience {} run out @ model {}".format(self.pm.epoch_patience, self.md_id))
-        
-        best_metric = torch.mean(self.weighted_metric_old).item()
+            if torch.mean(weighted_metric) < torch.mean(self.weighted_metric_old):
+                wasBestEpoch = True
+                self.weighted_metric_old = weighted_metric
+                name = "best_model_" + str(self.md_id)
+                logging.info("saving best train_state...model: {}, weighted_metric: {:.3f}, path: {}".format(self.md_id, torch.mean(weighted_metric).item(), name))
+                self.save_state(name=name, model_only=True)
 
+            self.epochs_since_improvement = self.epochs_since_improvement + 1 if not wasBestEpoch else 0
+            
+            keep_going = self.epochs_since_improvement < self.pm.epoch_patience
+            logging.info("___Patience {} run out @ model {}".format(self.pm.epoch_patience, self.md_id))
+            
+            best_metric = torch.mean(self.weighted_metric_old).item()
+        else:
+            logging.info("Model {} has no validation metrics. Going ahead to next epoch...".format(self.md_id))
+            
+            keep_going = True
+            best_metric = 1e9
+            
         return keep_going, best_metric
        
     def save_state(self, name=None, train_finished=False, model_only=False):
@@ -195,7 +202,7 @@ class Model_Dom():
                 'weighted_metric_old': self.weighted_metric_old,
                 'epochs_since_improvement': self.epochs_since_improvement,
                 'train_finished' : train_finished,
-                'step_state': self.step_state,
+                'packed_losses_metrics': self.packed_losses_metrics,
                 'learning_rate': self.learning_rate,
             })
         utils.check_dir(self.project_path)
@@ -284,7 +291,7 @@ class Model_Dom():
                     missing_keys, unexpected_keys = self.model.load_state_dict(state_dict, strict=False)
                     logging.info("Model loaded with saved state: \n_missing_keys: {}, \n_unexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
 
-                step_state = None
+                packed_losses_metrics = None
                 if self.trainable:
                     
                     try:                                               
@@ -314,9 +321,9 @@ class Model_Dom():
                             self.dataset.unpack_state(checkpoint['dataset'])
                             logging.info("dataset state loaded with saved state")
 
-                        if checkpoint.get('step_state', None) is not None:
-                            step_state = checkpoint['step_state']
-                            logging.info("step_state loaded")
+                        if checkpoint.get('packed_losses_metrics', None) is not None:
+                            packed_losses_metrics = checkpoint['packed_losses_metrics']
+                            logging.info("packed_losses_metrics loaded")
                             
                         if self.pm.overwrite_saved_lr:
                             self.learning_rate = self.pm.lr
@@ -330,8 +337,8 @@ class Model_Dom():
                     except Exception as e:
                         logging.info(str(e))
 
-                # print('----------- step_state loaded is ', step_state)
-                if step_state is not None:  # The previous session was terminated after a new step was finished and before an epoch is finished.
+                # print('----------- packed_losses_metrics loaded is ', packed_losses_metrics)
+                if packed_losses_metrics is not None:  # The previous session was terminated after a new step was finished and before an epoch is finished.
                     epoch = epoch
                 else:   # The previous session was terminated after an epoch was finished and before a new step was finished. 
                     epoch = epoch + 1
@@ -347,33 +354,41 @@ class Model_Dom():
         
         if file_not_found:               
             # Start a new training, creating the file.
-            epoch = 0; step_state = None    # This is the moment where an existing train will be overriden !!!    
+            epoch = 0; packed_losses_metrics = None    # This is the moment where an existing train will be overriden !!!    
         elif train_finished and self.trainable:
             # Keep the finished train intact.
             logging.info("You tried to start/continue a finished training. Aborting... No! specially")
             # sys.exit()
         elif not file_loaded:
             # Start a new training, creating the file.
-            epoch = 0; step_state = None    # This is the moment where an existing train will be overriden !!!    
+            epoch = 0; packed_losses_metrics = None    # This is the moment where an existing train will be overriden !!!    
         else: # file found, train not finished, file loaded
             # Continue the loaded train.
-            epoch = epoch; step_state = step_state
+            epoch = epoch; packed_losses_metrics = packed_losses_metrics
                         
         self.total_losses = self.load_history()
         logging.info("train history loaded. length: {}".format(len(self.total_losses)))
 
-        self.unpack_step_state(step_state)
+        self.unpack_losses_metrics(packed_losses_metrics)
 
-        self.epoch, self.step_state = epoch, step_state        
+        self.epoch, self.packed_losses_metrics = epoch, packed_losses_metrics        
         
-        return self.epoch, self.step_state
+        return self.epoch, self.packed_losses_metrics
 
     def get_epoch_display(self, loss, metrics):
         lead = "model {}, ".format(self.md_id)
-        loss = "loss {:.4f}, ".format(loss.item())
-        metrics = "mtx: " + ", ".join(f"{x:.3f}" for x in metrics.ravel().tolist())
+        loss = "loss {:.4f}, ".format(loss.item()) if loss is not None else "loss=None"
+        metrics = "mtx: " + ", ".join(f"{x:.3f}" for x in metrics.ravel().tolist()) if metrics is not None else "metrics=None"
         self.display = lead + loss + metrics
         return self.display
+
+    def get_epoch_display_from_list(self, loss_list, metrics_list):
+        if loss_list is None or metrics_list is None:
+            loss, metrics = None, None
+        else:
+            loss = torch.stack(loss_list, dim=0).mean(dim=0)
+            metrics = torch.stack(metrics_list, dim=0).mean(dim=0)
+        return self.get_epoch_display(loss, metrics)
 
     def get_curved_scores(self, raw_rmse: torch.Tensor, gamma: float) -> torch.Tensor:
         # gamma: (B, C, H, W)
@@ -391,25 +406,34 @@ class Model_Dom():
         norm = torch.where(eq, torch.ones_like(norm), norm)
 
         return torch.pow(norm, gamma)  # gamma.shape = (B, C, H, W)
+    
+    def zero_losses_metrics(self):
+        self.epoch_losses, self.epoch_metrics = [], []
+        self.packed_losses_metrics = {}
+        
 
-    def pack_step_state(self):
+    def pack_losses_metrics(self):
         assert self.epoch_losses is not None and self.epoch_metrics is not None
-        return {
+        self.packed_losses_metrics = {
             "epoch_losses": [t.item() for t in self.epoch_losses],          # each scalar -> float
             "epoch_metrics": [t.tolist() for t in self.epoch_metrics]         # each (4,) tensor -> list    
         }
+        return self.packed_losses_metrics
 
-    def unpack_step_state(self, step_state):
+    def unpack_losses_metrics(self, packed_losses_metrics):
         self.epoch_losses, self.epoch_metrics = [], []
-        if self.step_state is not None:
-            self.epoch_losses = [torch.tensor(v) for v in step_state["epoch_losses"]]
-            self.epoch_metrics = [torch.tensor(v) for v in step_state["epoch_metrics"]]
+        if self.packed_losses_metrics is not None:
+            self.epoch_losses = [torch.tensor(v) for v in packed_losses_metrics["epoch_losses"]]
+            self.epoch_metrics = [torch.tensor(v) for v in packed_losses_metrics["epoch_metrics"]]
             
     def get_pbar_description_epoch(self):    # (steps,), (stept, C)
-        _epoch_loss = torch.stack(self.epoch_losses, dim=0).mean(dim=0)  # (,)
-        _epoch_metrics = torch.stack(self.epoch_metrics, dim=0).mean(dim=0)       # (C,)
-        strC = ", ".join(f"{x:.2f}" for x in _epoch_metrics.ravel().tolist())
-        self.pbar_description = "md: {}, loss: {:.3f}, mtx: ({})".format(self.md_id, _epoch_loss.item(), strC)
+        if len(self.epoch_losses) <= 0 or len(self.epoch_metrics) <= 0: 
+            self.pbar_description = "md.epoch_losses and md.epoch_metrics are empty"
+        else:
+            _epoch_loss = torch.stack(self.epoch_losses, dim=0).mean(dim=0)  # (,)
+            _epoch_metrics = torch.stack(self.epoch_metrics, dim=0).mean(dim=0)       # (C,)
+            strC = ", ".join(f"{x:.2f}" for x in _epoch_metrics.ravel().tolist())
+            self.pbar_description = "md: {}, loss: {:.3f}, mtx: ({})".format(self.md_id, _epoch_loss.item(), strC)
 
     def get_pbar_description_step(self, step_loss, step_metrics):   # (,), (C,)
         _step_loss = step_loss  # (,)

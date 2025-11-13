@@ -46,6 +46,7 @@ def print_data_attrs(obj):
 class Model_Sequence_Trainer():
     def __init__(self, pm, dataset_path, management_path, project_path, bayes=None, trainable=True):
         self.pm = pm
+        self.bayes = bayes
         # self.management_path = management_path
         self.project_path = project_path
         self.setup_logging(project_path)
@@ -148,6 +149,7 @@ class Model_Sequence_Trainer():
             pass
         
     def train(self):
+        [md.zero_losses_metrics() for md in self.model_doms]        
         [md.try_load_state() for md in self.model_doms]
         self.try_load_state()        
         
@@ -172,7 +174,7 @@ class Model_Sequence_Trainer():
             
             train_losses, train_metrics = self.run_epoch(mds_to_train, "train_set", trainable=True)   # (,), (C,)
 
-            [md.get_epoch_display(loss, metric) for (md, loss, metric) in zip(mds_to_train, train_losses, train_metrics)]
+            [md.get_epoch_display_from_list(loss_list, metric_list) for (md, loss_list, metric_list) in zip(mds_to_train, train_losses, train_metrics)]
             [logging.info("Finished train epoch {}, {}".format(md.epoch, (md.display))) for md in mds_to_train]
     
             mds_to_validate = [md for md in mds_to_train if md.pm.skip_validation is False]
@@ -187,7 +189,7 @@ class Model_Sequence_Trainer():
                 
                 vali_losses, vali_metrics = self.run_epoch(mds_to_validate, "vali_set", trainable=False)     # (,), (C,)   #------------------------
 
-                [md.get_epoch_display(loss, metric) for (md, loss, metric) in zip(mds_to_validate, vali_losses, vali_metrics)]
+                [md.get_epoch_display_from_list(loss, metric) for (md, loss, metric) in zip(mds_to_validate, vali_losses, vali_metrics)]
                 [logging.info("Finished vali epoch {}, {}".format(md.epoch, (md.display))) for md in mds_to_validate]
 
                 keep_goings, best_metrics = map(list, zip(*[md.save_best_train(vm) for md, vm in zip(mds_to_validate, vali_metrics)]))
@@ -444,23 +446,25 @@ class Model_Sequence_Trainer():
             
             step += 1
             if trainable is True and step % self.pm.steps_to_save == 0:
-                [md.save_state() for md in mds]
+                [(md.pack_losses_metrics(), md.save_state()) for md in mds]
                 self.save_state()
             self.clean_gpu_every(50, step)
             self.respond_to_cursor()
             start = time.time()
         
-        [md.get_pbar_description(md.epoch_loss, md.epoch_metrics) for md in mds]
+        [md.get_pbar_description_epoch() for md in mds]
         md_focus = self.get_md_focus(mds)
         pbar.set_description(md_focus.pbar_description)
 
         pbar.stop_prefetch_thread()
         
-        if trainable is True: self.save_state()   # Epoch_save. No step_state saved.
+        if trainable is True: 
+            [(md.pack_losses_metrics(), md.save_state()) for md in mds]
+            self.save_state()
         if gpu_executor is not None: gpu_executor.shutdown()
 
-        epoch_losses = [md.epoch_losses for md in mds]
-        epoch_metrics = [md.epoch_metrics for md in mds]
+        epoch_losses = [torch.stack(md.epoch_losses, dim=0) if len(md.epoch_losses) > 0 else None for md in mds]
+        epoch_metrics = [torch.stack(md.epoch_metrics, dmi=0) if len(md.epoch_metrics) > 0 else None for md in mds]
 
         return epoch_losses, epoch_metrics  # (,), (C,)
 
