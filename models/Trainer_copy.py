@@ -27,6 +27,7 @@ Zeus = getattr(module, 'Zeus')
 
 from models.Model_Dom import Model_Dom
 from modules.zeus_dataset_copy import Zeus_Dataset
+from modules.zeus_dataloader import Zeus_DataLoader
 import modules.utils as utils
 from modules.params_copy import Params
 # from modules.read_cursor_keys_linux_windows_2 import KeyReader    This is crazy.
@@ -52,6 +53,8 @@ class Model_Sequence_Trainer():
         self.setup_logging(project_path)
 
         self.dataset = Zeus_Dataset(self.pm, dataset_path, management_path)
+        # self.dataset = Zeus_DataLoader(Zeus_Dataset(self.pm, dataset_path, management_path), batch_size=None, shuffle=None)     # A bit slower?
+        
         self.dataset.load_data()
         logging.info("Zeus_Dataset created and loaded.")
         self.device_type, self.nDevices, self.device = self._acquire_device()
@@ -386,8 +389,14 @@ class Model_Sequence_Trainer():
                     for md in mds:
                         batch_x = slots[0]
                         batch_y = slots[md.md_id + 1]
-                        (loss, normalized_rmse), unnormalized_rmse, unnormalized_mae = md.model.single_GPU_forward_loss_backward(batch_x, batch_y, self.loss, self.dataset.normalize, self.dataset.unnormalize, batch_diff, era5_data_vars, trainable=trainable)
-                        md.store_step_loss_and_metrics(loss, unnormalized_mae)
+                        (loss, normalized_rmse), unnormalized_metrics = \
+                        md.model.single_GPU_forward_loss_backward(
+                            batch_x, batch_y, 
+                            self.loss, self.dataset.normalize, self.dataset.unnormalize, 
+                            batch_diff, era5_data_vars, trainable=trainable,
+                            metrics = self.pm.metrics,
+                        )
+                        md.store_step_loss_and_metrics(loss, unnormalized_metrics)
                         losses.append(loss.item())
                         
                         if trainable:
@@ -440,8 +449,8 @@ class Model_Sequence_Trainer():
                     
             md_focus = self.get_md_focus(mds)
             end1 = time.time()
-            pbar.set_description("{}, wait/cycle {:.0f}/{:.0f} lr {:1.1e} tb {} mds {}"
-                                 .format(md_focus.pbar_description, (end-start) * 1000, (end1-start1) * 1000, md_focus.get_learning_rate(), self.train_bombs, len(mds)))
+            pbar.set_description("{}, wait/cycle {:.0f}/{:.0f} u {:.0f} lr {:1.1e} tb {} mds {}"
+                .format(md_focus.pbar_description, (end-start) * 1000, (end1-start1) * 1000, ((end1-start1) * 1000 - (end-start) * 1000) / self.train_bombs, md_focus.get_learning_rate(), self.train_bombs, len(mds)))
             start1 = time.time()
             
             step += 1

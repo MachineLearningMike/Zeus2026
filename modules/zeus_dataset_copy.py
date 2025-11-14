@@ -1050,7 +1050,7 @@ class Zeus_Dataset(Dataset):
 
         taken = self.x_set[:self.pm.batch_size]
         self.x_set = self.x_set[self.pm.batch_size:]
-        assert len(taken) > 0
+        # assert len(taken) > 0
 
         # B, C, T1, FG, H, W = len(taken), len(self.pm.variables), self.pm.T1, self.pm.FG, self.pm.height, self.pm.width
 
@@ -1088,10 +1088,10 @@ class Zeus_Dataset(Dataset):
             batch.append(slots)
 
         batch = torch.stack(batch, dim=0)     # (B, slots, TGF1, C, 721, 1440)
-        slots = batch.permute(1, 0, *range(2, batch.ndim))
+        slots = batch.permute(1, 0, *range(2, batch.ndim))  # (S, B, T, C, H, W)
 
-        # Required.
-        slots = slots[:, :, :, :, :self.pm.height, :]   # 721 -> 720 for transformer and factor10 == 10
+        if self.pm.height < 721:
+            slots = slots[:, :, :, :, :self.pm.height, :]   # 721 -> 720 for transformer and factor10 == 10
         
         S, B, _, C, H, W = slots.shape
         if self.pm.height != H or self.pm.width != W:
@@ -1118,10 +1118,7 @@ class Zeus_Dataset(Dataset):
             
         else:
             batch_diff = None
-        # print('batch_diff', batch_diff.shape)
 
-        # print("batch_x, y shape: ", batch_x.shape, batch_y.shape)
-        # print('-------- type ', batch_x.dtype, batch_y.dtype, batch_diff.dtype, self.era5_data_vars.dtype)
         if self.pm.exclude_poles > 0:
             slots = slots[:, :, :, :, self.pm.exclude_poles:-self.pm.exclude_poles, :]
             if batch_diff is not None:

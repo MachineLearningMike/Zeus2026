@@ -374,7 +374,7 @@ class Model_Dom():
     def get_epoch_display(self, loss, metrics):
         lead = "model {}, ".format(self.md_id)
         loss = "loss {:.4f}, ".format(loss.item()) if loss is not None else "loss=None"
-        metrics = "mtx: " + ", ".join(f"{x:.3f}" for x in metrics.ravel().tolist()) if metrics is not None else "metrics=None"
+        metrics = self.pm.metrics + ": " + ", ".join(f"{x:.4f}" for x in metrics.ravel().tolist()) if metrics is not None else "metrics=None"
         self.display = lead + loss + metrics
         return self.display
 
@@ -429,13 +429,13 @@ class Model_Dom():
             _epoch_loss = torch.stack(self.epoch_losses, dim=0).mean(dim=0)  # (,)
             _epoch_metrics = torch.stack(self.epoch_metrics, dim=0).mean(dim=0)       # (C,)
             strC = ", ".join(f"{x:.2f}" for x in _epoch_metrics.ravel().tolist())
-            self.pbar_description = "md: {}, loss: {:.3f}, mtx: ({})".format(self.md_id, _epoch_loss.item(), strC)
+            self.pbar_description = "md: {}, loss: {:.3f}, {}: ({})".format(self.md_id, _epoch_loss.item(), self.pm.metrics, strC)
 
     def get_pbar_description_step(self, step_loss, step_metrics):   # (,), (C,)
         _step_loss = step_loss  # (,)
         _step_metrics = step_metrics       # (C,)
-        strC = ", ".join(f"{x:.2f}" for x in _step_metrics.ravel().tolist())
-        self.pbar_description = "md {} lss {:.3f}, mtx ({})".format(self.md_id, _step_loss.item(), strC)
+        strC = ", ".join(f"{x:.4f}" for x in _step_metrics.ravel().tolist())
+        self.pbar_description = "md {} lss {:.3f}, {} ({})".format(self.md_id, _step_loss.item(), self.pm.metrics, strC)
 
     def store_step_loss_and_metrics(self, loss_tensor, matrics_tensor): # (,), (C,)
         self.epoch_losses.append(loss_tensor)

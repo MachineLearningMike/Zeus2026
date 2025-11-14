@@ -19,6 +19,7 @@ class Params:
         self.doubleZeus = config['doubleZeus']
 
         self.dual_drive = config['dual_drive']
+        self.metrics = config['metrics']
 
         self.freeze_zeus1 = config['freeze_zeus1']
         self.skip_net_for_zeus2 = config['skip_net_for_zeus2']       
@@ -30,10 +31,10 @@ class Params:
 
         #============================ data, shared ===========================================================================
         self.variables = config['variables']
-        self.exclude_poles = int(720/180*(90-config['pole_boundary_angle']))
         
         self.height = int(config['org_height'] * config['factor10'] / 10)       # int not round , config['org_height'] = 721 (transformer) or 720 (CNN)
         self.width = int(config['org_width'] * config['factor10'] / 10)         # int not round , config['org_width'] = 1440
+        self.exclude_poles = int(self.height/180*(90-config['pole_boundary_angle']))
         self.factor10 = config['factor10']
         self.data_years = config['data_years']
         self.batch_size = config['batch_size']

@@ -108,7 +108,7 @@ if platform.system() == "Windows":
         config['dataset_path'] = "d:/zeus_data"
         config['management_path'] = "d:/zeus_data/management"
     else:
-        config['dataset_path'] = "d:/zeud_data"
+        config['dataset_path'] = "d:/zeus_data"
         config['management_path'] = "d:/zeus_data/management"
     
     # GPU: RTX 4070, Chunk2D

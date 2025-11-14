@@ -18,6 +18,7 @@ config = {
     'doubleZeus' : False,
 
     'dual_drive' : True,
+    'metrics'   : "mae", # "rmse"
 
     # for 'doubleZeus' == True
     'freeze_zeus1' : False,
@@ -115,7 +116,7 @@ if platform.system() == "Windows":
         config['dataset_path'] = "d:/zeus_data"
         config['management_path'] = "d:/zeus_data/management"
     else:
-        config['dataset_path'] = "d:/zeud_data"
+        config['dataset_path'] = "d:/zeus_data"
         config['management_path'] = "d:/zeus_data/management"
     
     config['data_limit'] = 12
@@ -430,7 +431,8 @@ projects["ResNet_NoStage_B15_BR30"] = {
     'management': {
     'Zeus_Model_module' : 'Zeus_ResNet',
     'GPUWaitsData' : True,
-    'models_to_play': [0,]
+    'models_to_play': [0,],
+    'metrics' : "rmse", # "mae"
     },
     
     'data': {
@@ -444,7 +446,7 @@ projects["ResNet_NoStage_B15_BR30"] = {
     'overwrite_saved_lr': False,
     'useLRLearner' : False,
     'accum_steps' : 10,   
-    'skip_validation' : False,
+    'skip_validation' : True,
     'ObsorbHDistortion': False,
     'nCNNBlocks' : 15,  # NO change - paramemters
     'bottleneckRate' : 0.30,    # NO change - parameters

@@ -90,7 +90,7 @@ class Zeus(nn.Module):
 
         return preds
 
-    def single_GPU_forward_loss_backward(self, input_unnormalized, target_unnormalized, loss_fn, normalize, unnormalize, batch_diff, era5_data_vars, trainable=True):
+    def single_GPU_forward_loss_backward(self, input_unnormalized, target_unnormalized, loss_fn, normalize, unnormalize, batch_diff, era5_data_vars, trainable=True, metrics="rmse"):
         # Do not cast to 16bit for CNN networks.
 
         # with autocast(device_type=self.device_type, dtype=torch.bfloat16):
@@ -119,13 +119,15 @@ class Zeus(nn.Module):
         else:
             detached_loss_metrics = lossAndMetrics.detach().cpu()
         
-        
         pred = unnormalize(pred.detach())        # (B, T, C, H, W)
-        lossAndMetrics = loss_fn(target_unnormalized, pred, batch_diff, era5_data_vars)
-        unnormalized_rmse = lossAndMetrics[1] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
-        unnormalized_mae = torch.abs(pred - target_unnormalized).mean(dim=(0, 1, 3, 4)).cpu()    # (C,)
+        
+        if metrics == "rmse":
+            lossAndMetrics = loss_fn(target_unnormalized, pred, batch_diff, era5_data_vars)
+            unnormalized_metrics = lossAndMetrics[1] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
+        else:
+            unnormalized_metrics = torch.abs(pred - target_unnormalized).mean(dim=(0, 1, 3, 4)).cpu()    # (C,)
                         
-        return detached_loss_metrics, unnormalized_rmse, unnormalized_mae
+        return detached_loss_metrics, unnormalized_metrics
 
 # -----------------------------
 # Sinusoidal dataset
