@@ -27,7 +27,7 @@ config = {
     #============================ data parameters ===========================================================================
     'dtype' : 32,   # 16 is complicated. deffered.
     'variables': ["2m_temperature", 'total_precipitation', "100m_u_component_of_wind", '100m_v_component_of_wind', "2m_dewpoint_temperature", "surface_pressure"],
-    'pole_boundary_angle': 60.0,      #
+    'pole_angle': 30.0,      #
 
     'org_height': 721,
     'org_width': 1440,

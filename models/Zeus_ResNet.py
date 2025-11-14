@@ -35,8 +35,8 @@ class Zeus(nn.Module):
         self.device = device
 
         # Encoder/Decoder always work per-frame
-        self.encoder = SphericalEncoder(C, H, W, pm.ObsorbHDistortion, near_pole_h_lines=self.pm.near_pole_h_lines).to(device)
-        self.decoder = SphericalDecoder(C, C, H, W, pm.ObsorbHDistortion, near_pole_h_lines=self.pm.near_pole_h_lines).to(device)
+        self.encoder = SphericalEncoder(C, H, W, pm.ObsorbHDistortion, pole_h_lines=self.pm.pole_h_lines).to(device)
+        self.decoder = SphericalDecoder(C, C, H, W, pm.ObsorbHDistortion, pole_h_lines=self.pm.pole_h_lines).to(device)
 
         in_channels = self.n_frames * C    # stacked frames
         # self.cnn = Convolutions(in_channels, cnn_hidden_channels, kernel_size=kernel_size).to(device)

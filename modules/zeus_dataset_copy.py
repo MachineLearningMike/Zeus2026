@@ -1121,10 +1121,10 @@ class Zeus_Dataset(Dataset):
         else:
             batch_diff = None
 
-        if self.pm.near_pole_h_lines > 0:
-            slots = slots[:, :, :, :, self.pm.near_pole_h_lines:-self.pm.near_pole_h_lines, :]
+        if self.pm.pole_h_lines > 0:
+            slots = slots[:, :, :, :, self.pm.pole_h_lines:-self.pm.pole_h_lines, :]
             if batch_diff is not None:
-                batch_diff = batch_diff[:, self.pm.near_pole_h_lines:-self.pm.near_pole_h_lines, :]
+                batch_diff = batch_diff[:, self.pm.pole_h_lines:-self.pm.pole_h_lines, :]
         
         return slots, batch_diff, self.era5_data_vars     # (B, T1FG, C, H, W), (B, T2FG, C, H, W), (B, 1, C, H, W), (C,)
     

@@ -25,7 +25,7 @@ config = {
     'include_difficulty' : False,
 
     #============================ model, individual ========================================================================
-    'pole_boundary_angle': 60.0,      #
+    'pole_angle': 30.0,      #
 
     # Transformer    
     'nHeads':        128, # (128) 8,     # 8    ----------------------    optimization param,  Chunk

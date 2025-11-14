@@ -1119,11 +1119,11 @@ class Zeus_Dataset(Dataset):
 
         # print("batch_x, y shape: ", batch_x.shape, batch_y.shape)
         # print('-------- type ', batch_x.dtype, batch_y.dtype, batch_diff.dtype, self.era5_data_vars.dtype)
-        if self.pm.near_pole_h_lines > 0:
-            batch_x = batch_x[:, :, :, self.pm.near_pole_h_lines:-self.pm.near_pole_h_lines, :]
-            batch_y = batch_y[:, :, :, self.pm.near_pole_h_lines:-self.pm.near_pole_h_lines, :]
+        if self.pm.pole_h_lines > 0:
+            batch_x = batch_x[:, :, :, self.pm.pole_h_lines:-self.pm.pole_h_lines, :]
+            batch_y = batch_y[:, :, :, self.pm.pole_h_lines:-self.pm.pole_h_lines, :]
             if batch_diff is not None:
-                batch_diff = batch_diff[:, self.pm.near_pole_h_lines:-self.pm.near_pole_h_lines, :]
+                batch_diff = batch_diff[:, self.pm.pole_h_lines:-self.pm.pole_h_lines, :]
         
         return batch_x, batch_y, batch_diff, self.era5_data_vars     # (B, T1FG, C, H, W), (B, T2FG, C, H, W), (B, 1, C, H, W), (C,)
     
