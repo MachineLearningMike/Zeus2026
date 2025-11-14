@@ -105,6 +105,7 @@ if __name__ == "__main__":
     print("Input shape:", trimmed_x.shape)
 
     print("\nRunning forward pass...")
+    torch.cuda.empty_cache()
     y_pred = model(trimmed_x, m_frames)
     
     unnormal_y_pred = y_pred # unnormalize(y_pred)
@@ -114,14 +115,15 @@ if __name__ == "__main__":
     
     
     # checkpoint_path = "d:/downloads/best_model_0.pth"
-    checkpoint_path = "/path/to/best_model_0.pth"
+    checkpoint_path = "/home/mike/zeus_management/projects/ResNet_NoStage_B15_BR30/best_model_0.pth"
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
     
-    # missing_keys, unexpected_keys = model.load_state_dict(checkpoint["model"], strict=False)
-    # print("Model loaded with saved state: \n_missing_keys: {}, \n_unexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
-    # assert len(missing_keys) == 0 and len(unexpected_keys) == 0, "parameter mismatch"
-                                          
-    # y_pred = model(trimmed_x, m_frames)
-    # print("Output shape:", y_pred.shape)
+    missing_keys, unexpected_keys = model.load_state_dict(checkpoint["model"], strict=False)
+    print("Model loaded with saved state: \n_missing_keys: {}, \n_unexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
+    assert len(missing_keys) == 0 and len(unexpected_keys) == 0, "parameter mismatch"
+    
+    torch.cuda.empty_cache()                                      
+    y_pred = model(trimmed_x, m_frames)
+    print("Output shape:", y_pred.shape)
     
     
