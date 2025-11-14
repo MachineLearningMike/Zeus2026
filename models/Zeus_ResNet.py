@@ -122,7 +122,7 @@ class Zeus(nn.Module):
         
         if metrics == "rmse":
             lossAndMetrics = loss_fn(target_unnormalized, pred, batch_diff, era5_data_vars)
-            unnormalized_metrics = lossAndMetrics[1] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
+            unnormalized_metrics = lossAndMetrics[1].cpu() if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics.cpu()
         else:
             unnormalized_metrics = torch.abs(pred - target_unnormalized).mean(dim=(0, 1, 3, 4)).cpu()    # (C,)
                         
