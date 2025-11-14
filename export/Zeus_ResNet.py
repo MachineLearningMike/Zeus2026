@@ -78,52 +78,73 @@ class Zeus(nn.Module):
 if __name__ == "__main__":
     
     import torch
+    from pathlib import Path
     from config_copy import config
     from params_copy import Params, flatten_pm_single
+    from zeus_dataset_copy import Zeus_Dataset
     
+    # Load parameters
     pm = Params(config)
     model_id = 0
     pm_with_model = flatten_pm_single(pm, model_id)
-
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     
-    model = Zeus(pm_with_model, device)
+    dataset_path = "d:/downloads"
+    management_path = "d:/downloads"
+    checkpoint_path = "d:/downloads/best_model_0.pth"
+
+    # dataset_path = "/mnt"
+    # management_path = "/home/mike/zeus_management"
+    # checkpoint_path = "/home/mike/zeus_management/projects/ResNet_NoStage_B15_BR30/best_model_0.pth"
+
+    # Create dataset
+    dataset = Zeus_Dataset(pm, Path(dataset_path), Path(management_path))    
     
+    # Create model
+    model = Zeus(pm_with_model, device)
+
+    # create fake weather data
     B = pm_with_model.batch_size
     C = pm_with_model.nVariables
     H, W = pm_with_model.height, pm.width
     n_frames = pm_with_model.nFrames
     m_frames = pm_with_model.mFrames
-
-    # Fake input: (B, n_frames, C, H, W)
     raw_x = torch.randn(B, n_frames, C, H, W)
-    normal_x = raw_x # normalize(raw_x)
     
+    # Normalize
+    normal_x = dataset.normalize(raw_x)
+
+    # Trim, as we exclude the pole areas for better accuracy    
     if pm.near_pole_h_lines > 0:
         trimmed_x  = raw_x[:, :, :, pm.near_pole_h_lines:-pm.near_pole_h_lines, :]
         
     print("Input shape:", trimmed_x.shape)
 
-    print("\nRunning forward pass...")
+    # Forward
+    print("\nRunning forward with dummy model...")
     torch.cuda.empty_cache()
     y_pred = model(trimmed_x, m_frames)
-    
-    unnormal_y_pred = y_pred # unnormalize(y_pred)
 
+    # Unnormalize    
+    unnormal_y_pred = dataset.unnormalize(y_pred)
     print("Output shape:", y_pred.shape)
     assert trimmed_x.shape == y_pred.shape, "Output shape differs from input shape"
     
-    
-    # checkpoint_path = "d:/downloads/best_model_0.pth"
-    checkpoint_path = "/home/mike/zeus_management/projects/ResNet_NoStage_B15_BR30/best_model_0.pth"
+    # Load model parameters
+    print("Loading parameters...")
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
-    
     missing_keys, unexpected_keys = model.load_state_dict(checkpoint["model"], strict=False)
     print("Model loaded with saved state: \n_missing_keys: {}, \n_unexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
     assert len(missing_keys) == 0 and len(unexpected_keys) == 0, "parameter mismatch"
     
+    # Forward
+    print("\nRunning forward with trained model...")
     torch.cuda.empty_cache()                                      
     y_pred = model(trimmed_x, m_frames)
     print("Output shape:", y_pred.shape)
-    
+
+    # Unnormalize    
+    unnormal_y_pred = dataset.unnormalize(y_pred)
+    print("Output shape:", y_pred.shape)
+    assert trimmed_x.shape == y_pred.shape, "Output shape differs from input shape"
     
