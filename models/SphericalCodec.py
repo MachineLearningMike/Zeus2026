@@ -68,10 +68,10 @@ class ObsorbH(nn.Module):
         return y_out
 
 class SphericalEncoder(nn.Module):
-    def __init__(self, C, H, W, ObsorbHDistortion=True, exclude_poles=0):
+    def __init__(self, C, H, W, ObsorbHDistortion=True, near_pole_h_lines=0):
         super().__init__()
         self.C, self.H, self.W = C, H, W
-        self.exclude_poles = exclude_poles
+        self.near_pole_h_lines = near_pole_h_lines
         self.ObsorbHDistortion = ObsorbHDistortion
         if ObsorbHDistortion:
             self.obsorb = ObsorbH(C, H, W)
@@ -80,8 +80,8 @@ class SphericalEncoder(nn.Module):
     def forward(self, x):
         if self.ObsorbHDistortion:
             x = self.obsorb(x)
-        if self.exclude_poles > 0:
-            x = x + self.positional_codes[:, self.exclude_poles:-self.exclude_poles, :]
+        if self.near_pole_h_lines > 0:
+            x = x + self.positional_codes[:, self.near_pole_h_lines:-self.near_pole_h_lines, :]
         else:
             x = x + self.positional_codes
         return x
@@ -89,9 +89,9 @@ class SphericalEncoder(nn.Module):
 
 class SphericalDecoder(SphericalEncoder):
     """Decoder is the same as Encoder, optionally could take different in_C"""
-    def __init__(self, in_C, C, H, W, ObsorbHDistortion=True, exclude_poles=0):
+    def __init__(self, in_C, C, H, W, ObsorbHDistortion=True, near_pole_h_lines=0):
         assert in_C == C, "in_C must equal C for this simple decoder"
-        super().__init__(C, H, W, ObsorbHDistortion, exclude_poles=exclude_poles)
+        super().__init__(C, H, W, ObsorbHDistortion, near_pole_h_lines=near_pole_h_lines)
 
 
 # -----------------------------
@@ -101,8 +101,8 @@ if __name__ == "__main__":
     C, H, W = 8, 72 * 2, 144 * 2
     
     exclude_poles_angle = 0
-    exclude_poles = int(H/180*(90-exclude_poles_angle))
-    model = SphericalEncoder(C, H, W, exclude_poles=exclude_poles)
+    near_pole_h_lines = int(H/180*(90-exclude_poles_angle))
+    model = SphericalEncoder(C, H, W, near_pole_h_lines=near_pole_h_lines)
 
     # Latitude values
     latitudes = [h / (W/2) * 180 - 90 for h in range(H)]
@@ -149,7 +149,7 @@ if __name__ == "__main__":
     model.eval()
 
     # Random input tensor
-    x = torch.randn(2, C, H - exclude_poles * 2, W, device=device)  # batch of 2
+    x = torch.randn(2, C, H - near_pole_h_lines * 2, W, device=device)  # batch of 2
 
     # Optional: mixed precision
     import torch.amp as amp

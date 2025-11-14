@@ -12,7 +12,7 @@ from importlib import import_module
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.utils import check_dir, check_gradient
-from models.config import config
+from models.config_copy import config
 
 module = import_module(config['Zeus_Model_module'])
 Zeus = getattr(module, 'Zeus')

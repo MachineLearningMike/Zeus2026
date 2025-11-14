@@ -23,7 +23,7 @@ class Params:
         self.FG = config['FG']
         self.nFramesOut = config['T2'] * config['FG']                          # 24
         
-        self.exclude_poles = int(720/180*(90-config['pole_boundary_angle']))
+        self.near_pole_h_lines = int(720/180*(90-config['pole_boundary_angle']))
         
         self.nFrames = config['nFrames']
         self.mFrames = config['mFrames']

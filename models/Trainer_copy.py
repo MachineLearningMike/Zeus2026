@@ -17,7 +17,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 from modules.utils import check_dir, check_gradient
 from modules.zeus_tqdm import zeus_tqdm
 from modules.params_copy import flatten_pm_single
-from models.config import config
+from models.config_copy import config
 
 module = import_module(config['Zeus_Model_module'])
 Zeus = getattr(module, 'Zeus')
@@ -482,7 +482,6 @@ if __name__ == "__main__":
     
     from models.config_copy import config
     from modules.params_copy import Params
-    params = Params(config)
     
     pm = Params(config)        
     dataset_path = Path(pm.dataset_path)
