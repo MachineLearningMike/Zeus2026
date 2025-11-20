@@ -485,7 +485,7 @@ fuxi_vars_levels_not_in_midterm_list = [
 
 
 # FuXi list of 88 variables
-fuxi_variables = [
+fuxi2_variables = [
 
     # ------------------------------
     # Upper-air variables (Z, T, U, V, Q)
@@ -539,3 +539,56 @@ fuxi_variables = [
     "mdts","mdww","mpts","mpww","shts","shww",
 ]
 
+mike1_variables = [
+
+    # ------------------------------
+    # Upper-air variables (Z, T, U, V, Q)
+    # ------------------------------
+
+    # z
+    "z_50","z_100","z_150","z_200","z_250",
+    "z_300","z_400","z_500","z_600","z_700",
+    "z_850","z_925","z_1000",
+
+    # t
+    "t_50","t_100","t_150","t_200","t_250",
+    "t_300","t_400","t_500","t_600","t_700",
+    "t_850","t_925","t_1000",
+
+    # u
+    "u_50","u_100","u_150","u_200","u_250",
+    "u_300","u_400","u_500","u_600","u_700",
+    "u_850","u_925","u_1000",
+
+    # v
+    "v_50","v_100","v_150","v_200","v_250",
+    "v_300","v_400","v_500","v_600","v_700",
+    "v_850","v_925","v_1000",
+
+    # q
+    "q_50","q_100","q_150","q_200","q_250",
+    "q_300","q_400","q_500","q_600","q_700",
+    "q_850","q_925","q_1000",
+
+    # ------------------------------
+    # Surface variables
+    # ------------------------------
+
+    # temp/humidity
+    "t2m","d2m","sst",
+
+    # winds
+    "u10","v10","u100","v100",
+
+    # pressure
+    "msl", "sp",    # "sp" is newly added
+
+    # clouds
+    "lcc","mcc","hcc","tcc",
+
+    # radiation
+    "ssr","ssrd","fdir","ttr","tp",
+
+    # wave / storm variables
+    "mdts","mdww","mpts","mpww","shts","shww",
+]
