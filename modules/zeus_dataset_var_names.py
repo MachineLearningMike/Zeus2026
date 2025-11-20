@@ -480,115 +480,9 @@ fuxi_vars_levels_not_in_midterm_list = [
     "soil_type"
 ]
 
-#============================== 87 variables for a model that's better than FuXi2 =================================
-
-top_ranked_large_scale_upper_mid_level_dynamics_40_vars = [
-# Geopotential (all levels)
-"z_50", "z_100", "z_150", "z_200", "z_250", "z_300", "z_400", "z_500", "z_600", "z_700", "z_850", "z_925",
-# Temperature (all levels)
-"t_50", "t_100", "t_150", "t_200", "t_250", "t_300", "t_400", "t_500", "t_600", "t_700", "t_850", "t_925", "t_1000",
-# Specific humidity (all levels)
-"q_50", "q_100", "q_150", "q_200", "q_250", "q_300", "q_400", "q_500", "q_600", "q_700", "q_850", "q_925", "q_1000",
-# Vertical velocity
-"w500", "w850"
-]
-
-mid_ranked_near_surface_winds_and_adevection_30_vars = [
-# Wind components (all levels)
-"u_50", "u_100", "u_150", "u_200", "u_250", "u_300", "u_400", "u_500", "u_600", "u_700", "u_850", "u_925", "u10", "u100",
-"v_50", "v_100", "v_150", "v_200", "v_250", "v_300", "v_400", "v_500", "v_600", "v_700", "v_850", "v_925", "v10", "v100",
-# Mean sea level pressure
-"msl",
-# Surface pressure (target variable)
-"sp"    
-]
-
-mid_low_ranked_surface_bounrady_and_slowly_evolving_fields_12_vars = [
-# Soil moisture layers
-"swvl1", "swvl2", "swvl3", "swvl4",
-# Snow depth
-"sde",
-# Sea surface temperature
-"sst",
-# Total cloud cover
-"tcc",
-# Convective indices
-"cape", "cin",
-# Orography / land-sea mask / soil type
-"orography", "lsm", "soil_type"    
-]
-
-target_variables_explicitly_included_for_clarity_5_vars = [
-"t2m", "d2m", "tp", "u100", "v100"
-]
+#==============================  =================================
 
 
-# Your list of 87 variables
-my_variables = [
-
-    # ------------------------------
-    # Upper-air variables (Z, T, U, V, Q)
-    # ------------------------------
-
-    # z
-    "z_50", "z_100", "z_150", "z_200", "z_250",
-    "z_300", "z_400", "z_500", "z_600", "z_700",
-    "z_850", "z_925", None,          # z_1000 missing
-
-    # t
-    "t_50", "t_100", "t_150", "t_200", "t_250",
-    "t_300", "t_400", "t_500", "t_600", "t_700",
-    "t_850", "t_925", "t_1000",
-
-    # u
-    "u_50", "u_100", "u_150", "u_200", "u_250",
-    "u_300", "u_400", "u_500", "u_600", "u_700",
-    "u_850", "u_925", None,          # u_1000 missing
-
-    # v
-    "v_50", "v_100", "v_150", "v_200", "v_250",
-    "v_300", "v_400", "v_500", "v_600", "v_700",
-    "v_850", "v_925", None,          # v_1000 missing
-
-    # q
-    "q_50", "q_100", "q_150", "q_200", "q_250",
-    "q_300", "q_400", "q_500", "q_600", "q_700",
-    "q_850", "q_925", "q_1000",
-
-    # ------------------------------
-    # Surface variables
-    # ------------------------------
-
-    # temp/humidity
-    "t2m", "d2m", "sst",
-
-    # winds
-    "u10", "v10", "u100", "v100",
-
-    # pressure
-    "msl",
-
-    # clouds
-    None, None, None, "tcc",         # lcc, mcc, hcc missing
-
-    # radiation
-    None, None, None, None, "tp",    # ssr, ssrd, fdir, ttr missing
-
-    # wave / storm variables
-    None, None, None, None, None, None,
-    # (mdts, mdww, mpts, mpww, shts, shww missing)
-
-    # ------------------------------
-    # Your extra variables (13)
-    # ------------------------------
-
-    "cape", "cin",
-    "lsm", "orography", "soil_type", "sde",
-    "sp", "swvl1", "swvl2", "swvl3", "swvl4",
-    "w500", "w850"
-]
-
-len([v for v in my_variables if v is not None])
 
 # FuXi list of 88 variables
 fuxi_variables = [
@@ -643,35 +537,5 @@ fuxi_variables = [
 
     # wave / storm variables
     "mdts","mdww","mpts","mpww","shts","shww",
-
-    # ------------------------------
-    # Slots for your 13 extra variables
-    # ------------------------------
-
-    None, None, None, None, None,
-    None, None, None, None, None,
-    None, None, None
 ]
-
-
-
-# Variables present in both lists (intersection)
-intersection_vars_72_vars = [
-"d2m","msl","q_100","q_1000","q_150","q_200","q_250","q_300","q_400","q_50","q_500","q_600","q_700","q_850","q_925",
-"sst","t2m","t_100","t_1000","t_150","t_200","t_250","t_300","t_400","t_50","t_500","t_600","t_700","t_850","t_925",
-"tcc","tp","u10","u100","u_100","u_150","u_200","u_250","u_300","u_400","u_50","u_500","u_600","u_700","u_850","u_925",
-"v10","v100","v_100","v_150","v_200","v_250","v_300","v_400","v_50","v_500","v_600","v_700","v_850","v_925",
-"z_100","z_150","z_200","z_250","z_300","z_400","z_50","z_500","z_600","z_700","z_850","z_925"
-]
-
-# Variables only in your list (your-only)
-my_only_vars_13_vars = [
-    "cape","cin","lsm","orography","sde","soil_type","sp","swvl1","swvl2","swvl3","swvl4","w500","w850"
-]
-
-# Variables only in FuXi list (FuXi-only)
-fuxi_only_vars_16_vars = [
-    "fdir","hcc","lcc","mcc","mdts","mdww","mpts","mpww","shts","shww","ssr","ssrd","ttr","u_1000","v_1000","z_1000",
-]
-
 
