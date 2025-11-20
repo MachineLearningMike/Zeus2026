@@ -79,9 +79,9 @@ if __name__ == "__main__":
     
     import torch
     from pathlib import Path
-    from config_copy import config
-    from params_copy import Params, flatten_pm_single
-    from zeus_dataset_copy import Zeus_Dataset
+    from config_14nov25 import config
+    from params_14nov25 import Params, flatten_pm_single
+    from zeus_dataset_14nov25 import Zeus_Dataset
     
     # Load parameters
     pm = Params(config)

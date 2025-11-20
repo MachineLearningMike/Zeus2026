@@ -120,6 +120,12 @@ class Zeus(nn.Module):
         
         pred = unnormalize(pred.detach())        # (B, T, C, H, W)
         
+        # Temoporay to check for the accuracy near the equator.
+        # remain = 30
+        # trim = int((target_unnormalized.shape[3] - remain)/2)
+        # target_unnormalized = target_unnormalized[:, :, :, trim:-trim, :]
+        # pred = pred[:, :, :, trim:-trim, :]
+        
         if metrics == "rmse":
             lossAndMetrics = loss_fn(target_unnormalized, pred, batch_diff, era5_data_vars)
             unnormalized_metrics = lossAndMetrics[1].cpu() if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics.cpu()

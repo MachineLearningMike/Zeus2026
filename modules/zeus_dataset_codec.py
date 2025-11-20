@@ -55,7 +55,7 @@ def choose_dtype(var_name, arr):
 
 
 # ---------- Multi-variable encoding ----------
-def encode_variables(var_dict):
+def encode(var_dict):
     encoded, metadata = {}, {}
 
     for name, arr in var_dict.items():
@@ -72,6 +72,16 @@ def encode_variables(var_dict):
 
     return encoded, metadata
 
+def decode(encoded, meta):
+    decoded = {}
+    for k, arr in encoded.items():
+        t = meta[k]["type"]
+        if t == "uint16":
+            decoded[k] = decode_uint16(arr, meta[k])
+        elif t == "float16":
+            decoded[k] = decode_float16(arr, meta[k])
+    return decoded    
+
 def save_variables(filename, encoded_dict, metadata_dict):
     save_dict = {f"data_{k}": v for k, v in encoded_dict.items()}
     save_dict["meta"] = json.dumps(metadata_dict)
@@ -84,23 +94,16 @@ def load_variables(filename):
         encoded = {k.replace("data_", ""): npz[k] for k in npz.files if k.startswith("data_")}
     return encoded, meta
 
+
 def load_decoded_variables(filename):
     encoded, meta = load_variables(filename)
-    decoded = {}
-    for k, arr in encoded.items():
-        t = meta[k]["type"]
-        if t == "uint16":
-            decoded[k] = decode_uint16(arr, meta[k])
-        elif t == "float16":
-            decoded[k] = decode_float16(arr, meta[k])
-    return decoded
-
+    return decode(encoded, meta)
 
 #-------------------------------------- test ----------------------------------------
 if __name__ == "__main__":
 
     import numpy as np
-    # from this_module import encode_variables, save_variables, load_decoded_variables
+    # from this_module import encode, save_variables, load_decoded_variables
 
     eds_data = {
         "2m_temperature": np.random.uniform(200, 320, (24, 721, 1440)).astype(np.float32),
@@ -108,9 +111,22 @@ if __name__ == "__main__":
         "u10": np.random.uniform(-30, 30, (24, 721, 1440)).astype(np.float32),
         "precipitation": np.random.uniform(0.0, 1.0, (24, 721, 1440)).astype(np.float32),
     }
+    
+    eds_data = {
+        "2m_temperature": np.random.uniform(200, 320, (721, 1440)).astype(np.float32),
+        "surface_pressure": np.random.uniform(87000, 108000, (721, 1440)).astype(np.float32),
+        "u10": np.random.uniform(-30, 30, (721, 1440)).astype(np.float32),
+        "precipitation": np.random.uniform(0.0, 1.0, (721, 1440)).astype(np.float32),
+    }
+    
+    print(eds_data["u10"])
 
-    encoded, meta = encode_variables(eds_data)
+    print("saving...")
+
+    encoded, meta = encode(eds_data)
     save_variables("eds_hybrid.npz", encoded, meta)
+    
+    print("loading...")
 
     decoded = load_decoded_variables("eds_hybrid.npz")
 
@@ -118,3 +134,4 @@ if __name__ == "__main__":
         diff = np.max(np.abs(decoded[k] - eds_data[k]))
         print(f"{k}: max abs diff = {diff:.10f}, shape = {decoded[k].shape}, dtype = {decoded[k].dtype}")
 
+    print(decoded["u10"])

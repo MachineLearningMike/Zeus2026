@@ -68,8 +68,8 @@ if __name__ == "__main__":
     # copy_except_cds(src, dst)
 
     from pathlib import Path
-    from config_copy import config
-    from params_copy import Params
+    from config_14nov25 import config
+    from params_14nov25 import Params
     pm = Params(config)
 
     dataset = Zeus_Dataset(pm, Path(config['dataset_path']), Path(config['management_path']))

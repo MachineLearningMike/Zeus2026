@@ -139,7 +139,7 @@ if __name__ == "__main__":
     import os, sys
     from pathlib import Path
     sys.path.append(str(Path(__file__).resolve().parent.parent))
-    from models.config_copy import config
+    from models.config_14nov25 import config
     
     params = Params(config)
     # print(params.models[0])

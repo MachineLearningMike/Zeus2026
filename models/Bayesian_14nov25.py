@@ -10,9 +10,9 @@ from pathlib import Path
 import os, sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from models.Trainer_copy import Model_Sequence_Trainer
+from models.Trainer_14nov25 import Model_Sequence_Trainer
 # from models.Trainer import Trainer
-from modules.params_copy import Params
+from modules.params_14nov25 import Params
 from modules.utils import check_dir
 
 # Enable live updating of plots
@@ -142,7 +142,7 @@ class MLBayesianOptimizer:
 
 if __name__ == "__main__":
 
-    from models.config_copy import config
+    from models.config_14nov25 import config
 
     from pathlib import Path
     import platform

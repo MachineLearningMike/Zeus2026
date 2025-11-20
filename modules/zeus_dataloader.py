@@ -17,9 +17,9 @@ if __name__ == "__main__":
     from pathlib import Path
     sys.path.append(str(Path(__file__).resolve().parent.parent))
     
-    from models.config_copy import config
-    from modules.params_copy import Params
-    from modules.zeus_dataset_copy import Zeus_Dataset
+    from models.config_14nov25 import config
+    from modules.params_14nov25 import Params
+    from modules.zeus_dataset_14nov25 import Zeus_Dataset
     
     pm = Params(config)
     dataset = Zeus_Dataset(pm, Path(config['dataset_path']), Path(config['management_path']))

@@ -16,8 +16,8 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.utils import check_dir, check_gradient
 from modules.zeus_tqdm import zeus_tqdm
-from modules.params_copy import flatten_pm_single
-from models.config_copy import config
+from modules.params_14nov25 import flatten_pm_single
+from models.config_14nov25 import config
 
 module = import_module(config['Zeus_Model_module'])
 Zeus = getattr(module, 'Zeus')
@@ -26,10 +26,10 @@ Zeus = getattr(module, 'Zeus')
 # # from Zeus_Flash2D_Blocked import Zeus
 
 from models.Model_Dom import Model_Dom
-from modules.zeus_dataset_copy import Zeus_Dataset
+from modules.zeus_dataset_14nov25 import Zeus_Dataset
 from modules.zeus_dataloader import Zeus_DataLoader
 import modules.utils as utils
-from modules.params_copy import Params
+from modules.params_14nov25 import Params
 # from modules.read_cursor_keys_linux_windows_2 import KeyReader    This is crazy.
 from modules.read_cursor_keys_linux_windows import KeyReader
 
@@ -480,8 +480,8 @@ class Model_Sequence_Trainer():
     
 if __name__ == "__main__":
     
-    from models.config_copy import config
-    from modules.params_copy import Params
+    from models.config_14nov25 import config
+    from modules.params_14nov25 import Params
     
     pm = Params(config)        
     dataset_path = Path(pm.dataset_path)

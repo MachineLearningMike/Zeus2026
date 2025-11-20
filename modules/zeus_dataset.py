@@ -34,7 +34,7 @@ from modules_zeus.sample import Era5Sample
 from modules_zeus.coordinates import get_bbox, slice_bbox
 from modules_zeus.era5_cds import Era5CDSLoader, get_today
 
-from modules.zeus_dataset_codec import encode_variables, save_variables, load_decoded_variables
+from modules.zeus_dataset_codec import encode, save_variables, load_decoded_variables
 
 class Zeus_Dataset(Dataset):
     def __init__(self, pm, dataset_path, management_path):
@@ -218,7 +218,7 @@ class Zeus_Dataset(Dataset):
 
                 var_dict.update({variable: array})
 
-            encoded, meta = encode_variables(var_dict)
+            encoded, meta = encode(var_dict)
             file_path_npz.parent.mkdir(parents=True, exist_ok=True)
             save_variables(file_path_npz, encoded, meta)        # npz only. npy doesn't support meta data and takes more space. Speed is no problem for us.
 
