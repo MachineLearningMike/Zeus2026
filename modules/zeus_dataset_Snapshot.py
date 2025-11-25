@@ -319,8 +319,8 @@ if __name__ == "__main__":
         plt.show()
 
     #------------- geo, 6 -----------------
-    # show_on_map(snapshot_now.geo_categorical_tensor[0].numpy())     # land_sea_mask,    category
-    show_on_map(snapshot_now.geo_categorical_tensor[1].numpy())     # soil_type,        category
+    show_on_map(snapshot_now.geo_categorical_tensor[0].numpy())     # land_sea_mask,    category
+    # show_on_map(snapshot_now.geo_categorical_tensor[1].numpy())     # soil_type,        category
     # show_on_map(snapshot_now.geo_dense_tensor[0].numpy())           # geopotential_at_surface,  standardized
     # show_on_map(snapshot_now.geo_sin_lat_sin_cos_lon_tensor[0].numpy())     # sin(lat),  as-is
     # show_on_map(snapshot_now.geo_sin_lat_sin_cos_lon_tensor[1].numpy())     # sin(lon),  as-is
