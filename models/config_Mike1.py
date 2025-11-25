@@ -155,9 +155,11 @@ else:
 n = config['nFrames']
 C = len(config['variables'])
 
-# config['land_sea_mask_npy_path'] = config['management_path'] + "/land_sea_mask.npy"   # very noisy
-config['land_sea_mask_npy_path'] = config['management_path'] + "/land_sea_mask_721x1440.npy"
-config['soil_type_npy_path'] = config['management_path'] + "/soil_type.npy"
+# Land-sea-maks from ERA5 is too noisy to accept, so I created this with the help of GPT.
+config['land_sea_mask_npy_path'] = "data/land_sea_mask_721x1440.npy"
+# int8 version of ERA5 soil type, from GCP
+config['soil_type_npy_path'] = "data/soil_type_721x1440.npy"
+# ERA5 geopotential_at_surface, from GCP    
 config['orograph_npy_path'] = config['management_path'] + "/geopotential_at_surface.npy"
    
 #-------------------------------------------------- project list ---------------
