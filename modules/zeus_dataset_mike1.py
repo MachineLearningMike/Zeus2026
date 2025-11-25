@@ -38,7 +38,7 @@ from modules_zeus.coordinates import get_bbox, slice_bbox
 from modules_zeus.era5_cds import Era5CDSLoader, get_today
 
 from modules.zeus_dataset_codec import encode, save_variables, load_decoded_variables
-from zeus_dataset_Snapshot import Snapshot
+from modules.zeus_dataset_Snapshot import Snapshot
 from modules.zeus_dataset_sharding_dynamic import ERA5ZarrShards
 from modules.zeus_dataset_var_names import upper_air_levels, upper_air_vars, surface_channels, fuXi2_to_era5
 

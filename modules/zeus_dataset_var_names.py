@@ -106,7 +106,6 @@ fuXi2_to_era5 = {
     'v10m': '10m_v_component_of_wind',
     'u100m': '100m_u_component_of_wind',
     'v100m': '100m_v_component_of_wind',
-    'sp' : 'surface_pressure',
     'msl': 'mean_sea_level_pressure',
     'lcc': 'low_cloud_cover',
     'mcc': 'medium_cloud_cover',
@@ -539,7 +538,42 @@ fuxi2_variables = [
     "mdts","mdww","mpts","mpww","shts","shww",
 ]
 
-mike1_variables = [
+var_name_map = {
+    # upper-air
+    'z': 'geopotential',
+    't': 'temperature',
+    'u': 'u_component_of_wind',
+    'v': 'v_component_of_wind',
+    'q': 'specific_humidity',
+
+    # surface
+    't2m': '2m_temperature',
+    'd2m': '2m_dewpoint_temperature',
+    'sst': 'sea_surface_temperature',
+    'u10m': '10m_u_component_of_wind',
+    'v10m': '10m_v_component_of_wind',
+    'u100m': '100m_u_component_of_wind',
+    'v100m': '100m_v_component_of_wind',
+    'sp' : 'surface_pressure',
+    'msl': 'mean_sea_level_pressure',
+    'lcc': 'low_cloud_cover',
+    'mcc': 'medium_cloud_cover',
+    'hcc': 'high_cloud_cover',
+    'tcc': 'total_cloud_cover',
+    'ssr': 'surface_solar_radiation_downwards',
+    'ssrd': 'surface_solar_radiation_downwards',
+    'fdir': 'total_sky_direct_solar_radiation_at_surface',
+    'ttr': 'top_net_thermal_radiation',
+    'tp': 'total_precipitation',
+    'mdts': 'mean_direction_of_total_swell',
+    'mdww': 'mean_direction_of_wind_waves',
+    'mpts': 'mean_period_of_total_swell',
+    'mpww': 'mean_period_of_wind_waves',
+    'shts': 'significant_height_of_total_swell',
+    'shww': 'significant_height_of_wind_waves'
+}
+
+mike1_variables = [     # exported.
 
     # ------------------------------
     # Upper-air variables (Z, T, U, V, Q)
@@ -578,7 +612,7 @@ mike1_variables = [
     "t2m","d2m","sst",
 
     # winds
-    "u10","v10","u100","v100",
+    "u10m","v10m","u100m","v100m",
 
     # pressure
     "msl", "sp",    # "sp" is newly added
@@ -592,3 +626,48 @@ mike1_variables = [
     # wave / storm variables
     "mdts","mdww","mpts","mpww","shts","shww",
 ]
+
+def find_missing_vars():
+    fuXi_keys = set(var_name_map.keys())
+    missing = []
+
+    for var in mike1_variables:
+        base_var = var.split('_')[0]  # get prefix before underscore
+        if base_var not in fuXi_keys:
+            missing.append(var)
+
+    if missing:
+        print("Variables not found in var_name_map:", missing)
+    else:
+        print("All variables are accounted for.")
+
+    print(len(mike1_variables))
+    
+find_missing_vars()
+
+def check_for_name_consistency():
+    # Example: list of official ERA5 variable names
+    era5_vars = [
+        'geopotential', 'temperature', 'u_component_of_wind', 'v_component_of_wind',
+        'specific_humidity', '2m_temperature', '2m_dewpoint_temperature',
+        'sea_surface_temperature', '10m_u_component_of_wind', '10m_v_component_of_wind',
+        '100m_u_component_of_wind', '100m_v_component_of_wind',
+        'surface_pressure', 'mean_sea_level_pressure',
+        'low_cloud_cover', 'medium_cloud_cover', 'high_cloud_cover', 'total_cloud_cover',
+        'surface_solar_radiation_downwards', 'total_sky_direct_solar_radiation_at_surface',
+        'top_net_thermal_radiation', 'total_precipitation',
+        'mean_direction_of_total_swell', 'mean_direction_of_wind_waves',
+        'mean_period_of_total_swell', 'mean_period_of_wind_waves',
+        'significant_height_of_total_swell', 'significant_height_of_wind_waves'
+    ]
+
+    # Check
+    mapped_names = set(var_name_map.values())
+    missing_in_era5 = [v for v in mapped_names if v not in era5_vars]
+
+    if missing_in_era5:
+        print("These mapped names are NOT in ERA5:", missing_in_era5)
+    else:
+        print("All mapped names exist in ERA5.")
+        
+check_for_name_consistency()

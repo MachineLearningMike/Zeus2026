@@ -2,7 +2,7 @@ import os
 import zarr
 import numpy as np
 from threading import Lock
-from zeus_dataset_codec import encode, decode
+from modules.zeus_dataset_codec import encode, decode
 import numcodecs
 
 

@@ -8,9 +8,9 @@ import random
 
 from pathlib import Path
 import os, sys
-from SphericalCodec import SphericalEncoder, SphericalDecoder
-
 sys.path.append(str(Path(__file__).resolve().parent.parent))
+
+from SphericalCodec import SphericalEncoder, SphericalDecoder
 
 # modules.ResNet_custom_1 is 0.131:0.090x faster, giving the same accuracy.
 # from modules.ResNet50_Zeus_GroupNorm_365K import ResNetCylindrical

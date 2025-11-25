@@ -59,7 +59,8 @@ class Model_Trainer():
         self.device_type, self.nDevices, self.device = self._acquire_device()
         self.devices = [ self.device_type + ':' + str(id) for id in range(self.nDevices)]
         
-        self.model = Zeus(self.pm, self.devices[0])
+        # self.model = Zeus(self.pm, self.devices[0])
+        self.model_doms = []
         for md_id in range(len(pm.models)):
             if md_id not in pm.models_to_play: continue
             flatten_pm = flatten_pm_single(pm, md_id)
@@ -532,5 +533,5 @@ if __name__ == "__main__":
     project_path = management_path / "projects" / pm.bayesProject
     check_dir(project_path)
     
-    model_sequence_trainer = Model_Sequence_Trainer(pm, dataset_path, management_path, project_path, bayes=None, trainable=True)
+    model_sequence_trainer = Model_Trainer(pm, dataset_path, management_path, project_path, bayes=None, trainable=True)
     model_sequence_trainer.train()
