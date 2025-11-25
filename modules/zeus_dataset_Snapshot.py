@@ -69,6 +69,9 @@ class Snapshot:
             tempo_tensor = self.create_tempo_tensor()
             self.tempo = tempo_tensor
         
+    def num_get_train_variables():
+        return Snapshot.meteo_dims + Snapshot.geo_dims + Snapshot.tempo_dims
+        
     #-------------------- device -----------------
     def _get_device(self):
         devices = [
@@ -265,63 +268,67 @@ Snapshot.create_geo_tensor(categorical_npy_paths, dense_npy_paths)
 # print(torch.mean(Snapshot.geo_sin_lat_sin_cos_lon_tensor[1]), torch.std(Snapshot.geo_sin_lat_sin_cos_lon_tensor[1]))
 # print(torch.mean(Snapshot.geo_sin_lat_sin_cos_lon_tensor[2]), torch.std(Snapshot.geo_sin_lat_sin_cos_lon_tensor[2]))
 
-now = datetime.now(timezone.utc)
-snapshot_now = Snapshot(now.year, now.month, now.day, now.hour)
-print(snapshot_now._tempo_tensor.shape, snapshot_now.geo_categorical_tensor.shape, snapshot_now.geo_dense_tensor.shape, snapshot_now.geo_sin_lat_sin_cos_lon_tensor.shape, snapshot_now.geo_nCategories)
+if __name__ == "__main__":
+    nVars = Snapshot.num_get_train_variables()
+    print(f"------------ Total number of train variables: {nVars}")
 
-import numpy as np
-import matplotlib.pyplot as plt
-import cartopy.crs as ccrs
-import cartopy.feature as cfeature
+    now = datetime.now(timezone.utc)
+    snapshot_now = Snapshot(now.year, now.month, now.day, now.hour)
+    print(snapshot_now._tempo_tensor.shape, snapshot_now.geo_categorical_tensor.shape, snapshot_now.geo_dense_tensor.shape, snapshot_now.geo_sin_lat_sin_cos_lon_tensor.shape, snapshot_now.geo_nCategories)
 
-def show_on_map(data):  # np.array
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import cartopy.crs as ccrs
+    import cartopy.feature as cfeature
 
-    # # Example: your data tensor (replace with your real tensor)
-    # data = np.random.rand(720, 1440)  # shape (lat, lon)
-    mean = data.mean()
-    # Latitude and longitude vectors at cell centers
-    H, W = data.shape
-    _, lat, lon = Geo_Tempo.lat_lon_grid_tensor_era5_721()
-    lat = lat.numpy()
-    lon = lon.numpy()
+    def show_on_map(data):  # np.array
 
-    # Create a meshgrid for plotting
-    lon_grid, lat_grid = np.meshgrid(lon, lat)
+        # # Example: your data tensor (replace with your real tensor)
+        # data = np.random.rand(720, 1440)  # shape (lat, lon)
+        mean = data.mean()
+        # Latitude and longitude vectors at cell centers
+        H, W = data.shape
+        _, lat, lon = Geo_Tempo.lat_lon_grid_tensor_era5_721()
+        lat = lat.numpy()
+        lon = lon.numpy()
 
-    # Plot
-    fig = plt.figure(figsize=(12,6))
-    ax = plt.axes(projection=ccrs.PlateCarree())
-    ax.set_global()
+        # Create a meshgrid for plotting
+        lon_grid, lat_grid = np.meshgrid(lon, lat)
 
-    # Plot the data as a colormap
-    c = ax.pcolormesh(lon_grid, lat_grid, data, transform=ccrs.PlateCarree(), cmap='viridis')
+        # Plot
+        fig = plt.figure(figsize=(12,6))
+        ax = plt.axes(projection=ccrs.PlateCarree())
+        ax.set_global()
 
-    # Add colorbar
-    cb = plt.colorbar(c, ax=ax, orientation='vertical', label='Value')
+        # Plot the data as a colormap
+        c = ax.pcolormesh(lon_grid, lat_grid, data, transform=ccrs.PlateCarree(), cmap='viridis')
 
-    # Add country boundaries
-    ax.add_feature(cfeature.BORDERS, linewidth=0.5)
-    ax.add_feature(cfeature.COASTLINE, linewidth=0.5)
+        # Add colorbar
+        cb = plt.colorbar(c, ax=ax, orientation='vertical', label='Value')
 
-    # Add gridlines for lat/lon
-    gl = ax.gridlines(draw_labels=True, linewidth=0.5, color='gray', alpha=0.5, linestyle='--')
-    gl.top_labels = False
-    gl.right_labels = False
+        # Add country boundaries
+        ax.add_feature(cfeature.BORDERS, linewidth=0.5)
+        ax.add_feature(cfeature.COASTLINE, linewidth=0.5)
 
-    plt.title(f"Geographical Distribution. mean = {mean}")
-    plt.show()
+        # Add gridlines for lat/lon
+        gl = ax.gridlines(draw_labels=True, linewidth=0.5, color='gray', alpha=0.5, linestyle='--')
+        gl.top_labels = False
+        gl.right_labels = False
 
-#------------- geo, 6 -----------------
-# show_on_map(snapshot_now.geo_categorical_tensor[0].numpy())     # land_sea_mask,    category
-# show_on_map(snapshot_now.geo_categorical_tensor[1].numpy())     # soil_type,        category
-# show_on_map(snapshot_now.geo_dense_tensor[0].numpy())           # geopotential_at_surface,  standardized
-# show_on_map(snapshot_now.geo_sin_lat_sin_cos_lon_tensor[0].numpy())     # sin(lat),  as-is
-# show_on_map(snapshot_now.geo_sin_lat_sin_cos_lon_tensor[1].numpy())     # sin(lon),  as-is
-# show_on_map(snapshot_now.geo_sin_lat_sin_cos_lon_tensor[2].numpy())     # cos(lon),  as-is
+        plt.title(f"Geographical Distribution. mean = {mean}")
+        plt.show()
 
-#------------- tempo, 5 -----------------
-# show_on_map(snapshot_now.tempo[0].numpy())      # sin(earth_orbital_angle)
-# show_on_map(snapshot_now.tempo[1].numpy())      # cos(earth_orbital_angle)
-# show_on_map(snapshot_now.tempo[2].numpy())      # sin(true_solar_hour)
-# show_on_map(snapshot_now.tempo[3].numpy())      # cos(true_solar_hour)
-# show_on_map(snapshot_now.tempo[4].numpy())      # cascade_emb_placeholder
+    #------------- geo, 6 -----------------
+    # show_on_map(snapshot_now.geo_categorical_tensor[0].numpy())     # land_sea_mask,    category
+    # show_on_map(snapshot_now.geo_categorical_tensor[1].numpy())     # soil_type,        category
+    # show_on_map(snapshot_now.geo_dense_tensor[0].numpy())           # geopotential_at_surface,  standardized
+    # show_on_map(snapshot_now.geo_sin_lat_sin_cos_lon_tensor[0].numpy())     # sin(lat),  as-is
+    # show_on_map(snapshot_now.geo_sin_lat_sin_cos_lon_tensor[1].numpy())     # sin(lon),  as-is
+    # show_on_map(snapshot_now.geo_sin_lat_sin_cos_lon_tensor[2].numpy())     # cos(lon),  as-is
+
+    #------------- tempo, 5 -----------------
+    # show_on_map(snapshot_now.tempo[0].numpy())      # sin(earth_orbital_angle)
+    # show_on_map(snapshot_now.tempo[1].numpy())      # cos(earth_orbital_angle)
+    # show_on_map(snapshot_now.tempo[2].numpy())      # sin(true_solar_hour)
+    # show_on_map(snapshot_now.tempo[3].numpy())      # cos(true_solar_hour)
+    # show_on_map(snapshot_now.tempo[4].numpy())      # cascade_emb_placeholder
