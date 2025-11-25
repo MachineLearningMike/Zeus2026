@@ -155,7 +155,8 @@ else:
 n = config['nFrames']
 C = len(config['variables'])
 
-config['land_sea_mask_npy_path'] = config['management_path'] + "/land_sea_mask.npy"
+# config['land_sea_mask_npy_path'] = config['management_path'] + "/land_sea_mask.npy"   # very noisy
+config['land_sea_mask_npy_path'] = config['management_path'] + "/land_sea_mask_721x1440.npy"
 config['soil_type_npy_path'] = config['management_path'] + "/soil_type.npy"
 config['orograph_npy_path'] = config['management_path'] + "/geopotential_at_surface.npy"
    

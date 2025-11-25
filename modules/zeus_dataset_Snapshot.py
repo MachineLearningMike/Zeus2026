@@ -11,20 +11,20 @@ from models.config_Mike1 import config
 from modules.zeus_dateset_geo_tempo import Geo_Tempo
 from zeus_dataset_var_names import mike1_variables, var_name_map
 
-# earth_orbit_angle_tensor = Geo_Tempo.earth_orbit_angle_tensor(dt_utc, H, W)
-# radian_tensor = earth_orbit_angle_tensor / 24 * 2 * torch.pi
+# earth_orbit_angle_tensor_era5 = Geo_Tempo.earth_orbit_angle_tensor_era5(dt_utc, H, W)
+# radian_tensor = earth_orbit_angle_tensor_era5 / 24 * 2 * torch.pi
 # sin_earth_orbit_angle_tensor = torch.sin(radian_tensor)
 # cos_earth_orbit_angle_tensor = torch.cos(radian_tensor)
 
-# #------------ sin/cos true_solar_hours_tensor --------------
-# true_solar_hours_tensor = Geo_Tempo.true_solar_hours_tensor(dt_utc, H, W)
-# radian_solar_tensor = true_solar_hours_tensor / 24 * 2 * torch.pi
+# #------------ sin/cos true_solar_hours_tensor_era5 --------------
+# true_solar_hours_tensor_era5 = Geo_Tempo.true_solar_hours_tensor_era5(dt_utc, H, W)
+# radian_solar_tensor = true_solar_hours_tensor_era5 / 24 * 2 * torch.pi
 # sin_true_solar_hours_tensor = torch.sin(radian_tensor)
 # cos_true_solar_hours_tensor = torch.cos(radian_tensor)
 
 # #------------ (lat, lon) ------------------------------------
 # lat_lon_tensor = Geo_Tempo.lat_lon_grid_tensor(H, W)
-# cos_lat_sin_lon_tensor = Geo_Tempo.cos_lat_sin_lon_tensor(H, W)
+# cos_lat_sin_lon_tensor_era5 = Geo_Tempo.cos_lat_sin_lon_tensor_era5(H, W)
 
 class Snapshot:
     # temporary. can be added and changed any time
@@ -142,7 +142,7 @@ class Snapshot:
                 arrays.append(array)            
             return arrays
         
-        final_H, final_W = Snapshot.height, Snapshot.width
+        final_H, final_W = Geo_Tempo.H_era5_grid, Geo_Tempo.W_era5_grid
         
         # load and normalize category values. Convert to a tensor
         categorical_arrays = load_npy_files(categorical_npy_paths)
@@ -195,7 +195,7 @@ class Snapshot:
         Snapshot.geo_dense_tensor = torch.from_numpy(stack)  # shape: (n, final_H, final_W)
             
         # generate lat_lon tensor
-        Snapshot.geo_sin_lat_sin_cos_lon_tensor = Geo_Tempo.sin_lat_sin_cos_lon_tensor(final_H, final_W) # (3, final_H, final_W)
+        Snapshot.geo_sin_lat_sin_cos_lon_tensor = Geo_Tempo.sin_lat_sin_cos_lon_tensor_era5() # (3, final_H, final_W)
 
         assert Snapshot.geo_categorical_tensor.shape[0] + Snapshot.geo_dense_tensor.shape[0] + Snapshot.geo_sin_lat_sin_cos_lon_tensor.shape[0] == Snapshot.geo_dims        
         return
@@ -210,10 +210,10 @@ class Snapshot:
         # no need to normalize them.
         final_H, final_W = Snapshot.height, Snapshot.width
         dt_utc = datetime(self.year, self.month, self.day, self.hour, tzinfo=timezone.utc)
-        sin_cos_earth_orbit_angle_tensor = Geo_Tempo.sin_cos_earth_orbit_angle_tensor(dt_utc, self.height, self.width)[:, :final_H, :final_W]
-        sin_cos_true_solar_hours_tensor = Geo_Tempo.sin_cos_true_solar_hours_tensor(dt_utc, self.height, self.width)[:, :final_H, :final_W]
+        sin_cos_earth_orbit_angle_tensor_era5 = Geo_Tempo.sin_cos_earth_orbit_angle_tensor_era5(dt_utc)[:, :final_H, :final_W]
+        sin_cos_true_solar_hours_tensor_era5 = Geo_Tempo.sin_cos_true_solar_hours_tensor_era5(dt_utc)[:, :final_H, :final_W]
         cascade_emb_placeholder = torch.rand(1, self.height, self.width)[:, :final_H, :final_W]
-        tempo_tensor = torch.concat([sin_cos_earth_orbit_angle_tensor, sin_cos_true_solar_hours_tensor, cascade_emb_placeholder], dim=0)
+        tempo_tensor = torch.concat([sin_cos_earth_orbit_angle_tensor_era5, sin_cos_true_solar_hours_tensor_era5, cascade_emb_placeholder], dim=0)
         return tempo_tensor
         
     tempo = property(
@@ -281,8 +281,9 @@ def show_on_map(data):  # np.array
     mean = data.mean()
     # Latitude and longitude vectors at cell centers
     H, W = data.shape
-    lat = np.linspace(-90 + 180/H/2, 90 - 180/H/2, H)
-    lon = np.linspace(-180 + 360/W/2, 180 - 360/W/2, W)
+    _, lat, lon = Geo_Tempo.lat_lon_grid_tensor_era5_721()
+    lat = lat.numpy()
+    lon = lon.numpy()
 
     # Create a meshgrid for plotting
     lon_grid, lat_grid = np.meshgrid(lon, lat)
@@ -324,11 +325,3 @@ def show_on_map(data):  # np.array
 # show_on_map(snapshot_now.tempo[2].numpy())      # sin(true_solar_hour)
 # show_on_map(snapshot_now.tempo[3].numpy())      # cos(true_solar_hour)
 # show_on_map(snapshot_now.tempo[4].numpy())      # cascade_emb_placeholder
-
-        # final_H, final_W = Snapshot.height, Snapshot.width
-        # dt_utc = datetime(self.year, self.month, self.day, self.hour, tzinfo=timezone.utc)
-        # sin_cos_earth_orbit_angle_tensor = Geo_Tempo.sin_cos_earth_orbit_angle_tensor(dt_utc, self.height, self.width)[:, :final_H, :final_W]
-        # sin_cos_true_solar_hours_tensor = Geo_Tempo.sin_cos_true_solar_hours_tensor(dt_utc, self.height, self.width)[:, :final_H, :final_W]
-        # cascade_emb_placeholder = torch.rand(1, self.height, self.width)[:, :final_H, :final_W]
-        # tempo_tensor = torch.concat([sin_cos_earth_orbit_angle_tensor, sin_cos_true_solar_hours_tensor, cascade_emb_placeholder], dim=0)
-        # return tempo_tensor

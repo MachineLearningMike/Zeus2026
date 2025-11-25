@@ -12,7 +12,8 @@ ts = api.load.timescale()
 eph = api.load('de421.bsp')
 
 class Geo_Tempo():
-    lat_lon_tensor_720_1440 = None
+    lat_lon_tensor_721_1440, lat_tensor_721, lon_tensor_1440 = None, None, None
+    H_era5_grid, W_era5_grid = 721, 1440
     
     def get_season_events(year):
         t0 = ts.utc(year, 1, 1)
@@ -34,12 +35,12 @@ class Geo_Tempo():
                 season_dict['dec_solstice'] = dt
         return season_dict
 
-    def earth_orbit_angle(dt):
+    def earth_orbit_angle(dt_utc):
         # If naive datetime, treat as UTC
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+        if dt_utc.tzinfo is None:
+            dt_utc = dt_utc.replace(tzinfo=timezone.utc)
         
-        year = dt.year
+        year = dt_utc.year
         seasons = Geo_Tempo.get_season_events(year)
         
         season_angles = [
@@ -53,13 +54,13 @@ class Geo_Tempo():
         for i in range(len(season_angles) - 1):
             t0, a0 = season_angles[i]
             t1, a1 = season_angles[i+1]
-            if t0 <= dt < t1:
-                fraction = (dt - t0).total_seconds() / (t1 - t0).total_seconds()
+            if t0 <= dt_utc < t1:
+                fraction = (dt_utc - t0).total_seconds() / (t1 - t0).total_seconds()
                 angle = a0 + fraction * (a1 - a0)
                 return angle
         return None
     
-    def earth_orbit_angle_tensor(dt, H, W):
+    def earth_orbit_angle_tensor_era5(dt_utc):
         """
         Generate a tensor of Earth orbital angles (degrees 0..360) on a (H, W) grid
         by calling Geo_Tempo.earth_orbit_angle().
@@ -72,20 +73,27 @@ class Geo_Tempo():
         Returns:
             torch.Tensor: (H, W) tensor of orbital angles in degrees
         """
+        # If naive datetime, treat as UTC
+        if dt_utc.tzinfo is None:
+            dt_utc = dt_utc.replace(tzinfo=timezone.utc)
+        
         # Compute orbital angle for this datetime (scalar)
-        angle_deg = Geo_Tempo.earth_orbit_angle(dt)  # scalar
+        angle_deg = Geo_Tempo.earth_orbit_angle(dt_utc)  # scalar
         
         # Create a grid of shape (H, W) with the same value
-        angle_grid = np.full((H, W), angle_deg, dtype=np.float32)
+        angle_grid = np.full((Geo_Tempo.H_era5_grid, Geo_Tempo.W_era5_grid), angle_deg, dtype=np.float32)
         
         # Convert to torch tensor
         angle_tensor = torch.from_numpy(angle_grid)
         
         return angle_tensor
     
-    def sin_cos_earth_orbit_angle_tensor(dt_utc, height, width):
-        earth_orbit_angle_tensor = Geo_Tempo.earth_orbit_angle_tensor(dt_utc, height, width)
-        radian_tensor = torch.deg2rad(earth_orbit_angle_tensor)
+    def sin_cos_earth_orbit_angle_tensor_era5(dt_utc):
+        # If naive datetime, treat as UTC
+        if dt_utc.tzinfo is None:
+            dt_utc = dt_utc.replace(tzinfo=timezone.utc)        
+        earth_orbit_angle_tensor_era5 = Geo_Tempo.earth_orbit_angle_tensor_era5(dt_utc)
+        radian_tensor = torch.deg2rad(earth_orbit_angle_tensor_era5)
         sin_earth_orbit_angle_tensor = torch.sin(radian_tensor)
         cos_earth_orbit_angle_tensor = torch.cos(radian_tensor)
         sin_cos = torch.stack([sin_earth_orbit_angle_tensor, cos_earth_orbit_angle_tensor], dim=0)
@@ -96,8 +104,6 @@ class Geo_Tempo():
         if dt_utc.tzinfo is None:
             dt_utc = dt_utc.replace(tzinfo=timezone.utc)
         
-        # lat: -90 <= lat <= 90 degrees
-        # lon: -180 <= lon <= 180 degrees
         solpos = pvlib.solarposition.get_solarposition(pd.Timestamp(dt_utc), lat, lon)
         return solpos['zenith'].item()
 
@@ -208,73 +214,84 @@ class Geo_Tempo():
         
         return mean_solar_hour
 
-    def true_solar_hours_tensor(utc_dt, H, W):
+    def true_solar_hours_tensor_era5(utc_dt):
         """
         Generate a tensor of Local Mean Solar Time (decimal hours) on a (H, W) grid
         by calling utc_to_mean_solar_hour().
 
         Parameters:
             utc_dt (datetime): UTC datetime
-            H (int): grid height
-            W (int): grid width
 
         Returns:
             torch.Tensor: (H, W) tensor of mean solar hours (0..24)
         """
-        # Create a 1D array of longitudes (-180 to 180)
-        step = 360.0 / W
-        lon = np.linspace(-180 + step/2, 180 - step/2, W, dtype=np.float32)
+        _, _, lon_tensor = Geo_Tempo.lat_lon_grid_tensor_era5_721()
+        lon = lon_tensor.numpy()
         
         # Preallocate 1D array of mean solar hours for the longitudes
         mean_hours_row = np.array([Geo_Tempo.utc_to_true_solar_hour(utc_dt, lon_i) for lon_i in lon], dtype=np.float32)
         
         # Repeat along latitude to create full grid
-        mean_hours_grid = np.tile(mean_hours_row, (H, 1))
+        mean_hours_grid = np.tile(mean_hours_row, (Geo_Tempo.H_era5_grid, 1))
         
         # Convert to torch tensor
         mean_hours_tensor = torch.from_numpy(mean_hours_grid)
         
         return mean_hours_tensor
     
-    def sin_cos_true_solar_hours_tensor(dt_utc, height, width):
-        true_solar_hours_tensor = Geo_Tempo.true_solar_hours_tensor(dt_utc, height, width)
-        radian_tensor = torch.deg2rad(true_solar_hours_tensor * 360 / 24)
+    def sin_cos_true_solar_hours_tensor_era5(dt_utc):
+        # If naive datetime, treat as UTC
+        if dt_utc.tzinfo is None:
+            dt_utc = dt_utc.replace(tzinfo=timezone.utc)
+        true_solar_hours_tensor_era5 = Geo_Tempo.true_solar_hours_tensor_era5(dt_utc)
+        radian_tensor = torch.deg2rad(true_solar_hours_tensor_era5 * 360 / 24)
         sin_true_solar_hours_tensor = torch.sin(radian_tensor)
         cos_true_solar_hours_tensor = torch.cos(radian_tensor)
         sin_cos = torch.stack([sin_true_solar_hours_tensor, cos_true_solar_hours_tensor], dim=0)
         return sin_cos
 
-    def lat_lon_grid_tensor(H, W):
+    def lat_lon_grid_tensor_era5_721():
+        # BE CAREFUL !!!!!!!!!!! with this code, which is the foundation of geography of the whole system.
+
         """
-        Generate a (2, H, W) tensor of latitudes and longitudes.
-        Channel 0: latitude [-90, 90]
-        Channel 1: longitude [-180, 180)  (180 excluded)
+        Generate a (2, 721, 1440) tensor of lat/lon at **cell centers** for ERA5 0.25° grid.
         """
+
+        H = 721
+        W = 1441
+
+        # Step sizes
+        lat_step = 180.0 / (H - 1)    # 0.25°
+        lon_step = 360.0 / (W - 1)    # 0.25°
+
+        # Latitudes: center of each cell
+        lat_tensor = torch.linspace(-90.0, 90.0, H, dtype=torch.float32) # - lat_step/2    # the - sign assumes -90 will be removed, because 721 is ugly.
+        # print(lat_tensor[0], lat_tensor[-1], lat_tensor[1]-lat_tensor[0])
+        # Longitudes: center of each cell
+        lon_tensor = torch.linspace(-180.0, 180.0, W, dtype=torch.float32) # - lon_step/2    # the - sign assumes -180 will be removed, -180 and 180 are the same.
+        # print(lon_tensor[0], lon_tensor[-1], lon_tensor[1]-lon_tensor[0])
+
+        lat_tensor = lat_tensor[:]
+        lon_tensor = lon_tensor[:-1]   # the +180 is removed
+
+        # Broadcast to grids
+        lat_grid = lat_tensor.unsqueeze(1).expand(H, W-1)
+        lon_grid = lon_tensor.unsqueeze(0).expand(H, W-1)
+
+        # Stack into (2, H, W)
+        lat_lon_tensor = torch.stack([lat_grid, lon_grid], dim=0)   # (2, 721, 1440), with a resolution of 0.25 degree
+
+        # print(lat_lon_tensor.shape)
+        # print(lat_lon_tensor[0, 360, :])
+        # print(lat_lon_tensor[1, :, 0])
         
-        if H == 720 and W == 1440 and Geo_Tempo.lat_lon_tensor_720_1440 is not None:
-            lat_lon_tensor = Geo_Tempo.lat_lon_tensor_720_1440
-        else:        
-            # Step sizes
-            lat_step = 180.0 / H
-            lon_step = 360.0 / W
-
-            # Latitudes: center of each row (H×1)
-            lat = torch.linspace(-90 + lat_step/2, 90 - lat_step/2, H, dtype=torch.float32).unsqueeze(1)
-
-            # Longitudes: center of each column (1×W)
-            lon = torch.linspace(-180 + lon_step/2, 180 - lon_step/2, W, dtype=torch.float32).unsqueeze(0)
-
-            
-            # Broadcast to (H,W)
-            lat_grid = lat.expand(H, W)
-            lon_grid = lon.expand(H, W)
-            
-            # Stack into (2,H,W)
-            lat_lon_tensor = torch.stack([lat_grid, lon_grid], dim=0)
-        
-        return lat_lon_tensor
+        return lat_lon_tensor, lat_tensor, lon_tensor
     
-    def cos_lat_sin_lon_tensor(H, W):
+    def lat_lon_grid_tensor_era5_720():
+        # BE CAREFULL !!!!
+        return Geo_Tempo.lat_lon_tensor_721_1440[:, 1:, :], Geo_Tempo.lat_tensor_721[1:], Geo_Tempo.lon_tensor_1440
+    
+    def cos_lat_sin_lon_tensor_era5():
         """
         Generate a (2, H, W) tensor of (cos(lat), sin(lon)) by calling lat_lon_grid_tensor.
         
@@ -282,17 +299,12 @@ class Geo_Tempo():
         Channel 1: sin(longitude in radians)
         
         Parameters:
-            H (int): grid height (latitude)
-            W (int): grid width (longitude)
         
         Returns:
             torch.Tensor: shape (2, H, W)
         """
         # Get the lat/lon grid first
-        if H == 720 and W == 1440:
-            lat_lon = Geo_Tempo.lat_lon_tensor_720_1440
-        else:
-            lat_lon = Geo_Tempo.lat_lon_grid_tensor(H, W)  # shape (2, H, W)
+        lat_lon, _, _ = Geo_Tempo.lat_lon_grid_tensor_era5_721()  # shape (2, H, W)
         
         lat_rad = torch.deg2rad(lat_lon[0])
         lon_rad = torch.deg2rad(lat_lon[1])
@@ -300,12 +312,9 @@ class Geo_Tempo():
         tensor = torch.stack([torch.cos(lat_rad), torch.sin(lon_rad)], dim=0)
         return tensor
     
-    def sin_lat_sin_cos_lon_tensor(H, W):
+    def sin_lat_sin_cos_lon_tensor_era5():
         
-        if H == 720 and W == 1440:
-            lat_lon = Geo_Tempo.lat_lon_tensor_720_1440
-        else:
-            lat_lon = Geo_Tempo.lat_lon_grid_tensor(H, W)  # shape (2, H, W)
+        lat_lon, _, _ = Geo_Tempo.lat_lon_grid_tensor_era5_721()  # shape (2, H, W)
         
         lat_rad = torch.deg2rad(lat_lon[0])
         lon_rad = torch.deg2rad(lat_lon[1])
@@ -313,7 +322,7 @@ class Geo_Tempo():
         tensor = torch.stack([torch.sin(lat_rad), torch.sin(lon_rad), torch.cos(lon_rad)], dim=0)
         return tensor        
 
-Geo_Tempo.lat_lon_tensor_720_1440 = Geo_Tempo.lat_lon_grid_tensor(720, 1440)
+Geo_Tempo.lat_lon_tensor_721_1440, Geo_Tempo.lat_tensor_721, Geo_Tempo.lon_tensor_1440 = Geo_Tempo.lat_lon_grid_tensor_era5_721()
 
 
 if __name__ == "__main__":
@@ -348,30 +357,29 @@ if __name__ == "__main__":
     print(f"orbital_angle: {oribtal_angle}, zenith_angle: {zeith_anglee},\ntrue_solar_h: {f2h(true_solar_h)}, mean_solar_h: {f2h(mean_solar_h)}, true_solar_ts: {true_solar_ts}")
     
     
-    H, W = 720, 1440
     loops = 10
     s = time.time()
     for _ in range(loops):
-        #------------ sin/cos earth_orbit_angle_tensor --------------
-        cos_earth_orbit_angle_tensor = Geo_Tempo.sin_cos_earth_orbit_angle_tensor(dt_utc, H, W)
+        #------------ sin/cos earth_orbit_angle_tensor_era5 --------------
+        cos_earth_orbit_angle_tensor = Geo_Tempo.sin_cos_earth_orbit_angle_tensor_era5(dt_utc)
         
-        #------------ sin/cos true_solar_hours_tensor --------------
-        cos_true_solar_hours_tensor = Geo_Tempo.sin_cos_true_solar_hours_tensor(dt_utc, H, W)
+        #------------ sin/cos true_solar_hours_tensor_era5 --------------
+        cos_true_solar_hours_tensor = Geo_Tempo.sin_cos_true_solar_hours_tensor_era5(dt_utc)
         
         #------------ (lat, lon) ------------------------------------
-        lat_lon_tensor = Geo_Tempo.lat_lon_grid_tensor(H, W)
-        cos_lat_sin_lon_tensor = Geo_Tempo.cos_lat_sin_lon_tensor(H, W)
-        
+        lat_lon_tensor, _, _ = Geo_Tempo.lat_lon_grid_tensor_era5_721()
+        cos_lat_sin_lon_tensor_era5 = Geo_Tempo.cos_lat_sin_lon_tensor_era5()
     e = time.time()
     print(f"cos_earth_orbit_angle_tensor: {cos_earth_orbit_angle_tensor.shape}, cos_true_solar_hours_tensor: {cos_true_solar_hours_tensor.shape}, time: {(e-s)/loops}")
     
-    lat_lon_tensor = Geo_Tempo.lat_lon_grid_tensor(H, W)
+    lat_lon_tensor, _, _ = Geo_Tempo.lat_lon_grid_tensor_era5_721()
     print(lat_lon_tensor[:, 0,0], lat_lon_tensor[:, -1, -1], lat_lon_tensor[:, 0, -1], lat_lon_tensor[:, -1, 0])
     # tensor([ -90., -180.]) tensor([ 90.0000, 179.7500]) tensor([-90.0000, 179.7500]) tensor([  90., -180.])
     
-    cos_lat_sin_lon_tensor = Geo_Tempo.cos_lat_sin_lon_tensor(H, W)
-    print(cos_lat_sin_lon_tensor[:, 0,0], cos_lat_sin_lon_tensor[:, -1, -1], cos_lat_sin_lon_tensor[:, 0, -1], cos_lat_sin_lon_tensor[:, -1, 0])
-    # tensor([-4.3711e-08,  8.7423e-08]) tensor([-4.3711e-08,  4.3632e-03]) tensor([-4.3711e-08,  4.3632e-03]) tensor([-4.3711e-08,  8.7423e-08])
+    cos_lat_sin_lon_tensor_era5 = Geo_Tempo.cos_lat_sin_lon_tensor_era5()
+    print(cos_lat_sin_lon_tensor_era5[:, 0,0], cos_lat_sin_lon_tensor_era5[:, -1, -1], cos_lat_sin_lon_tensor_era5[:, 0, -1], cos_lat_sin_lon_tensor_era5[:, -1, 0])
+    # tensor([-4.3711e-08,  8.7423e-08]) tensor([-4.3711e-08,  4.3634e-03]) tensor([-4.3711e-08,  4.3634e-03]) tensor([-4.3711e-08,  8.7423e-08])
     
-    print(cos_lat_sin_lon_tensor[:, H//2, W//2])
+    _, H, W = cos_lat_sin_lon_tensor_era5.shape
+    print(cos_lat_sin_lon_tensor_era5[:, H//2, W//2])
     # tensor([1., 0.])
