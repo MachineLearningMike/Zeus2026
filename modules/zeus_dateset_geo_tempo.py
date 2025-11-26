@@ -12,6 +12,10 @@ ts = api.load.timescale()
 eph = api.load('de421.bsp')
 
 class Geo_Tempo():
+    #  -90 <= lat <= +90 [-90, +90], -180 <= lon < 180 [-180, +180) in our dataset scheme.
+    respect_north = True    # No change
+    respect_east = True     # No change
+    
     lat_lon_tensor_721_1440, lat_tensor_721, lon_tensor_1440 = None, None, None
     H_era5_grid, W_era5_grid = 721, 1440
     
@@ -289,7 +293,10 @@ class Geo_Tempo():
     
     def lat_lon_grid_tensor_era5_720():
         # BE CAREFULL !!!!
-        return Geo_Tempo.lat_lon_tensor_721_1440[:, 1:, :], Geo_Tempo.lat_tensor_721[1:], Geo_Tempo.lon_tensor_1440
+        lat_lon = Geo_Tempo.lat_lon_tensor_721_1440[:, 1:, :] if Geo_Tempo.respect_north else Geo_Tempo.lat_lon_tensor_721_1440[:, :-1, :]
+        lat = Geo_Tempo.lat_tensor_721[1:] if Geo_Tempo.respect_east else Geo_Tempo.lat_tensor_721[:-1]
+        lon = Geo_Tempo.lon_tensor_1440
+        return lat_lon, lat, lon
     
     def cos_lat_sin_lon_tensor_era5():
         """

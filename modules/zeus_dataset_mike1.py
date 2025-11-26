@@ -122,6 +122,8 @@ class Zeus_Dataset(Dataset):
 
         dataset = dataset.sortby(["latitude", "longitude"])
         dataset = dataset.chunk()
+        
+        #  -90 <= lat <= +90 [-90, +90], -180 <= lon < 180 [-180, +180)
 
         return dataset
 
