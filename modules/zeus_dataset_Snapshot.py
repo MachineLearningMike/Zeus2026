@@ -285,14 +285,9 @@ class Snapshot:
 
 categorical_npy_paths = [config['land_sea_mask_npy_path'], config['soil_type_npy_path']]
 dense_npy_paths = [config['orograph_npy_path']]
+# Snapshot.create_geo_tensor(categorical_npy_paths, dense_npy_paths)
 
-Snapshot.create_geo_tensor(categorical_npy_paths, dense_npy_paths)
-# print(Snapshot.geo_categorical_tensor.shape, Snapshot.geo_dense_tensor.shape, Snapshot.geo_sin_lat_sin_cos_lon_tensor.shape)
-# print(torch.unique(Snapshot.geo_categorical_tensor[0]), torch.unique(Snapshot.geo_categorical_tensor[1]))
-# print(torch.mean(Snapshot.geo_dense_tensor), torch.std(Snapshot.geo_dense_tensor))
-# print(torch.mean(Snapshot.geo_sin_lat_sin_cos_lon_tensor[0]), torch.std(Snapshot.geo_sin_lat_sin_cos_lon_tensor[0]))
-# print(torch.mean(Snapshot.geo_sin_lat_sin_cos_lon_tensor[1]), torch.std(Snapshot.geo_sin_lat_sin_cos_lon_tensor[1]))
-# print(torch.mean(Snapshot.geo_sin_lat_sin_cos_lon_tensor[2]), torch.std(Snapshot.geo_sin_lat_sin_cos_lon_tensor[2]))
+#------------------------------------------------------------------------------------------------------------------------------------
 
 if __name__ == "__main__":
     nVars = Snapshot.num_get_train_variables()
@@ -300,8 +295,8 @@ if __name__ == "__main__":
 
     now = datetime.now(timezone.utc)
     snapshot_now = Snapshot(now.year, now.month, now.day, now.hour)
-    print("meteo_internal, tempo_internal, meteo_tempo_internal, geo_internal, nCat: ", snapshot_now.meteo_internal.shape, snapshot_now.tempo_internal.shape, snapshot_now.meteo_tempo_internal.shape, snapshot_now.geo_internal.shape, snapshot_now.geo_nCategories)
-    print("input, meteo, meteo_tempo, geo: ", snapshot_now.input.shape, snapshot_now.meteo.shape, snapshot_now.meteo_tempo.shape, snapshot_now.geo.shape)
+    # print("meteo_internal, tempo_internal, meteo_tempo_internal, geo_internal, nCat: ", snapshot_now.meteo_internal.shape, snapshot_now.tempo_internal.shape, snapshot_now.meteo_tempo_internal.shape, snapshot_now.geo_internal.shape, snapshot_now.geo_nCategories)
+    # print("input, meteo, meteo_tempo, geo: ", snapshot_now.input.shape, snapshot_now.meteo.shape, snapshot_now.meteo_tempo.shape, snapshot_now.geo.shape)
 
     Snapshot.export_factor10 = 2
     print("input_tensor, meteo_tempo, geo: ", snapshot_now.input.shape, snapshot_now.meteo_tempo.shape, snapshot_now.geo.shape)    

@@ -402,86 +402,6 @@ data_vars_era5_via_gcp = [
 ]
 coords_era5_via_gcp = ['latitude', 'level', 'longitude', 'time']
 
-# variables ChatGPT5 suggests that most influence the 6 variables to predict
-
-target_variables = ["t2m", "tp", "u100", "v100", "d2m", "sp"]
-
-era5_vars_that_influence_the_6_variables = [
-    "t2m", "tp", "u100", "v100", "d2m", "sp", "t_1000", "t_850", "t_500", "q_1000", 
-    "q_850", "u10", "v10", "u100", "v100", "u850", "v850", "w500", "w850", "msl", 
-    "orography", "swvl1", "swvl2", "swvl3", "swvl4", "sde", "sst", "tcc", "cape", "cin"]
-
-
-additional_vars_not_in_FuXi_2 = ["w500", "w850", "msl", "swvl1", "swvl2", "swvl3", "swvl4", "sde", "sst", "tcc", "cape", "cin"]
-
-fuxi_vars_ranked = ["t", "q", "u", "v", "z", "sp", "orography", "lsm", "soil_type"]
-
-fuxi_vars_with_levels_ranked = ["t_1000", "t_850", "q_1000", "q_850", "u100", "v100", "u10", "v10", "z_500", 
-                                "u850", "v850", "t_500", "sp", "orography", "lsm", "soil_type"]
-
-all_vars_ranked = target_variables + \
-[
-    "t_1000", "t_850", 
-    "q_1000", "q_850", 
-    "u10", "v10", 
-    "z_500", 
-    "u850", "v850", 
-    "t_500", 
-    "orography", 
-    "lsm", 
-    "soil_type",
-    "msl", "w500", "w850",
-    "swvl1", "swvl2", "swvl3", "swvl4",
-    "sde", "sst", "tcc", "cape", "cin"
-]
-
-midterm_forecast_vars_ranked = [
-    "z_500",                     # Upper-air geopotential → large-scale patterns
-    "t_500",                     # Mid-troposphere temperature → stability, convection
-    "t_850", "t_1000",           # Lower-troposphere temperature → t2m, d2m, tp
-    "q_850", "q_1000",           # Specific humidity → tp, d2m
-    "w500", "w850",              # Vertical velocity → ascent → precipitation
-    "u850", "v850",              # Mid-level winds → advection & shear
-    "u100", "v100", "u10", "v10",# Near-surface winds → 100m wind targets & advection
-    "msl",                       # Mean sea level pressure → advection & sp
-    "sp",                        # Surface pressure → target itself
-    "swvl1", "swvl2", "swvl3", "swvl4",  # Soil moisture layers → t2m, d2m
-    "sde",                       # Snow depth → t2m & surface energy flux
-    "sst",                       # Sea surface temperature → coastal temp & humidity
-    "tcc",                       # Total cloud cover → tp & shortwave/longwave
-    "cape", "cin",                # Convective indices → tp
-    "orography",                  # Terrain influence on wind, temp, precipitation
-    "lsm",                        # Land-sea mask → modifies t2m, sp, tp
-    "soil_type"                   # Minor land-surface effect
-]
-
-additional_midterm_vars_not_in_FuXi_2 = [
-    "w500", "w850",      # Vertical velocity
-    "msl",               # Mean sea level pressure
-    "swvl1", "swvl2", "swvl3", "swvl4",  # Soil moisture layers
-    "sde",               # Snow depth
-    "sst",               # Sea surface temperature
-    "tcc",               # Total cloud cover
-    "cape", "cin"        # Convective indices
-]
-
-fuxi_vars_levels_not_in_midterm_list = [
-    # Temperature at additional levels
-    "t_50", "t_100", "t_150", "t_200", "t_250", "t_300", "t_400", "t_600", "t_700", "t_925",
-    # Specific humidity at additional levels
-    "q_50", "q_100", "q_150", "q_200", "q_250", "q_300", "q_400", "q_600", "q_700", "q_925",
-    # U/V wind components at additional levels
-    "u_50", "u_100", "u_150", "u_200", "u_250", "u_300", "u_400", "u_600", "u_700", "u_925",
-    "v_50", "v_100", "v_150", "v_200", "v_250", "v_300", "v_400", "v_600", "v_700", "v_925",
-    # Geopotential at additional levels
-    "z_50", "z_100", "z_150", "z_200", "z_250", "z_300", "z_400", "z_600", "z_700", "z_925",
-    # Static variables
-    "soil_type"
-]
-
-#==============================  =================================
-
-
 
 # FuXi list of 88 variables
 fuxi2_variables = [
@@ -643,7 +563,6 @@ def find_missing_vars():
 
     print(len(mike1_variables))
     
-find_missing_vars()
 
 def check_for_name_consistency():
     # Example: list of official ERA5 variable names

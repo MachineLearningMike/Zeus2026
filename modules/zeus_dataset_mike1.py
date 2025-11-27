@@ -13,7 +13,7 @@ import heapq
 
 import json
 from einops import rearrange
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 
 import random
 from torch.utils.data import Dataset
@@ -37,10 +37,10 @@ from modules_zeus.sample import Era5Sample
 from modules_zeus.coordinates import get_bbox, slice_bbox
 from modules_zeus.era5_cds import Era5CDSLoader, get_today
 
-from modules.zeus_dataset_codec import encode, save_variables, load_decoded_variables
+from modules.zeus_dataset_codec_Mike1 import load, save
 from modules.zeus_dataset_Snapshot import Snapshot
-from modules.zeus_dataset_sharding_dynamic import ERA5ZarrShards
-from modules.zeus_dataset_var_names import upper_air_levels, upper_air_vars, surface_channels, fuXi2_to_era5
+# from modules.zeus_dataset_sharding_dynamic import ERA5ZarrShards
+from modules.zeus_dataset_var_names import upper_air_levels, upper_air_vars, surface_channels, var_name_map
 
 class Zeus_Dataset(Dataset):
     def __init__(self, pm, dataset_path, management_path):
@@ -73,7 +73,7 @@ class Zeus_Dataset(Dataset):
         self.difficulties = None
         self.era5_data_vars = None
 
-        self.loader = Era5CDSLoader()
+        self.era5_cds_loader = Era5CDSLoader()
         self.train_dates, self.vali_dates, self.test_dates = None, None, None
         self.train_set, self.vali_set, self.test_set = None, None, None
         self.x_set, self.x_set_len, self.data_slots = None, 0, []
@@ -85,13 +85,13 @@ class Zeus_Dataset(Dataset):
         
         self.resizer = CylindricalResizer()
         
-        self.shard_dataset = ERA5ZarrShards(
-            base_dirs=self.shard_dirs,
-            shard_shapes=self.get_shard_shape(),
-            max_slices=1000,
-            chunklen=1,
-            auto_expand=True
-        )
+        # self.shard_dataset = ERA5ZarrShards(
+        #     base_dirs=self.shard_dirs,
+        #     shard_shapes=self.get_shard_shape(),
+        #     max_slices=1000,
+        #     chunklen=1,
+        #     auto_expand=True
+        # )
 
     #------------------------------------- Download dataset -----------------------
     
@@ -101,8 +101,11 @@ class Zeus_Dataset(Dataset):
             shape.update({ variable: (721, 1440) })
         return shape
 
-    def get_day_number(self, year, month, day):
-        return (datetime(year, month, day) - datetime(1970,1,1)).days
+    def hours_since_epoch(self, year, month, day, hour):
+        dt = datetime(year, month, day, hour, tzinfo=timezone.utc)
+        epoch = datetime(1970, 1, 1, 0, 0, tzinfo=timezone.utc)
+        delta = dt - epoch
+        return int(delta.total_seconds() // 3600)
 
     def load_data(self):
         self.mean, self.std, self.mean_ready_cpu, self.std_ready_cpu, self.mean_ready_cuda, self.std_ready_cuda = self.load_dataset_params()
@@ -113,279 +116,55 @@ class Zeus_Dataset(Dataset):
         return
     
     def get_normalized_dataset(self):
-        dataset = xr.open_zarr("gs://gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3", chunks=None)
-        # convert latitude and longitude to -90 to 90 and -180 to 180 respectively
-        if dataset["longitude"].max() > 180:
-            dataset = dataset.assign_coords(longitude=(dataset["longitude"].values + 180) % 360 - 180)
-        if dataset["latitude"].max() > 90:
-            dataset = dataset.assign_coords(latitude=dataset["latitude"].values - 90)
+        dataset = None
+        try:
+            dataset = xr.open_zarr("gs://gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3", chunks=None)
+            # convert latitude and longitude to -90 to 90 and -180 to 180 respectively
+            if dataset["longitude"].max() > 180:
+                dataset = dataset.assign_coords(longitude=(dataset["longitude"].values + 180) % 360 - 180)
+            if dataset["latitude"].max() > 90:
+                dataset = dataset.assign_coords(latitude=dataset["latitude"].values - 90)
 
-        dataset = dataset.sortby(["latitude", "longitude"])
-        dataset = dataset.chunk()
-        
-        #  -90 <= lat <= +90 [-90, +90], -180 <= lon < 180 [-180, +180)
+            dataset = dataset.sortby(["latitude", "longitude"])
+            dataset = dataset.chunk()
+            
+            #  -90 <= lat <= +90 [-90, +90], -180 <= lon < 180 [-180, +180)
+        except:
+            print("Failed to get gcp-era5 dataset")
 
         return dataset
 
-    def get_file_path(self, year, month, day, variable):
-        cds_folder = self.cds_folder if not self.pm.dual_drive else self.cds_folder_even if self.get_day_number(year, month, day) % 2 == 0 else self.cds_folder_odd        
-        return cds_folder / str(year) / str(month).zfill(2) / str(day).zfill(2) / (variable + ".npz")
-    def get_file_path_npy(self, year, month, day, variable):
-        cds_folder = self.cds_folder if not self.pm.dual_drive else self.cds_folder_even if self.get_day_number(year, month, day) % 2 == 0 else self.cds_folder_odd        
-        return cds_folder / str(year) / str(month).zfill(2) / str(day).zfill(2) / (variable + ".npy")
+    def get_file_path(self, year, month, day, hour, modulo):
+        cds_folder = self.cds_folder if not self.pm.dual_drive else self.cds_folder_even if (int(self.hours_since_epoch(year, month, day, hour) + 1) / modulo) % 2 == 0 else self.cds_folder_odd        
+        return cds_folder / str(year) / str(month).zfill(2) / str(day).zfill(2)
+    def get_file_path_npz(self, year, month, day, hour, modulo):
+        return self.get_file_path(year, month, day, hour, modulo) / (str(hour).zfill(2) + ".npz")
+    def get_file_path_npy(self, year, month, day, hour, modulo):
+        return self.get_file_path(year, month, day, hour, modulo) / (str(hour).zfill(2) + ".npy")
     def get_last_day_of_month(self, year, month):
         return calendar.monthrange(year, month)[1]
-
-    def lownload_day_data_old(self, total_ds, year, month, day):
-        files_to_remove = []
-        file_path_npy = self.get_file_path_npy(year, month, day, 'all')
-        file_path_npz = self.get_file_path(year, month, day, 'all')
-        
-        # Convert existing npz files to npy files.
-        try:
-            data = np.load(file_path_npz)   # ok
-            data = load[load.files[0]]
-            np.save(file_path_npy, data)
-            if file_path_npz.exists(): files_to_remove.append(file_path_npz)
-        except:
-            if file_path_npz.exists(): files_to_remove.append(file_path_npz)
-
-            data_list = []
-            for variable in self.pm.variables:
-                print("{}/{}/{} {}...".format(year, str(month).zfill(2), str(day).zfill(2), variable))
-
-                try:
-                    file_path_npz = self.get_file_path(year, month, day, variable)
-                    load = np.load(file_path_npz)
-                    array = load[load.files[0]]
-                    files_to_remove.append(file_path_npz)
-                except:
-                    ds = total_ds[[variable]]
-                    dayStr = str(year) + '-' + str(month).zfill(2) + '-' + str(day).zfill(2)
-                    ds = ds.sel(time=slice(dayStr, dayStr))               # day data
-                    array = ds[variable].values     # Actual downloading happens.
-                    array = np.clip(array, -65504, 65504).astype(np.float16)
-                    has_nan = np.isnan(array).any()
-                    assert not has_nan                        
-                data_list.append(array)
-
-            data = np.stack(data_list, axis=1)      # (24, C, 721, 1440)
-            assert data.shape[1] == len(self.pm.variables)
-
-            file_path_npy.parent.mkdir(parents=True, exist_ok=True)
-            np.save(file_path_npy, data)
-
-        return files_to_remove
     
-    
-    def download_day_data(self, total_ds, year, month, day):
-        files_to_remove = []
-        file_path_npy = self.get_file_path_npy(year, month, day, 'all')
-        file_path_npz = self.get_file_path(year, month, day, 'all')
-        
-        exists = False
-        
-        try:
-            data = None
-            data = np.load(file_path_npy) # npY
-            # We have no way but trust the data integrity, as there is no vairable name in data.
-            
-            if file_path_npy.exists(): files_to_remove.append(file_path_npy)
-        except:
-            try:
-                load = load_decoded_variables(file_path_npz)    # npZ
-                idx = 0; values = []
-                for key, value in load.items():
-                    assert key == self.pm.variables[idx]; idx += 1
-                    values.append(value)
-                data = np.stack(values, axis=1)  # expected: (24, C, 721, 1440), read 
-                if data.shape == (24, len(self.pm.variables), 721, 1440): exists = True
-            except: pass    # data == None
-        
-        if not exists:
-        
-            var_dict = {}
-            for idx, variable in enumerate(self.pm.variables):
-                print("{}/{}/{} {}...".format(year, str(month).zfill(2), str(day).zfill(2), variable))
+    #--------------------------------------------------------------------------------------
 
-                try:
-                    array = data[:, idx, :, :]
-                    assert array.shape == (24, 721, 1440)
-                except:
-                    ds = total_ds[[variable]]
-                    dayStr = str(year) + '-' + str(month).zfill(2) + '-' + str(day).zfill(2)
-                    ds = ds.sel(time=slice(dayStr, dayStr))               # day data
-                    array = ds[variable].values     # Actual downloading happens.
-                    assert array.shape == (24, 721, 1440)
-                    has_nan = np.isnan(array).any()
-                    assert not has_nan
-
-                var_dict.update({variable: array})
-
-            encoded, meta = encode(var_dict)
-            file_path_npz.parent.mkdir(parents=True, exist_ok=True)
-            save_variables(file_path_npz, encoded, meta)        # npz only. npy doesn't support meta data and takes more space. Speed is no problem for us.
-
-        return files_to_remove
-    
-    def process_day(self, total_ds, year, month, day):
-        """Helper to download and clean up one day."""
-        files_to_remove = self.download_day_data(total_ds, year, month, day)
-        for f in files_to_remove:
-            os.remove(f)
-        return (year, month, day)  # optional return for logging    
-    
-    def download_dataset(self, start_year, end_date, max_workers=4):
-        """Run self.download_day_data in parallel for multiple days."""
-        total_ds = self.get_normalized_dataset()
-
-        print(list(total_ds.data_vars))
-        print(total_ds["latitude"].min(), total_ds["latitude"].max(), total_ds["longitude"].min(), total_ds["longitude"].max())
-        
-        year_list = list(range(end_date.year, start_year-1, -1))
-        month_list = list(range(12, 0, -1))
-        
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = []
-
-            for year in year_list:
-                for month in month_list:
-                    for day in range(self.get_last_day_of_month(year, month), 0, -1):
-                        if date(year, month, day) > end_date:
-                            continue
-
-                        # Submit each day's work to thread pool
-                        futures.append(
-                            executor.submit(self.process_day, total_ds, year, month, day)
-                        )
-
-            # Optionally: wait for all to finish and handle results
-            for future in as_completed(futures):
-                try:
-                    y, m, d = future.result()
-                    print(f"Finished {y}-{m:02d}-{d:02d}")
-                except Exception as e:
-                    print(f"Error processing a day: {e}")
-
-    def get_shard_and_slice_idx(self, start_year, year, month, day, hour, modulo):
-        shard_idx = (year - start_year) * 12 + month - 1
-        slice_idx = ((day-1) * 24 + hour) // modulo
-        return shard_idx, slice_idx
-
-    def download_snapshot(self, total_ds, start_year, year, month, day, hour, modulo):        
-        exists = False
-        
-        shard_idx, slice_idx = self.get_shard_and_slice_idx(start_year, year, month, day, hour, modulo)
-        
-        try:
-            snapshot = self.read_snapshot(shard_idx, slice_idx) # is this enough check?
-            eixsts = True
-        except:
-            exists = False
-        
-        if not exists:
-        
-            var_dict = {}
-            for idx, variable in enumerate(self.pm.variables):
-                print(f"{year}/{month:02d}/{day:02d} {hour:02d} {variable}...")
-
-                ds = total_ds[[variable]]
-                selectStr = f"{year}-{month:02d}-{day:02d}T{hour:02d}:00:00"
-                ds = ds.sel(time=slice(selectStr, selectStr))
-
-                array = ds[variable].values.astype(np.float32)
-                assert array.shape == (721, 1440), f"{variable} shape mismatch"
-                assert not np.isnan(array).any(), f"{variable} has NaNs"
-
-                var_dict[variable] = array
-
-            self.save
-
-        return
-
-                    
-    def process_snapshot(self, total_ds, start_year, year, month, day, hour, mode):
-        """Helper to download and clean up one day."""
-        self.download_snapshot(total_ds, start_year, year, month, day, hour, mode)
-        return (year, month, day)  # optional return for logging   
-                    
-    # def download_fuXi2_snapshots_levels_region(self, upper_air_vars, upper_air_levels, surface_vars,
-    #                                         start_year, end_year, lat_range=None, lon_range=None, modulo=6):
-    #     """
-    #     Download 6-hourly snapshots of FuXi2 variables for a specific lat/lon region.
-    #     Each snapshot is a dict {var_name: float32 numpy array (lat, lon)}.
-
-    #     Args:
-    #         upper_air_vars: list of upper-air variable names, e.g., ['z','t','u','v','q']
-    #         upper_air_levels: list of pressure levels, e.g., [50,100,...,1000]
-    #         surface_vars: list of surface variable names
-    #         start_year, end_year: integer years
-    #         lat_range: tuple (lat_min, lat_max) in degrees
-    #         lon_range: tuple (lon_min, lon_max) in degrees
-
-    #     Returns:
-    #         snapshots: dict mapping timestamp string -> {var_name: array}
-    #     """
-    #     total_ds = self.get_normalized_dataset()
-        
-    #     # Generate full variable names
-    #     variables = []
-    #     for level in upper_air_levels:
-    #         for var in upper_air_vars:
-    #             variables.append(f"{var}_{level}")
-    #     variables.extend(surface_vars)
-
-    #     for year in range(start_year, end_year + 1):
-    #         for month in range(1, 13):
-    #             for day in range(1, 32):
-    #                 try:
-    #                     current_date = date(year, month, day)
-    #                 except ValueError:
-    #                     continue  # skip invalid dates
-
-    #                 for hour in range(0, 24, modulo):  # 6-hourly snapshots
-    #                     snapshot_time = f"{year}-{month:02d}-{day:02d}T{hour:02d}:00:00"
-    #                     var_dict = {}
-                        
-    #                     shard_idx, slice_idx = self.get_shard_and_slice_idx(start_year, year, month, day, hour, modulo)
-    #                     if self.shard_dataset.slice_exists(shard_idx, slice_idx): continue
-
-    #                     for variable in variables:
-    #                         print(f"{year}/{month:02d}/{day:02d} {hour:02d} {variable}...")
-
-    #                         # Select variable
-    #                         if '_' in variable and variable.split('_')[0] in upper_air_vars:
-    #                             var_name, level = variable.split('_')
-    #                             level = int(level)
-    #                             ds_var = total_ds[var_name].sel(level=level)
-    #                         else:
-    #                             ds_var = total_ds[[variable]]
-
-    #                         # Select time
-    #                         ds_sel = ds_var.sel(time=slice(snapshot_time, snapshot_time))
-
-    #                         # Select region if specified
-    #                         if lat_range is not None:
-    #                             ds_sel = ds_sel.sel(latitude=slice(lat_range[0], lat_range[1]))
-    #                         if lon_range is not None:
-    #                             ds_sel = ds_sel.sel(longitude=slice(lon_range[0], lon_range[1]))
-
-    #                         # Convert to numpy
-    #                         array = ds_sel[variable].values.astype(np.float32) if variable in surface_vars else ds_sel.values.astype(np.float32)
-
-    #                         # Squeeze time dimension if needed
-    #                         if array.ndim == 3 and array.shape[0] == 1:
-    #                             array = array[0]
-
-    #                         # Sanity check
-    #                         assert not np.isnan(array).any(), f"{variable} has NaNs at {snapshot_time}"
-
-    #                         var_dict[variable] = array
-                            
-    #                     self.shard_dataset.add_slice(shard_idx, slice_idx, var_dict)
-    #     return
+    def next_month(self, dt):
+        return dt + relativedelta(month=1)
+    def last_day_of_month(self, year, month):
+        return calendar.monthrange(year, month)[1]
+    def month_string(self, date):
+        return str(date.year) + '-' + str(date.month).zfill(2)
+    def day_string(self, date):
+        return str(date.year) + '-' + str(date.month).zfill(2) + '-' + str(date.day).zfill(2)
     
     #---------------------------------------------------------------------------
+    
+    def load_hourly_data(self, year, month, day, hour, modulo):
+        path = self.get_file_path_npz(year, month, day, hour, modulo)
+        try:
+            array_dict = load(path)
+        except:
+            array_dict = None
+        return array_dict
+    
     def download_fuXi2_snapshots_levels_region_parallel_vars(
             self, upper_air_vars, upper_air_levels, surface_vars,
             start_year, end_year, lat_range=None, lon_range=None,
@@ -398,60 +177,59 @@ class Zeus_Dataset(Dataset):
 
         total_ds = self.get_normalized_dataset()
 
-        # Generate full variable names
+        # Generate full variable names      # Borrow 
         variables = []
         for level in upper_air_levels:
             for var in upper_air_vars:
                 variables.append(f"{var}_{level}")
         variables.extend(surface_vars)
 
-                    # ds = total_ds[[variable]]
-                    # dayStr = str(year) + '-' + str(month).zfill(2) + '-' + str(day).zfill(2)
-                    # ds = ds.sel(time=slice(dayStr, dayStr))               # day data
-
-
         def download_variable(variable, snapshot_time):
             """Download a single variable for a given snapshot."""
-            try:
-                upper_air = False
-                # select only the exact time
-                if '_' in variable and variable.split('_')[0] in upper_air_vars:
-                    upper_air = True
-                    var_name, level = variable.split('_')
-                    era_var = fuXi2_to_era5[var_name]
-                    ds = total_ds[era_var].sel(level=int(level), time=snapshot_time)
-                else:
-                    era_var = fuXi2_to_era5[variable]
-                    ds = total_ds[era_var].sel(time=snapshot_time)
-                
-                # Select region
-                if lat_range is not None:
-                    ds = ds.sel(latitude=slice(lat_range[0], lat_range[1]))
-                if lon_range is not None:
-                    ds = ds.sel(longitude=slice(lon_range[0], lon_range[1]))
+            # try:
+            upper_air = False
+            # select only the exact time
+            if '_' in variable and variable.split('_')[0] in upper_air_vars:
+                upper_air = True
+                var_name, level = variable.split('_')
+                era_var = var_name_map[var_name]
+                ds = total_ds[era_var].sel(level=int(level), time=snapshot_time)
+            else:
+                era_var = var_name_map[variable]
+                ds = total_ds[era_var].sel(time=snapshot_time)
+            
+            # Select region
+            if lat_range is not None:
+                ds = ds.sel(latitude=slice(lat_range[0], lat_range[1]))
+            if lon_range is not None:
+                ds = ds.sel(longitude=slice(lon_range[0], lon_range[1]))
 
-                array = ds.compute()
-                array = array.astype(np.float32)
-                assert array.shape == (721, 1440), "array.shape is not (721, 1440) but {}".format(array.shape)
+            # array = ds.compute()  #-------------------------------- Simulated
+            array = np.random.rand(721, 1440).astype(np.float32)
+            
+            array = array.astype(np.float32)
+            assert array.shape == (721, 1440), "array.shape is not (721, 1440) but {}".format(array.shape)
 
-                # Squeeze time dimension if needed
-                if array.ndim == 3 and array.shape[0] == 1:
-                    array = array[0]
+            # Squeeze time dimension if needed
+            if array.ndim == 3 and array.shape[0] == 1:
+                array = array[0]
 
-                # Sanity check
-                assert not np.isnan(array).any(), f"{variable} has NaNs at {snapshot_time}"     # Exception
-                print(f"donwnloaded: {variable} at {snapshot_time}")
+            # Sanity check
+            assert not np.isnan(array).any(), f"{variable} has NaNs at {snapshot_time}"     # Exception
+            print(f"donwnloaded: {variable} at {snapshot_time}")
 
-                return variable, array
+            return variable, array
 
-            except Exception as e:
-                raise RuntimeError(f"Error downloading {variable} at {snapshot_time}: {e}")     # Exception
+            # except Exception as e:
+            #     raise RuntimeError(f"Error downloading {variable} at {snapshot_time}: {e}")     # Exception
 
         def process_snapshot(year, month, day, hour):
             """Download all variables for a single snapshot in parallel."""
+            
             snapshot_time = f"{year}-{month:02d}-{day:02d}T{hour:02d}:00"
-            shard_idx, slice_idx = self.get_shard_and_slice_idx(start_year, year, month, day, hour, modulo)
-            if self.shard_dataset.slice_exists(shard_idx, slice_idx):
+            
+            existing_snapshot = self.load_hourly_data(year, month, day, hour, modulo)
+            if existing_snapshot is not None:
                 return snapshot_time
 
             var_dict = {}
@@ -461,15 +239,13 @@ class Zeus_Dataset(Dataset):
                 var_futures = [var_executor.submit(download_variable, var, snapshot_time) for var in variables]
 
                 for future in as_completed(var_futures):
-                    try:
-                        var_name, array = future.result()
-                        var_dict[var_name] = array
-                    except Exception as e:
-                        raise RuntimeError(f"Error downloading at {snapshot_time}: {e}")     # Exception
+                    var_name, array = future.result()
+                    var_dict[var_name] = array
 
-            # Save the snapshot
-            self.shard_dataset.add_slice(shard_idx, slice_idx, var_dict)
-            print(f"--------------- snapshot at {snapshot_time} saved!")
+                path = self.get_file_path_npz(year, month, day, hour, modulo)
+                check_dir(path.parent)
+                save(path, var_dict)
+                print(f"--------------- snapshot at {snapshot_time} saved!")
             
             return snapshot_time
 
@@ -484,19 +260,19 @@ class Zeus_Dataset(Dataset):
                     last_day = self.get_last_day_of_month(year, month)
                     for day in range(1, last_day + 1):
                         for hour in range(0, 24, modulo):
-                            
+                            dt = datetime(year, month, day, hour) + timedelta(hours=-1) # (17, 23) is the latest hours for a daily release of ERA5 data.
                             futures.append(
-                                snap_executor.submit(process_snapshot, year, month, day, hour)
+                                snap_executor.submit(process_snapshot, dt.year, dt.month, dt.day, dt.hour)
                             )
 
             # Wait for all snapshots to finish
             for future in as_completed(futures):
-                try:
+                # try:
                     timestamp = future.result()
                     print(f"Finished snapshot {timestamp}")
-                except Exception as e:
-                    print(f"Error processing snapshot: {e}")
-                    continue
+                # except Exception as e:
+                #     print(f"Error processing snapshot: {e}")
+                    # continue
                     
                     
     def get_geo_data(self, management_path, variables):
@@ -518,43 +294,82 @@ class Zeus_Dataset(Dataset):
         return dict
 
         
-    #--------------------------------------------------------------------------------------
-
-    def next_month(self, dt):
-        return dt + relativedelta(month=1)
-    def last_day_of_month(self, year, month):
-        return calendar.monthrange(year, month)[1]
-    def month_string(self, date):
-        return str(date.year) + '-' + str(date.month).zfill(2)
-    def day_string(self, date):
-        return str(date.year) + '-' + str(date.month).zfill(2) + '-' + str(date.day).zfill(2)
-
     #---------------------------- Analyse dataset ----------------------------
 
-    def sort_files(self, pathlib_dir, stem_order):
-        # Your predefined order
-        desired_stem_order = self.pm.variables
+    # def iter_hourly_paths(self):
+    #     """
+    #     Yield (year, month, day, hour, Path) for all hourly files in chronological order.
+    #     """
+    #     if not self.pm.dual_drive:
+    #         base_folders = [Path(self.cds_folder)]
+    #     else:
+    #         even_root = Path(self.cds_folder_even)
+    #         odd_root  = Path(self.cds_folder_odd)
+    #         base_folders = [even_root, odd_root]
 
-        # Convert to a dict for fast lookup
-        stem_rank = {stem: i for i, stem in enumerate(desired_stem_order)}
+    #     def hourly_iter(base_folder):
+    #         """Yield (year, month, day, hour, file_path) for one base folder."""
+    #         for year_path in sorted(base_folder.iterdir()):
+    #             if not year_path.is_dir() or not year_path.name.isdigit():
+    #                 continue
+    #             year = int(year_path.name)
 
-        # Get and sort file paths
-        files = list(pathlib_dir.glob("*.npz"))
-        sorted_files = sorted(files, key=lambda f: stem_rank.get(f.stem, float('inf')))
-        return sorted_files
+    #             for month_path in sorted(year_path.iterdir()):
+    #                 if not month_path.is_dir() or not month_path.name.isdigit():
+    #                     continue
+    #                 month = int(month_path.name)
 
-    def iter_day_folders(self):
-        """
-        Yield (year, month, day, Path) for all day folders under the correct cds folder(s),
-        ordered by date, lazily and memory-efficiently.
-        """
+    #                 for day_path in sorted(month_path.iterdir()):
+    #                     if not day_path.is_dir() or not day_path.name.isdigit():
+    #                         continue
+    #                     day = int(day_path.name)
+
+    #                     for file_path in sorted(day_path.iterdir()):
+    #                         if not file_path.is_file():
+    #                             continue
+
+    #                         stem = file_path.stem
+    #                         if not stem.isdigit():
+    #                             continue
+
+    #                         hour = int(stem)
+    #                         if not (0 <= hour <= 23):
+    #                             continue
+
+    #                         dn = self.hours_since_epoch(year, month, day, hour)
+
+    #                         # Filter even/odd drive
+    #                         if self.pm.dual_drive:
+    #                             if base_folder == even_root and dn % 2 != 0:
+    #                                 continue
+    #                             if base_folder == odd_root and dn % 2 == 0:
+    #                                 continue
+
+    #                         yield (year, month, day, hour, file_path)
+
+    #     # Create iterators
+    #     iterators = [hourly_iter(base) for base in base_folders if base.is_dir()]
+
+    #     # Merge sorted by year, month, day, hour
+    #     for item in heapq.merge(*iterators,
+    #                             key=lambda x: (x[0], x[1], x[2], x[3])):
+    #         yield item
+
+    def iter_hourly_paths(self):
         if not self.pm.dual_drive:
             base_folders = [Path(self.cds_folder)]
         else:
-            base_folders = [Path(self.cds_folder_even), Path(self.cds_folder_odd)]
+            even_root = Path(self.cds_folder_even)
+            odd_root  = Path(self.cds_folder_odd)
+            base_folders = [even_root, odd_root]
 
-        def day_iter(base_folder):
-            """Yield (year, month, day, Path) for one base folder, sorted by date."""
+        def extract_hour(name: str):
+            # Extract last 1–2 digits before extension
+            import re
+            m = re.search(r'(\d{1,2})(?=\D*$)', name)
+            return int(m.group()) if m else None
+
+        def hourly_iter(base_folder):
             for year_path in sorted(base_folder.iterdir()):
                 if not year_path.is_dir() or not year_path.name.isdigit():
                     continue
@@ -570,59 +385,106 @@ class Zeus_Dataset(Dataset):
                             continue
                         day = int(day_path.name)
 
-                        dn = self.get_day_number(year, month, day)
-
-                        if self.pm.dual_drive:
-                            if base_folder == Path(self.cds_folder_even) and dn % 2 != 0:
-                                continue
-                            if base_folder == Path(self.cds_folder_odd) and dn % 2 == 0:
+                        for file_path in sorted(day_path.iterdir()):
+                            if not file_path.is_file():
                                 continue
 
-                        yield (year, month, day, day_path)
+                            hour = extract_hour(file_path.stem)
+                            if hour is None or not (0 <= hour <= 23):
+                                continue
 
-        # Create iterators for all base folders
-        iterators = [day_iter(base) for base in base_folders if base.is_dir()]
+                            # No dn parity filtering — directories already separate them
+                            yield (year, month, day, hour, file_path)
 
-        # Merge all iterators in order by (year, month, day)
-        # key=lambda x: (year, month, day)
-        for item in heapq.merge(*iterators, key=lambda x: (x[0], x[1], x[2])):
+        iterators = [hourly_iter(base) for base in base_folders if base.is_dir()]
+
+        for item in heapq.merge(*iterators,
+                                key=lambda x: (x[0], x[1], x[2], x[3])):
             yield item
 
-    def count_data_days(self, inclusive_left=None, inclusive_right=None):
-        start, end = None, None
-        missing = False
-        total_days = 0
+    def analyze_hourly_paths(self, inclusive_left=None, inclusive_right=None, modulo=6):
+        print("even contents:", list(self.cds_folder_even.iterdir()))
+        print("odd contents:", list(self.cds_folder_odd.iterdir()))
         
-        for year, month, day, day_dir in self.iter_day_folders():   # assume the return is chronologically increasingly ordered.
-            current = date(year, month, day)
-            if inclusive_left is not None and current < inclusive_left: continue
-            if inclusive_right is not None and current > inclusive_right: continue
-                        
-            files = {f.stem for f in day_dir.glob("*.npz")}
-            missing_vars = [var for var in ['all'] if var not in files]
-            if len(missing_vars) > 0:
-                print('missing...', day_dir)
-                missing = True
+        """
+        Analyze hourly files with optional datetime boundaries.
+        If inclusive_left/right are None, use the dataset's actual min/max.
 
-            total_days += 1
-            if start is None:
-                start = day_dir
-            end = day_dir
-            end_day = date(year=int(end.parts[-3]), month=int(end.parts[-2]), day=int(end.parts[-1]))
+        Returns:
+            {
+                "count": int,
+                "first_hour": int or None,
+                "last_hour": int or None,
+                "missing_hours": list[int],
+                "existing_hours": list[int],
+            }
+        """
 
-        complete = not missing
-        start_day = date(year=int(start.parts[-3]), month=int(start.parts[-2]), day=int(start.parts[-1]))
-        end_day = date(year=int(end.parts[-3]), month=int(end.parts[-2]), day=int(end.parts[-1]))
-        
-        data_dates = []
-        for delta in range(total_days):
-            data_dates.append(start_day + timedelta(days=delta))
+        # Step 1 — Scan all hours first
+        hours = []
+        for year, month, day, hour, path in self.iter_hourly_paths():
+            dn = self.hours_since_epoch(year, month, day, hour)
+            hours.append(dn)
 
-        assert data_dates[0] == start_day
-        assert data_dates[-1] == end_day
-        # assert data_dates[-1] == end
+        if not hours:
+            return {
+                "count": 0,
+                "first_hour": None,
+                "last_hour": None,
+                "missing_hours": [],
+                "existing_hours": [],
+            }
 
-        return total_days, start_day, end_day, complete, data_dates
+        hours_sorted = sorted(hours)
+        dataset_min = hours_sorted[0]
+        dataset_max = hours_sorted[-1]
+
+        # Step 2 — Convert boundaries
+        if inclusive_left is None:
+            left_dn = dataset_min
+        else:
+            left_dn = self.hours_since_epoch(
+                inclusive_left.year, inclusive_left.month,
+                inclusive_left.day, inclusive_left.hour
+            )
+
+        if inclusive_right is None:
+            right_dn = dataset_max
+        else:
+            right_dn = self.hours_since_epoch(
+                inclusive_right.year, inclusive_right.month,
+                inclusive_right.day, inclusive_right.hour
+            )
+
+        if left_dn > right_dn:
+            raise ValueError("inclusive_left must be <= inclusive_right")
+
+        # Step 3 — Keep only hours inside the interval
+        inside = [dn for dn in hours_sorted if left_dn <= dn <= right_dn]
+
+        if not inside:
+            return {
+                "count": 0,
+                "first_hour": None,
+                "last_hour": None,
+                "missing_hours": [],
+                "existing_hours": [],
+            }
+
+        first_hour = inside[0]
+        last_hour = inside[-1]
+
+        # Step 4 — Identify missing hours in the window
+        full_range = set(range(left_dn, right_dn + 1, modulo))
+        missing = sorted(full_range - set(inside))
+
+        return {
+            "count": len(inside),
+            "first_hour": first_hour,
+            "last_hour": last_hour,
+            "missing_hours": missing,
+            "existing_hours": inside,
+        }
     
     def read_checkpoint(self, path, keys):
         checkpoint = torch.load(path, weights_only=False)
@@ -639,156 +501,174 @@ class Zeus_Dataset(Dataset):
             data = {}
         data.update(items)
         torch.save(data, path)
-        return        
-        
-    def get_mean_of_dataset(self, inclusive_left=None, inclusive_right=None):
+        return       
+
+    def get_mean_of_hourly_dataset(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1):
+        """
+        Compute the mean over all variables across hourly files, with checkpointing.
+        """
         cuda_available = torch.cuda.is_available()
 
+        # Load checkpoint if exists
         try:
             mean, step = self.read_checkpoint(self.analysis_path, ["mean", "mean_step"])
-            print(f"mean: {mean}, step: {step}")
+            print(f"Resuming mean computation: step={step}")
         except:
-            print("read_checkpoint failed. Starting a new analysis...")
-            mean = np.zeros((len(self.pm.variables),), dtype=np.float32) # (C,)
+            print("No checkpoint found for mean. Starting new mean computation.")
+            mean = np.zeros((len(self.pm.variables),), dtype=np.float32)
             step = 0
-        
-        skip = -1
-        for year, month, day, day_dir in self.iter_day_folders():
-            current = date(year, month, day)
-            if inclusive_left is not None and current < inclusive_left: continue
-            if inclusive_right is not None and current > inclusive_right: continue
 
-            skip += 1   # the 0-based id of data item
-            if skip < step: continue
+        # Iterate hourly paths
+        for year, month, day, hour, file_path in self.iter_hourly_paths():
+            current_dt = datetime(year, month, day, hour)
+            if inclusive_left and current_dt < inclusive_left:
+                continue
+            if inclusive_right and current_dt > inclusive_right:
+                continue
 
-            file_path = day_dir / 'all.npz'
-            
-            values = []
-            load = load_decoded_variables(file_path)    # npZ
-            idx = 0; values = []
-            for key, value in load.items():
-                assert key == self.pm.variables[idx]; idx += 1
-                values.append(value)
-            arr = np.stack(values, axis=1)  # expected: (24, C, 721, 1440), read 
-            arr = arr[:, :, :, :]        # (24, C, 721, 1440)    # Do not exclude the north pole
+            # Skip already processed
+            if step > 0:
+                step -= 1
+                continue
+
+            # Load hourly npz
+            data = load(file_path)
+            arr = np.stack([data[key] for key in self.pm.variables], axis=0)  # (C, H, W)
 
             if cuda_available:
-                _mean = torch.tensor(arr, dtype=torch.float32).cuda().mean(dim=(0,2,3)).cpu().numpy()   # (C,)
+                tensor_arr = torch.tensor(arr, dtype=torch.float32).cuda()
+                _mean = tensor_arr.mean(dim=(1, 2)).cpu().numpy()
             else:
-                _mean = np.mean(arr, axis=(0, 2, 3))   # (C,)
+                _mean = arr.mean(axis=(1, 2))
 
-            has_nan = np.any(np.isnan(_mean))
-            if has_nan:
-                raise Exception("mean nan found: ", str(day_dir))
-            formatter = {'float_kind': lambda x: f"{x:.4g}"}
-            print("mean", str(day_dir), np.array2string(_mean, formatter=formatter))
+            if np.any(np.isnan(_mean)):
+                raise Exception(f"NaN found in hourly mean: {file_path}")
+
+            # Incremental mean
             step += 1
-            mean = mean * (step-1)/step + _mean / step   # (C,) # mean of mean = total mean 
+            mean = mean * (step - 1)/step + _mean / step
 
-            if step % 200 == 0:
-                self.save_checkpoint(self.analysis_path, {"mean": mean, "mean_step": step})
-                # print(f"saved. step: {step}")
+            # Save checkpoint periodically
+            if step % checkpoint_interval == 0:
+                print(f"checkpointing...{year}, {month}, {day}, {hour}")
+                tmp_path = str(self.analysis_path) + ".tmp"
+                self.save_checkpoint(tmp_path, {"mean": mean, "mean_step": step})
+                # Path(tmp_path).rename(self.analysis_path)
 
-            # break
-        self.save_checkpoint(self.analysis_path, {"mean": mean, "mean_step": step})
-        return mean, step  # numpy, scalar
-    
-    def get_std_of_dataset(self, mean, inclusive_left=None, inclusive_right=None): 
+        # Final save
+        tmp_path = str(self.analysis_path) + ".tmp"
+        self.save_checkpoint(tmp_path, {"mean": mean, "mean_step": step})
+        Path(tmp_path).rename(self.analysis_path)
+
+        return mean, step
+
+    def get_std_of_dataset(self, mean, inclusive_left=None, inclusive_right=None, checkpoint_interval=1): 
+        """
+        Compute the mean over all variables across hourly files, with checkpointing.
+        """
         cuda_available = torch.cuda.is_available()
-        if cuda_available: mean = torch.tensor(mean).cuda()
 
+        # Load checkpoint if exists
         try:
-            var, step = self.read_checkpoint(self.analysis_path, ["var", "var_step"])
-            print(f"var: {var}, step: {step}")
+            _var_mean, step = self.read_checkpoint(self.analysis_path, ["var_mean", "std_step"])
+            print(f"Resuming mean computation: step={step}")
         except:
-            print("read_checkpoint failed. Starting a new analysis...")
-            var = np.zeros((len(self.pm.variables),), dtype=np.float32) # (C,)
+            print("No checkpoint found for sdt. Starting new std computation.")
+            _var_mean = np.zeros((len(self.pm.variables),), dtype=np.float32)
             step = 0
-        
-        skip = -1
-        for year, month, day, day_dir in self.iter_day_folders():
-            current = date(year, month, day)
-            if inclusive_left is not None and current < inclusive_left: continue
-            if inclusive_right is not None and current > inclusive_right: continue
-                                                   
-            skip += 1   # the 0-based id of data item
-            if skip < step: continue
-                                                                        
-            file_path = day_dir / 'all.npz'
 
-            values = []
-            load = load_decoded_variables(file_path)    # npZ
-            idx = 0; values = []
-            for key, value in load.items():
-                assert key == self.pm.variables[idx]; idx += 1
-                values.append(value)
-            arr = np.stack(values, axis=1)  # expected: (24, C, 721, 1440), read 
-            arr = arr[:, :, :, :]        # (24, C, 721, 1440)    # Do not exclude the north pole
+        # Iterate hourly paths
+        for year, month, day, hour, file_path in self.iter_hourly_paths():
+            current_dt = datetime(year, month, day, hour)
+            if inclusive_left and current_dt < inclusive_left:
+                continue
+            if inclusive_right and current_dt > inclusive_right:
+                continue
 
-            arr = arr.transpose(0, 2, 3, 1) # (24, 721, 1440, C)                    
+            # Skip already processed
+            if step > 0:
+                step -= 1
+                continue
+
+            # Load hourly npz
+            data = load(file_path)
+            arr = np.stack([data[key] for key in self.pm.variables], axis=0)  # (C, H, W)
 
             if cuda_available:
-                tensor_arr = torch.tensor(arr, dtype=torch.float32).cuda() # (24, 721, 1440, C)
-                _var = torch.mean(torch.pow(tensor_arr - mean, 2), dim=(0,1,2)).cpu().numpy() # (C,)                    
+                tensor_arr = torch.tensor(arr, dtype=torch.float32).cuda()
+                _var = torch.mean(torch.pow(tensor_arr - mean, 2), dim=(0,1,2)).cpu().numpy()
             else:
                 _var = np.mean(np.power(arr - mean, 2), axis=(0,1,2)) # (C,)
 
-            has_nan = np.any(np.isnan(_var))
-            if has_nan:
-                raise Exception("Std nan found: ", str(day_dir))
-            formatter = {'float_kind': lambda x: f"{x:.4g}"}
-            print("var", str(day_dir), np.array2string(_var, formatter=formatter))
+            if np.any(np.isnan(_var)):
+                raise Exception(f"NaN found in hourly mean: {file_path}")
+
+            # Incremental mean
             step += 1
-            var = var * (step-1)/step + _var / step   # (C,) # mean of mean = total mean
+            _var_mean = _var_mean * (step - 1)/step + _var / step
 
-            if step % 200 == 0:
-                self.save_checkpoint(self.analysis_path, {"var": var, "var_step": step})
-                # print(f"saved. step: {step}")
+            # Save checkpoint periodically
+            if step % checkpoint_interval == 0:
+                print(f"checkpointing mean computation... {year}, {month}, {day}, {hour}")
+                tmp_path = str(self.analysis_path) + ".tmp"
+                self.save_checkpoint(tmp_path, {"mean": mean, "mean_step": step})
+                # Path(tmp_path).rename(self.analysis_path)
 
-            # break                
-        self.save_checkpoint(self.analysis_path, {"var": var, "var_step": step})
-        return np.sqrt(var), step   # numpy, scalar
+        # Final save
+        tmp_path = str(self.analysis_path) + ".tmp"
+        self.save_checkpoint(tmp_path, {"mean": mean, "mean_step": step})
+        Path(tmp_path).rename(self.analysis_path)
 
-    def analyze_dataset(self, save=False, inclusive_left=None, inclusive_right=None):
+        return mean, step
 
-        mean, m = self.get_mean_of_dataset(inclusive_left=inclusive_left, inclusive_right=inclusive_right)        # (C,)
-        std, n = self.get_std_of_dataset(mean, inclusive_left=inclusive_left, inclusive_right=inclusive_right)        # (C,)
-        assert m == n
 
+    def analyze_hourly_dataset(self, save=False, inclusive_left=None, inclusive_right=None):
+        """
+        Analyze dataset over hourly paths: compute mean and std for all variables.
+
+        Parameters:
+            save (bool): If True, save the results to self.param_path (JSON).
+            inclusive_left (datetime or None): start datetime to include.
+            inclusive_right (datetime or None): end datetime to include.
+
+        Returns:
+            mean (np.ndarray): mean values (C,)
+            std  (np.ndarray): std values (C,)
+        """
+
+        # Compute mean with checkpointing
+        mean, m = self.get_mean_of_hourly_dataset(
+            inclusive_left=inclusive_left,
+            inclusive_right=inclusive_right
+        )
+
+        # Compute std with checkpointing
+        std, n = self.get_std_of_dataset(
+            mean,
+            inclusive_left=inclusive_left,
+            inclusive_right=inclusive_right
+        )
+
+        assert m == n, f"Step mismatch: mean step ({m}) vs std step ({n})"
+
+        # Save results if requested
         if save:
-            data = {
-                "mean": mean.tolist(),
-                "std":  std.tolist(),
-            }
+            # Map variable names to values
+            mean_dict = {var: float(val) for var, val in zip(self.pm.variables, mean)}
+            std_dict  = {var: float(val) for var, val in zip(self.pm.variables, std)}
+
+            data = {"mean": mean_dict, "std": std_dict}
+
             if self.param_path.exists() and self.param_path.is_file():
-                self.param_path.unlink()  # deletes the file
+                self.param_path.unlink()  # delete previous file
             with open(self.param_path, "w") as f:
-                json.dump(data, f)
+                json.dump(data, f, indent=4)
 
-        return mean, std  # (C,), (C,)
-            
-    def load_dataset_params(self):
-        with open(self.param_path, "r") as f:
-            data = json.load(f)
-            # print('------', data, torch.tensor(data['mean']).shape)
-        mean, std = torch.tensor(data['mean']), torch.tensor(data['std'])
-        
-        std = std # * (self.pm.factor10 / 10)   # Mike!!! This multiplication make sdt deviate from 1.
-        
-        self.mean, self.std = mean, std
-        
-        # This violence may cause inconsistency, I know.
-        mean_ready_cpu = rearrange(mean, 'c -> c 1 1').to("cpu")
-        std_ready_cpu = rearrange(std, 'c -> c 1 1').to("cpu")
-        
-        mean_ready_cuda, std_ready_cuda = None, None
-        if torch.cuda.is_available():
-            mean_ready_cuda = rearrange(mean, 'c -> c 1 1').to("cuda")
-            std_ready_cuda = rearrange(std, 'c -> c 1 1').to("cuda")
-        
-        return mean, std, mean_ready_cpu, std_ready_cpu, mean_ready_cuda, std_ready_cuda # (C,), (C,)
+        return mean, std
 
-    def normalize(self, data):    # data: (... C, H, W)
+    #----------------- Standardize --------------------
+
+    def standardize(self, data):    # data: (... C, H, W)
         # device = data.device
         # return ( data - rearrange(self.mean, 'c -> c 1 1').to(device) ) / rearrange(self.std, 'c -> c 1 1').to(device)
         if data.is_cuda:
@@ -796,7 +676,7 @@ class Zeus_Dataset(Dataset):
         else:
             return ( data - self.mean_ready_cpu ) / self.std_ready_cpu
     
-    def unnormalize(self, data):    # data: (... C, H, W)
+    def unstandardize(self, data):    # data: (... C, H, W)
         # Mike!!! I found this error Oct 23 only. 
         # Over 2 months of test training was based on this wrong formula, forcing neual networks to distort accordingly.
         # return ( data - rearrange(self.mean, 'c -> c 1 1').to(device) ) / rearrange(self.std, 'c -> c 1 1').to(device)
@@ -854,7 +734,7 @@ class Zeus_Dataset(Dataset):
 
                 month_data = []
                 for day in range(1, self.last_day_of_month(year, month) + 1):
-                    file_path = self.get_file_path(year, month, day, 'all')
+                    file_path = self.get_file_path_npz(year, month, day, 'all')
 
                     if not file_path.exists(): 
                         raise Exception("Data file not found. {}/{}/{}, {}".format(year, month, day))
@@ -969,7 +849,7 @@ class Zeus_Dataset(Dataset):
     #--------------------------------- catalogue data -------------------------------
 
     def get_T2(self):
-        start_timestamp, end_timestamp, num_predict_hours = self.loader.sample_time_range()
+        start_timestamp, end_timestamp, num_predict_hours = self.era5_cds_loader.sample_time_range()
         current_hour = np.random.randint(0, 24)
         # Make the time-agnostic. Simulate reality, where time drifts.
         start = start_timestamp - get_today('h') + timedelta(hours=current_hour)
@@ -982,7 +862,7 @@ class Zeus_Dataset(Dataset):
         return t2
     
     def get_T2_new(self):
-        start_timestamp, end_timestamp, num_predict_hours = self.loader.sample_time_range()
+        start_timestamp, end_timestamp, num_predict_hours = self.era5_cds_loader.sample_time_range()
         current_hour = np.random.randint(0, 24)
         # Make the time-agnostic. Simulate reality, where time drifts.
         start = start_timestamp - get_today('h') + timedelta(hours=current_hour)
@@ -994,88 +874,123 @@ class Zeus_Dataset(Dataset):
 
         return t2
     
-    def split_data_hours(self, renew=False, save=True, seed=None):
+    def split_data_hours(self, renew=False, save=True, seed=None, inclusive_left=None, inclusive_right=None):
+        """
+        Split hourly data into train/validation/test sets using full datetime objects,
+        optionally restricting to a time range [inclusive_left, inclusive_right].
+
+        Parameters:
+            renew (bool): if True, generate new split; otherwise reuse existing.
+            save (bool): if True, save the split to JSON.
+            seed (int or None): random seed for shuffling.
+            inclusive_left (datetime or None): left boundary (inclusive) of hours to include.
+            inclusive_right (datetime or None): right boundary (inclusive) of hours to include.
+
+        Returns:
+            train_hours, vali_hours, test_hours : list of datetime objects
+        """
         old_train_hours = []
         old_vali_hours = []
         old_test_hours = []
 
+        # Load previous split if exists
         try:
-            # print("Loading data dates...")
             with open(self.split_hours_path, "r") as f:
                 data = json.load(f)
 
-            old_train_hours = [(datetime.fromisoformat(d).date(), h) for (d, h) in data["train_hours"]]
-            old_vali_hours = [(datetime.fromisoformat(d).date(), h) for (d, h) in data["vali_hours"]]
-            old_test_hours = [(datetime.fromisoformat(d).date(), h) for (d, h) in data["test_hours"]]
+            old_train_hours = [datetime.fromisoformat(d) for d in data["train_hours"]]
+            old_vali_hours  = [datetime.fromisoformat(d) for d in data["vali_hours"]]
+            old_test_hours  = [datetime.fromisoformat(d) for d in data["test_hours"]]
         except:
-            print("Loading failed. Creating data hours...")
-            
-        if renew == False:
-            train_hours = old_train_hours
-            vali_hours = old_vali_hours
-            test_hours = old_test_hours
-        else:
-            total_days, start_day, end_day, complete, data_dates = self.count_data_days()   # assume: data_dates is ordered.
-            train_pct = self.pm.train_pct; vali_pct = self.pm.vali_pct
+            print("Loading failed. Creating new data split...")
 
-            T1 = self.pm.T1
-            data_dates = data_dates[:-1]    # Remove the last day for safety.
-            
-            # Remove dates that are not found in data_dates
-            inherited_train_hours = [(d, h) for (d, h) in old_train_hours if d in data_dates]
-            inherited_vali_hours = [(d, h) for (d, h) in old_vali_hours if d in data_dates]
-            inherited_test_hours = [(d, h) for (d, h) in old_test_hours if d in data_dates]
-            
-            inherited_dates = [d for (d, _) in inherited_train_hours] + [ d for (d, _) in inherited_vali_hours] + [d for (d, _) in inherited_test_hours]
-            inherited_dates = list(set(inherited_dates))
-            new_data_dates = [d for d in data_dates if d not in inherited_dates]
-            
-            data_hours = []
-            for day in new_data_dates:
-                # data_hours += [(day, hour) for hour in range(24)]
-                data_hours += [(day, hour) for hour in range(1)]    # day, 0 hour
+        # Apply inclusive boundaries to old hours
+        def filter_hours(hours):
+            filtered = []
+            for h in hours:
+                if inclusive_left is not None and h < inclusive_left:
+                    continue
+                if inclusive_right is not None and h > inclusive_right:
+                    continue
+                filtered.append(h)
+            return filtered
 
-            if seed is not None: random.seed(seed)
+        old_train_hours = filter_hours(old_train_hours)
+        old_vali_hours  = filter_hours(old_vali_hours)
+        old_test_hours  = filter_hours(old_test_hours)
 
-            shuffled_hours = data_hours[:]
-            random.shuffle(shuffled_hours)
-            n = len(shuffled_hours)
-            train_size = int(n * train_pct / 100)
-            vali_size = int(n * vali_pct / 100)
-            new_train_hours = shuffled_hours[:train_size]
-            new_vali_hours = shuffled_hours[train_size : train_size + vali_size]
-            new_test_hours = shuffled_hours[train_size + vali_size :]
-            
-            train_hours = list(set(inherited_train_hours + new_train_hours))[:self.data_limit]
-            vali_hours = list(set(inherited_vali_hours + new_vali_hours))[:self.data_limit]
-            test_hours = list(set(inherited_test_hours + new_test_hours))[:self.data_limit]
-            random.shuffle(vali_hours)
-            random.shuffle(test_hours)
-            
-            if save:
-                data = {
-                    "train_hours":  [(d.isoformat(), h) for (d, h) in train_hours],
-                    "vali_hours":   [(d.isoformat(), h) for (d, h) in vali_hours],
-                    "test_hours":   [(d.isoformat(), h) for (d, h) in test_hours],
-                }
-                with open(self.split_hours_path, "w") as f:
-                    json.dump(data, f, indent=2)
-        
+        if not renew:
+            return old_train_hours, old_vali_hours, old_test_hours
+
+        # Collect all hourly datetimes using iter_hourly_paths
+        all_hours = []
+        for year, month, day, hour, _ in self.iter_hourly_paths():
+            dt = datetime(year, month, day, hour)
+            if inclusive_left is not None and dt < inclusive_left:
+                continue
+            if inclusive_right is not None and dt > inclusive_right:
+                continue
+            all_hours.append(dt)
+
+        # Inherit old hours that still exist
+        inherited_train_hours = [h for h in old_train_hours if h in all_hours]
+        inherited_vali_hours  = [h for h in old_vali_hours  if h in all_hours]
+        inherited_test_hours  = [h for h in old_test_hours  if h in all_hours]
+
+        inherited_set = set(inherited_train_hours + inherited_vali_hours + inherited_test_hours)
+        new_hours = [h for h in all_hours if h not in inherited_set]
+
+        # Shuffle and split new hours
+        if seed is not None:
+            random.seed(seed)
+        shuffled_hours = new_hours[:]
+        random.shuffle(shuffled_hours)
+
+        n = len(shuffled_hours)
+        train_size = int(n * self.pm.train_pct / 100)
+        vali_size  = int(n * self.pm.vali_pct / 100)
+
+        new_train_hours = shuffled_hours[:train_size]
+        new_vali_hours  = shuffled_hours[train_size:train_size + vali_size]
+        new_test_hours  = shuffled_hours[train_size + vali_size:]
+
+        # Combine inherited + new
+        train_hours = list(set(inherited_train_hours + new_train_hours))[:self.data_limit]
+        vali_hours  = list(set(inherited_vali_hours  + new_vali_hours))[:self.data_limit]
+        test_hours  = list(set(inherited_test_hours  + new_test_hours))[:self.data_limit]
+
+        random.shuffle(vali_hours)
+        random.shuffle(test_hours)
+
+        # Save the split as ISO format datetimes
+        if save:
+            data = {
+                "train_hours": [h.isoformat() for h in train_hours],
+                "vali_hours":  [h.isoformat() for h in vali_hours],
+                "test_hours":  [h.isoformat() for h in test_hours],
+            }
+            with open(self.split_hours_path, "w") as f:
+                json.dump(data, f, indent=2)
+
         return train_hours, vali_hours, test_hours
 
-    def generate_x_hours(self, seed=None):
-        if seed is not None: random.seed(seed)
 
+    def generate_x_hours(self, seed=None):
         if self.train_hours is None or self.vali_hours is None or self.test_hours is None:
             print("Call split_data_hours first")
             return None, None, None
-        
-        train_hours, vali_hours, test_hours = self.train_hours, self.vali_hours, self.test_hours
 
-        random.shuffle(train_hours)
-        random.shuffle(vali_hours)
-        random.shuffle(test_hours)
-        
+        # Make copies so the original splits remain unchanged
+        train_hours = self.train_hours[:]
+        vali_hours  = self.vali_hours[:]
+        test_hours  = self.test_hours[:]
+
+        # Shuffle using a local RNG for reproducibility
+        rng = random.Random(seed)
+        rng.shuffle(train_hours)
+        rng.shuffle(vali_hours)
+        rng.shuffle(test_hours)
+
         return train_hours, vali_hours, test_hours
     
     def get_steps_per_epoch(self):
@@ -1109,141 +1024,22 @@ class Zeus_Dataset(Dataset):
         return renewed
         
     def pack_state(self):
-           return {
-            "x_set": [(d.strftime("%Y-%m-%d"), t2) for d, t2 in self.x_set],
+        """Pack the current x_set state for checkpointing."""
+        return {
+            "x_set": [dt.isoformat() for dt in self.x_set],  # full datetime
             "_fetched_batches": self._fetched_batches,
             "total_batches": self.total_batches,
         }
 
     def unpack_state(self, data):
-        self.x_set = [
-            (datetime.strptime(item[0], "%Y-%m-%d").date(), item[1])
-            for item in data["x_set"]
-        ][:self.data_limit]
+        """Restore x_set state from checkpoint data."""
+        self.x_set = [datetime.fromisoformat(s) for s in data["x_set"]][:self.data_limit]
         self._fetched_batches = 0
-        # self.total_batches = data["total_batches"] - data["_fetched_batches"]
-        self.total_batches = math.ceil(len(self.x_set) / self.pm.batch_size)    # This line allows to change batch_size mid-epoch
-
+        # Recompute total_batches in case batch_size changed
+        self.total_batches = math.ceil(len(self.x_set) / self.pm.batch_size)
+        
     def no_more_data(self):
         return len(self.x_set) <= 0
-
-    def load_day_vdata(self, day):
-        day_data = []
-        for variable in self.pm.variables:
-            file_path = self.get_file_path(day.year, day.month, day.day, variable)
-            if file_path.exists():
-                load = np.load(file_path)
-                variable_data = torch.tensor(load[load.files[0]], dtype=self.pm.dtype)[:, :720, :]    # (24, H, W)
-                day_data.append(variable_data)
-        if len(day_data) == len(self.pm.variables):
-            day_data = torch.stack(day_data, dim=1)     # (24, C, H, W)
-        else:
-            day_data = None
-        return day_data
-    
-    def load_day_all_data_outdated(self, day):
-        all_path = self.get_file_path(day.year, day.month, day.day, 'all')
-        if all_path.exists():
-            try:
-                load = np.load(all_path)
-                data = torch.tensor(load[load.files[0]], dtype=self.pm.dtype)[:, :, :720, :]    # (24, C, H, W)
-            except:
-                total_ds = self.get_normalized_dataset()
-                self.lownload_day_vdata(total_ds, day.year, day.month, day.day)
-                data = self.load_day_vdata(day)
-            return data
-        else:
-            return None
-        
-    def load_day_all_data(self, day):
-        all_path = self.get_file_path(day.year, day.month, day.day, 'all')
-        try:
-            load = load_decoded_variables(all_path)
-            idx = 0; values = []
-            for key, value in load.items():
-                assert key == self.pm.variables[idx]; idx += 1
-                values.append(value)
-            data = np.stack(values, axis=1)  # expected: (24, C, 721, 1440), read 
-            assert data.shape == (24, len(self.pm.variables), 721, 1440)            
-            return data
-        except:
-            raise Exception("load_day_all_data error for {}".format(day))
-        
-    def load_hours_all_data(self, day, start_hour, hours):
-        try:
-            assert isinstance(start_hour, int)
-            assert isinstance(hours, int)
-            assert 0 <= start_hour and start_hour < 24 and 0 < hours and hours <= 48
-
-            day_data = self.load_day_all_data(day)
-            data = day_data[start_hour : start_hour + hours]
-            if start_hour + hours <= 24:
-                # print(day, start_hour)
-                return data
-            else:
-                day2 = day + timedelta(days=1)
-                day_data = self.load_day_all_data(day2)
-                data2 = day_data[: start_hour + hours - 24]
-                data = np.concatenate([data, data2], axis=0)
-                # print(day, start_hour, day2, start_hour + hours - 24)
-                return data
-        except:
-            raise Exception("No data found for {}, start_hour {}, hours {}".format(day, start_hour, hours))
-
-    def remove_day_vdata(self, day):
-        day_data = []
-        all_path = self.get_file_path(day.year, day.month, day.day, 'all')
-        if all_path.exists():
-            for variable in self.pm.variables:
-                v_path = self.get_file_path(day.year, day.month, day.day, variable)
-                if v_path.exists(): v_path.unlink(missing_ok=True)
-        return
-    
-    def remove_variable_data(self):
-        total_days, start_day, end_day, complete, data_dates = dataset.count_data_days()
-        day = start_day
-        while day <= end_day:
-            self.remove_day_vdata(day)
-            day = day + timedelta(days=1)
-
-    def remove_all(self, folder):
-        for filename in os.listdir(folder):
-            file_path = folder / filename
-            if file_path.is_file():
-                file_path.unlink(missing_ok=True)
-
-    def decompress_day_all_data(self):
-        total_days, start_day, end_day, complete, data_dates = dataset.count_data_days()
-        day = start_day
-        while day <= end_day:
-            print('int', day)
-            file_path_npy = self.get_file_path(day.year, day.month, day.day, 'all')
-            try:
-                data = np.load(file_path_npy)
-                np.save(file_path_npy, data[:, :720, :])
-            except:
-                data = self.load_day_all_data_outdated(day)
-            if data is not None:
-                folder_path = file_path_npy.parent
-                self.remove_all(folder_path)
-                np.save(file_path_npy, data)
-            day = day + timedelta(days=1)
-
-    def integrate_variable_data(self):
-        total_days, start_day, end_day, complete, data_dates = dataset.count_data_days()
-        day = start_day
-        while day <= end_day:
-            print('int', day)
-            file_path = self.get_file_path(day.year, day.month, day.day, 'all')
-            if not file_path.eixsts():
-                array = self.load_day_vdata(day).numpy()
-                if array is not None:
-                    np.savez_compressed(file_path, array)
-                    self.remove_day_vdata(day)
-            else:
-                self.remove_day_vdata(day)
-            day = day + timedelta(days=1)
-        return
     
     def resize_cylindrical(self, x, size_hw):
         """
@@ -1291,64 +1087,45 @@ class Zeus_Dataset(Dataset):
         unnormalied = torch.tensor(self.load_day_all_data(day))
         normalized = None
         if with_normalized:
-            normalized = self.normalize(unnormalied)
+            normalized = self.standardize(unnormalied)
         return unnormalied, normalized
 
-    def take_batch(self):
-        
-        # batch_x = torch.randn(self.pm.batch_size, self.pm.T1, self.pm.nVariables, 72 * self.pm.factor10, 144 * self.pm.factor10)
-        # batch_y = torch.randn(self.pm.batch_size, self.pm.T1, self.pm.nVariables, 72 * self.pm.factor10, 144 * self.pm.factor10)
-        
+
+    def take_batch(self):        
         if len(self.x_set) <= 0: return None
 
         taken = self.x_set[:self.pm.batch_size]
         self.x_set = self.x_set[self.pm.batch_size:]
         # assert len(taken) > 0
 
-        # B, C, T1, FG, H, W = len(taken), len(self.pm.variables), self.pm.T1, self.pm.FG, self.pm.height, self.pm.width
+        def create_snapshot(dt):
+            meteo = self.load_snapshot(dt)
+            snapshot = Snapshot(dt.year, dt.month, dt.day, dt.hour, meteo=meteo)
+            return snapshot
 
-        # batch_x: (B, T1*FG, C, H, W), batch_y: (B, T2*FG, C, H, W). batch_y[i] immediately follows batch_x[i]
-        batch, slots = [], []  #torch.empty((B, 0, C, H, W), dtype=self.pm.dtype), torch.empty((B, 0, C, H, W), dtype=self.pm.dtype)
+        batch = []
 
         months = []
         for b in range(len(taken)):
-            day, start_hour = taken[b]
-            months.append(day.month)
-            # hours = self.pm.T1 * self.pm.FG
-            nHours = self.pm.nFrames
-            mHours = self.pm.mFrames
+            dt = taken[b]
+            months.append(dt.month)
             
-            if nHours != 24 or mHours != 24:
-                data = self.load_hours_all_data(day, start_hour, nHours + mHours)                    # (2 * T1FG, C, H, W)
-                
-                d = torch.tensor(data[:nHours])
-                d = self.normalize(d)
-                slots.append(d)
+            with_normalized = False
+            futures = [self._disk_threadPool.submit(self.load_from_drive, dt + timedelta(hours=modulo*cnt), with_normalized) for cnt in range(nSnapshots)]
 
-                d = torch.tensor(data[nHours:])
-                d = self.normalize(d)
-                slots.append(d)
-                                
-            else:
-                with_normalized = False                
-                futures = [self._disk_threadPool.submit(self.load_from_drive, day + timedelta(days=slot), with_normalized) for slot in self.data_slots]
-
-                for fu in futures:
-                    data, _ = fu.result()   # (TGF1, C, 721, 1440)
-                    slots.append(data)
-                slots = torch.stack(slots, dim=0)   # (slots, TGF1, C, 721, 1440)
+            slots = []
+            for fu in futures:
+                data, _ = fu.result()
+                slots.append(data)
             
             batch.append(slots)
 
-        batch = torch.stack(batch, dim=0)     # (B, slots, TGF1, C, 721, 1440)
-        slots = batch.permute(1, 0, *range(2, batch.ndim))  # (S, B, T, C, H, W)
-
         if self.pm.height < 721:
             slots = slots[:, :, :, :, :self.pm.height, :]   # 721 -> 720 for transformer and factor10 == 10
-        
-        S, B, _, C, H, W = slots.shape
-        if self.pm.height != H or self.pm.width != W:
-            slots = self.resizer.resize_cylindrical(slots, (self.pm.height, self.pm.width))
+
+        # S, B, _, C, H, W = slots.shape
+        # if self.pm.height != H or self.pm.width != W:
+        #     slots = self.resizer.resize_cylindrical(slots, (self.pm.height, self.pm.width))
                     
         # self.visualize_frames(batch_x[0])
 
@@ -1366,8 +1143,8 @@ class Zeus_Dataset(Dataset):
                 batch_diff.append(variable_diff)
             batch_diff = torch.stack(batch_diff, dim=0)                     # (B, C, 720, 1440)
 
-            if self.pm.height != H or self.pm.width != W:
-                batch_diff = self.resizer.resize_cylindrical(batch_diff, (self.pm.height, self.pm.width))
+            # if self.pm.height != H or self.pm.width != W:
+            #     batch_diff = self.resizer.resize_cylindrical(batch_diff, (self.pm.height, self.pm.width))
             
         else:
             batch_diff = None
@@ -1378,6 +1155,7 @@ class Zeus_Dataset(Dataset):
                 batch_diff = batch_diff[:, self.pm.pole_h_lines:-self.pm.pole_h_lines, :]
         
         return slots, batch_diff, self.era5_data_vars     # (B, T1FG, C, H, W), (B, T2FG, C, H, W), (B, 1, C, H, W), (C,)
+    
     
     def visualize_frames(self, x_seq):
         seq_len, C, H, W = x_seq.shape
@@ -1589,33 +1367,35 @@ if __name__ == "__main__":
     # dst = "/mnt/data_even"
     # copy_except_cds(src, dst)
 
-    from models.config_14nov25 import config
-    from modules.params_14nov25 import Params
-    from modules.zeus_dataset_var_names import upper_air_levels, upper_air_vars, surface_channels, fuXi2_to_era5
+    from models.config_Mike1 import config
+    from modules.params_Mike1 import Params
+    from modules.zeus_dataset_var_names import upper_air_levels, upper_air_vars, surface_channels, var_name_map
     pm = Params(config)
 
     dataset = Zeus_Dataset(pm, Path(config['dataset_path']), Path(config['management_path']))
-    variables = ["geopotential_at_surface", "land_sea_mask", "soil_type"]
-    dict = dataset.get_geo_data(Path(config['management_path']), variables)
-    pass
+    # variables = ["geopotential_at_surface", "land_sea_mask", "soil_type"]
+    # dict = dataset.get_geo_data(Path(config['management_path']), variables)
 
     # ds = xr.open_zarr("gs://gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3", chunks=None)
     # # List variables
     # print(ds.data_vars)
     # pass
 
-    # dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
-    #     upper_air_vars = upper_air_vars, 
-    #     upper_air_levels = upper_air_levels, 
-    #     surface_vars = surface_channels,
-    #     start_year = 2023, 
-    #     end_year = 2023,
-    #     modulo=6,
-    #     # max_workers_snapshots=1, max_workers_vars=1,
-    # )
+    dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
+        upper_air_vars = upper_air_vars, 
+        upper_air_levels = upper_air_levels, 
+        surface_vars = surface_channels,
+        start_year = 2015, 
+        end_year = 2024,
+        modulo=6,
+        max_workers_snapshots=1, max_workers_vars=1,
+    )
 
-    # end_date = date(2017, 8, 28)
-    # dataset.download_dataset(2010, end_date, max_workers=10)   # downloads day data in reverse order.
+    dict = dataset.analyze_hourly_paths(inclusive_left=None, inclusive_right=None, modulo=6)
+    print(f"count: {dict['count']}, first_hour: {dict['first_hour']}, last_hour: {dict['last_hour']}, missing_hours: {dict['missing_hours']}")
+    # print(dict)
+    
+    dataset.analyze_hourly_dataset()
     
     # total_days, start_day, end_day, complete, data_dates = dataset.count_data_days()
     # print(f"total_days {total_days}, start_day {start_day}, end_day {end_day}, complete {complete}")

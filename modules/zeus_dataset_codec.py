@@ -105,33 +105,34 @@ if __name__ == "__main__":
     import numpy as np
     # from this_module import encode, save_variables, load_decoded_variables
 
-    eds_data = {
+    array_dict = {
         "2m_temperature": np.random.uniform(200, 320, (24, 721, 1440)).astype(np.float32),
         "surface_pressure": np.random.uniform(87000, 108000, (24, 721, 1440)).astype(np.float32),
         "u10": np.random.uniform(-30, 30, (24, 721, 1440)).astype(np.float32),
         "precipitation": np.random.uniform(0.0, 1.0, (24, 721, 1440)).astype(np.float32),
     }
     
-    eds_data = {
+    array_dict = {
         "2m_temperature": np.random.uniform(200, 320, (721, 1440)).astype(np.float32),
         "surface_pressure": np.random.uniform(87000, 108000, (721, 1440)).astype(np.float32),
         "u10": np.random.uniform(-30, 30, (721, 1440)).astype(np.float32),
         "precipitation": np.random.uniform(0.0, 1.0, (721, 1440)).astype(np.float32),
     }
     
-    print(eds_data["u10"])
+    print(array_dict["u10"])
+
+    path = "d:\downloads\cds_hybrid.npz"
 
     print("saving...")
-
-    encoded, meta = encode(eds_data)
-    save_variables("eds_hybrid.npz", encoded, meta)
+    encoded, meta = encode(array_dict)
+    save_variables(path, encoded, meta)
     
     print("loading...")
 
-    decoded = load_decoded_variables("eds_hybrid.npz")
+    decoded = load_decoded_variables(path)
 
-    for k in eds_data:
-        diff = np.max(np.abs(decoded[k] - eds_data[k]))
+    for k in array_dict:
+        diff = np.max(np.abs(decoded[k] - array_dict[k]))
         print(f"{k}: max abs diff = {diff:.10f}, shape = {decoded[k].shape}, dtype = {decoded[k].dtype}")
 
     print(decoded["u10"])
