@@ -33,6 +33,7 @@ config = {
     "dtype" : 32,   # 16 is complicated. deffered.
     "variables": mike1_variables,
     "pole_angle": 30.0,      #
+    "hourly_offset": -1,
 
     "org_height": 721,
     "org_width": 1440,

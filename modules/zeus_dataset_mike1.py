@@ -137,7 +137,11 @@ class Zeus_Dataset(Dataset):
         return dataset
 
     def get_file_path(self, year, month, day, hour, modulo):
-        cds_folder = self.cds_folder if not self.pm.dual_drive else self.cds_folder_even if (int(self.hours_since_epoch(year, month, day, hour) + 1) / modulo) % 2 == 0 else self.cds_folder_odd        
+        cds_folder = self.cds_folder \
+            if not self.pm.dual_drive \
+            else self.cds_folder_even \
+            if (int(self.hours_since_epoch(year, month, day, hour) - self.pm.hourly_offset) / modulo) % 2 == 0 \
+            else self.cds_folder_odd
         return cds_folder / str(year) / str(month).zfill(2) / str(day).zfill(2)
     def get_file_path_npz(self, year, month, day, hour, modulo):
         return self.get_file_path(year, month, day, hour, modulo) / (str(hour).zfill(2) + ".npz")
@@ -206,8 +210,8 @@ class Zeus_Dataset(Dataset):
             if lon_range is not None:
                 ds = ds.sel(longitude=slice(lon_range[0], lon_range[1]))
 
-            # array = ds.compute()  #-------------------------------- Simulated
-            array = np.random.rand(721, 1440).astype(np.float32)
+            array = ds.compute()  #-------------------------------- Simulated
+            # array = np.random.rand(721, 1440).astype(np.float32)
             
             array = array.astype(np.float32)
             assert array.shape == (721, 1440), "array.shape is not (721, 1440) but {}".format(array.shape)
@@ -262,7 +266,7 @@ class Zeus_Dataset(Dataset):
                     last_day = self.get_last_day_of_month(year, month)
                     for day in range(1, last_day + 1):
                         for hour in range(0, 24, modulo):
-                            dt = datetime(year, month, day, hour) + timedelta(hours=-1) # (17, 23) is the latest hours for a daily release of ERA5 data.
+                            dt = datetime(year, month, day, hour) + timedelta(hours=self.pm.hourly_offset) # hourly_offset = -1
                             futures.append(
                                 snap_executor.submit(process_snapshot, dt.year, dt.month, dt.day, dt.hour)
                             )
@@ -445,7 +449,7 @@ class Zeus_Dataset(Dataset):
         return       
 
 
-    def get_mean_of_hourly_dataset(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1):
+    def get_mean_of_hourly_dataset(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6):
         """
         Compute the mean over all variables across hourly files, with checkpointing.
         """
@@ -532,7 +536,7 @@ class Zeus_Dataset(Dataset):
         return mean, step
 
 
-    def get_std_of_dataset(self, mean, inclusive_left=None, inclusive_right=None, checkpoint_interval=1):
+    def get_std_of_dataset(self, mean, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6):
         """
         Compute the standard deviation over all variables across hourly files, with checkpointing.
         Uses incremental variance formula.
@@ -625,7 +629,7 @@ class Zeus_Dataset(Dataset):
         std = np.sqrt(var_mean)
         return std, step
 
-    def analyze_hourly_dataset(self, save=False, inclusive_left=None, inclusive_right=None, modulo):
+    def analyze_hourly_dataset(self, save=False, inclusive_left=None, inclusive_right=None, modulo=6):
         """
         Analyze dataset over hourly paths: compute mean and std for all variables.
 
@@ -642,14 +646,16 @@ class Zeus_Dataset(Dataset):
         # Compute mean with checkpointing
         mean, m = self.get_mean_of_hourly_dataset(
             inclusive_left=inclusive_left,
-            inclusive_right=inclusive_right
+            inclusive_right=inclusive_right,
+            modulo = modulo
         )
 
         # Compute std with checkpointing
         std, n = self.get_std_of_dataset(
             mean,
             inclusive_left=inclusive_left,
-            inclusive_right=inclusive_right
+            inclusive_right=inclusive_right,
+            modulo = modulo
         )
 
         assert m == n, f"Step mismatch: mean step ({m}) vs std step ({n})"
@@ -1395,22 +1401,22 @@ if __name__ == "__main__":
     # print(ds.data_vars)
     # pass
 
-    # dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
-    #     upper_air_vars = upper_air_vars, 
-    #     upper_air_levels = upper_air_levels, 
-    #     surface_vars = surface_channels,
-    #     start_year = 2015, 
-    #     end_year = 2024,
-    #     modulo=6,
-    #     max_workers_snapshots=1, max_workers_vars=1,
-    # )
+    dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
+        upper_air_vars = upper_air_vars, 
+        upper_air_levels = upper_air_levels, 
+        surface_vars = surface_channels,
+        start_year = 2015, 
+        end_year = 2024,
+        modulo=6,
+        max_workers_snapshots=1, max_workers_vars=1,
+    )
 
     dict = dataset.analyze_hourly_paths(inclusive_left=None, inclusive_right=None, modulo=6)
     print(f"count: {dict['count']}, first_hour: {dict['first_hour']}, last_hour: {dict['last_hour']}, missing_hours: {dict['missing_hours']}")
     # print(dict)
     
-    inclusive_left = datetime(2023, 10, 5, 12)
-    inclusive_right = datetime(2023, 10, 6, 12)
+    inclusive_left = None #datetime(2023, 10, 5, 12)
+    inclusive_right = None #datetime(2023, 10, 6, 12)
     dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=6)
     
     # total_days, start_day, end_day, complete, data_dates = dataset.count_data_days()
