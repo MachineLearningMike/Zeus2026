@@ -210,8 +210,8 @@ class Zeus_Dataset(Dataset):
             if lon_range is not None:
                 ds = ds.sel(longitude=slice(lon_range[0], lon_range[1]))
 
-            array = ds.compute()  #-------------------------------- Simulated
-            # array = np.random.rand(721, 1440).astype(np.float32)
+            # array = ds.compute()  #-------------------------------- Simulated
+            array = np.random.rand(721, 1440).astype(np.float32)
             
             array = array.astype(np.float32)
             assert array.shape == (721, 1440), "array.shape is not (721, 1440) but {}".format(array.shape)
@@ -244,14 +244,17 @@ class Zeus_Dataset(Dataset):
             with ThreadPoolExecutor(max_workers=max_workers_vars) as var_executor:
                 var_futures = [var_executor.submit(download_variable, var, snapshot_time) for var in variables]
 
-                for future in as_completed(var_futures):
-                    var_name, array = future.result()
-                    var_dict[var_name] = array
+                try:
+                    for future in as_completed(var_futures):
+                        var_name, array = future.result()
+                        var_dict[var_name] = array
+                except:
+                    print(f"--------------- variable: {var_name} / {snapshot_time} failed to download")
 
                 path = self.get_file_path_npz(year, month, day, hour, modulo)
                 check_dir(path.parent)
                 save(path, var_dict)
-                print(f"--------------- snapshot at {snapshot_time} saved!")
+                print(f"==================================== snapshot at {snapshot_time} saved!")
             
             return snapshot_time
 
