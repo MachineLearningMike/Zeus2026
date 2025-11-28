@@ -58,7 +58,8 @@ class Zeus_Dataset(Dataset):
 
             self.param_path = management_path / 'dataset_params.json'
             self.split_hours_path = management_path / 'split_hours.json'
-            self.analysis_path = management_path / "analysis.pth"
+            self.mean_checkpoint_path = management_path / "mean_checkpoint.pth"
+            self.std_checkpoint_path = management_path / "std_checkpoint.pth"
         else:
             self.cds_folder_even = dataset_path / "data_even" / "CDS"            
             self.cds_folder_even.mkdir(parents=True, exist_ok=True)
@@ -68,7 +69,8 @@ class Zeus_Dataset(Dataset):
     
             self.param_path = management_path /'dataset_params.json'
             self.split_hours_path = management_path / 'split_hours.json'
-            self.analysis_path = management_path / "analysis.pth"
+            self.mean_checkpoint_path = management_path / "mean_checkpoint.pth"
+            self.std_checkpoint_path = management_path / "std_checkpoint.pth"
         
         self.difficulties = None
         self.era5_data_vars = None
@@ -293,67 +295,6 @@ class Zeus_Dataset(Dataset):
 
         return dict
 
-        
-    #---------------------------- Analyse dataset ----------------------------
-
-    # def iter_hourly_paths(self):
-    #     """
-    #     Yield (year, month, day, hour, Path) for all hourly files in chronological order.
-    #     """
-    #     if not self.pm.dual_drive:
-    #         base_folders = [Path(self.cds_folder)]
-    #     else:
-    #         even_root = Path(self.cds_folder_even)
-    #         odd_root  = Path(self.cds_folder_odd)
-    #         base_folders = [even_root, odd_root]
-
-    #     def hourly_iter(base_folder):
-    #         """Yield (year, month, day, hour, file_path) for one base folder."""
-    #         for year_path in sorted(base_folder.iterdir()):
-    #             if not year_path.is_dir() or not year_path.name.isdigit():
-    #                 continue
-    #             year = int(year_path.name)
-
-    #             for month_path in sorted(year_path.iterdir()):
-    #                 if not month_path.is_dir() or not month_path.name.isdigit():
-    #                     continue
-    #                 month = int(month_path.name)
-
-    #                 for day_path in sorted(month_path.iterdir()):
-    #                     if not day_path.is_dir() or not day_path.name.isdigit():
-    #                         continue
-    #                     day = int(day_path.name)
-
-    #                     for file_path in sorted(day_path.iterdir()):
-    #                         if not file_path.is_file():
-    #                             continue
-
-    #                         stem = file_path.stem
-    #                         if not stem.isdigit():
-    #                             continue
-
-    #                         hour = int(stem)
-    #                         if not (0 <= hour <= 23):
-    #                             continue
-
-    #                         dn = self.hours_since_epoch(year, month, day, hour)
-
-    #                         # Filter even/odd drive
-    #                         if self.pm.dual_drive:
-    #                             if base_folder == even_root and dn % 2 != 0:
-    #                                 continue
-    #                             if base_folder == odd_root and dn % 2 == 0:
-    #                                 continue
-
-    #                         yield (year, month, day, hour, file_path)
-
-    #     # Create iterators
-    #     iterators = [hourly_iter(base) for base in base_folders if base.is_dir()]
-
-    #     # Merge sorted by year, month, day, hour
-    #     for item in heapq.merge(*iterators,
-    #                             key=lambda x: (x[0], x[1], x[2], x[3])):
-    #         yield item
 
     def iter_hourly_paths(self):
         if not self.pm.dual_drive:
@@ -503,6 +444,7 @@ class Zeus_Dataset(Dataset):
         torch.save(data, path)
         return       
 
+
     def get_mean_of_hourly_dataset(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1):
         """
         Compute the mean over all variables across hourly files, with checkpointing.
@@ -511,14 +453,35 @@ class Zeus_Dataset(Dataset):
 
         # Load checkpoint if exists
         try:
-            mean, step = self.read_checkpoint(self.analysis_path, ["mean", "mean_step"])
-            print(f"Resuming mean computation: step={step}")
+            checkpoint = self.read_checkpoint(
+                self.mean_checkpoint_path,
+                ["mean", "mean_step", "inclusive_left", "inclusive_right"]
+            )
+
+            mean = checkpoint[0] if len(checkpoint) > 0 else None
+            # step = checkpoint[1] if len(checkpoint) > 1 else 0
+            step = int(checkpoint[1]) if len(checkpoint) > 1 else 0
+            ck_left_iso = checkpoint[2] if len(checkpoint) > 2 else None
+            ck_right_iso = checkpoint[3] if len(checkpoint) > 3 else None
+
+            ck_left = datetime.fromisoformat(ck_left_iso) if ck_left_iso else None
+            ck_right = datetime.fromisoformat(ck_right_iso) if ck_right_iso else None
+
+            # Check consistency
+            ck_left_match = (ck_left == inclusive_left) or (ck_left is None and inclusive_left is None)
+            ck_right_match = (ck_right == inclusive_right) or (ck_right is None and inclusive_right is None)
+            if mean is None or not (ck_left_match and ck_right_match):
+                print("Checkpoint missing or date range mismatch. Starting new mean computation.")
+                mean = np.zeros((len(self.pm.variables),), dtype=np.float32)
+                step = 0
+            else:
+                print(f"Resuming mean computation: step={step}")
         except:
             print("No checkpoint found for mean. Starting new mean computation.")
             mean = np.zeros((len(self.pm.variables),), dtype=np.float32)
             step = 0
 
-        # Iterate hourly paths
+        skip = -1
         for year, month, day, hour, file_path in self.iter_hourly_paths():
             current_dt = datetime(year, month, day, hour)
             if inclusive_left and current_dt < inclusive_left:
@@ -526,12 +489,10 @@ class Zeus_Dataset(Dataset):
             if inclusive_right and current_dt > inclusive_right:
                 continue
 
-            # Skip already processed
-            if step > 0:
-                step -= 1
+            skip += 1
+            if skip < step:
                 continue
 
-            # Load hourly npz
             data = load(file_path)
             arr = np.stack([data[key] for key in self.pm.variables], axis=0)  # (C, H, W)
 
@@ -544,40 +505,71 @@ class Zeus_Dataset(Dataset):
             if np.any(np.isnan(_mean)):
                 raise Exception(f"NaN found in hourly mean: {file_path}")
 
-            # Incremental mean
             step += 1
             mean = mean * (step - 1)/step + _mean / step
 
-            # Save checkpoint periodically
             if step % checkpoint_interval == 0:
-                print(f"checkpointing...{year}, {month}, {day}, {hour}")
-                tmp_path = str(self.analysis_path) + ".tmp"
-                self.save_checkpoint(tmp_path, {"mean": mean, "mean_step": step})
-                # Path(tmp_path).rename(self.analysis_path)
+                print(f"Checkpointing mean... {step}: {year}-{month:02d}-{day:02d} {hour:02d}")
+                tmp_path = str(self.mean_checkpoint_path) + ".tmp"
+                self.save_checkpoint(tmp_path, {
+                    "mean": mean,
+                    "mean_step": step,
+                    "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
+                    "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
+                })
+                shutil.move(tmp_path, self.mean_checkpoint_path)
 
         # Final save
-        tmp_path = str(self.analysis_path) + ".tmp"
-        self.save_checkpoint(tmp_path, {"mean": mean, "mean_step": step})
-        Path(tmp_path).rename(self.analysis_path)
+        path = str(self.mean_checkpoint_path)
+        self.save_checkpoint(path, {
+            "mean": mean,
+            "mean_step": step,
+            "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
+            "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
+        })
+        shutil.move(path, self.mean_checkpoint_path)
 
         return mean, step
 
-    def get_std_of_dataset(self, mean, inclusive_left=None, inclusive_right=None, checkpoint_interval=1): 
+
+    def get_std_of_dataset(self, mean, inclusive_left=None, inclusive_right=None, checkpoint_interval=1):
         """
-        Compute the mean over all variables across hourly files, with checkpointing.
+        Compute the standard deviation over all variables across hourly files, with checkpointing.
+        Uses incremental variance formula.
         """
         cuda_available = torch.cuda.is_available()
 
         # Load checkpoint if exists
         try:
-            _var_mean, step = self.read_checkpoint(self.analysis_path, ["var_mean", "std_step"])
-            print(f"Resuming mean computation: step={step}")
+            checkpoint = self.read_checkpoint(
+                self.std_checkpoint_path,
+                ["var_mean", "std_step", "inclusive_left", "inclusive_right"]
+            )
+
+            var_mean = checkpoint[0] if len(checkpoint) > 0 else None
+            # step = checkpoint[1] if len(checkpoint) > 1 else 0
+            step = int(checkpoint[1]) if len(checkpoint) > 1 else 0
+            ck_left_iso = checkpoint[2] if len(checkpoint) > 2 else None
+            ck_right_iso = checkpoint[3] if len(checkpoint) > 3 else None
+
+            ck_left = datetime.fromisoformat(ck_left_iso) if ck_left_iso else None
+            ck_right = datetime.fromisoformat(ck_right_iso) if ck_right_iso else None
+
+            # Check consistency with provided boundaries
+            ck_left_match = (ck_left == inclusive_left) or (ck_left is None and inclusive_left is None)
+            ck_right_match = (ck_right == inclusive_right) or (ck_right is None and inclusive_right is None)
+            if var_mean is None or not (ck_left_match and ck_right_match):
+                print("Checkpoint missing or date range mismatch. Starting new std computation.")
+                var_mean = np.zeros((len(self.pm.variables),), dtype=np.float32)
+                step = 0
+            else:
+                print(f"Resuming std computation: step={step}")
         except:
-            print("No checkpoint found for sdt. Starting new std computation.")
-            _var_mean = np.zeros((len(self.pm.variables),), dtype=np.float32)
+            print("No checkpoint found for std. Starting new std computation.")
+            var_mean = np.zeros((len(self.pm.variables),), dtype=np.float32)
             step = 0
 
-        # Iterate hourly paths
+        skip = -1
         for year, month, day, hour, file_path in self.iter_hourly_paths():
             current_dt = datetime(year, month, day, hour)
             if inclusive_left and current_dt < inclusive_left:
@@ -585,44 +577,55 @@ class Zeus_Dataset(Dataset):
             if inclusive_right and current_dt > inclusive_right:
                 continue
 
-            # Skip already processed
-            if step > 0:
-                step -= 1
+            skip += 1
+            if skip < step:
                 continue
 
-            # Load hourly npz
             data = load(file_path)
+            if any(key not in data for key in self.pm.variables):
+                print(f"Skipping {file_path}, missing variables")
+                continue
+
             arr = np.stack([data[key] for key in self.pm.variables], axis=0)  # (C, H, W)
 
             if cuda_available:
                 tensor_arr = torch.tensor(arr, dtype=torch.float32).cuda()
-                _var = torch.mean(torch.pow(tensor_arr - mean, 2), dim=(0,1,2)).cpu().numpy()
+                mean_tensor = torch.tensor(mean, dtype=torch.float32).cuda().view(-1, 1, 1)
+                _var = torch.mean((tensor_arr - mean_tensor) ** 2, dim=(1, 2)).cpu().numpy()
             else:
-                _var = np.mean(np.power(arr - mean, 2), axis=(0,1,2)) # (C,)
+                _var = np.mean((arr - mean[:, None, None]) ** 2, axis=(1, 2))
 
             if np.any(np.isnan(_var)):
-                raise Exception(f"NaN found in hourly mean: {file_path}")
+                raise Exception(f"NaN found in hourly variance: {file_path}")
 
-            # Incremental mean
             step += 1
-            _var_mean = _var_mean * (step - 1)/step + _var / step
+            var_mean = var_mean * (step - 1)/step + _var / step
 
-            # Save checkpoint periodically
             if step % checkpoint_interval == 0:
-                print(f"checkpointing mean computation... {year}, {month}, {day}, {hour}")
-                tmp_path = str(self.analysis_path) + ".tmp"
-                self.save_checkpoint(tmp_path, {"mean": mean, "mean_step": step})
-                # Path(tmp_path).rename(self.analysis_path)
+                print(f"Checkpointing std...{step}: {year}-{month:02d}-{day:02d} {hour:02d}")
+                tmp_path = str(self.std_checkpoint_path) + ".tmp"
+                self.save_checkpoint(tmp_path, {
+                    "var_mean": var_mean,
+                    "std_step": step,
+                    "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
+                    "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
+                })
+                shutil.move(tmp_path, self.std_checkpoint_path)
 
         # Final save
-        tmp_path = str(self.analysis_path) + ".tmp"
-        self.save_checkpoint(tmp_path, {"mean": mean, "mean_step": step})
-        Path(tmp_path).rename(self.analysis_path)
+        path = str(self.std_checkpoint_path)
+        self.save_checkpoint(path, {
+            "var_mean": var_mean,
+            "std_step": step,
+            "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
+            "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
+        })
+        shutil.move(path, self.std_checkpoint_path)
 
-        return mean, step
+        std = np.sqrt(var_mean)
+        return std, step
 
-
-    def analyze_hourly_dataset(self, save=False, inclusive_left=None, inclusive_right=None):
+    def analyze_hourly_dataset(self, save=False, inclusive_left=None, inclusive_right=None, modulo):
         """
         Analyze dataset over hourly paths: compute mean and std for all variables.
 
@@ -657,10 +660,21 @@ class Zeus_Dataset(Dataset):
             mean_dict = {var: float(val) for var, val in zip(self.pm.variables, mean)}
             std_dict  = {var: float(val) for var, val in zip(self.pm.variables, std)}
 
-            data = {"mean": mean_dict, "std": std_dict}
-
+            # Load old data if it exists
             if self.param_path.exists() and self.param_path.is_file():
-                self.param_path.unlink()  # delete previous file
+                with open(self.param_path, "r") as f:
+                    try:
+                        data = json.load(f)
+                    except json.JSONDecodeError:
+                        data = {}     # corrupted or empty file → reset
+            else:
+                data = {}
+
+            # Update only the relevant fields
+            data["mean"] = mean_dict
+            data["std"] = std_dict
+
+            # Save updated data
             with open(self.param_path, "w") as f:
                 json.dump(data, f, indent=4)
 
@@ -1381,21 +1395,23 @@ if __name__ == "__main__":
     # print(ds.data_vars)
     # pass
 
-    dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
-        upper_air_vars = upper_air_vars, 
-        upper_air_levels = upper_air_levels, 
-        surface_vars = surface_channels,
-        start_year = 2015, 
-        end_year = 2024,
-        modulo=6,
-        max_workers_snapshots=1, max_workers_vars=1,
-    )
+    # dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
+    #     upper_air_vars = upper_air_vars, 
+    #     upper_air_levels = upper_air_levels, 
+    #     surface_vars = surface_channels,
+    #     start_year = 2015, 
+    #     end_year = 2024,
+    #     modulo=6,
+    #     max_workers_snapshots=1, max_workers_vars=1,
+    # )
 
     dict = dataset.analyze_hourly_paths(inclusive_left=None, inclusive_right=None, modulo=6)
     print(f"count: {dict['count']}, first_hour: {dict['first_hour']}, last_hour: {dict['last_hour']}, missing_hours: {dict['missing_hours']}")
     # print(dict)
     
-    dataset.analyze_hourly_dataset()
+    inclusive_left = datetime(2023, 10, 5, 12)
+    inclusive_right = datetime(2023, 10, 6, 12)
+    dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=6)
     
     # total_days, start_day, end_day, complete, data_dates = dataset.count_data_days()
     # print(f"total_days {total_days}, start_day {start_day}, end_day {end_day}, complete {complete}")

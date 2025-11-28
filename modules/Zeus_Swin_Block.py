@@ -86,7 +86,7 @@ def window_partition(x, window_size):
     return windows, H // window_size[0], W // window_size[1] # (B * H // window_size * W // window_size, window_size, window_size, C
 
 
-class PositionEmbedder(nn.Module):
+class PositionBiasLearner(nn.Module):
     """
     Generates stable attention bias from pairwise positional encoding
     with residual connection and layer normalization.
@@ -98,54 +98,68 @@ class PositionEmbedder(nn.Module):
         self.fc2 = nn.Linear(hidden_dim, num_heads)
         self.norm = nn.LayerNorm(hidden_dim)  # normalize scalar output per pair
         self.pair_pos_code_on_windows, self.nWh, self.nWw, = self.pair_position_partition(input_resolution, window_size)
-
+        self.scale = nn.Parameter(torch.ones(1) * 1.5)  # small learnable scale. Why 1.5? Just my feeling to start from 1.5
+    
     def pair_position_partition(self, input_resolution, window_size):
         """
         Args:
-            input_resolution: world size
-            window_size: (int, int)
-
+            input_resolution: world size (H, W)
+            window_size: (win_H, win_W)
         Returns:
-            pair_pos_code_on_windows: (N, P, P, 3)
+            pair_pos_code_on_windows: (N, P, P, 4)
             nWh: number of windows along H
             nWw: number of windows along W
-        """
+        """        
         H, W = input_resolution
-        
-        # Partition into windows
         lat_step = 180.0 / H
         lon_step = 360.0 / W
-        lat = torch.linspace(-90 + lat_step/2, 90 - lat_step/2, H, requires_grad=False)     # (H,)
-        lon = torch.linspace(-180 + lon_step/2, 180 - lon_step/2, W, requires_grad=False)   # (W,)
-        assert lat.shape[0] == H
-        assert lon.shape[0] == W
+        lat = torch.linspace(-90 + lat_step/2, 90 - lat_step/2, H)
+        lon = torch.linspace(-180 + lon_step/2, 180 - lon_step/2, W)
+        
         lat = lat[:, None].expand(H, W)
         lon = lon[None, :].expand(H, W)
         
         lat_lon = torch.stack([lat, lon], dim=-1).unsqueeze(0)  # (1, H, W, 2)
         
         lat_lon_windows, nWh, nWw = window_partition(lat_lon, window_size)  # (N, win, win, 2)
-
+        
         N = lat_lon_windows.shape[0]
         P = window_size[0] * window_size[1]
-
-        # Flatten each window
+        
         lat_lon_flat = lat_lon_windows.reshape(N, P, 2)  # (N, P, 2)
-
-        # Pairwise differences
+        
         A = lat_lon_flat.unsqueeze(2)  # (N, P, 1, 2)
         B = lat_lon_flat.unsqueeze(1)  # (N, 1, P, 2)
-        pair_lat_lon = torch.cat([A.expand(N, P, P, 2), B.expand(N, P, P, 2)], dim=-1)  # (N, P, P, 4)
-
-        # Spherical positional features
-        cos_lat1 = torch.cos(torch.deg2rad(pair_lat_lon[..., 0]))
-        cos_lat2 = torch.cos(torch.deg2rad(pair_lat_lon[..., 2]))
-        delta_lon = pair_lat_lon[..., 1] - pair_lat_lon[..., 3]
-        delta_lon_normalized = torch.sigmoid(3.0 * delta_lon / (360 / nWw) / 2)
-
-        # Stack into single tensor
-        pair_pos_code_on_windows = torch.stack([cos_lat1, cos_lat2, delta_lon_normalized], dim=-1)  # (N, P, P, 3)
-
+        
+        lat1 = A[..., 0]
+        lon1 = A[..., 1]
+        lat2 = B[..., 0]
+        lon2 = B[..., 1]
+        
+        # cyclic longitude difference [-180, 180]
+        delta_lon = ((lon1 - lon2 + 180) % 360) - 180
+        # delta_lon_normalized = torch.sigmoid(3.0 * delta_lon / (360 / nWw))
+        
+        # cos(lat) scaling
+        cos_lat1 = torch.cos(torch.deg2rad(lat1))
+        cos_lat2 = torch.cos(torch.deg2rad(lat2))
+        
+        # great-circle distance (radians)        
+        dlat = torch.deg2rad(lat1 - lat2)
+        dlon = torch.deg2rad(delta_lon)
+        a = torch.sin(dlat/2)**2 + cos_lat1*cos_lat2*torch.sin(dlon/2)**2
+        great_circle = 2 * torch.asin(torch.sqrt(a))
+        
+        cos_lat1 = cos_lat1.expand(-1, -1, P)  # (N, P, P)
+        cos_lat2 = cos_lat2.expand(-1, P, -1)  # (N, P, P)
+        
+        # Stack features (N, P, P, 3)
+        # cos_lat1 directly well measures or represents the physical size of the first patch. 
+        # cos_lat2 directly well measures or represents the physical size of the second patch. 
+        # great_circle directly well measures and represents the physical distance between them. 
+        # So they are enough to define the physical interaction between the two patches, beyond the statistical interaction.
+        pair_pos_code_on_windows = torch.stack([cos_lat1, cos_lat2, great_circle], dim=-1)
+        
         return pair_pos_code_on_windows, nWh, nWw
 
     def forward(self):
@@ -157,12 +171,14 @@ class PositionEmbedder(nn.Module):
         """
         N, P, _, _ = self.pair_pos_code_on_windows.shape
         x_flat = self.pair_pos_code_on_windows.view(N*P*P, 3).to("cuda")         # (num_windows*P*P, 3)
+        # device = self.pair_pos_code_on_windows.device
+        # x_flat = self.pair_pos_code_on_windows.view(N*P*P, 3).to(device)
         h = self.act(self.fc1(x_flat))                # (N*P*P, hidden_dim)
         h = self.norm(h)
         h = self.fc2(h)                               # (N*P*P, num_heads)
-        position_bias = h.view(N, P, P, -1)              # (num_windows, P, P, num_heads)
+        position_bias = h.view(N, P, P, -1)           # (num_windows, P, P, num_heads)
 
-        return position_bias                         # (num_windows, P, P, num_heads)
+        return position_bias * self.scale             # (num_windows, P, P, num_heads)
 
 
 def window_reverse(windows, window_size, H, W):
@@ -205,8 +221,8 @@ class WindowAttention(nn.Module):
         self.pretrained_window_size = pretrained_window_size
         self.num_heads = num_heads
         
-        self.windowPositionEmbedder = PositionEmbedder(input_resolution, window_size, num_heads, hidden_dim=64)
-        self.nWindows = self.windowPositionEmbedder.nWh * self.windowPositionEmbedder.nWw
+        self.positionBiasLearner = PositionBiasLearner(input_resolution, window_size, num_heads, hidden_dim=64)
+        self.nWindows = self.positionBiasLearner.nWh * self.positionBiasLearner.nWw
         self.window_area = self.H * self.W
 
         self.logit_scale = nn.Parameter(torch.log(10 * torch.ones((num_heads, 1, 1))), requires_grad=True)
@@ -246,14 +262,16 @@ class WindowAttention(nn.Module):
 
         # cosine attention
         attn = (F.normalize(q, dim=-1) @ F.normalize(k, dim=-1).transpose(-2, -1))
+        # This is equivalent to the “temperature” trick in attention: softmax(s * logit_scale)
         logit_scale = torch.clamp(self.logit_scale, max=torch.log(torch.tensor(1. / 0.01).to(self.logit_scale.device))).exp()
         attn = attn * logit_scale   # should be (B * self.nWindows, self.num_heads, self.window_area, self.window_area)
 
-        position_bias = self.windowPositionEmbedder()   # (self.nWindows, self.window_area, self.window_area, num_heads)
+        position_bias = self.positionBiasLearner() # It trains.   # (self.nWindows, self.window_area, self.window_area, num_heads)
         position_bias = position_bias.permute(0, 3, 1, 2).contiguous()  # (self.nWindows, num_heads, self.window_area, self.window_area)
          
         B = B_ // self.nWindows
         attn = attn.view(B, self.nWindows, self.num_heads, self.window_area, self.window_area)  # (B, self.nWindows, self.num_heads, self.window_area, self.window_area)
+        # 16 roughly matches the magnitude of q·k dot products when embedding dimension d is typical (like 96–192)
         position_bias = 16 * torch.sigmoid(position_bias)   # Borrowed from Swin Transformer!!!
         attn = attn + position_bias
         attn = attn.view(B * self.nWindows, self.num_heads, self.window_area, self.window_area)
@@ -375,7 +393,9 @@ class Zeus_SwinTransformerBlock(nn.Module):
 
         # cyclic shift
         if self.shift_size > 0:
-            shifted_x = torch.roll(x, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
+            # shifted_x = torch.roll(x, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
+            # I choose this line, because it will screw the values in the the south pole area not the north pole, if one pole must be screwed.
+            shifted_x = torch.roll(x, shifts=(self.shift_size, -self.shift_size), dims=(1, 2))
         else:
             shifted_x = x
 
@@ -392,9 +412,12 @@ class Zeus_SwinTransformerBlock(nn.Module):
 
         # reverse cyclic shift
         if self.shift_size > 0:
-            x = torch.roll(shifted_x, shifts=(self.shift_size, self.shift_size), dims=(1, 2))
+            # x = torch.roll(shifted_x, shifts=(self.shift_size, self.shift_size), dims=(1, 2))
+            # I choose this line, because it will screw the values in the the south pole area not the north pole, if one pole must be screwed.
+            shifted_x = torch.roll(shifted_x, shifts=(-self.shift_size, self.shift_size), dims=(1, 2))
         else:
             x = shifted_x
+            
         x = x.view(B, H * W, C)
         x = shortcut + self.drop_path(self.norm1(x))
 
@@ -736,9 +759,10 @@ def demo_single_block():
     device = "cuda"
     
     # Input resolution and channels
-    factor10 = 1
-    H, W = 72 * factor10, 144 * factor10  # example resolution
-    C = 96         # number of channels
+    factor10 = 10
+    H, W = int(90/10*factor10), int(180/10*factor10)  # example resolution after preprocessing
+    C = 192         # number of channels
+    winsize = 10
 
     # Random input: batch_size=2, sequence_length=H*W, channels=C
     x = torch.randn(2, H * W, C).to(device)
@@ -749,8 +773,8 @@ def demo_single_block():
             dim=C,
             input_resolution=(H, W),
             num_heads=8,
-            window_size=18,
-            shift_size=0 if idx % 2 == 0 else 18//2,
+            window_size=winsize,
+            shift_size=0 if idx % 2 == 0 else winsize//2,
             mlp_ratio=4.,
             qkv_bias=True,
             drop=0.0,

@@ -543,9 +543,13 @@ mike1_variables = [     # exported.
     # radiation
     "ssr","ssrd","fdir","ttr","tp",
 
-    # wave / storm variables
-    "mdts","mdww","mpts","mpww","shts","shww",
+    # Nov 28, 2025
+    # Exclude wave / storm variable because they are defined on ocean only.
+    # # wave / storm variables
+    # "mdts","mdww","mpts","mpww","shts","shww",
 ]
+
+print("len mike1_variables: ", len(mike1_variables))
 
 def find_missing_vars():
     fuXi_keys = set(var_name_map.keys())
@@ -563,6 +567,8 @@ def find_missing_vars():
 
     print(len(mike1_variables))
     
+find_missing_vars()
+
 
 def check_for_name_consistency():
     # Example: list of official ERA5 variable names
