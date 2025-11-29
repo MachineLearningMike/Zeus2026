@@ -284,7 +284,7 @@ class Zeus_Dataset(Dataset):
                         var_name, array = future.result()
                         var_dict[var_name] = array
                 except Exception as e:
-                    logging.fatal(f"--------------- variable: {variables[idx]} / {snapshot_time} failed to download. Quiting snapshot...")
+                    logging.fatal(f"--------------- variable: {year}/{month}/{day}/{hour}/{idx}, {variables[idx]} / {snapshot_time} failed to download. Quiting snapshot...")
                     logging.fatal(f"Exception: {e}")
                     return None
 
