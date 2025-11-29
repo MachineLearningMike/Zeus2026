@@ -1472,7 +1472,8 @@ if __name__ == "__main__":
     # # List variables
     # print(ds.data_vars)
     # pass
-
+    
+    
     setup_logging()
     dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
         variables=mike1_variables, var_name_map = var_name_map,
