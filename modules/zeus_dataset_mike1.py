@@ -247,9 +247,9 @@ class Zeus_Dataset(Dataset):
             if np.isnan(array).any() and upper_air:
                 print(f"NaNs detected in {variable}, interpolating along pressure levels...")
                 # Interpolate from neighboring levels
-                ds_full = total_ds[era_var].sel(time=snapshot_time)
+                # ds_full = total_ds[era_var].sel(time=snapshot_time)
                 # Interpolation along 'level' to the desired level
-                array = ds_full.interp(level=int(level)).values.astype(np.float32)
+                array = ds.interp(level=int(level)).values.astype(np.float32)
 
             assert not np.isnan(array).any(), f"Warning: {variable} still has NaNs at {snapshot_time}"
 
