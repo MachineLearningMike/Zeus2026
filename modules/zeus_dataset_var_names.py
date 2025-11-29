@@ -469,7 +469,7 @@ var_name_map = {
     # surface
     't2m': '2m_temperature',
     'd2m': '2m_dewpoint_temperature',
-    'sst': 'sea_surface_temperature',
+    # 'sst': 'sea_surface_temperature',     # NaN, on land
     'u10m': '10m_u_component_of_wind',
     'v10m': '10m_v_component_of_wind',
     'u100m': '100m_u_component_of_wind',
