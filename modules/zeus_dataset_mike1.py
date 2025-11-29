@@ -7,6 +7,7 @@ import shutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import calendar
 import gc
+import logging
 import math
 import platform
 import heapq
@@ -255,15 +256,15 @@ class Zeus_Dataset(Dataset):
                         var_name, array = future.result()
                         var_dict[var_name] = array
                 except Exception as e:
-                    print(f"--------------- variable: {var_name} / {snapshot_time} failed to download. Quiting snapshot...")
-                    print(f"Exception: {e}")
+                    logging.fatal(f"--------------- variable: {var_name} / {snapshot_time} failed to download. Quiting snapshot...")
+                    logging.fatal(f"Exception: {e}")
+                    
                     return None
 
                 path = self.get_file_path_npz(year, month, day, hour, modulo)
                 check_dir(path.parent)
                 save(path, var_dict)
                 print(f"==================================== snapshot at {snapshot_time} saved!")
-            
             return snapshot_time
 
         # -------------------------
