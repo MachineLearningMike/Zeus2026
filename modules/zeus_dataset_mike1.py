@@ -219,7 +219,7 @@ class Zeus_Dataset(Dataset):
             # except Exception as e:
             #     raise RuntimeError(f"Error downloading {variable} at {snapshot_time}: {e}")     # Exception
 
-        def download_variable(variable, snapshot_time):
+        def download_variable(idx, variable, snapshot_time):
             """Download a single variable for a given snapshot, interpolating NaNs if needed."""
             
             upper_air = False
@@ -245,16 +245,16 @@ class Zeus_Dataset(Dataset):
 
             # If NaNs exist, try interpolation along 'level' for upper-air variables
             if np.isnan(array).any() and upper_air:
-                logging.warning(f"NaNs detected in {variable}, interpolating along pressure levels...")
+                logging.warning(f"NaNs detected in {idx} {variable}, interpolating along pressure levels...")
                 # Interpolate from neighboring levels
                 # ds_full = total_ds[era_var].sel(time=snapshot_time)
                 # Interpolation along 'level' to the desired level
                 array = ds.interp(level=int(level)).values.astype(np.float32)
 
-            assert not np.isnan(array).any(), f"Warning: {variable} still has NaNs at {year}/{month}/{day}/{hour}"
+            assert not np.isnan(array).any(), f"Warning: {idx} {variable} still has NaNs at {year}/{month}/{day}/{hour}"
 
             assert array.shape == (721, 1440), f"array.shape is not (721, 1440) but {array.shape}"
-            print(f"Checked OK: {variable} at {year}/{month}/{day}/{hour}")
+            print(f"Checked OK: {idx} {variable} at {year}/{month}/{day}/{hour}")
 
             return variable, array
 
@@ -277,21 +277,20 @@ class Zeus_Dataset(Dataset):
 
             # Parallel download of variables
             with ThreadPoolExecutor(max_workers=max_workers_vars) as var_executor:
-                var_futures = [var_executor.submit(download_variable, var, snapshot_time) for var in variables]
+                var_futures = [var_executor.submit(download_variable, idx, var, snapshot_time) for idx, var in enumerate(variables)]
 
-                try:
-                    for idx, future in enumerate(as_completed(var_futures)):
-                        var_name, array = future.result()
-                        var_dict[var_name] = array
-                except Exception as e:
-                    logging.fatal(f"--------------- variable: {year}/{month}/{day}/{hour}/{idx}, {variables[idx]} failed to download. Quiting snapshot...")
-                    logging.fatal(f"Exception: {e}")
-                    return None
+                for idx, future in enumerate(as_completed(var_futures)):
+                    var_name, array = future.result()
+                    var_dict[var_name] = array
 
-                assert len(var_dict) == len(variables)
-                for key, value in var_dict.items():
-                    assert key in variables
-                    assert value.shape == (721, 1440)
+                for idx, var in enumerate(variables):
+                    if var_dict.get(var, None) is None:
+                        logging.fatal(f"--------------- variable: {idx} {year}/{month}/{day}/{hour}/{idx}, {variables[idx]} failed to download. Quiting snapshot...")
+                        logging.fatal(f"Exception: {e}")
+                        return None
+                    else:
+                        assert var_dict[var].shape == (721, 1440)
+
                 path = self.get_file_path_npz(year, month, day, hour, modulo)
                 check_dir(path.parent)
                 save(path, var_dict)
