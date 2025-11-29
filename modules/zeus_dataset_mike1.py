@@ -174,7 +174,7 @@ class Zeus_Dataset(Dataset):
     def download_fuXi2_snapshots_levels_region_parallel_vars(
             self, variables, var_name_map,
             start_year, end_year, lat_range=None, lon_range=None,
-            modulo=6, max_workers_snapshots=2, max_workers_vars=2):
+            modulo=6, max_workers_snapshots=2, max_workers_vars=1):
         """
         Parallel download of FuXi2 snapshots:
         - Snapshots (6-hourly) are parallelized.
