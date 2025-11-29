@@ -251,10 +251,10 @@ class Zeus_Dataset(Dataset):
                 # Interpolation along 'level' to the desired level
                 array = ds.interp(level=int(level)).values.astype(np.float32)
 
-            assert not np.isnan(array).any(), f"Warning: {variable} still has NaNs at {snapshot_time}"
+            assert not np.isnan(array).any(), f"Warning: {variable} still has NaNs at {year}/{month}/{day}/{hour}"
 
             assert array.shape == (721, 1440), f"array.shape is not (721, 1440) but {array.shape}"
-            print(f"Checked OK: {variable} at {snapshot_time}")
+            print(f"Checked OK: {variable} at {year}/{month}/{day}/{hour}")
 
             return variable, array
 
@@ -270,7 +270,7 @@ class Zeus_Dataset(Dataset):
             
             snapshot_path = self.get_file_path_npz(year, month, day, hour, modulo)
             if snapshot_path.exists():
-                print(f"==================================== snapshot at {snapshot_time} exists!") 
+                print(f"==================================== snapshot at {year}/{month}/{day}/{hour} exists!") 
                 return snapshot_time
 
             var_dict = {}
@@ -284,7 +284,7 @@ class Zeus_Dataset(Dataset):
                         var_name, array = future.result()
                         var_dict[var_name] = array
                 except Exception as e:
-                    logging.fatal(f"--------------- variable: {year}/{month}/{day}/{hour}/{idx}, {variables[idx]} / {snapshot_time} failed to download. Quiting snapshot...")
+                    logging.fatal(f"--------------- variable: {year}/{month}/{day}/{hour}/{idx}, {variables[idx]} failed to download. Quiting snapshot...")
                     logging.fatal(f"Exception: {e}")
                     return None
 
@@ -295,7 +295,7 @@ class Zeus_Dataset(Dataset):
                 path = self.get_file_path_npz(year, month, day, hour, modulo)
                 check_dir(path.parent)
                 save(path, var_dict)
-                print(f"==================================== snapshot at {snapshot_time} saved!")
+                print(f"==================================== snapshot at {year}/{month}/{day}/{hour} saved!")
             return snapshot_time
 
         # -------------------------
