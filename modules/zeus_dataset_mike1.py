@@ -245,7 +245,7 @@ class Zeus_Dataset(Dataset):
 
             # If NaNs exist, try interpolation along 'level' for upper-air variables
             if np.isnan(array).any() and upper_air:
-                print(f"NaNs detected in {variable}, interpolating along pressure levels...")
+                logging.warning(f"NaNs detected in {variable}, interpolating along pressure levels...")
                 # Interpolate from neighboring levels
                 # ds_full = total_ds[era_var].sel(time=snapshot_time)
                 # Interpolation along 'level' to the desired level
@@ -1418,6 +1418,7 @@ def list_cds_variables(dataset):
     return variables
 
 from utils import check_dir
+import platform 
 def setup_logging():
     """
     logging.info("This is an info message")
@@ -1429,7 +1430,10 @@ def setup_logging():
     for handler in logging.root.handlers[:]:
         logging.root.removeHandler(handler)
 
-    log_path = Path("/home/mike/zeus_manageent/dataset.txt")
+    if platform.system() == "Windows":
+        log_path = Path("d:/downloads/dataset_log.tex")
+    else:
+        log_path = Path("/home/mike/zeus_manageent/dataset_log.txt")
     formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 
     # File handler (append mode)
