@@ -253,8 +253,10 @@ class Zeus_Dataset(Dataset):
                     for future in as_completed(var_futures):
                         var_name, array = future.result()
                         var_dict[var_name] = array
-                except:
-                    print(f"--------------- variable: {var_name} / {snapshot_time} failed to download")
+                except Exception as e:
+                    print(f"--------------- variable: {var_name} / {snapshot_time} failed to download. Quiting snapshot...")
+                    print(f"Exception: {e}")
+                    return None
 
                 path = self.get_file_path_npz(year, month, day, hour, modulo)
                 check_dir(path.parent)
@@ -281,12 +283,11 @@ class Zeus_Dataset(Dataset):
 
             # Wait for all snapshots to finish
             for future in as_completed(futures):
-                # try:
+                try:
                     timestamp = future.result()
-                    print(f"Finished snapshot {timestamp}")
-                # except Exception as e:
-                #     print(f"Error processing snapshot: {e}")
-                    # continue
+                except Exception as e:
+                    print(f"Error processing snapshot: {e}")
+                    continue
                     
                     
     def get_geo_data(self, management_path, variables):
