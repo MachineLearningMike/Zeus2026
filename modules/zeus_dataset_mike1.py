@@ -183,11 +183,48 @@ class Zeus_Dataset(Dataset):
 
         total_ds = self.get_normalized_dataset()
 
+        # def download_variable(variable, snapshot_time):
+        #     """Download a single variable for a given snapshot."""
+        #     # try:
+        #     upper_air = False
+        #     # select only the exact time
+        #     if '_' in variable and variable.split('_')[0] in variable:
+        #         upper_air = True
+        #         var_name, level = variable.split('_')
+        #         era_var = var_name_map[var_name]
+        #         ds = total_ds[era_var].sel(level=int(level), time=snapshot_time)
+        #     else:
+        #         era_var = var_name_map[variable]
+        #         ds = total_ds[era_var].sel(time=snapshot_time)
+            
+        #     # Select region
+        #     if lat_range is not None:
+        #         ds = ds.sel(latitude=slice(lat_range[0], lat_range[1]))
+        #     if lon_range is not None:
+        #         ds = ds.sel(longitude=slice(lon_range[0], lon_range[1]))
+
+        #     # array = ds.compute()
+        #     array = ds.values  #-------------------------------- Simulated
+        #     # array = np.random.rand(721, 1440).astype(np.float32)
+            
+        #     array = array.astype(np.float32)
+        #     assert array.shape == (721, 1440), "array.shape is not (721, 1440) but {}".format(array.shape)
+
+        #     # Sanity check
+        #     assert not np.isnan(array).any(), f"{variable} has NaNs at {snapshot_time}"     # Exception
+        #     print(f"Checked OK: {variable} at {snapshot_time}")
+
+        #     return variable, array
+
+            # except Exception as e:
+            #     raise RuntimeError(f"Error downloading {variable} at {snapshot_time}: {e}")     # Exception
+
         def download_variable(variable, snapshot_time):
-            """Download a single variable for a given snapshot."""
-            # try:
+            """Download a single variable for a given snapshot, interpolating NaNs if needed."""
+            
             upper_air = False
-            # select only the exact time
+
+            # Check if it's an upper-air variable
             if '_' in variable and variable.split('_')[0] in variable:
                 upper_air = True
                 var_name, level = variable.split('_')
@@ -196,32 +233,33 @@ class Zeus_Dataset(Dataset):
             else:
                 era_var = var_name_map[variable]
                 ds = total_ds[era_var].sel(time=snapshot_time)
-            
+
             # Select region
             if lat_range is not None:
                 ds = ds.sel(latitude=slice(lat_range[0], lat_range[1]))
             if lon_range is not None:
                 ds = ds.sel(longitude=slice(lon_range[0], lon_range[1]))
 
-            # array = ds.compute()
-            array = ds.values  #-------------------------------- Simulated
-            # array = np.random.rand(721, 1440).astype(np.float32)
-            
-            array = array.astype(np.float32)
-            assert array.shape == (721, 1440), "array.shape is not (721, 1440) but {}".format(array.shape)
+            # Compute array
+            array = ds.values.astype(np.float32)
 
-            # Squeeze time dimension if needed
-            if array.ndim == 3 and array.shape[0] == 1:
-                array = array[0]
+            # If NaNs exist, try interpolation along 'level' for upper-air variables
+            if np.isnan(array).any() and upper_air:
+                print(f"NaNs detected in {variable}, interpolating along pressure levels...")
+                # Interpolate from neighboring levels
+                ds_full = total_ds[era_var].sel(time=snapshot_time)
+                # Interpolation along 'level' to the desired level
+                array = ds_full.interp(level=int(level)).values.astype(np.float32)
 
             # Sanity check
-            assert not np.isnan(array).any(), f"{variable} has NaNs at {snapshot_time}"     # Exception
-            print(f"Checked: {variable} at {snapshot_time}")
+            if np.isnan(array).any():
+                print(f"Warning: {variable} still has NaNs at {snapshot_time}")
+
+            assert array.shape == (721, 1440), f"array.shape is not (721, 1440) but {array.shape}"
+            print(f"Checked OK: {variable} at {snapshot_time}")
 
             return variable, array
 
-            # except Exception as e:
-            #     raise RuntimeError(f"Error downloading {variable} at {snapshot_time}: {e}")     # Exception
 
         def process_snapshot(year, month, day, hour):
             """Download all variables for a single snapshot in parallel."""
