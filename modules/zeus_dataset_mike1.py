@@ -210,7 +210,8 @@ class Zeus_Dataset(Dataset):
             if lon_range is not None:
                 ds = ds.sel(longitude=slice(lon_range[0], lon_range[1]))
 
-            array = ds.compute()  #-------------------------------- Simulated
+            # array = ds.compute()
+            array = ds.values  #-------------------------------- Simulated
             # array = np.random.rand(721, 1440).astype(np.float32)
             
             array = array.astype(np.float32)
