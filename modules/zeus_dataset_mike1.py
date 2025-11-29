@@ -313,13 +313,13 @@ class Zeus_Dataset(Dataset):
                                 snap_executor.submit(process_snapshot, dt.year, dt.month, dt.day, dt.hour)
                             )
 
-                        # Wait for all snapshots to finish
-                        for future in as_completed(futures):
-                            try:
-                                timestamp = future.result()
-                            except Exception as e:
-                                print(f"Error processing snapshot: {e}")
-                                continue
+            # Wait for all snapshots to finish
+            for future in as_completed(futures):
+                try:
+                    timestamp = future.result()
+                except Exception as e:
+                    print(f"Error processing snapshot: {e}")
+                    continue
                     
                     
     def get_geo_data(self, management_path, variables):
