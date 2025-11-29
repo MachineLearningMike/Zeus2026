@@ -174,7 +174,7 @@ class Zeus_Dataset(Dataset):
     def download_fuXi2_snapshots_levels_region_parallel_vars(
             self, variables, var_name_map,
             start_year, end_year, lat_range=None, lon_range=None,
-            modulo=6, max_workers_snapshots=3, max_workers_vars=10):
+            modulo=6, max_workers_snapshots=5, max_workers_vars=10):
         """
         Parallel download of FuXi2 snapshots:
         - Snapshots (6-hourly) are parallelized.
@@ -1475,29 +1475,26 @@ if __name__ == "__main__":
     # print(ds.data_vars)
     # pass
     
-    dataset.get_geo_data(Path("d:\downloads"), ["orography"])
-    
-    
-    # setup_logging()
-    # dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
-    #     variables=mike1_variables, var_name_map = var_name_map,
-    #     start_year = 2015, 
-    #     end_year = 2024,
-    #     modulo=6,
-    #     # max_workers_snapshots=1, max_workers_vars=1,
-    # )
+    setup_logging()
+    dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
+        variables=mike1_variables, var_name_map = var_name_map,
+        start_year = 2015, 
+        end_year = 2024,
+        modulo=6,
+        # max_workers_snapshots=1, max_workers_vars=1,
+    )
 
-    # dict = dataset.analyze_hourly_paths(inclusive_left=None, inclusive_right=None, modulo=6)
-    # print(f"count: {dict['count']}, first_hour: {dict['first_hour']}, last_hour: {dict['last_hour']}, missing_hours: {dict['missing_hours']}")
-    # # print(dict)
+    dict = dataset.analyze_hourly_paths(inclusive_left=None, inclusive_right=None, modulo=6)
+    print(f"count: {dict['count']}, first_hour: {dict['first_hour']}, last_hour: {dict['last_hour']}, missing_hours: {dict['missing_hours']}")
+    # print(dict)
     
-    # if len(dict["missing_hours"]) <= 0:
-    #     inclusive_left = None #datetime(2023, 10, 5, 12)
-    #     inclusive_right = None #datetime(2023, 10, 6, 12)
-    #     dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=6)
+    if len(dict["missing_hours"]) <= 0:
+        inclusive_left = None #datetime(2023, 10, 5, 12)
+        inclusive_right = None #datetime(2023, 10, 6, 12)
+        dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=6)
         
-    # else:
-    #     print("Missing hours found!")
+    else:
+        print("Missing hours found!")
     
     # total_days, start_day, end_day, complete, data_dates = dataset.count_data_days()
     # print(f"total_days {total_days}, start_day {start_day}, end_day {end_day}, complete {complete}")
