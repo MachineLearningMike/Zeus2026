@@ -351,6 +351,7 @@ categorical_npy_paths = [config['land_sea_mask_npy_path'], config['soil_type_npy
 dense_npy_paths = [config['orograph_npy_path']]
 Snapshot.create_geo_tensor(categorical_npy_paths, dense_npy_paths)
 
+
 #------------------------------------------------------------------------------------------------------------------------------------
 
 if __name__ == "__main__":
