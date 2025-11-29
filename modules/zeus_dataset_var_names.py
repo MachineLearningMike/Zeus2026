@@ -499,57 +499,43 @@ mike1_variables = [     # exported.
     # Upper-air variables (Z, T, U, V, Q)
     # ------------------------------
 
-    # z
-    "z_50","z_100","z_150","z_200","z_250",
-    "z_300","z_400","z_500","z_600","z_700",
-    "z_850","z_925","z_1000",
-
-    # t
-    "t_50","t_100","t_150","t_200","t_250",
-    "t_300","t_400","t_500","t_600","t_700",
-    "t_850","t_925","t_1000",
-
-    # u
-    "u_50","u_100","u_150","u_200","u_250",
-    "u_300","u_400","u_500","u_600","u_700",
-    "u_850","u_925","u_1000",
-
-    # v
-    "v_50","v_100","v_150","v_200","v_250",
-    "v_300","v_400","v_500","v_600","v_700",
-    "v_850","v_925","v_1000",
-
-    # q Exlude them, because they have NaN values at lots of places, 
-    # and ERA interplation fails.
-    "q_50","q_100","q_150","q_200","q_250",
-    "q_300","q_400","q_500","q_600","q_700",
-    "q_850","q_925","q_1000",
+    "z_50","t_50","u_50","v_50","q_50",
+    "z_100","t_100","u_100","v_100","q_100",
+    "z_150","t_150","u_150","v_150","q_150",
+    "z_200","t_200","u_200","v_200","q_200",
+    "z_250","t_250","u_250","v_250","q_250",
+    "z_300","t_300","u_300","v_300","q_300",
+    "z_400","t_400","u_400","v_400","q_400",
+    "z_500","t_500","u_500","v_500","q_500",
+    "z_600","t_600","u_600","v_600","q_600",
+    "z_700","t_700","u_700","v_700","q_700",
+    "z_850","t_850","u_850","v_850","q_850",
+    "z_925","t_925","u_925","v_925","q_925",
+    "z_1000","t_1000","u_1000","v_1000","q_1000",
 
     # ------------------------------
     # Surface variables
     # ------------------------------
 
-    # temp/humidity
-    "t2m","d2m",
     # "sst",        # NaN, maybe on land
-
-    # winds
-    "u10m","v10m","u100m","v100m",
-
-    # pressure
-    "msl", "sp",    # "sp" is newly added
-
+    "u10m","v10m",
+    "msl",
     # clouds
     "lcc","mcc","hcc","tcc",
-
     # radiation
-    "ssr","ssrd","fdir","ttr","tp",
+    "ssr","ssrd","fdir","ttr",    
+    # targets
+    "t2m", "tp", "u100m","v100m", "d2m", "sp",
 
     # Nov 28, 2025
     # Exclude wave / storm variable because they are defined on ocean only.
     # # wave / storm variables
     # "mdts","mdww","mpts","mpww","shts","shww",
 ]
+num_vars_per_level = 5
+num_levels = 13
+num_vars_surface = 17
+mike1_variables_order = "[v_l for v ztuvq for l in levels] + surface_vars"
 
 print("len mike1_variables: ", len(mike1_variables))
 

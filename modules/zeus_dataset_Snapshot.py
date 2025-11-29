@@ -1,7 +1,7 @@
 
 import torch
 import numpy as np
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import torch.nn.functional as F
 
@@ -10,10 +10,11 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 from models.config_Mike1 import config
 
 from modules.zeus_dateset_geo_tempo import Geo_Tempo
-from modules.zeus_dataset_var_names import mike1_variables, var_name_map
-
+from modules.zeus_dataset_var_names import mike1_variables, mike1_variables_order, num_vars_per_level, num_levels, num_vars_surface
 
 class Snapshot:
+    assert mike1_variables_order == "[v_l for v ztuvq for l in levels] + surface_vars"
+    
     export_factor10 = 10
     # temporary. can be added and changed any time
     meteo_dims = len(mike1_variables)
@@ -22,6 +23,9 @@ class Snapshot:
 
     export_height = 720        # exclude the north pole.
     export_width = 1440
+    
+    levels = num_levels
+    level_dims = num_vars_per_level
     
     _shared_geo_tensor = None   # on device
     geo_nCategories = None
@@ -262,6 +266,21 @@ class Snapshot:
         fget = _get_meteo_tensor,
     )
     
+    def _get_tempo_tensor(self):
+        tempo = Snapshot.crop_tensor_to_export_size(self.tempo_internal)        
+        
+        if Snapshot.export_factor10 != 10:
+            tempo = Snapshot.resize_for_export(tempo)
+        
+        tempo = tempo.to(self.device)
+        tempo.detach()
+        tempo.requires_grad = False
+        return tempo
+
+    tempo = property(
+        fget = _get_tempo_tensor,
+    )
+    
     def _get_geo_tensor(self):
         geo = Snapshot.crop_tensor_to_export_size(self.geo_internal)        
         
@@ -282,6 +301,51 @@ class Snapshot:
     def delete(self):
         self._device = 'cpu'
         
+    def pack_pair_snapshots(ss1, ss2):
+        def interleave_per_level(meteo, tempo, geo):
+            """
+            meteo:  (m, 13, H, W)
+            tempo:  (t, 13, H, W)
+            geo:    (g, 13, H, W)
+            """
+            print(meteo.shape, tempo.shape, geo.shape)
+            assert meteo.shape[1:] == tempo.shape[1:] and tempo.shape[1:] == geo.shape[1:]
+            
+            channels = []
+            nLevels = meteo.shape[1]
+            for l in range(nLevels):
+                # Take all channels for this level
+                level_slice = torch.cat([
+                    meteo[:, l, :, :],      # (m, H, W)
+                    tempo[:, l, :, :],      # (t, H, W)
+                    geo[:, l, :, :]         # (g, H, W)
+                ], dim=0)                   # (m+t+g, H, W)
+                channels.append(level_slice)
+            # Concatenate all levels along channel dimension
+            return channels # nLevels-list of (m+t+g, H, W)
+        
+        def arrange_by_level(ss):
+            _, H, W = ss.meteo.shape
+            # assert mike1_variables_order == "[v_l for v ztuvq for l in levels] + surface_vars"
+            meteo = ss.meteo[:Snapshot.level_dims*Snapshot.levels, :, :].view(-1, Snapshot.levels, H, W)    # (5, 13, H, W)
+            tempo = ss.tempo.unsqueeze(1).repeat(1, Snapshot.levels, 1, 1)   # (5, 13, H, W)
+            geo = ss.geo.unsqueeze(1).repeat(1, Snapshot.levels, 1, 1)       # (6, 13, H, W)
+            levels = interleave_per_level(meteo, tempo, geo)    # 13-list of ((5+5+6), H, W)
+            meteo = ss.meteo[Snapshot.level_dims*Snapshot.levels:, :, :].view(-1, 1, H, W)     # (5, 13, H, W)
+            tempo = tempo[:, 0:1, :, :]                           # (1, 1, H, W)
+            geo = geo[:, 0:1, :, :]                            # (1, 1, H, W)    
+            surface = interleave_per_level(meteo, tempo, geo)[0]   # (17+5+6, H, W)
+            return levels, surface
+        
+        levls1, surface1 = arrange_by_level(ss1)   # 13-list of ((5+5+6), H, W), (17+5+6, H, W)
+        levls2, surface2 = arrange_by_level(ss2)   # 13-list of ((5+5+6), H, W), (17+5+6, H, W)
+        
+        levels = []
+        for l1, l2 in zip(levls1, levls2):
+            levels.append(torch.concat([l1, l2], dim=0))    # list of ((5+5+6)*2, H, W)
+        surface = torch.concat([surface1, surface2], dim=0) # ((17+5+6)*2, H, W)
+        
+        return levels, surface  # list of ((5+5+6)*2, H, W), ((17+5+6)*2, H, W)
 
 categorical_npy_paths = [config['land_sea_mask_npy_path'], config['soil_type_npy_path']]
 dense_npy_paths = [config['orograph_npy_path']]
@@ -294,12 +358,23 @@ if __name__ == "__main__":
     print(f"------------ Total number of train variables: {nVars}")
 
     now = datetime.now(timezone.utc)
+    ss1 = Snapshot(now.year, now.month, now.day, now.hour)
+    then = now + timedelta(hours=6)
+    ss2 = Snapshot(then.year, then.month, then.day, then.hour)
+    
+    levels, surface = Snapshot.pack_pair_snapshots(ss1, ss2)
+    for idx, lvl in enumerate(levels):
+        print(idx, lvl.shape)
+        break
+    print(14, surface.shape)
+
+    now = datetime.now(timezone.utc)
     snapshot_now = Snapshot(now.year, now.month, now.day, now.hour)
     # print("meteo_internal, tempo_internal, meteo_tempo_internal, geo_internal, nCat: ", snapshot_now.meteo_internal.shape, snapshot_now.tempo_internal.shape, snapshot_now.meteo_tempo_internal.shape, snapshot_now.geo_internal.shape, snapshot_now.geo_nCategories)
     # print("input, meteo, meteo_tempo, geo: ", snapshot_now.input.shape, snapshot_now.meteo.shape, snapshot_now.meteo_tempo.shape, snapshot_now.geo.shape)
 
     Snapshot.export_factor10 = 2
-    print("input_tensor, meteo_tempo, geo: ", snapshot_now.input.shape, snapshot_now.meteo_tempo.shape, snapshot_now.geo.shape)    
+    print("input_tensor, meteo_tempo, meteo, tempo, geo: ", snapshot_now.input.shape, snapshot_now.meteo_tempo.shape, snapshot_now.meteo.shape, snapshot_now.tempo.shape, snapshot_now.geo.shape)    
     Snapshot.export_factor10 = 10
     
     # Snapshot.device = "cuda"
@@ -349,9 +424,9 @@ if __name__ == "__main__":
         plt.show()
 
     #------------- geo, 6 -----------------
-    show_on_map(snapshot_now.geo[0].numpy())     # land_sea_mask,    category
+    # show_on_map(snapshot_now.geo[0].numpy())     # land_sea_mask,    category
     # show_on_map(snapshot_now.geo[1].numpy())     # soil_type,        category
-    show_on_map(snapshot_now.geo[2].numpy())     # geopotential_at_surface,  standardized
+    # show_on_map(snapshot_now.geo[2].numpy())     # geopotential_at_surface,  standardized
     # show_on_map(snapshot_now.geo[3].numpy())     # sin(lat),  as-is
     # show_on_map(snapshot_now.geo[4].numpy())     # sin(lon),  as-is
     # show_on_map(snapshot_now.geo[5].numpy())     # cos(lon),  as-is
