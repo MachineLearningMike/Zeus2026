@@ -224,7 +224,7 @@ class Zeus_Dataset(Dataset):
 
             # Sanity check
             assert not np.isnan(array).any(), f"{variable} has NaNs at {snapshot_time}"     # Exception
-            print(f"donwnloaded: {variable} at {snapshot_time}")
+            print(f"Checked: {variable} at {snapshot_time}")
 
             return variable, array
 
