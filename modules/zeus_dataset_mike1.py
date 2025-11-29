@@ -250,7 +250,6 @@ class Zeus_Dataset(Dataset):
                 except Exception as e:
                     logging.fatal(f"--------------- variable: {variables[idx]} / {snapshot_time} failed to download. Quiting snapshot...")
                     logging.fatal(f"Exception: {e}")
-                    
                     return None
 
                 assert len(var_dict) == len(variables)
