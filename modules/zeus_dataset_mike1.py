@@ -251,9 +251,7 @@ class Zeus_Dataset(Dataset):
                 # Interpolation along 'level' to the desired level
                 array = ds_full.interp(level=int(level)).values.astype(np.float32)
 
-            # Sanity check
-            if np.isnan(array).any():
-                print(f"Warning: {variable} still has NaNs at {snapshot_time}")
+            assert not np.isnan(array).any(), f"Warning: {variable} still has NaNs at {snapshot_time}"
 
             assert array.shape == (721, 1440), f"array.shape is not (721, 1440) but {array.shape}"
             print(f"Checked OK: {variable} at {snapshot_time}")
