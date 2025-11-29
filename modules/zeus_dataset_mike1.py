@@ -219,10 +219,11 @@ class Zeus_Dataset(Dataset):
             # except Exception as e:
             #     raise RuntimeError(f"Error downloading {variable} at {snapshot_time}: {e}")     # Exception
 
-        def download_variable(idx, variable, snapshot_time):
+        def download_variable(idx,  year, month, day, hour, variable):
             """Download a single variable for a given snapshot, interpolating NaNs if needed."""
             
             upper_air = False
+            snapshot_time = f"{year}-{month:02d}-{day:02d}T{hour:02d}:00"
 
             # Check if it's an upper-air variable
             if '_' in variable and variable.split('_')[0] in variable:
@@ -262,8 +263,6 @@ class Zeus_Dataset(Dataset):
         def process_snapshot(year, month, day, hour):
             """Download all variables for a single snapshot in parallel."""
             
-            snapshot_time = f"{year}-{month:02d}-{day:02d}T{hour:02d}:00"
-            
             # existing_snapshot = self.load_hourly_data(year, month, day, hour, modulo)
             # if existing_snapshot is not None:
             #     return snapshot_time
@@ -271,13 +270,13 @@ class Zeus_Dataset(Dataset):
             snapshot_path = self.get_file_path_npz(year, month, day, hour, modulo)
             if snapshot_path.exists():
                 print(f"==================================== snapshot at {year}/{month}/{day}/{hour} exists!") 
-                return snapshot_time
+                return False
 
             var_dict = {}
 
             # Parallel download of variables
             with ThreadPoolExecutor(max_workers=max_workers_vars) as var_executor:
-                var_futures = [var_executor.submit(download_variable, idx, var, snapshot_time) for idx, var in enumerate(variables)]
+                var_futures = [var_executor.submit(download_variable, idx, year, month, day, hour, var) for idx, var in enumerate(variables)]
 
                 for idx, future in enumerate(as_completed(var_futures)):
                     var_name, array = future.result()
@@ -287,7 +286,7 @@ class Zeus_Dataset(Dataset):
                     if var_dict.get(var, None) is None:
                         logging.fatal(f"--------------- variable: {idx} {year}/{month}/{day}/{hour}/{idx}, {variables[idx]} failed to download. Quiting snapshot...")
                         logging.fatal(f"Exception: {e}")
-                        return None
+                        return False
                     else:
                         assert var_dict[var].shape == (721, 1440)
 
@@ -295,7 +294,7 @@ class Zeus_Dataset(Dataset):
                 check_dir(path.parent)
                 save(path, var_dict)
                 print(f"==================================== snapshot at {year}/{month}/{day}/{hour} saved!")
-            return snapshot_time
+            return True
 
         # -------------------------
         # Parallel execution of snapshots
