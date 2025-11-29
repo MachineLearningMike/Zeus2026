@@ -41,7 +41,6 @@ from modules_zeus.era5_cds import Era5CDSLoader, get_today
 from modules.zeus_dataset_codec_Mike1 import load, save
 from modules.zeus_dataset_Snapshot import Snapshot
 # from modules.zeus_dataset_sharding_dynamic import ERA5ZarrShards
-from modules.zeus_dataset_var_names import upper_air_levels, upper_air_vars, surface_channels, var_name_map
 
 class Zeus_Dataset(Dataset):
     def __init__(self, pm, dataset_path, management_path):
@@ -173,7 +172,7 @@ class Zeus_Dataset(Dataset):
         return array_dict
     
     def download_fuXi2_snapshots_levels_region_parallel_vars(
-            self, upper_air_vars, upper_air_levels, surface_vars,
+            self, variables, var_name_map,
             start_year, end_year, lat_range=None, lon_range=None,
             modulo=6, max_workers_snapshots=4, max_workers_vars=8):
         """
@@ -184,19 +183,12 @@ class Zeus_Dataset(Dataset):
 
         total_ds = self.get_normalized_dataset()
 
-        # Generate full variable names      # Borrow 
-        variables = []
-        for level in upper_air_levels:
-            for var in upper_air_vars:
-                variables.append(f"{var}_{level}")
-        variables.extend(surface_vars)
-
         def download_variable(variable, snapshot_time):
             """Download a single variable for a given snapshot."""
             # try:
             upper_air = False
             # select only the exact time
-            if '_' in variable and variable.split('_')[0] in upper_air_vars:
+            if '_' in variable and variable.split('_')[0] in variable:
                 upper_air = True
                 var_name, level = variable.split('_')
                 era_var = var_name_map[var_name]
@@ -261,6 +253,10 @@ class Zeus_Dataset(Dataset):
                     
                     return None
 
+                assert len(var_dict) == len(variables)
+                for key, value in var_dict.items():
+                    assert key in variables
+                    assert value.shape == (721, 1440)
                 path = self.get_file_path_npz(year, month, day, hour, modulo)
                 check_dir(path.parent)
                 save(path, var_dict)
@@ -1400,7 +1396,7 @@ if __name__ == "__main__":
 
     from models.config_Mike1 import config
     from modules.params_Mike1 import Params
-    from modules.zeus_dataset_var_names import upper_air_levels, upper_air_vars, surface_channels, var_name_map
+    from modules.zeus_dataset_var_names import mike1_variables, var_name_map
     pm = Params(config)
 
     dataset = Zeus_Dataset(pm, Path(config['dataset_path']), Path(config['management_path']))
@@ -1413,9 +1409,7 @@ if __name__ == "__main__":
     # pass
 
     dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
-        upper_air_vars = upper_air_vars, 
-        upper_air_levels = upper_air_levels, 
-        surface_vars = surface_channels,
+        variables=mike1_variables, var_name_map = var_name_map,
         start_year = 2015, 
         end_year = 2024,
         modulo=6,
