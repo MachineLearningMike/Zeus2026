@@ -469,7 +469,7 @@ var_name_map = {
     # surface
     't2m': '2m_temperature',
     'd2m': '2m_dewpoint_temperature',
-    # 'sst': 'sea_surface_temperature',     # NaN, on land
+    'sst': 'sea_surface_temperature',     # NaN, on land
     'u10m': '10m_u_component_of_wind',
     'v10m': '10m_v_component_of_wind',
     'u100m': '100m_u_component_of_wind',
@@ -530,7 +530,8 @@ mike1_variables = [     # exported.
     # ------------------------------
 
     # temp/humidity
-    "t2m","d2m","sst",
+    "t2m","d2m",
+    # "sst",        # NaN, may on land
 
     # winds
     "u10m","v10m","u100m","v100m",
