@@ -166,7 +166,7 @@ config["land_sea_mask_npy_path"] = "data/land_sea_mask_721x1440.npy_geo"
 # int8 version of ERA5 soil type, from GCP
 config["soil_type_npy_path"] = "data/soil_type_721x1440.npy_geo"
 # ERA5 geopotential_at_surface, from GCP    
-config["orograph_npy_path"] = config["management_path"] + "/geopotential_at_surface.npy"
+config["orograph_npy_path"] = "data/geopotential_at_surface.npy_geo"
    
 #-------------------------------------------------- project list ---------------
 projects = {}

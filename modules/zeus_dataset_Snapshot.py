@@ -285,7 +285,7 @@ class Snapshot:
 
 categorical_npy_paths = [config['land_sea_mask_npy_path'], config['soil_type_npy_path']]
 dense_npy_paths = [config['orograph_npy_path']]
-# Snapshot.create_geo_tensor(categorical_npy_paths, dense_npy_paths)
+Snapshot.create_geo_tensor(categorical_npy_paths, dense_npy_paths)
 
 #------------------------------------------------------------------------------------------------------------------------------------
 
@@ -302,7 +302,8 @@ if __name__ == "__main__":
     print("input_tensor, meteo_tempo, geo: ", snapshot_now.input.shape, snapshot_now.meteo_tempo.shape, snapshot_now.geo.shape)    
     Snapshot.export_factor10 = 10
     
-    Snapshot.device = "cuda"
+    # Snapshot.device = "cuda"
+    Snapshot.device = "cpu"
     print("input_tensor, meteo_tempo, geo: ", snapshot_now.input.device, snapshot_now.meteo_tempo.device, snapshot_now.geo.device) 
 
     import numpy as np
@@ -348,9 +349,9 @@ if __name__ == "__main__":
         plt.show()
 
     #------------- geo, 6 -----------------
-    # show_on_map(snapshot_now.geo[0].numpy())     # land_sea_mask,    category
+    show_on_map(snapshot_now.geo[0].numpy())     # land_sea_mask,    category
     # show_on_map(snapshot_now.geo[1].numpy())     # soil_type,        category
-    # show_on_map(snapshot_now.geo[2].numpy())     # geopotential_at_surface,  standardized
+    show_on_map(snapshot_now.geo[2].numpy())     # geopotential_at_surface,  standardized
     # show_on_map(snapshot_now.geo[3].numpy())     # sin(lat),  as-is
     # show_on_map(snapshot_now.geo[4].numpy())     # sin(lon),  as-is
     # show_on_map(snapshot_now.geo[5].numpy())     # cos(lon),  as-is
