@@ -210,8 +210,8 @@ class Zeus_Dataset(Dataset):
             if lon_range is not None:
                 ds = ds.sel(longitude=slice(lon_range[0], lon_range[1]))
 
-            # array = ds.compute()  #-------------------------------- Simulated
-            array = np.random.rand(721, 1440).astype(np.float32)
+            array = ds.compute()  #-------------------------------- Simulated
+            # array = np.random.rand(721, 1440).astype(np.float32)
             
             array = array.astype(np.float32)
             assert array.shape == (721, 1440), "array.shape is not (721, 1440) but {}".format(array.shape)
@@ -234,8 +234,13 @@ class Zeus_Dataset(Dataset):
             
             snapshot_time = f"{year}-{month:02d}-{day:02d}T{hour:02d}:00"
             
-            existing_snapshot = self.load_hourly_data(year, month, day, hour, modulo)
-            if existing_snapshot is not None:
+            # existing_snapshot = self.load_hourly_data(year, month, day, hour, modulo)
+            # if existing_snapshot is not None:
+            #     return snapshot_time
+            
+            snapshot_path = self.get_file_path_npz(year, month, day, hour, modulo)
+            if snapshot_path.exists():
+                print(f"==================================== snapshot at {snapshot_time} exists!") 
                 return snapshot_time
 
             var_dict = {}
@@ -1418,9 +1423,13 @@ if __name__ == "__main__":
     print(f"count: {dict['count']}, first_hour: {dict['first_hour']}, last_hour: {dict['last_hour']}, missing_hours: {dict['missing_hours']}")
     # print(dict)
     
-    inclusive_left = None #datetime(2023, 10, 5, 12)
-    inclusive_right = None #datetime(2023, 10, 6, 12)
-    dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=6)
+    if len(dict["missing_hours"]) <= 0:
+        inclusive_left = None #datetime(2023, 10, 5, 12)
+        inclusive_right = None #datetime(2023, 10, 6, 12)
+        dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=6)
+        
+    else:
+        print("Missing hours found!")
     
     # total_days, start_day, end_day, complete, data_dates = dataset.count_data_days()
     # print(f"total_days {total_days}, start_day {start_day}, end_day {end_day}, complete {complete}")
