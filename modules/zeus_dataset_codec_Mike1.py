@@ -44,14 +44,15 @@ def decode_float16(arr16, _meta):
 CRITICAL_VARS = ["2m_temperature", 'total_precipitation', "100m_u_component_of_wind", '100m_v_component_of_wind', "2m_dewpoint_temperature", "surface_pressure"]
 
 def choose_dtype(var_name, arr):
-    if var_name in CRITICAL_VARS:
-        return "uint16"
-    else:
-        # Moderate range -> float16
-        vmin, vmax = np.nanmin(arr), np.nanmax(arr)
-        if vmax - vmin > 1e4:  # very large range? could use uint16
-            return "uint16"
-        return "float16"
+    return "uint16"
+    # if var_name in CRITICAL_VARS:
+    #     return "uint16"
+    # else:
+    #     # Moderate range -> float16
+    #     vmin, vmax = np.nanmin(arr), np.nanmax(arr)
+    #     if vmax - vmin > 1e4:  # very large range? could use uint16
+    #         return "uint16"
+    #     return "float16"
 
 
 # ---------- Multi-variable encoding ----------
