@@ -244,11 +244,11 @@ class Zeus_Dataset(Dataset):
                 var_futures = [var_executor.submit(download_variable, var, snapshot_time) for var in variables]
 
                 try:
-                    for future in as_completed(var_futures):
+                    for idx, future in enumerate(as_completed(var_futures)):
                         var_name, array = future.result()
                         var_dict[var_name] = array
                 except Exception as e:
-                    logging.fatal(f"--------------- variable: {var_name} / {snapshot_time} failed to download. Quiting snapshot...")
+                    logging.fatal(f"--------------- variable: {variables[idx]} / {snapshot_time} failed to download. Quiting snapshot...")
                     logging.fatal(f"Exception: {e}")
                     
                     return None
