@@ -531,7 +531,7 @@ mike1_variables = [     # exported.
 
     # temp/humidity
     "t2m","d2m",
-    # "sst",        # NaN, may on land
+    # "sst",        # NaN, maybe on land
 
     # winds
     "u10m","v10m","u100m","v100m",
