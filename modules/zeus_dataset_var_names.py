@@ -519,10 +519,11 @@ mike1_variables = [     # exported.
     "v_300","v_400","v_500","v_600","v_700",
     "v_850","v_925","v_1000",
 
-    # q
-    "q_50","q_100","q_150","q_200","q_250",
-    "q_300","q_400","q_500","q_600","q_700",
-    "q_850","q_925","q_1000",
+    # q Exlude them, because they have NaN values at lots of places, 
+    # and ERA interplation fails.
+    # "q_50","q_100","q_150","q_200","q_250",
+    # "q_300","q_400","q_500","q_600","q_700",
+    # "q_850","q_925","q_1000",
 
     # ------------------------------
     # Surface variables
