@@ -1417,6 +1417,34 @@ def list_cds_variables(dataset):
     variables = info["parameters"]["variable"]["options"]
     return variables
 
+from utils import check_dir
+def setup_logging():
+    """
+    logging.info("This is an info message")
+    logging.warning("Watch out! This is a warning")
+    logging.error("An error happened")
+    logging.debug("Debug details here (won't show unless level is DEBUG)")
+    """
+    # Remove all handlers associated with the root logger
+    for handler in logging.root.handlers[:]:
+        logging.root.removeHandler(handler)
+
+    log_path = Path("/home/mike/zeus_manageent/dataset.txt")
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+
+    # File handler (append mode)
+    check_dir(log_path.parent)
+    file_handler = logging.FileHandler(log_path, mode='a')
+    file_handler.setFormatter(formatter)
+
+    # Console handler (stdout)
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
+
+    logging.root.setLevel(logging.INFO)
+    logging.root.addHandler(file_handler)
+    logging.root.addHandler(console_handler)
+
 #-------------------------------------- test ----------------------------------------
 if __name__ == "__main__":
 
@@ -1443,6 +1471,7 @@ if __name__ == "__main__":
     # print(ds.data_vars)
     # pass
 
+    setup_logging()
     dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
         variables=mike1_variables, var_name_map = var_name_map,
         start_year = 2015, 
