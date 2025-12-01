@@ -6,31 +6,15 @@ from pathlib import Path
 import os, sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from modules.Zeus_Swin_Block import Zeus_SwinTransformerBlock
+from modules.Zeus_Swin_Block_3D_CDHW import Zeus_SwinTransformerBlock3D
 from modules.zeus_dataset_Snapshot import Snapshot
 
-# -----------------------
-# 1️⃣ Preprocessing Module
-# -----------------------
-class Mike1_Preprocessor(nn.Module):
-    def __init__(self, ch_meteo_tempo, ch_geo, swin_dims, H, W, patch_kernel=8, patch_stride=8):
-        super().__init__()
-        self.ch_meteo_tempo, self.ch_geo, self.swin_dims, self.H, self.W = ch_meteo_tempo, ch_geo, swin_dims, H, W
-        ch_total = ch_meteo_tempo * 2 + ch_geo
-
-        self.conv_1 = nn.Conv2d(ch_total, swin_dims, kernel_size=patch_kernel, stride=patch_stride)
-        self.shock = nn.Parameter(torch.randn(H, W))    # Consider removing this.
-
-    def forward(self, x):     # (B, C, H, W)
-        x = x + self.shock
-        x = self.conv_1(x)
-        return x
 
 # -----------------------
 # 2️⃣ Swin Module
 # -----------------------
 class Mike1_Swin(nn.Module):
-    def __init__(self, ch_input, H_down, W_down, num_heads, window_size=18, num_blocks=30):        
+    def __init__(self, ch_input, D_down, H_down, W_down, num_heads, window_size=18, num_blocks=30):        
         super().__init__()
         self.ch_input, self.H_down, self.W_down, self.num_heads = ch_input, H_down, W_down, num_heads
 
@@ -46,7 +30,7 @@ class Mike1_Swin(nn.Module):
         assert ch_input % num_heads == 0, f"ch_input {ch_input} is not divisible with num_heads {num_heads}"
 
         self.swin_blocks = nn.ModuleList([
-            Zeus_SwinTransformerBlock(
+            Zeus_SwinTransformerBlock3D(
                 dim=ch_input,
                 input_resolution=(H_down, W_down),
                 num_heads=num_heads,
@@ -81,7 +65,7 @@ class Mike1_Swin(nn.Module):
 # -----------------------
 # 3️⃣ Postprocess (inverse of Preprocessor)
 # -----------------------
-class Mike1_Postprocess(nn.Module):
+class Reconstructor(nn.Module):
     def __init__(self, ch_input, ch_meteo, patch_kernel=8, patch_stride=8):
         super().__init__()
 
@@ -119,7 +103,7 @@ class Mike1(nn.Module):
                                num_blocks=num_swin_blocks,
                                )
 
-        self.postprocess = Mike1_Postprocess(swin_dims, ch_meteo, patch_kernel, patch_stride)
+        self.postprocess = Reconstructor(swin_dims, ch_meteo, patch_kernel, patch_stride)
 
     def forward(self, sp1, sp2):    # Not batch-processing, as hard drives are always bottlenecks.
         meteo_tempo1, meteo_tempo2, geo = sp1.meteo_tempo, sp2.meteo_tempo, sp1.geo

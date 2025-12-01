@@ -300,52 +300,52 @@ class Snapshot:
     #------------------ miscellaneout --------------------
     def delete(self):
         self._device = 'cpu'
-        
+    
     def pack_pair_snapshots(ss1, ss2):
-        def interleave_per_level(meteo, tempo, geo):
-            """
-            meteo:  (m, 13, H, W)
-            tempo:  (t, 13, H, W)
-            geo:    (g, 13, H, W)
-            """
-            print(meteo.shape, tempo.shape, geo.shape)
-            assert meteo.shape[1:] == tempo.shape[1:] and tempo.shape[1:] == geo.shape[1:]
-            
-            channels = []
-            nLevels = meteo.shape[1]
-            for l in range(nLevels):
-                # Take all channels for this level
-                level_slice = torch.cat([
-                    meteo[:, l, :, :],      # (m, H, W)
-                    tempo[:, l, :, :],      # (t, H, W)
-                    geo[:, l, :, :]         # (g, H, W)
-                ], dim=0)                   # (m+t+g, H, W)
-                channels.append(level_slice)
-            # Concatenate all levels along channel dimension
-            return channels # nLevels-list of (m+t+g, H, W)
-        
+        """
+        Packs two snapshots by interleaving meteo, tempo, and geo features per level,
+        for vertical levels and surface variables.
+        """
+
+        def interleave_level(meteo_level, tempo_level, geo_level):
+            # meteo_level, tempo_level, geo_level: (batch, H, W)
+            return torch.cat([meteo_level, tempo_level, geo_level], dim=0)  # (m+t+g, H, W)
+
         def arrange_by_level(ss):
             _, H, W = ss.meteo.shape
-            # assert mike1_variables_order == "[v_l for v ztuvq for l in levels] + surface_vars"
-            meteo = ss.meteo[:Snapshot.level_dims*Snapshot.levels, :, :].view(-1, Snapshot.levels, H, W)    # (5, 13, H, W)
-            tempo = ss.tempo.unsqueeze(1).repeat(1, Snapshot.levels, 1, 1)   # (5, 13, H, W)
-            geo = ss.geo.unsqueeze(1).repeat(1, Snapshot.levels, 1, 1)       # (6, 13, H, W)
-            levels = interleave_per_level(meteo, tempo, geo)    # 13-list of ((5+5+6), H, W)
-            meteo = ss.meteo[Snapshot.level_dims*Snapshot.levels:, :, :].view(-1, 1, H, W)     # (5, 13, H, W)
-            tempo = tempo[:, 0:1, :, :]                           # (1, 1, H, W)
-            geo = geo[:, 0:1, :, :]                            # (1, 1, H, W)    
-            surface = interleave_per_level(meteo, tempo, geo)[0]   # (17+5+6, H, W)
+
+            # --- Vertical levels ---
+            meteo_levels = ss.meteo[:Snapshot.level_dims*Snapshot.levels].view(Snapshot.level_dims, Snapshot.levels, H, W)
+            tempo_levels = ss.tempo[:, None, :, :].expand(-1, Snapshot.levels, H, W)  # (t, levels, H, W)
+            geo_levels = ss.geo[:, None, :, :].expand(-1, Snapshot.levels, H, W)      # (g, levels, H, W)
+
+            levels = []
+            for l in range(Snapshot.levels):
+                level_slice = interleave_level(
+                    meteo_levels[:, l, :, :],
+                    tempo_levels[:, l, :, :],
+                    geo_levels[:, l, :, :]
+                )
+                levels.append(level_slice)  # list of length levels, each (m+t+g, H, W)
+
+            # --- Surface variables ---
+            meteo_surface = ss.meteo[Snapshot.level_dims*Snapshot.levels:, :, :].view(-1, H, W)  # (m_surf, H, W)
+            tempo_surface = tempo_levels[:, 0, :, :]                                              # (t, H, W)
+            geo_surface = geo_levels[:, 0, :, :]                                                  # (g, H, W)
+            surface = interleave_level(meteo_surface, tempo_surface, geo_surface)                # (m_surf+t+g, H, W)
+
             return levels, surface
-        
-        levls1, surface1 = arrange_by_level(ss1)   # 13-list of ((5+5+6), H, W), (17+5+6, H, W)
-        levls2, surface2 = arrange_by_level(ss2)   # 13-list of ((5+5+6), H, W), (17+5+6, H, W)
-        
-        levels = []
-        for l1, l2 in zip(levls1, levls2):
-            levels.append(torch.concat([l1, l2], dim=0))    # list of ((5+5+6)*2, H, W)
-        surface = torch.concat([surface1, surface2], dim=0) # ((17+5+6)*2, H, W)
-        
-        return levels, surface  # list of ((5+5+6)*2, H, W), ((17+5+6)*2, H, W)
+
+        # --- Process snapshots ---
+        lev1, surf1 = arrange_by_level(ss1)
+        lev2, surf2 = arrange_by_level(ss2)
+
+        # --- Concatenate corresponding levels ---
+        levels = [torch.cat([l1, l2], dim=0) for l1, l2 in zip(lev1, lev2)]  # list of (m+t+g)*2, H, W
+        surface = torch.cat([surf1, surf2], dim=0)                             # (m_surf+t+g)*2, H, W
+
+        return levels, surface
+
 
 categorical_npy_paths = [config['land_sea_mask_npy_path'], config['soil_type_npy_path']]
 dense_npy_paths = [config['orograph_npy_path']]
@@ -425,7 +425,7 @@ if __name__ == "__main__":
         plt.show()
 
     #------------- geo, 6 -----------------
-    # show_on_map(snapshot_now.geo[0].numpy())     # land_sea_mask,    category
+    show_on_map(snapshot_now.geo[0].numpy())     # land_sea_mask,    category
     # show_on_map(snapshot_now.geo[1].numpy())     # soil_type,        category
     # show_on_map(snapshot_now.geo[2].numpy())     # geopotential_at_surface,  standardized
     # show_on_map(snapshot_now.geo[3].numpy())     # sin(lat),  as-is
