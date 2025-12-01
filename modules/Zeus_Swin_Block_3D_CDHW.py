@@ -318,17 +318,15 @@ def show_on_map(data):  # np.array
 import time
 
 if __name__ == "__main__":
-    device = "cuda"
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    factor10 = 3  # 2, 3
-    H, W, D, C = int(90/10*factor10), int(180/10*factor10), 14, 10
+    factor10 = 2  # 2, 3
+    H, W, D = int(90/10*factor10), int(180/10*factor10), 14
+    print(H, W, D)
+    C, num_heads = 16, 4
     window_size = (2, int(10/10*factor10), int(10/10*factor10))  # (win_D, win_H, win_W)
 
     input_resolution=(D, H, W)
-    num_heads = 5
-
-    # Random input: (B, C, D, H, W)
-    x = torch.randn(1, C, D, H, W).to(device)
 
     # Initialize 3D Swin Transformer Blocks
     blocks3D = [
@@ -347,6 +345,9 @@ if __name__ == "__main__":
         for idx in range(30)  # reduced number for testing
     ]
 
+    # Random input: (B, C, D, H, W)
+    x = torch.randn(1, C, D, H, W).to(device).to(device)
+
     # Flatten input for block input
     B, C, D, H, W = x.shape
     x_flat = x.permute(0,2,3,4,1).reshape(B, D*H*W, C)
@@ -362,14 +363,14 @@ if __name__ == "__main__":
     print(f"Output shape: {x_out.shape}, time: {(e-s):.3f} sec")
 
 
-positionBiasLearner = PositionBiasLearner3D(input_resolution=(D, H, W), window_size=window_size, num_heads=num_heads)
-pos_code = positionBiasLearner.flat_pair_pos_code_on_windows # (nWindows * window_volume * window_volume, 4)
-  
-pos_code = pos_code.view(positionBiasLearner.nWindows, positionBiasLearner.window_volume, positionBiasLearner.window_volume, 4) # (nWindows, indow_volume, window_volume, 4)
-pos_code = pos_code[:, 0, :, :]
-pos_code = pos_code.view(D//window_size[0], H//window_size[1], W//window_size[2], window_size[0], window_size[1], window_size[2],  4)
-pos_code = pos_code.permute(0, 3, 1, 4, 2, 5, 6).contiguous()
-pos_code = pos_code.view(D, H, W, 4)[0] # (H, W, 4).
-data = pos_code[:, :, 2].numpy()    # cos_lat1, cos_lat2, great_circle, delta_depth
+    positionBiasLearner = PositionBiasLearner3D(input_resolution=(D, H, W), window_size=window_size, num_heads=num_heads)
+    pos_code = positionBiasLearner.flat_pair_pos_code_on_windows # (nWindows * window_volume * window_volume, 4)
+    
+    pos_code = pos_code.view(positionBiasLearner.nWindows, positionBiasLearner.window_volume, positionBiasLearner.window_volume, 4) # (nWindows, indow_volume, window_volume, 4)
+    pos_code = pos_code[:, 0, :, :]
+    pos_code = pos_code.view(D//window_size[0], H//window_size[1], W//window_size[2], window_size[0], window_size[1], window_size[2],  4)
+    pos_code = pos_code.permute(0, 3, 1, 4, 2, 5, 6).contiguous()
+    pos_code = pos_code.view(D, H, W, 4)[0] # (H, W, 4).
+    data = pos_code[:, :, 2].numpy()    # cos_lat1, cos_lat2, great_circle, delta_depth
 
-show_on_map(data)
+    show_on_map(data)

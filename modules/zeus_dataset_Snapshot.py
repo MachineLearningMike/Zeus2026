@@ -211,10 +211,27 @@ class Snapshot:
         return (int(Snapshot.export_height/10*Snapshot.export_factor10), int(Snapshot.export_width/10*Snapshot.export_factor10))
     
     def resize_for_export(tensor):
-        x = tensor.unsqueeze(0)  # shape (1, C, H, W)
-        size=Snapshot.get_export_size()
-        x_resized = F.interpolate(x, size=size, mode='bilinear', align_corners=False)
-        x_resized = x_resized.squeeze(0)  # shape (C, H1, W1)
+        """
+        Resize a tensor (C, H, W) to Snapshot.get_export_size(),
+        treating the horizontal dimension as cylindrical (wrap-around).
+        """
+        x = tensor.unsqueeze(0)  # (1, C, H, W)
+        size_h, size_w = Snapshot.get_export_size()  # target size
+
+        C, H, W = x.shape[1], x.shape[2], x.shape[3]
+
+        # 1. Wrap horizontally: pad 1/2 width on both sides
+        pad_w = W // 2
+        x_wrapped = torch.cat([x[..., -pad_w:], x, x[..., :pad_w]], dim=3)  # (1, C, H, W + W)
+
+        # 2. Interpolate to target size
+        x_resized = F.interpolate(x_wrapped, size=(size_h, size_w + 0), mode='bilinear', align_corners=False)
+
+        # 3. Crop central W region
+        start = (x_resized.shape[3] - size_w) // 2
+        x_resized = x_resized[..., :, start:start + size_w]
+
+        x_resized = x_resized.squeeze(0)  # (C, H, W)
         return x_resized
     
     def _get_input_tensor(self):
@@ -332,17 +349,19 @@ class Snapshot:
             meteo_surface = ss.meteo[Snapshot.level_dims*Snapshot.levels:, :, :].view(-1, H, W)  # (m_surf, H, W)
             tempo_surface = tempo_levels[:, 0, :, :]                                              # (t, H, W)
             geo_surface = geo_levels[:, 0, :, :]                                                  # (g, H, W)
-            surface = interleave_level(meteo_surface, tempo_surface, geo_surface)                # (m_surf+t+g, H, W)
+            surface = interleave_level(meteo_surface, tempo_surface, geo_surface)               # (m_surf+t+g, H, W)
 
             return levels, surface
 
         # --- Process snapshots ---
         lev1, surf1 = arrange_by_level(ss1)
         lev2, surf2 = arrange_by_level(ss2)
+        
+        assert ss1.device == ss2.device
 
         # --- Concatenate corresponding levels ---
-        levels = [torch.cat([l1, l2], dim=0) for l1, l2 in zip(lev1, lev2)]  # list of (m+t+g)*2, H, W
-        surface = torch.cat([surf1, surf2], dim=0)                             # (m_surf+t+g)*2, H, W
+        levels = [torch.cat([l1, l2], dim=0).to(ss1.device) for l1, l2 in zip(lev1, lev2)]  # list of (m+t+g)*2, H, W
+        surface = torch.cat([surf1, surf2], dim=0).to(ss2.device)                             # (m_surf+t+g)*2, H, W
 
         return levels, surface
 
@@ -355,6 +374,8 @@ Snapshot.create_geo_tensor(categorical_npy_paths, dense_npy_paths)
 #------------------------------------------------------------------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    
     nVars = Snapshot.num_get_train_variables()
     print(f"------------ Total number of train variables: {nVars}")
 

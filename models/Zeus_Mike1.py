@@ -1,121 +1,105 @@
 import torch
 import torch.nn as nn
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+import time
 
 from pathlib import Path
 import os, sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+from modules.zeus_patch_unpatch import PatchFeatureExtractor, UnpatchReconstructor
 from modules.Zeus_Swin_Block_3D_CDHW import Zeus_SwinTransformerBlock3D
 from modules.zeus_dataset_Snapshot import Snapshot
 
 
 # -----------------------
-# 2️⃣ Swin Module
+# 4️⃣ Full Model
 # -----------------------
-class Mike1_Swin(nn.Module):
-    def __init__(self, ch_input, D_down, H_down, W_down, num_heads, window_size=18, num_blocks=30):        
+class Zeus(nn.Module):
+    # def __init__(self, pm, device='cpu'):
+    #     patch_kernel = pm.patch_kernel
+    #     patch_stride = pm.patch_stride
+    #     swin_dims = pm.swin_dims
+    #     window_size = pm.window_size
+    #     num_swin_blocks = pm.num_swin_block
+    
+    def __init__(self, H, W, num_heads,
+                num_steps, patch_kernel=8, patch_stride=8, swin_dims=16,
+                window_size=(2,10,10), num_swin_blocks=30):
         super().__init__()
-        self.ch_input, self.H_down, self.W_down, self.num_heads = ch_input, H_down, W_down, num_heads
-
-        # We know the attention in the following transformer block cannot represent physical interaction between two geo-points,
-        # even if we introduce position bias that is learnt from latitude-distortion.
-        # Equal-area is necessary for simulating physical interaction, as the volume of grid cells are physical amounts.
-        # We don't need positional encoding, as the token sequences are all of the same, full shape.
-
-        # def __init__(self, dim, input_resolution, num_heads, window_size=7, shift_size=0,
-        #             mlp_ratio=4., qkv_bias=True, drop=0., attn_drop=0., drop_path=0.,
-        #             act_layer=nn.GELU, norm_layer=nn.LayerNorm, pretrained_window_size=0):
-
-        assert ch_input % num_heads == 0, f"ch_input {ch_input} is not divisible with num_heads {num_heads}"
-
+        
+        #---------------- Patch extractor -----------------
+        
+        now = datetime.now(timezone.utc)
+        ss1 = Snapshot(now.year, now.month, now.day, now.hour)
+        then = now + timedelta(hours=6)
+        ss2 = Snapshot(then.year, then.month, then.day, then.hour)
+        levels, surface = Snapshot.pack_pair_snapshots(ss1, ss2)
+        
+        self.patch_kernel=(patch_kernel,patch_kernel)
+        self.patch_stride=(patch_stride,patch_stride)
+        
+        self.patch_extractor = PatchFeatureExtractor(levels, surface, c_out=swin_dims, patch_kernel=self.patch_kernel, patch_stride=self.patch_stride)
+        
+        #---------------- Swin blocks ----------------------
+        
+        input_resolution = (self.patch_extractor.nTotalLevels, H//patch_stride, W//patch_stride) 
+        
         self.swin_blocks = nn.ModuleList([
             Zeus_SwinTransformerBlock3D(
-                dim=ch_input,
-                input_resolution=(H_down, W_down),
+                dim=swin_dims,
+                input_resolution=input_resolution,
                 num_heads=num_heads,
                 window_size=window_size,
-                shift_size=0 if idx % 2 == 0 else window_size//2,
+                shift_size=(0,0,0) if idx % 2 == 0 else (window_size[0]//2, window_size[1]//2, - window_size[2]//2),
                 mlp_ratio=4.,
                 qkv_bias=True,
                 drop=0.0,
                 attn_drop=0.0,
                 drop_path=0.0
-            ) for idx in range(num_blocks)
+            )
+            for idx in range(num_swin_blocks)  # reduced number for testing
         ])
+        
+        #--------------- Unpatch reconstructor        
+        self.uppatch_reconstructor = UnpatchReconstructor(in_channels=self.patch_extractor.nTotalLevels * swin_dims, out_channels=Snapshot.meteo_dims, kernel_size=self.patch_kernel, stride=self.patch_stride)
 
-    def forward(self, x):
-        B, C, H, W = x.shape
-        # permute and make contiguous before view
-        x = x.permute(0, 2, 3, 1).contiguous()
-        x = x.view(B, H*W, C)
+    def forward(self, ss1, ss2):    # Not batch-processing, as hard drives are always bottlenecks.
+        print(f"x befor patching: {ss1.meteo.shape, ss1.tempo.shape, ss1.geo.shape}")
 
-        x_skip = x  # used in 6-hourly model only.
+        #----------- patch/extract level features ------------
+        levels, surface = Snapshot.pack_pair_snapshots(ss1, ss2)
+        s = time.time()
+        x = self.patch_extractor(levels, surface)
+        e = time.time()
+        print(f"x after patching: {x.shape}, time: {e-s}")
 
-        for blk in self.swin_blocks:
-            x = blk(x)      # (B, H*W, C)
+        #----------- undergo swin blocks ----------------
+        s = time.time()
+        x = x.unsqueeze(0)
+        B, C, D, H, W = x.shape
+        x_flat = x.permute(0,2,3,4,1).reshape(B, D*H*W, C)
 
-        x = x + x_skip
+        for b in self.swin_blocks:
+            x_flat = b(x_flat)
 
-        # reshape back to original (make contiguous for conv)
-        x = x.view(B, H, W, C).permute(0, 3, 1, 2).contiguous()
-        return x    # (B, C, H, W)
+        x_out = x_flat.view(B, D, H, W, C).permute(0,4,1,2,3)
+        x = x_out.squeeze(0)
+        e = time.time()
+        print(f"x after swin blocks: {x.shape}, time: {e-s}")
+        
+        #------------ unpatch/reconstruct --------------
 
+        s = time.time()
+        x = x.view(-1, H, W)
+        x = x.unsqueeze(0)
+        x = self.uppatch_reconstructor(x)
+        x = x.squeeze(0)
+        e = time.time()
+        print(f"x after unpatching: {x.shape}, time: {e-s}")
 
-# -----------------------
-# 3️⃣ Postprocess (inverse of Preprocessor)
-# -----------------------
-class Reconstructor(nn.Module):
-    def __init__(self, ch_input, ch_meteo, patch_kernel=8, patch_stride=8):
-        super().__init__()
+        return x
 
-        self.convT_meteo = nn.ConvTranspose2d(
-            in_channels=ch_input,
-            out_channels=ch_meteo,
-            kernel_size=patch_kernel,
-            stride=patch_stride
-        )
-
-    def forward(self, x):   # (1, Batch_meteo*Channels_meteo + Channels_geo, down_H, down_W) -> (1, Channels_meteo, H, W)
-        # ensure contiguous memory before ConvTranspose2d
-        x = x.contiguous()
-        x_m_up = self.convT_meteo(x)
-        return x_m_up
-
-
-# -----------------------
-# 4️⃣ Full Model
-# -----------------------
-class Mike1(nn.Module):
-    def __init__(self, ch_meteo, ch_meteo_tempo, ch_geo, H, W, num_heads,
-                num_steps, patch_kernel=8, patch_stride=8, swin_dims=192,
-                window_size=18, num_swin_blocks=30):
-        super().__init__()
-
-        self.preprocessor = Mike1_Preprocessor(ch_meteo_tempo, ch_geo, swin_dims, H, W, patch_kernel, patch_stride)
-
-        h_down, w_down = H // patch_stride, W // patch_stride
-        ch_total = ch_meteo_tempo * 2 + ch_geo
-
-        self.swin = Mike1_Swin(swin_dims, h_down, w_down, 
-                               num_heads=num_heads,
-                               window_size=window_size,
-                               num_blocks=num_swin_blocks,
-                               )
-
-        self.postprocess = Reconstructor(swin_dims, ch_meteo, patch_kernel, patch_stride)
-
-    def forward(self, sp1, sp2):    # Not batch-processing, as hard drives are always bottlenecks.
-        meteo_tempo1, meteo_tempo2, geo = sp1.meteo_tempo, sp2.meteo_tempo, sp1.geo
-        x = torch.concat([meteo_tempo1, meteo_tempo2, geo], dim=0)
-        x = x.unsqueeze(0)  # (1, C, H, W)
-        x = self.preprocessor(x)
-        # print("x after preprocessor: ", x.shape)
-        x = self.swin(x)
-        # print("x after swin: ", x.shape)
-        x_meteo_recon = self.postprocess(x)
-        # print("x after postprocessor: ", x_meteo_recon.shape)
-        return x_meteo_recon.squeeze(0)
 
 
 # -----------------------
@@ -123,57 +107,31 @@ class Mike1(nn.Module):
 # -----------------------
 if __name__ == "__main__":
     from datetime import datetime, timedelta, timezone
+    import time
     
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
-        
-    now = datetime.now(timezone.utc)
-    sp1 = Snapshot(now.year, now.month, now.day, now.hour)
-    then = now + timedelta(hours=6)
-    sp2 = Snapshot(then.year, then.month, then.day, then.hour)
+    factor10 = 2 # 1, 2, 3, 4 ok on my notebook. 5: cuda out of memory
 
-    Snapshot.export_factor10 = 2
-    Snapshot.device = device
-    swin_dims = 192 # This is the nearest versatile number to the ugly 194.
-    num_heads = 4
-
-    ch_meteo, ch_meteo_tempo, ch_geo = Snapshot.meteo_dims, Snapshot.meteo_dims + Snapshot.tempo_dims, Snapshot.geo_dims
-    H, W = Snapshot.get_export_size()
-    num_steps = 6
-
-    model = Mike1(ch_meteo, ch_meteo_tempo, ch_geo, H, W, num_heads, num_steps, swin_dims=192).to(device)
-    optimizer = torch.optim.AdamW(
-        filter(lambda p: p.requires_grad, model.parameters()),
-        lr=1e-4,
-        weight_decay=0.1,
-    )
+    swin_dims, num_heads = 16, 4    
+    H, W = int(720/10*factor10), int(1440/10*factor10)
+    window_size = (2, int(factor10), int(factor10))
+    patch_size = 8
+    num_steps = 5
+    num_swin_blocks = 30
     
-    num_params = sum(p.numel() for p in model.parameters())
-    print(f"Total parameters: {num_params:,}")
-
-    import time
+    model = Zeus(H, W, num_heads, num_steps, patch_kernel=patch_size, patch_stride=patch_size, swin_dims=swin_dims, window_size=window_size, num_swin_blocks=num_swin_blocks)
+    model.to(device)
+    
+    Snapshot.device = device
+    Snapshot.export_factor10 = factor10
+    now = datetime.now(timezone.utc)
+    ss1 = Snapshot(now.year, now.month, now.day, now.hour, device=device)
+    then = now + timedelta(hours=6)
+    ss2 = Snapshot(then.year, then.month, then.day, then.hour, device=device)
+    
     s = time.time()
-    loops = 3
-    with torch.no_grad():
-        for _ in range(loops):
-            out = model(sp1, sp2)
-            sp1 = sp2
-            dt = datetime(sp2.year, sp2.month, sp2.day, sp2.hour) + timedelta(hours=6)
-            # out = out.detach()
-            # out.requires_grad = False
-            loss = out.sum()
-            # loss.backward()
-            # optimizer.step()
-        e = time.time()
-    print("time:", (e-s)/loops)
-    print("Output shape:", out.shape)
-
-    s = time.time()
-    loops = 3
-    for _ in range(loops):
-        out = model(sp1, sp2)
-        loss = out.sum()
-        loss.backward()
-        optimizer.step()
+    x_out = model(ss1, ss2)
     e = time.time()
-    print("time:", (e-s)/loops)
-    print("Output shape:", out.shape)
+    
+    print(x_out.shape, "time: ", e-s)
+    

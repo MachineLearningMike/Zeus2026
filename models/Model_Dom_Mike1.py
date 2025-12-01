@@ -12,13 +12,14 @@ from importlib import import_module
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.utils import check_dir, check_gradient
-from models.config_14nov25 import config
+from models.config_Mike1 import config
 
 module = import_module(config['Zeus_Model_module'])
 Zeus = getattr(module, 'Zeus')
 
 # from models.Zeus_ResNet import Zeus
 # # from Zeus_Flash2D_Blocked import Zeus
+from Zeus_Mike1 import Zeus
 
 import modules.utils as utils
 from modules_zeus.constants import ERA5_DATA_VARS
