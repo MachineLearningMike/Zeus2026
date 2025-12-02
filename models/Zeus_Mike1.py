@@ -16,18 +16,25 @@ from modules.zeus_dataset_Snapshot import Snapshot
 # 4️⃣ Full Model
 # -----------------------
 class Zeus(nn.Module):
-    # def __init__(self, pm, device='cpu'):
-    #     patch_kernel = pm.patch_kernel
-    #     patch_stride = pm.patch_stride
-    #     swin_dims = pm.swin_dims
-    #     window_size = pm.window_size
-    #     num_swin_blocks = pm.num_swin_block
-    
-    def __init__(self, H, W, num_heads,
-                num_steps, patch_kernel=8, patch_stride=8, swin_dims=16,
-                window_size=(2,10,10), num_swin_blocks=30):
+    def __init__(self, pm, device='cpu'):
         super().__init__()
         
+        # patch_kernel = pm.patch_kernel
+        # patch_stride = pm.patch_stride
+        # swin_dim = pm.swin_dim
+        # window_size = pm.window_size
+        # num_swin_blocks = pm.num_swin_block        
+
+        self.factor10 = 2        
+        swin_dim, num_heads = 16, 4    
+        H, W = int(720/10*self.factor10), int(1440/10*self.factor10)
+        window_size = (2, int(self.factor10), int(self.factor10))
+        patch_kernel = 8
+        patch_stride = 8
+        num_swin_blocks = 30
+
+        self.device = device
+    
         #---------------- Patch extractor -----------------
         
         now = datetime.now(timezone.utc)
@@ -39,7 +46,7 @@ class Zeus(nn.Module):
         self.patch_kernel=(patch_kernel,patch_kernel)
         self.patch_stride=(patch_stride,patch_stride)
         
-        self.patch_extractor = PatchFeatureExtractor(levels, surface, c_out=swin_dims, patch_kernel=self.patch_kernel, patch_stride=self.patch_stride)
+        self.patch_extractor = PatchFeatureExtractor(levels, surface, c_out=swin_dim, patch_kernel=self.patch_kernel, patch_stride=self.patch_stride)
         
         #---------------- Swin blocks ----------------------
         
@@ -47,7 +54,7 @@ class Zeus(nn.Module):
         
         self.swin_blocks = nn.ModuleList([
             Zeus_SwinTransformerBlock3D(
-                dim=swin_dims,
+                dim=swin_dim,
                 input_resolution=input_resolution,
                 num_heads=num_heads,
                 window_size=window_size,
@@ -62,7 +69,7 @@ class Zeus(nn.Module):
         ])
         
         #--------------- Unpatch reconstructor        
-        self.uppatch_reconstructor = UnpatchReconstructor(in_channels=self.patch_extractor.nTotalLevels * swin_dims, out_channels=Snapshot.meteo_dims, kernel_size=self.patch_kernel, stride=self.patch_stride)
+        self.uppatch_reconstructor = UnpatchReconstructor(in_channels=self.patch_extractor.nTotalLevels * swin_dim, out_channels=Snapshot.meteo_dims, kernel_size=self.patch_kernel, stride=self.patch_stride)
 
     def forward(self, ss1, ss2):    # Not batch-processing, as hard drives are always bottlenecks.
         print(f"x befor patching: {ss1.meteo.shape, ss1.tempo.shape, ss1.geo.shape}")
@@ -90,12 +97,12 @@ class Zeus(nn.Module):
         
         #------------ unpatch/reconstruct --------------
 
-        s = time.time()
         x = x.view(-1, H, W)
         x = x.unsqueeze(0)
+        s = time.time()
         x = self.uppatch_reconstructor(x)
-        x = x.squeeze(0)
         e = time.time()
+        x = x.squeeze(0)
         print(f"x after unpatching: {x.shape}, time: {e-s}")
 
         return x
@@ -110,20 +117,16 @@ if __name__ == "__main__":
     import time
     
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
-    factor10 = 2 # 1, 2, 3, 4 ok on my notebook. 5: cuda out of memory
-
-    swin_dims, num_heads = 16, 4    
-    H, W = int(720/10*factor10), int(1440/10*factor10)
-    window_size = (2, int(factor10), int(factor10))
-    patch_size = 8
-    num_steps = 5
-    num_swin_blocks = 30
     
-    model = Zeus(H, W, num_heads, num_steps, patch_kernel=patch_size, patch_stride=patch_size, swin_dims=swin_dims, window_size=window_size, num_swin_blocks=num_swin_blocks)
+    from models.config_Mike1 import config
+    from modules.params_Mike1 import Params
+    pm = Params(config)    
+    
+    model = Zeus(pm, device=device)
     model.to(device)
-    
+
     Snapshot.device = device
-    Snapshot.export_factor10 = factor10
+    Snapshot.export_factor10 = model.factor10
     now = datetime.now(timezone.utc)
     ss1 = Snapshot(now.year, now.month, now.day, now.hour, device=device)
     then = now + timedelta(hours=6)

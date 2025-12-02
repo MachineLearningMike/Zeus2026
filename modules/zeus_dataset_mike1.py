@@ -59,7 +59,7 @@ class Zeus_Dataset(Dataset):
             self.param_path = management_path / 'dataset_params.json'
             self.split_hours_path = management_path / 'split_hours.json'
             self.mean_checkpoint_path = management_path / "mean_checkpoint.pth"
-            self.std_checkpoint_path = management_path / "std_checkpoint.pth"
+            self.var_mean_checkpoint_path = management_path / "std_checkpoint.pth"
         else:
             self.cds_folder_even = dataset_path / "data_even" / "CDS"            
             self.cds_folder_even.mkdir(parents=True, exist_ok=True)
@@ -70,7 +70,7 @@ class Zeus_Dataset(Dataset):
             self.param_path = management_path /'dataset_params.json'
             self.split_hours_path = management_path / 'split_hours.json'
             self.mean_checkpoint_path = management_path / "mean_checkpoint.pth"
-            self.std_checkpoint_path = management_path / "std_checkpoint.pth"
+            self.var_mean_checkpoint_path = management_path / "std_checkpoint.pth"
         
         self.difficulties = None
         self.era5_data_vars = None
@@ -161,7 +161,7 @@ class Zeus_Dataset(Dataset):
     def day_string(self, date):
         return str(date.year) + '-' + str(date.month).zfill(2) + '-' + str(date.day).zfill(2)
     
-    #---------------------------------------------------------------------------
+    #---------------------------------------------------------------------------   
     
     def load_hourly_data(self, year, month, day, hour, modulo):
         path = self.get_file_path_npz(year, month, day, hour, modulo)
@@ -174,7 +174,7 @@ class Zeus_Dataset(Dataset):
     def download_fuXi2_snapshots_levels_region_parallel_vars(
             self, variables, var_name_map,
             start_year, end_year, lat_range=None, lon_range=None,
-            modulo=6, max_workers_snapshots=7, max_workers_vars=10):
+            modulo=6, max_workers_snapshots=7, max_workers_vars=10, verify_existing=False):
         """
         Parallel download of FuXi2 snapshots:
         - Snapshots (6-hourly) are parallelized.
@@ -182,42 +182,6 @@ class Zeus_Dataset(Dataset):
         """
 
         total_ds = self.get_normalized_dataset()
-
-        # def download_variable(variable, snapshot_time):
-        #     """Download a single variable for a given snapshot."""
-        #     # try:
-        #     upper_air = False
-        #     # select only the exact time
-        #     if '_' in variable and variable.split('_')[0] in variable:
-        #         upper_air = True
-        #         var_name, level = variable.split('_')
-        #         era_var = var_name_map[var_name]
-        #         ds = total_ds[era_var].sel(level=int(level), time=snapshot_time)
-        #     else:
-        #         era_var = var_name_map[variable]
-        #         ds = total_ds[era_var].sel(time=snapshot_time)
-            
-        #     # Select region
-        #     if lat_range is not None:
-        #         ds = ds.sel(latitude=slice(lat_range[0], lat_range[1]))
-        #     if lon_range is not None:
-        #         ds = ds.sel(longitude=slice(lon_range[0], lon_range[1]))
-
-        #     # array = ds.compute()
-        #     array = ds.values  #-------------------------------- Simulated
-        #     # array = np.random.rand(721, 1440).astype(np.float32)
-            
-        #     array = array.astype(np.float32)
-        #     assert array.shape == (721, 1440), "array.shape is not (721, 1440) but {}".format(array.shape)
-
-        #     # Sanity check
-        #     assert not np.isnan(array).any(), f"{variable} has NaNs at {snapshot_time}"     # Exception
-        #     print(f"Checked OK: {variable} at {snapshot_time}")
-
-        #     return variable, array
-
-            # except Exception as e:
-            #     raise RuntimeError(f"Error downloading {variable} at {snapshot_time}: {e}")     # Exception
 
         def download_variable(idx,  year, month, day, hour, variable):
             """Download a single variable for a given snapshot, interpolating NaNs if needed."""
@@ -243,6 +207,7 @@ class Zeus_Dataset(Dataset):
 
             # Compute array
             array = ds.values.astype(np.float32)
+            # array = np.random.rand(721, 1440)
 
             # If NaNs exist, try interpolation along 'level' for upper-air variables
             if np.isnan(array).any() and upper_air:
@@ -266,11 +231,24 @@ class Zeus_Dataset(Dataset):
             # existing_snapshot = self.load_hourly_data(year, month, day, hour, modulo)
             # if existing_snapshot is not None:
             #     return snapshot_time
-            
+
+            exists = None
             snapshot_path = self.get_file_path_npz(year, month, day, hour, modulo)
             if snapshot_path.exists():
+                if verify_existing:
+                    try:
+                        dict = load(snapshot_path)
+                        exists = True
+                    except:
+                        exists = False
+                else:
+                    exists = True
+            else:
+                exists = False
+            
+            if exists:                       
                 print(f"==================================== snapshot at {year}/{month}/{day}/{hour} exists!") 
-                return False
+                return True
 
             var_dict = {}
 
@@ -410,8 +388,8 @@ class Zeus_Dataset(Dataset):
         # Step 1 — Scan all hours first
         hours = []
         for year, month, day, hour, path in self.iter_hourly_paths():
-            dn = self.hours_since_epoch(year, month, day, hour)
-            hours.append(dn)
+            hn = self.hours_since_epoch(year, month, day, hour)
+            hours.append(hn)
 
         if not hours:
             return {
@@ -428,26 +406,26 @@ class Zeus_Dataset(Dataset):
 
         # Step 2 — Convert boundaries
         if inclusive_left is None:
-            left_dn = dataset_min
+            left_hn = dataset_min
         else:
-            left_dn = self.hours_since_epoch(
+            left_hn = self.hours_since_epoch(
                 inclusive_left.year, inclusive_left.month,
                 inclusive_left.day, inclusive_left.hour
             )
 
         if inclusive_right is None:
-            right_dn = dataset_max
+            right_hn = dataset_max
         else:
-            right_dn = self.hours_since_epoch(
+            right_hn = self.hours_since_epoch(
                 inclusive_right.year, inclusive_right.month,
                 inclusive_right.day, inclusive_right.hour
             )
 
-        if left_dn > right_dn:
+        if left_hn > right_hn:
             raise ValueError("inclusive_left must be <= inclusive_right")
 
         # Step 3 — Keep only hours inside the interval
-        inside = [dn for dn in hours_sorted if left_dn <= dn <= right_dn]
+        inside = [hn for hn in hours_sorted if left_hn <= hn <= right_hn]
 
         if not inside:
             return {
@@ -462,8 +440,8 @@ class Zeus_Dataset(Dataset):
         last_hour = inside[-1]
 
         # Step 4 — Identify missing hours in the window
-        full_range = set(range(left_dn, right_dn + 1, modulo))
-        missing = sorted(full_range - set(inside))
+        full_range = sorted(list(set(range(left_hn, right_hn + 1, modulo))))
+        missing = sorted(set(full_range) - set(inside))
 
         return {
             "count": len(inside),
@@ -501,7 +479,7 @@ class Zeus_Dataset(Dataset):
         try:
             checkpoint = self.read_checkpoint(
                 self.mean_checkpoint_path,
-                ["mean", "mean_step", "inclusive_left", "inclusive_right"]
+                ["mean", "step", "inclusive_left", "inclusive_right"]
             )
 
             mean = checkpoint[0] if len(checkpoint) > 0 else None
@@ -559,7 +537,7 @@ class Zeus_Dataset(Dataset):
                 tmp_path = str(self.mean_checkpoint_path) + ".tmp"
                 self.save_checkpoint(tmp_path, {
                     "mean": mean,
-                    "mean_step": step,
+                    "step": step,
                     "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
                     "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
                 })
@@ -569,7 +547,7 @@ class Zeus_Dataset(Dataset):
         path = str(self.mean_checkpoint_path)
         self.save_checkpoint(path, {
             "mean": mean,
-            "mean_step": step,
+            "step": step,
             "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
             "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
         })
@@ -588,8 +566,8 @@ class Zeus_Dataset(Dataset):
         # Load checkpoint if exists
         try:
             checkpoint = self.read_checkpoint(
-                self.std_checkpoint_path,
-                ["var_mean", "std_step", "inclusive_left", "inclusive_right"]
+                self.var_mean_checkpoint_path,
+                ["var_mean", "step", "inclusive_left", "inclusive_right"]
             )
 
             var_mean = checkpoint[0] if len(checkpoint) > 0 else None
@@ -597,10 +575,10 @@ class Zeus_Dataset(Dataset):
             step = int(checkpoint[1]) if len(checkpoint) > 1 else 0
             ck_left_iso = checkpoint[2] if len(checkpoint) > 2 else None
             ck_right_iso = checkpoint[3] if len(checkpoint) > 3 else None
-
+            
             ck_left = datetime.fromisoformat(ck_left_iso) if ck_left_iso else None
             ck_right = datetime.fromisoformat(ck_right_iso) if ck_right_iso else None
-
+            
             # Check consistency with provided boundaries
             ck_left_match = (ck_left == inclusive_left) or (ck_left is None and inclusive_left is None)
             ck_right_match = (ck_right == inclusive_right) or (ck_right is None and inclusive_right is None)
@@ -648,25 +626,25 @@ class Zeus_Dataset(Dataset):
             var_mean = var_mean * (step - 1)/step + _var / step
 
             if step % checkpoint_interval == 0:
-                print(f"Checkpointing std...{step}: {year}-{month:02d}-{day:02d} {hour:02d}")
-                tmp_path = str(self.std_checkpoint_path) + ".tmp"
+                print(f"Checkpointing var_mean...{step}: {year}-{month:02d}-{day:02d} {hour:02d}")
+                tmp_path = str(self.var_mean_checkpoint_path) + ".tmp"
                 self.save_checkpoint(tmp_path, {
                     "var_mean": var_mean,
-                    "std_step": step,
+                    "step": step,
                     "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
                     "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
                 })
-                shutil.move(tmp_path, self.std_checkpoint_path)
+                shutil.move(tmp_path, self.var_mean_checkpoint_path)
 
         # Final save
-        path = str(self.std_checkpoint_path)
+        path = str(self.var_mean_checkpoint_path)
         self.save_checkpoint(path, {
             "var_mean": var_mean,
-            "std_step": step,
+            "step": step,
             "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
             "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
         })
-        shutil.move(path, self.std_checkpoint_path)
+        shutil.move(path, self.var_mean_checkpoint_path)
 
         std = np.sqrt(var_mean)
         return std, step
@@ -725,8 +703,38 @@ class Zeus_Dataset(Dataset):
             # Save updated data
             with open(self.param_path, "w") as f:
                 json.dump(data, f, indent=4)
-
+                
+            print("dataset params saved.")
+            
         return mean, std
+    
+    def load_dataset_params(self):
+        with open(self.param_path, "r") as f:
+            data = json.load(f)
+            # print('------', data, torch.tensor(data['mean']).shape)
+        mean_dict, std_dict = data['mean'], data['std']
+        
+        mean = []
+        for _, val in mean_dict.items():
+            mean.append(val)
+        std = []
+        for _, val in std_dict.items():
+            std.append(val)        
+        
+        mean, std = torch.tensor(mean), torch.tensor(std)
+                
+        self.mean, self.std = mean, std
+        
+        # This violence may cause inconsistency, I know.
+        mean_ready_cpu = rearrange(mean, 'c -> c 1 1').to("cpu")
+        std_ready_cpu = rearrange(std, 'c -> c 1 1').to("cpu")
+        
+        mean_ready_cuda, std_ready_cuda = None, None
+        if torch.cuda.is_available():
+            mean_ready_cuda = rearrange(mean, 'c -> c 1 1').to("cuda")
+            std_ready_cuda = rearrange(std, 'c -> c 1 1').to("cuda")
+        
+        return mean, std, mean_ready_cpu, std_ready_cpu, mean_ready_cuda, std_ready_cuda # (C,), (C,)
 
     #----------------- Standardize --------------------
 
@@ -1417,7 +1425,7 @@ def list_cds_variables(dataset):
     variables = info["parameters"]["variable"]["options"]
     return variables
 
-from utils import check_dir
+from modules.utils import check_dir
 import platform 
 def setup_logging():
     """
@@ -1475,17 +1483,18 @@ if __name__ == "__main__":
     # print(ds.data_vars)
     # pass
     
-    setup_logging()
-    dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
-        variables=mike1_variables, var_name_map = var_name_map,
-        start_year = 2015, 
-        end_year = 2024,
-        modulo=6,
-        # max_workers_snapshots=1, max_workers_vars=1,
-    )
+    # setup_logging()
+    # dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
+    #     variables=mike1_variables, var_name_map = var_name_map,
+    #     start_year = 2015, 
+    #     end_year = 2015, #2024,
+    #     modulo=6,
+    #     # max_workers_snapshots=1, max_workers_vars=1,
+    #     verify_existing = True,
+    # )
 
     dict = dataset.analyze_hourly_paths(inclusive_left=None, inclusive_right=None, modulo=6)
-    print(f"count: {dict['count']}, first_hour: {dict['first_hour']}, last_hour: {dict['last_hour']}, missing_hours: {dict['missing_hours']}")
+    # print(f"count: {dict['count']}, first_hour: {dict['first_hour']}, last_hour: {dict['last_hour']}, missing_hours: {dict['missing_hours']}")
     # print(dict)
     
     if len(dict["missing_hours"]) <= 0:
@@ -1494,7 +1503,12 @@ if __name__ == "__main__":
         dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=6)
         
     else:
+        print(dict["missing_hours"])
         print("Missing hours found!")
+
+    mean, std, mean_ready_cpu, std_ready_cpu, mean_ready_cuda, std_ready_cuda = dataset.load_dataset_params()
+    print("mean: ", mean.shape, mean)
+    print("std: ", std.shape, std)
     
     # total_days, start_day, end_day, complete, data_dates = dataset.count_data_days()
     # print(f"total_days {total_days}, start_day {start_day}, end_day {end_day}, complete {complete}")

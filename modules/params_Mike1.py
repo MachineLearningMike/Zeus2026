@@ -56,7 +56,7 @@ class Params:
         self.vali_pct = config['vali_pct']
         
         self.include_difficulty = config['include_difficulty']
-        
+                
         #============================ model, individual ========================================================================
 
         self.models = []
@@ -125,6 +125,13 @@ class Params:
             model.epoch_patience = params['epoch_patience']
             model.useLRLearner = params['useLRLearner']
             
+            # SWIN
+            model.patch_kernel = params['patch_kernel']
+            model.patch_stride = params['patch_stride']
+            model.swin_dim = params['swin_dim']
+            model.window_size = params['window_size']
+            model.num_swin_block = params['num_swin_block']
+            
 def flatten_pm_single(pm, i):
     # Extract all top-level attributes except 'models'
     base_attrs = {k: v for k, v in pm.__dict__.items() if k != 'models'}
@@ -140,7 +147,7 @@ if __name__ == "__main__":
     import os, sys
     from pathlib import Path
     sys.path.append(str(Path(__file__).resolve().parent.parent))
-    from models.config_14nov25 import config
+    from models.config_Mike1 import config
     
     params = Params(config)
     # print(params.models[0])

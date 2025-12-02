@@ -302,7 +302,7 @@ if __name__ == "__main__":
     for _ in range(loops):
         patches = patcher(levels, surface)        # (c_out, 14, 90, 180)
     e = time.time()
-    print(patches.shape, "time: ", (e-s)/loops) 
+    print("packined to: ", patches.shape, "time: ", (e-s)/loops) 
     
     patches = patches.view(-1, patches.shape[-2], patches.shape[-1])    # (C, H, W)
     print(patches.shape)
@@ -317,5 +317,5 @@ if __name__ == "__main__":
         origin = unpatcher(patches)
     e = time.time()
     origin = origin.squeeze(0)
-    print(origin.shape, "time: ", (e-s)/loops)
+    print("unpacked to: ", origin.shape, "time: ", (e-s)/loops)
     

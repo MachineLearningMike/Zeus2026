@@ -104,6 +104,13 @@ shared_model_params = {
     "use_autocast" : True,
     "epoch_patience" : 10,       # Mike!!!
     "useLRLearner" : False,
+
+    # SWIN
+    "patch_kernel": 8,
+    "patch_stride": 8,
+    "swin_dim"  : 16,
+    "window_size" : (10, 10),
+    "num_swin_block": 30,
 }
 
 config.update({
@@ -443,6 +450,38 @@ projects["ResNet_NoStage_B20_BR30"] = {
 projects["ResNet_NoStage_B15_BR30"] = {
     "management": {
     "Zeus_Model_module" : "Zeus_ResNet",
+    "GPUWaitsData" : True,
+    "models_to_play": [0,],
+    "metrics" : "rmse", # "mae"
+    },
+    
+    "data": {
+    "org_height": 721,
+    "batch_size": 1,
+    },
+    
+    "model_0": {
+    "lr": 1e-5,     # 1e-3 for the first 120,000 steps
+    "max_lr": 1e-5,
+    "overwrite_saved_lr": False,
+    "useLRLearner" : False,
+    "accum_steps" : 10,   
+    "skip_validation" : True,
+    "ObsorbHDistortion": False,
+    "nCNNBlocks" : 15,  # NO change - paramemters
+    "bottleneckRate" : 0.30,    # NO change - parameters
+    "bottleneck_dropout" : 0.00,
+    },
+        
+    "model_1": {},
+    "model_2": {},
+    "model_3": {},
+    "model_4": {},
+}
+
+projects["Zeus_Swin_25Dec03"] = {
+    "management": {
+    "Zeus_Model_module" : "Zeus_Mike1",
     "GPUWaitsData" : True,
     "models_to_play": [0,],
     "metrics" : "rmse", # "mae"
