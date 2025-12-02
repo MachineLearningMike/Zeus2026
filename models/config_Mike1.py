@@ -512,7 +512,7 @@ projects["Zeus_Swin_25Dec03"] = {
 }
 
 #-------------------------------- select proejct -----------------------
-project = "ResNet_NoStage_B15_BR30" # "ResNet50-NewCodec-2" #"ResNet50-9M" # "ResNet50-3753K" #"ResNet50-NewCodec-2"  #"ResNet50-24M-2"
+project = "Zeus_Swin_25Dec03" # "ResNet50-NewCodec-2" #"ResNet50-9M" # "ResNet50-3753K" #"ResNet50-NewCodec-2"  #"ResNet50-24M-2"
 config["bayesProject"] = project
 config.update(projects[project]["management"])
 config.update(projects[project]["data"])
