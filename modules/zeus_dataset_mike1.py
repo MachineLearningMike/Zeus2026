@@ -1835,7 +1835,7 @@ if __name__ == "__main__":
         end_year = 2024,
         modulo=6,
         # max_workers_snapshots=1, max_workers_vars=1,
-        verify_existing = False,
+        verify_existing = True,
     )
 
     dict = dataset.analyze_hourly_paths(inclusive_left=None, inclusive_right=None, modulo=6)

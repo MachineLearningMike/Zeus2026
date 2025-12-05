@@ -140,7 +140,7 @@ class Snapshot:
     export_factor10 = 10
     # temporary. can be added and changed any time
     meteo_dims = len(VARIABLE_NAME_LIST_UNCHANGEABLE)
-    tempo_dims = 5      # 4 variables + 1 embedding: sin/cos earth_orbital_angle (2), sin/cos true_solar_hour (2), cascade_emb
+    tempo_dims = 4      # 4 variables: sin/cos earth_orbital_angle (2), sin/cos true_solar_hour (2)
     geo_dims = 6        # 4 constants + 2 embeddings: sin lat, sin/cos lon, orograph, land_sea_mask_emb_placeholder, soil_type_emb_placeholder. lat/lon NOT omitted though they work for position bias.
 
     fn_nornalize = None
@@ -161,7 +161,7 @@ class Snapshot:
         Snapshot.export_factor10 = 10
         # temporary. can be added and changed any time
         Snapshot.meteo_dims = len(VARIABLE_NAME_LIST_UNCHANGEABLE)
-        Snapshot.tempo_dims = 5      # 4 variables + 1 embedding: sin/cos earth_orbital_angle (2), sin/cos true_solar_hour (2), cascade_emb
+        Snapshot.tempo_dims = 4      # 4 variables + 1 embedding: sin/cos earth_orbital_angle (2), sin/cos true_solar_hour (2), cascade_emb
         Snapshot.geo_dims = 6        # 4 constants + 2 embeddings: sin lat, sin/cos lon, orograph, land_sea_mask_emb_placeholder, soil_type_emb_placeholder. lat/lon NOT omitted though they work for position bias.
 
         Snapshot.fn_nornalize = None
@@ -286,8 +286,7 @@ class Snapshot:
         dt_utc = datetime(self.year, self.month, self.day, self.hour, tzinfo=timezone.utc)
         sin_cos_earth_orbit_angle_tensor_era5 = Geo_Tempo.sin_cos_earth_orbit_angle_tensor_era5(dt_utc)
         sin_cos_true_solar_hours_tensor_era5 = Geo_Tempo.sin_cos_true_solar_hours_tensor_era5(dt_utc)
-        cascade_emb_placeholder = torch.rand(1, Geo_Tempo.H_era5_grid, Geo_Tempo.W_era5_grid)
-        tempo_tensor = torch.concat([sin_cos_earth_orbit_angle_tensor_era5, sin_cos_true_solar_hours_tensor_era5, cascade_emb_placeholder], dim=0)
+        tempo_tensor = torch.concat([sin_cos_earth_orbit_angle_tensor_era5, sin_cos_true_solar_hours_tensor_era5], dim=0)
         return tempo_tensor
     
     #------------------ meteo_tempo -----------------------
@@ -516,7 +515,7 @@ class Snapshot:
             meteo = ss.meteo                        
             meteo = meteo[:Snapshot.air_level_dims*Snapshot.num_air_levels].view(Snapshot.air_level_dims, Snapshot.num_air_levels, H, W)
             
-            tempo = ss.tempo #[:, None, :, :].expand(-1, H, W)  # (t, 1, H, W)
+            tempo = ss.tempo # 
 
             # --- Vertical levels ---            
 

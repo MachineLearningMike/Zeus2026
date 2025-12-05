@@ -197,7 +197,7 @@ class PatchFeatureExtractor(nn.Module):
         
         self.nTotalLevels = len(sample_level_list) + 1      # +1 for the surface
 
-    def forward(self, level_list, surface):
+    def forward(self, level_list, surface, cascade_step):
         """
         Args:
             level_list: list of tensors [(C1,H,W), (C2,H,W), ...] length == self.nLevels

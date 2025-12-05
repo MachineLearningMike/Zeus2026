@@ -91,7 +91,7 @@ class Zeus(nn.Module):
         #----------- patch/extract level features ------------
         levels, surface = Snapshot.pack_pair_snapshots(ss1, ss2)
         s = time.time()
-        x = self.patch_extractor(levels, surface)
+        x = self.patch_extractor(levels, surface, cascade_step)
         e = time.time()
         print(f"x after patching: {x.shape}, time: {e-s}")
 
