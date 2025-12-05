@@ -1828,15 +1828,15 @@ if __name__ == "__main__":
     # print(ds.data_vars)
     # pass
     
-    # setup_logging()
-    # dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
-    #     variables=VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map = var_name_map,
-    #     start_year = 2015, 
-    #     end_year = 2024,
-    #     modulo=6,
-    #     # max_workers_snapshots=1, max_workers_vars=1,
-    #     verify_existing = False,
-    # )
+    setup_logging()
+    dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
+        variables=VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map = var_name_map,
+        start_year = 2015, 
+        end_year = 2024,
+        modulo=6,
+        # max_workers_snapshots=1, max_workers_vars=1,
+        verify_existing = False,
+    )
 
     dict = dataset.analyze_hourly_paths(inclusive_left=None, inclusive_right=None, modulo=6)
     # print(f"count: {dict['count']}, first_hour: {dict['first_hour']}, last_hour: {dict['last_hour']}, missing_hours: {dict['missing_hours']}")
