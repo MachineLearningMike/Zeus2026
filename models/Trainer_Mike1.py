@@ -52,7 +52,7 @@ class Model_Trainer():
         self.setup_logging(project_path)
 
         self.dataset = Zeus_Dataset(self.pm, dataset_path, management_path)
-        # self.dataset = Zeus_DataLoader(Zeus_Dataset(self.pm, dataset_path, management_path), batch_size=None, shuffle=None)     # A bit slower?
+        # self.dataset = Zeus_DataLoader(Zeus_Dataset(self.pm, dataset_path, management_path), batch_size=None, shuffle=None)     # A bit slower?       
         
         self.dataset.load_data()
         logging.info("Zeus_Dataset created and loaded.")
@@ -331,16 +331,6 @@ class Model_Trainer():
         md_focus = md_focus_list[0] if len(md_focus_list) == 1 else mds[0]
         return md_focus
     
-    def take_substep(self, md, X0, X1, Y, cascade_step):
-        tensor_x0, tensor_x1, tensor_y = self.dataset.get_tri_tensors(X0, X1, Y)
-        # Each of 4 * 8 cascade steps will be embedded to parameters of shape (self.pm.height, self.pm.width)
-        tensor_y_bar, loss, metrics = md.takesubstep(tensor_x0, tensor_x1, tensor_y, cascade_step)
-        if cascade_step < self.pm.nCascades:
-            step_result = self.dataset.build_from(tensor_y_bar, Y)
-        else:
-            step_result = None
-        return step_result, loss, metrics
-    
     def run_epoch(self, mds, x_set_label, trainable=True):
                
         # data_slots = [0] + [md.md_id + 1 for md in mds]
@@ -368,7 +358,7 @@ class Model_Trainer():
 
             if not pbar.no_more_data():  pbar.prefetch(x_set_label)        # Prefetch ensures getting new bacthes.
             if batch is None: break     # just in case
-            Xs, batch_diff, era5_data_vars = batch   # (slots, B, T1FG, C, H, W), (B, T2FG, C, H, W), None or (B, C, H, W), (C,)
+            batch_of_ss_lists, batch_diff, era5_data_vars = batch   # (slots, B, T1FG, C, H, W), (B, T2FG, C, H, W), None or (B, C, H, W), (C,)
 
             if False:
                 self.show_data(batch_x)
@@ -377,7 +367,6 @@ class Model_Trainer():
             [md.optimizer.zero_grad(set_to_none=True) for md in mds]            
             # self.transient_step += slots.shape[1]     # increase by batch size
             
-            losses = []
             if self.nDevices <= 1:
                 # !!! This context leads lots of parameters that don't receive gradient. Move into single_GPU_forward_loss_backward.
                 # context = autocast(device_type=self.device_type, dtype=torch.bfloat16) if self.pm.use_autocast else nullcontext()
@@ -385,110 +374,89 @@ class Model_Trainer():
                 # with torch.set_grad_enabled(trainable):   # grad is managed by single_GPU_forward_loss_backward
 
                 device = self.devices[0]
-
-                for _ in  range(self.train_bombs):
+                # for _ in  range(self.train_bombs):
                     
-                    for md in mds:
+                Xs = batch_of_ss_lists[0]   # batch_of_ss_lists undergoes changes. This code doesn't know the content of X
+                    
+                for md in mds:
+                    #------------------------ this algorithm is studied in zeus_train_6_hourly.py -----------
+                    
+                    assert len(Xs) >= 2, "length of Xs should be >= 2"
+                    X0, X1 = Xs[0], Xs[1]; X0.to(device); X1.to(device); Xs = Xs[2:]
+                    oldQ = [(X0, X1)]
 
-                        assert len(Xs) >= 2, "length of Xs should be >= 2"
-                        X0, X1 = Xs[0], Xs[1]; X0.to(device); X1.to(device); Xs = Xs[2:]
-                        oldQ = [(X0, X1)]
+                    assert len(Xs) > 0, "length of Xs should be >= 3"
 
-                        assert len(Xs) > 0, "length of Xs should be >= 3"
+                    for (x0, x1) in oldQ:
+                        assert x0.device == device and x1.device == device
+                    
+                    #--------------------------------------------- starting a set of steps for md...
 
-                        step_loss = []; step_metrics = []
-                        while len(Xs) > 0:  # loops at least once
-                            # State: 
-                            # len(Xs) > 0, len(oldQ) > 0, [x0.device == device and x1.device == device for (x0, x1) in oldQ]
-                            # 2 * len(oldQ) count of X is stored in oldQ in device, together with model parameters.
-                            # oldQ stores raw X's
-
-                            Y = Xs[0]; Y.to(device); Xs = Xs[1:]
-                            newQ = [(oldQ[0][1], Y)]  # assert len(newQ) > 0        # newQ[0] stores raw X's
-
-                            substep_loss = [], substep_metrics = [] 
-                            while len(oldQ) > 0:     # loops at least once
-                                X0, X1 = oldQ[0]; oldQ = oldQ[1:]    # assert X.device == device
-                                cascade_step = len(newQ)
-                                step_result, loss, metrics = self.take_substep(md, X0, X1, Y, cascade_step) # forward, backward, and optimizer.step
-                                assert step_result.device == device
-
-                                newQ.append((X1, step_result))                      # +1 X
-                                X0.delete()  # del all and clean cuda immediately   # -1 X
-                                
-                                substep_loss.append(loss)
-                                substep_metrics.append(metrics)
-                                
-                            step_loss.append(substep_loss)
-                            step_metrics.append(substep_metrics)
-
-                            # state: len(oldQ) == 0, len(oldQ) > 0
-                            oldQ = newQ
-
-                        md.store_step_loss_and_metrics(step_loss, step_metrics)
-
-
-
+                    step_loss = []; step_metrics = []
+                    while len(Xs) > 0:  # loops at least once
+                        # State: 
+                        # len(Xs) > 0, len(oldQ) > 0, [x0.device == device and x1.device == device for (x0, x1) in oldQ]
+                        # 2 * len(oldQ) count of X is stored in oldQ in device, together with model parameters.
+                        # oldQ stores raw X's
                         
+                        for (x0, x1) in oldQ:
+                            assert x0.device == device and x1.device == device
+
+                        #----------------------------------------- starting a step for md...
+
+                        Y = Xs[0]; Y.to(device); Xs = Xs[1:]
+                        newQ = [(oldQ[0][1], Y)]  # assert len(newQ) > 0        # newQ[0] stores raw X's
+
+                        substep_loss = []; substep_metrics = [] 
+                        while len(oldQ) > 0:     # loops at least once
+                            
+                            #-------------------------------------- starting a substep for md...
+                            
+                            X0, X1 = oldQ[0]; oldQ = oldQ[1:]    # assert X.device == device
+                            cascade_step = len(newQ)
+                            substep_result, _substep_loss, _substep_metrics = md.forward_backward_no_step(
+                                    X0, X1, Y, cascade_step,
+                                    self.loss, self.dataset.standardize, self.dataset.unstandardize, 
+                                    batch_diff, era5_data_vars, trainable=trainable,
+                                    type_metrics = self.pm.metrics,
+                                )
+
+                            for (x0, x1) in newQ:
+                                assert x0.device == device and x1.device == device
+
+                            assert X1.device == device
+                            assert substep_result.device == device
+
+                            newQ.append((X1, substep_result))                      # +1 X
+                            del X0
+                            
+                            for (x0, x1) in newQ:
+                                assert x0.device == device and x1.device == device
+                            
+                            #--------------------------------------- The substep finished.
+                            
+                            substep_loss.append(_substep_loss)          # [substep_loss...]
+                            substep_metrics.append(_substep_metrics)    # [substep_metrics...]
+                            
+                        #------------------------------------------- The step finished.
+                            
+                        step_loss.append(substep_loss)                  # [[substep_loss...]...]
+                        step_metrics.append(substep_metrics)            # [[substep_metrics...]...]
+
+                        # state: len(oldQ) == 0, len(oldQ) > 0
+                        oldQ = newQ
                         
-                        
-                        (loss, normalized_rmse), unnormalized_metrics = \
-                        md.model.single_GPU_forward_loss_backward(
-                            batch_x, batch_y, 
-                            self.loss, self.dataset.normalize, self.dataset.unnormalize, 
-                            batch_diff, era5_data_vars, trainable=trainable,
-                            metrics = self.pm.metrics,
-                        )
-                        md.store_step_loss_and_metrics(loss, unnormalized_metrics)
-                        losses.append(loss.item())
-                        
-                        if trainable:
-                            check_gradient(md.model)
-                            md.lr_controller.stepOptimizer(loss.item()) if md.pm.useLRLearner else md.optimizer.step()
-                            # md.scaler.update()
-                        
+                    #------------------------------------------------ The set of steps finished.
+
+                    md.store_step_loss_and_metrics(step_loss, step_metrics) # [[substep_loss...]...], [[substep_metrics...]...]
+
+                    
+                    if trainable:
+                        check_gradient(md.model)
+                        # md.lr_controller.stepOptimizer(loss.item()) if md.pm.useLRLearner else md.optimizer.step()
+                        # md.scaler.update()
             else:
-                # chunks_x = batch_x.chunk(self.nDevices)
-                # chunks_y = batch_y.chunk(self.nDevices)
-                
-                # for device in self.devices:
-                #     self.slave_models[device].load_state_dict(self.model.state_dict())
-                    
-                # futures = [
-                #     gpu_executor.submit(
-                #         self.slave_models[self.devices[i]].single_GPU_forward_loss_backward, mb_x, mb_y, self.loss, self.dataset.unnormalize, 
-                #         batch_diff, era5_data_vars, self.devices[i]
-                #     )
-                #     for i, (mb_x, mb_y) in enumerate(zip(chunks_x, chunks_y))                        
-                # ]   # returns immediately.
-                # grads_list = []
-                # for fut in futures:
-                #     grads, (loss, rmse) = fut.result()  # blocks until the single future is done.
-                #     grads_list.append(grads)
-                #     step_loss.append(loss.detach().to('cpu'))
-                #     step_metrics.append(rmse.detach().to('cpu'))
-                #     self.total_losses.append(loss.item())
-                
-                # self.average_gradients_to_master(self.model, grads_list)
                 pass
-                    
-                if trainable:
-                    # for name, param in self.model.named_parameters():
-                    #     grad_dev = param.grad.device if param.grad is not None else None
-                    #     print(f"{name}: param device = {param.device}, grad device = {grad_dev}")
-                    
-                    [check_gradient(md.model) for md in mds]
-                    
-                    # optimizer.step()                
-                    [md.lr_controller.stepOptimizer(loss) if md.pm.useLRLearner else md.optimizer.step() for (md, loss) in zip(mds, losses)]
-
-                    # [md.scaler.update() for md in mds]
-                    
-                    # I choose manual control rather than sheduled control.
-                    # try:                   
-                    #   self.scheduler.step()   # Our scheduler is OneCycleLR, which is a per-batch scheduler
-                    # except ValueError:        # It may go beyond the total_steps
-                    #     pass
                     
             md_focus = self.get_md_focus(mds)
             end1 = time.time()
@@ -523,8 +491,8 @@ class Model_Trainer():
     
 if __name__ == "__main__":
     
-    from models.config_14nov25 import config
-    from modules.params_14nov25 import Params
+    from models.config_Mike1 import config
+    from modules.params_Mike1 import Params
     
     pm = Params(config)        
     dataset_path = Path(pm.dataset_path)

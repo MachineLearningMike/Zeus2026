@@ -54,13 +54,13 @@ class Model_Dom():
         
         try:
             if not self.pm.doubleZeus:
-                self.model = Zeus(self.pm, device=self.device)                
+                self.model = Zeus(self.pm, device=self.device).to(self.device)
                 num_params = sum(p.numel() for p in self.model.parameters())
                 logging.info("Zeus model {} created with a total of ========= {:,} ========= parameters".format(self.md_id, num_params))
                 # if self.nDevices > 1:
                 #     self.slave_models = self.create_slave_models(self.devices)
             else:
-                logging.info("DoubleZeus model created. nDevices: {}, trainable: {}".format(self.nDevices, trainable))
+                pass
 
         except Exception as e:
             logging.info("Creating model...." + str(e))
@@ -372,20 +372,21 @@ class Model_Dom():
         
         return self.epoch, self.packed_losses_metrics
 
-    def get_epoch_display(self, loss, metrics):
+
+    def get_epoch_display_batch(self, loss_batch, metrics_batch):       
         lead = "model {}, ".format(self.md_id)
-        loss = "loss {:.4f}, ".format(loss.item()) if loss is not None else "loss=None"
-        metrics = self.pm.metrics + ": " + ", ".join(f"{x:.4f}" for x in metrics.ravel().tolist()) if metrics is not None else "metrics=None"
+        if loss_batch is not None and len(loss_batch) > 0:
+            loss = np.array(loss_batch).mean()
+            loss = "loss {:.4f}, ".format(loss)
+        else:
+            loss = "loss=None, "
+        if metrics_batch is not None and len(metrics_batch) > 0:
+            metrics = list(np.array(metrics_batch).mean(axis=0))
+            metrics = self.pm.metrics + ": " + ", ".join(f"{x:.4f}" for x in metrics)                        
+        else:
+            metrics = "metrics=None"
         self.display = lead + loss + metrics
         return self.display
-
-    def get_epoch_display_batch(self, loss_batch, metrics_batch):
-        if loss_batch is None or metrics_batch is None:
-            loss, metrics = None, None
-        else:
-            loss = loss_batch.mean(dim=0)
-            metrics = metrics_batch.mean(dim=0)
-        return self.get_epoch_display(loss, metrics)
 
     def get_curved_scores(self, raw_rmse: torch.Tensor, gamma: float) -> torch.Tensor:
         # gamma: (B, C, H, W)
@@ -408,43 +409,74 @@ class Model_Dom():
         self.epoch_losses, self.epoch_metrics = [], []
         self.packed_losses_metrics = {}
         
-
+    #---------------------------- protocol for loss and metrics
+    #
+    #      self.epoch_losses:   a list of scalars
+    #      self.epoch_metrics:  a list of C-long lists of scalars
+    #
+    #-----------------------------------------------------------
+        
     def pack_losses_metrics(self):
         assert self.epoch_losses is not None and self.epoch_metrics is not None
         self.packed_losses_metrics = {
-            "epoch_losses": [t.item() for t in self.epoch_losses],          # each scalar -> float
-            "epoch_metrics": [t.tolist() for t in self.epoch_metrics]         # each (4,) tensor -> list    
+            "epoch_losses": self.epoch_losses,          # each scalar -> float
+            "epoch_metrics": self.epoch_metrics         # each (4,) tensor -> list    
         }
         return self.packed_losses_metrics
 
     def unpack_losses_metrics(self, packed_losses_metrics):
         self.epoch_losses, self.epoch_metrics = [], []
         if packed_losses_metrics is not None:
-            self.epoch_losses = [torch.tensor(v) for v in packed_losses_metrics["epoch_losses"]]
-            self.epoch_metrics = [torch.tensor(v) for v in packed_losses_metrics["epoch_metrics"]]
+            self.epoch_losses = packed_losses_metrics["epoch_losses"]
+            self.epoch_metrics = packed_losses_metrics["epoch_metrics"]
             
     def get_pbar_description_epoch(self):    # (steps,), (stept, C)
         if len(self.epoch_losses) <= 0 or len(self.epoch_metrics) <= 0: 
             self.pbar_description = "md.epoch_losses and md.epoch_metrics are empty"
         else:
-            _epoch_loss = torch.stack(self.epoch_losses, dim=0).mean(dim=0)  # (,)
-            _epoch_metrics = torch.stack(self.epoch_metrics, dim=0).mean(dim=0)       # (C,)
-            strC = ", ".join(f"{x:.2f}" for x in _epoch_metrics.ravel().tolist())
-            self.pbar_description = "md: {}, loss: {:.3f}, {}: ({})".format(self.md_id, _epoch_loss.item(), self.pm.metrics, strC)
+            _epoch_loss = np.array(self.epoch_losses).mean().item()  # (,)
+            _epoch_metrics = np.array(self.epoch_metrics).mean(axis=0)       # (C,)
+            strC = ", ".join(f"{x:.2f}" for x in _epoch_metrics)
+            self.pbar_description = "md: {}, loss: {:.3f}, {}: ({})".format(self.md_id, _epoch_loss, self.pm.metrics, strC)
 
     def get_pbar_description_step(self, step_loss, step_metrics):   # (,), (C,)
-        _step_loss = step_loss  # (,)
-        _step_metrics = step_metrics       # (C,)
-        strC = ", ".join(f"{x:.4f}" for x in _step_metrics.ravel().tolist())
-        self.pbar_description = "md {} lss {:.3f}, {} ({})".format(self.md_id, _step_loss.item(), self.pm.metrics, strC)
-
-    def store_step_loss_and_metrics(self, loss_tensor, matrics_tensor): # (,), (C,)
-        self.epoch_losses.append(loss_tensor)
-        self.epoch_metrics.append(matrics_tensor)
-        self.get_pbar_description_step(loss_tensor, matrics_tensor)
-        self.total_losses.append(loss_tensor.item())
+        strC = ", ".join(f"{x:.4f}" for x in step_metrics)
+        self.pbar_description = "md {} lss {:.3f}, {} ({})".format(self.md_id, step_loss, self.pm.metrics, strC)
         
     def stepOptimizer(self, loss_item):
         performed_step, lr, grad_norm = self.lr_controller.stepOptimizer(loss_item)
         
+
+    def forward_backward_no_step(self,
+            X0, X1, Y, cascade_step,
+            fn_loss, fn_nornalize, fn_unnornalize, 
+            batch_diff, era5_data_vars, trainable,
+            type_metrics
+        ):
+        
+        return self.model.forward_backward_no_step(
+            X0, X1, Y, cascade_step,
+            fn_loss, fn_nornalize, fn_unnornalize, 
+            batch_diff, era5_data_vars, trainable,
+            type_metrics
+        )
+        
+    def store_step_loss_and_metrics(self, step_loss, step_metrics): # [substep_loss...], [substep_metrics...]
+        """
+        step_loss: [substep_loss...], where substep_loss was produced by self.forward_backward_no_step
+        step_metrics: [substep_metrics...], where substep_metrics was produced by self.forward_backward_no_step
+        
+        goal 1: append them to self.epoch_losses and self.epoch_metrics, respectively. self.epoch_losses: a list of scalars, self.epoch_metrics: a list of lists
+        goal 2. append to self.total_losses, which is a list of scalar
+        goal 3. get_pbar_description_step to create progress bar description for the step
+        """
+        loss = torch.stack(step_loss).mean().item()
+        self.epoch_losses.append(loss)
+        self.total_losses.append(loss)
+        
+        metrics = torch.stack(step_metrics, dim=0).mean(dim=0).item()
+        # metrics = list(np.array(step_metrics).mean(axis=0))
+        self.epoch_metrics.append(metrics)
+
+        self.get_pbar_description_step(loss, metrics)
     

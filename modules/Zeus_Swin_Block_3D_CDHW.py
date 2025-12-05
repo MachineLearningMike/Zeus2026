@@ -82,9 +82,11 @@ class PositionBiasLearner3D(nn.Module):
         self.depth = depth[:,None,None].expand(D,H,W)
 
         # Precompute flat_pair with the given shift
-        self.flat_pair_pos_code_on_windows, nWd, nWh, nWw = self.pair_position_partition(
+        shifted_flat_pair_pos_code_on_windows, nWd, nWh, nWw = self.pair_position_partition(
             self.lat, self.lon, self.depth, shift_size=self.shift_size
-        )
+        )        
+        self.register_buffer("shifted_flat_pair_pos_code_on_windows", shifted_flat_pair_pos_code_on_windows)
+        
         self.nWindows = nWd*nWh*nWw
 
         # Learnable layers
@@ -97,20 +99,19 @@ class PositionBiasLearner3D(nn.Module):
     def pair_position_partition(self, lat, lon, depth, shift_size):
         shift_D, shift_H, shift_W = shift_size
 
-        # Apply cyclic shift if needed
-        lat_shifted = torch.roll(lat, shifts=shift_H, dims=1) if shift_H!=0 else lat
-        lon_shifted = torch.roll(lon, shifts=shift_W, dims=2) if shift_W!=0 else lon
-        depth_shifted = torch.roll(depth, shifts=shift_D, dims=0) if shift_D!=0 else depth
+        shifted_depth_lat_lon = torch.stack([depth, lat, lon], dim=-1).permute(3,0,1,2).contiguous().unsqueeze(0)   # (B, C, D, H, W)
 
-        depth_lat_lon = torch.stack([depth_shifted, lat_shifted, lon_shifted], dim=-1)
+        if any(s != 0 for s in self.shift_size):
+            shifted_depth_lat_lon = torch.roll(shifted_depth_lat_lon, shifts=self.shift_size, dims=(2,3,4))     # x: (B, C, D, H, W)
+
         windows, nWd, nWh, nWw = window_partition_3d(
-            depth_lat_lon.permute(3,0,1,2).unsqueeze(0),
+            shifted_depth_lat_lon,        # (B, C, D, H, W)
             self.window_size
         )
 
         N = windows.shape[0]
         P = self.window_volume
-        flat = windows.view(N,3,P).permute(0,2,1)
+        flat = windows.view(N,3,P).permute(0,2,1).contiguous()
 
         A = flat.unsqueeze(2)
         B = flat.unsqueeze(1)
@@ -130,7 +131,7 @@ class PositionBiasLearner3D(nn.Module):
         return pair_pos_code_on_windows.view(N*P*P, 4), nWd, nWh, nWw
 
     def forward(self):
-        flat_pair = self.flat_pair_pos_code_on_windows.to("cuda")
+        flat_pair = self.shifted_flat_pair_pos_code_on_windows
         h = self.act(self.fc1(flat_pair))
         h = self.norm(h)
         h = self.fc2(h)
@@ -170,7 +171,7 @@ class WindowAttention3D(nn.Module):
         if self.q_bias is not None:
             qkv_bias = torch.cat((self.q_bias, torch.zeros_like(self.v_bias, requires_grad=False), self.v_bias))
         qkv = F.linear(x, self.qkv.weight, bias=qkv_bias)
-        qkv = qkv.reshape(B_, N, 3, self.num_heads, C // self.num_heads).permute(2,0,3,1,4)
+        qkv = qkv.reshape(B_, N, 3, self.num_heads, C // self.num_heads).permute(2,0,3,1,4).contiguous()
         q, k, v = qkv[0], qkv[1], qkv[2]
 
         attn = (F.normalize(q, dim=-1) @ F.normalize(k, dim=-1).transpose(-2,-1))
@@ -206,13 +207,15 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
                  mlp_ratio=4., qkv_bias=True, drop=0., attn_drop=0., drop_path=0.,
                  act_layer=nn.GELU, norm_layer=nn.LayerNorm):
         super().__init__()
-
+        
+        assert any(s==0 for s in shift_size) or any(s!=0 for s in shift_size)
         assert dim % num_heads == 0, f"dim {dim} is not divisible with num_heads {num_heads}"
 
         self.dim = dim
         self.input_resolution = input_resolution
         self.num_heads = num_heads
         self.window_size = window_size
+        self.window_volume = window_size[0] * window_size[1] * window_size[2]
         self.shift_size = shift_size
 
         for i in range(3):
@@ -229,6 +232,35 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
         
         self.positionBiasLearner = PositionBiasLearner3D(input_resolution, window_size, num_heads, shift_size=shift_size)
 
+        if any(s != 0 for s in self.shift_size):
+            # calculate attention mask for SW-MSA
+            D, H, W = self.input_resolution
+            img_mask = torch.zeros((1, 1, D, H, W))  # (batch, channel, D, H, W)
+            d_slices = (slice(0, -self.window_size[0]),
+                        slice(-self.window_size[0], -self.shift_size[0]),
+                        slice(-self.shift_size[0], None))
+            h_slices = (slice(0, -self.window_size[1]),
+                        slice(-self.window_size[1], -self.shift_size[1]),
+                        slice(-self.shift_size[1], None))
+            w_slices = (slice(0, -self.window_size[2]),
+                        slice(-self.window_size[2], -self.shift_size[2]),
+                        slice(-self.shift_size[2], None))
+            cnt = 0
+            for d in d_slices:
+                for h in h_slices:
+                    for w in w_slices:
+                        img_mask[:, :, d, h, w] = cnt
+                        cnt += 1
+
+            mask_windows, _, _, _ = window_partition_3d(img_mask, self.window_size)  # nW, window_size, window_size, 1
+            mask_windows = mask_windows.view(-1, self.window_volume)
+            attn_mask = mask_windows.unsqueeze(1) - mask_windows.unsqueeze(2)
+            attn_mask = attn_mask.masked_fill(attn_mask != 0, float(-100.0)).masked_fill(attn_mask == 0, float(0.0))
+        else:
+            attn_mask = None
+            
+        self.register_buffer("attn_mask", attn_mask)
+
     def forward(self, x):
         D, H, W = self.input_resolution
         B, L, C = x.shape
@@ -239,22 +271,22 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
 
         # cyclic shift
         if any(s != 0 for s in self.shift_size):
-            shifted_x = torch.roll(x, shifts=self.shift_size, dims=(2,3,4))
+            shifted_x = torch.roll(x, shifts=self.shift_size, dims=(2,3,4))     # x: (B, C, D, H, W)
         else:
             shifted_x = x
 
         # partition windows
         x_windows, nWd, nWh, nWw = window_partition_3d(shifted_x, self.window_size)
-        x_windows = x_windows.view(-1, C, self.window_size[0]*self.window_size[1]*self.window_size[2]).permute(0,2,1)
+        x_windows = x_windows.view(-1, C, self.window_volume).permute(0,2,1).contiguous()
 
         # posision bias
         position_bias = self.positionBiasLearner()      # (nWindows, win_volume, win_volume, num_heads)
 
         # attention
-        attn_windows = self.attn(x_windows, position_bias)
+        attn_windows = self.attn(x_windows, position_bias, mask=self.attn_mask)
 
         # reverse windows
-        attn_windows = attn_windows.permute(0,2,1).view(-1, C, *self.window_size)
+        attn_windows = attn_windows.permute(0,2,1).contiguous().view(-1, C, *self.window_size)
         x = window_reverse_3d(attn_windows, self.window_size, D, H, W)
 
         # reverse cyclic shift
@@ -262,7 +294,7 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
             x = torch.roll(x, shifts=[-s for s in self.shift_size], dims=(2,3,4))
 
         # flatten back
-        x = x.permute(0,2,3,4,1).reshape(B, D*H*W, C)
+        x = x.permute(0,2,3,4,1).contiguous().reshape(B, D*H*W, C).contiguous()
 
         # FFN
         x = shortcut + self.drop_path(self.norm1(x))
@@ -335,7 +367,7 @@ if __name__ == "__main__":
             input_resolution=input_resolution,
             num_heads=num_heads,
             window_size=window_size,
-            shift_size=(0,0,0) if idx % 2 == 0 else (window_size[0]//2, window_size[1]//2, - window_size[2]//2),
+            shift_size=(0,0,0) if idx % 2 == 0 else (window_size[0]//2, window_size[1]//2, window_size[2]//2),
             mlp_ratio=4.,
             qkv_bias=True,
             drop=0.0,
@@ -346,11 +378,11 @@ if __name__ == "__main__":
     ]
 
     # Random input: (B, C, D, H, W)
-    x = torch.randn(1, C, D, H, W).to(device).to(device)
+    x_in = torch.randn(1, C, D, H, W).to(device).to(device)
 
     # Flatten input for block input
-    B, C, D, H, W = x.shape
-    x_flat = x.permute(0,2,3,4,1).reshape(B, D*H*W, C)
+    B, C, D, H, W = x_in.shape
+    x_flat = x_in.permute(0,2,3,4,1).contiguous().reshape(B, D*H*W, C).contiguous()
 
     # Forward pass
     s = time.time()
@@ -359,14 +391,15 @@ if __name__ == "__main__":
     e = time.time()
 
     # Reshape back to (B, C, D, H, W)
-    x_out = x_flat.view(B, D, H, W, C).permute(0,4,1,2,3)
+    x_out = x_flat.view(B, D, H, W, C).permute(0,4,1,2,3).contiguous()
     print(f"Output shape: {x_out.shape}, time: {(e-s):.3f} sec")
+    assert x_out.shape == x_in.shape
 
 
-    positionBiasLearner = PositionBiasLearner3D(input_resolution=(D, H, W), window_size=window_size, num_heads=num_heads)
-    pos_code = positionBiasLearner.flat_pair_pos_code_on_windows # (nWindows * window_volume * window_volume, 4)
+    PBLearner = PositionBiasLearner3D(input_resolution=(D, H, W), window_size=window_size, num_heads=num_heads)
+    pos_code = PBLearner.shifted_flat_pair_pos_code_on_windows # (nWindows * window_volume * window_volume, 4)
     
-    pos_code = pos_code.view(positionBiasLearner.nWindows, positionBiasLearner.window_volume, positionBiasLearner.window_volume, 4) # (nWindows, indow_volume, window_volume, 4)
+    pos_code = pos_code.view(PBLearner.nWindows, PBLearner.window_volume, PBLearner.window_volume, 4) # (nWindows, indow_volume, window_volume, 4)
     pos_code = pos_code[:, 0, :, :]
     pos_code = pos_code.view(D//window_size[0], H//window_size[1], W//window_size[2], window_size[0], window_size[1], window_size[2],  4)
     pos_code = pos_code.permute(0, 3, 1, 4, 2, 5, 6).contiguous()

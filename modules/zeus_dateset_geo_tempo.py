@@ -38,32 +38,88 @@ class Geo_Tempo():
             elif ev == 3:
                 season_dict['dec_solstice'] = dt
         return season_dict
+    
 
-    def earth_orbit_angle(dt_utc):
-        # If naive datetime, treat as UTC
+    def debug_earth_orbit_angle(dt_utc):
         if dt_utc.tzinfo is None:
             dt_utc = dt_utc.replace(tzinfo=timezone.utc)
-        
-        year = dt_utc.year
-        seasons = Geo_Tempo.get_season_events(year)
-        
+
+        y = dt_utc.year
+        seasons_y = Geo_Tempo.get_season_events(y)
+
+        if dt_utc < seasons_y['mar_equinox']:
+            season_year = y - 1
+        else:
+            season_year = y
+
+        s0 = Geo_Tempo.get_season_events(season_year)
+        s1 = Geo_Tempo.get_season_events(season_year + 1)
+
         season_angles = [
-            (seasons['dec_solstice'], 0),
-            (seasons['mar_equinox'], 90),
-            (seasons['jun_solstice'], 180),
-            (seasons['sep_equinox'], 270),
-            (Geo_Tempo.get_season_events(year + 1)['dec_solstice'], 360)
+            (s0['dec_solstice'], 0),
+            (s1['mar_equinox'], 90),
+            (s1['jun_solstice'], 180),
+            (s1['sep_equinox'], 270),
+            (s1['dec_solstice'], 360),
         ]
-        
-        for i in range(len(season_angles) - 1):
+
+        print("dt_utc =", dt_utc)
+
+        print("\nSeason timeline:")
+        for t, a in season_angles:
+            print(f"{a:3d}°  {t.isoformat()}")
+
+        # check ordering
+        print("\nOrdering checks:")
+        for i in range(len(season_angles)-1):
             t0, a0 = season_angles[i]
             t1, a1 = season_angles[i+1]
+            print(f"{a0}°→{a1}° : {t0 < t1}")
+
+
+
+    def earth_orbit_angle(dt_utc):
+        if dt_utc.tzinfo is None:
+            dt_utc = dt_utc.replace(tzinfo=timezone.utc)
+
+        y = dt_utc.year
+
+        # Load events for y-1, y, y+1
+        s_prev = Geo_Tempo.get_season_events(y - 1)
+        s_curr = Geo_Tempo.get_season_events(y)
+        s_next = Geo_Tempo.get_season_events(y + 1)
+
+        # --- Find the December solstice immediately before dt_utc ---
+        if dt_utc >= s_curr['dec_solstice']:
+            solstice_before = s_curr['dec_solstice']
+            solstice_after  = s_next['dec_solstice']
+            eq_mar  = s_next['mar_equinox']
+            eq_jun  = s_next['jun_solstice']
+            eq_sep  = s_next['sep_equinox']
+        else:
+            solstice_before = s_prev['dec_solstice']
+            solstice_after  = s_curr['dec_solstice']
+            eq_mar  = s_curr['mar_equinox']
+            eq_jun  = s_curr['jun_solstice']
+            eq_sep  = s_curr['sep_equinox']
+
+        season_angles = [
+            (solstice_before, 0),
+            (eq_mar, 90),
+            (eq_jun, 180),
+            (eq_sep, 270),
+            (solstice_after, 360),
+        ]
+
+        for (t0, a0), (t1, a1) in zip(season_angles, season_angles[1:]):
             if t0 <= dt_utc < t1:
-                fraction = (dt_utc - t0).total_seconds() / (t1 - t0).total_seconds()
-                angle = a0 + fraction * (a1 - a0)
-                return angle
-        return None
-    
+                f = (dt_utc - t0).total_seconds() / (t1 - t0).total_seconds()
+                return a0 + f*(a1 - a0)
+
+        raise RuntimeError("earth_orbit_angle: timestamp does not fall into seasonal intervals")
+
+
+        
     def earth_orbit_angle_tensor_era5(dt_utc):
         """
         Generate a tensor of Earth orbital angles (degrees 0..360) on a (H, W) grid
@@ -330,7 +386,6 @@ class Geo_Tempo():
         return tensor        
 
 Geo_Tempo.lat_lon_tensor_721_1440, Geo_Tempo.lat_tensor_721, Geo_Tempo.lon_tensor_1440 = Geo_Tempo.lat_lon_grid_tensor_era5_721()
-
 
 if __name__ == "__main__":
     # Examples

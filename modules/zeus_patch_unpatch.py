@@ -195,7 +195,7 @@ class PatchFeatureExtractor(nn.Module):
             use_overlap=True
         )
         
-        self.nTotalLevels = len(sample_level_list) + 1
+        self.nTotalLevels = len(sample_level_list) + 1      # +1 for the surface
 
     def forward(self, level_list, surface):
         """
@@ -265,7 +265,7 @@ class UnpatchReconstructor(nn.Module):
 
         # Apply deconv with output_size
         out = self.deconv(x, output_size=(1, self.deconv.out_channels, H_target, W_out))
-
+        
         # Horizontal cylindric wrap
         if extra_w > 0:
             out = out[..., :W_target] + out[..., W_target:W_out]

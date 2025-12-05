@@ -32,6 +32,8 @@ class Params:
         #============================ data, shared ===========================================================================
         self.variables = config['variables']
         self.hourly_offset = config['hourly_offset']
+        self.modulo = config['modulo']
+        self.nCascades = config['nCascades']
         
         self.height = int(config['org_height'] * config['factor10'] / 10)       # int not round , config['org_height'] = 721 (transformer) or 720 (CNN)
         self.width = int(config['org_width'] * config['factor10'] / 10)         # int not round , config['org_width'] = 1440
@@ -56,6 +58,11 @@ class Params:
         self.vali_pct = config['vali_pct']
         
         self.include_difficulty = config['include_difficulty']
+        
+        self.train_start_dt = config['train_start_dt']
+        self.vali_start_dt = config['vali_start_dt']
+        self.test_start_dt = config['test_start_dt']
+        self.test_end_dt_inclusive = config['test_end_dt_inclusive']
                 
         #============================ model, individual ========================================================================
 

@@ -25,7 +25,7 @@ class Zeus(nn.Module):
         # window_size = pm.window_size
         # num_swin_blocks = pm.num_swin_block        
 
-        self.factor10 = 2        
+        self.factor10 = pm.factor10
         swin_dim, num_heads = 16, 4    
         H, W = int(720/10*self.factor10), int(1440/10*self.factor10)
         window_size = (2, int(self.factor10), int(self.factor10))
@@ -37,16 +37,23 @@ class Zeus(nn.Module):
     
         #---------------- Patch extractor -----------------
         
+        Snapshot.export_factor10 = self.factor10
+        
         now = datetime.now(timezone.utc)
-        ss1 = Snapshot(now.year, now.month, now.day, now.hour)
+        ss1 = Snapshot(now.year, now.month, now.day, now.hour, meteo=None, meteo_unnormal=None)
         then = now + timedelta(hours=6)
-        ss2 = Snapshot(then.year, then.month, then.day, then.hour)
+        ss2 = Snapshot(then.year, then.month, then.day, then.hour, meteo=None, meteo_unnormal=None)
         levels, surface = Snapshot.pack_pair_snapshots(ss1, ss2)
         
         self.patch_kernel=(patch_kernel,patch_kernel)
         self.patch_stride=(patch_stride,patch_stride)
         
-        self.patch_extractor = PatchFeatureExtractor(levels, surface, c_out=swin_dim, patch_kernel=self.patch_kernel, patch_stride=self.patch_stride)
+        self.patch_extractor = PatchFeatureExtractor(
+                levels, surface, 
+                c_out=swin_dim, 
+                patch_kernel=self.patch_kernel, 
+                patch_stride=self.patch_stride
+            )
         
         #---------------- Swin blocks ----------------------
         
@@ -58,7 +65,7 @@ class Zeus(nn.Module):
                 input_resolution=input_resolution,
                 num_heads=num_heads,
                 window_size=window_size,
-                shift_size=(0,0,0) if idx % 2 == 0 else (window_size[0]//2, window_size[1]//2, - window_size[2]//2),
+                shift_size=(0,0,0) if idx % 2 == 0 else (window_size[0]//2, window_size[1]//2, window_size[2]//2),
                 mlp_ratio=4.,
                 qkv_bias=True,
                 drop=0.0,
@@ -69,9 +76,16 @@ class Zeus(nn.Module):
         ])
         
         #--------------- Unpatch reconstructor        
-        self.uppatch_reconstructor = UnpatchReconstructor(in_channels=self.patch_extractor.nTotalLevels * swin_dim, out_channels=Snapshot.meteo_dims, kernel_size=self.patch_kernel, stride=self.patch_stride)
+        self.unpatch_reconstructor = UnpatchReconstructor(
+                in_channels=self.patch_extractor.nTotalLevels * swin_dim, 
+                # We have to reduce losses for all the meteo variables, for auto-regressive (cascaded) inference.
+                # Consider placing heavier weights on our target variables in the loss function.
+                out_channels=Snapshot.meteo_dims,   
+                kernel_size=self.patch_kernel, 
+                stride=self.patch_stride
+            )
 
-    def forward(self, ss1, ss2):    # Not batch-processing, as hard drives are always bottlenecks.
+    def forward(self, ss1, ss2, cascade_step):    # Not batch-processing, as hard drives are always bottlenecks.
         print(f"x befor patching: {ss1.meteo.shape, ss1.tempo.shape, ss1.geo.shape}")
 
         #----------- patch/extract level features ------------
@@ -100,14 +114,92 @@ class Zeus(nn.Module):
         x = x.view(-1, H, W)
         x = x.unsqueeze(0)
         s = time.time()
-        x = self.uppatch_reconstructor(x)
+        x = self.unpatch_reconstructor(x)
         e = time.time()
         x = x.squeeze(0)
         print(f"x after unpatching: {x.shape}, time: {e-s}")
 
         return x
 
+    # def forward_backward_no_step(self, input_unnormalized, target_unnormalized, loss_fn, normalize, unnormalize, batch_diff, era5_data_vars, trainable=True, metrics="rmse"):
+    #     # Do not cast to 16bit for CNN networks.
 
+    #     # with autocast(device_type=self.device_type, dtype=torch.bfloat16):
+    #     #     with torch.set_grad_enabled(trainable):         
+
+    #     # assert input.requires_grad == False
+    #     # assert target.requires_grad == False
+
+    #     input_unnormalized = input_unnormalized.to(self.device)
+    #     target_unnormalized = target_unnormalized.to(self.device)
+        
+    #     input_normalized = normalize_meteo(input_unnormalized)
+    #     target_normalized = normalize_meteo(target_unnormalized)
+
+    #     context = torch.enable_grad if trainable else torch.no_grad       # This is the only place where grad is managed.
+    #     with context():
+    #         pred = self(input_normalized, target_normalized.shape[1])
+    #         lossAndMetrics = loss_fn(target_normalized, pred, batch_diff, era5_data_vars)
+    #         loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
+    #     if trainable:
+    #         loss.backward()
+    #             # grads = [p.grad.detach().clone() for p in self.parameters()]
+
+    #     if isinstance(lossAndMetrics, (tuple, list)):
+    #         detached_loss_metrics = [x.detach().cpu() if torch.is_tensor(x) else x for x in lossAndMetrics]
+    #     else:
+    #         detached_loss_metrics = lossAndMetrics.detach().cpu()
+        
+    #     pred = unnormalize_meteo(pred.detach())        # (B, T, C, H, W)
+        
+    #     # Temoporay to check for the accuracy near the equator.
+    #     # remain = 30
+    #     # trim = int((target_unnormalized.shape[3] - remain)/2)
+    #     # target_unnormalized = target_unnormalized[:, :, :, trim:-trim, :]
+    #     # pred = pred[:, :, :, trim:-trim, :]
+        
+    #     if metrics == "rmse":
+    #         lossAndMetrics = loss_fn(target_unnormalized, pred, batch_diff, era5_data_vars)
+    #         unnormalized_metrics = lossAndMetrics[1].cpu() if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics.cpu()
+    #     else:
+    #         unnormalized_metrics = torch.abs(pred - target_unnormalized).mean(dim=(0, 1, 3, 4)).cpu()    # (C,)
+                        
+    #     return detached_loss_metrics, unnormalized_metrics
+    
+    def forward_backward_no_step(self,
+            ss0, ss1, ssY, cascade_step,
+            fn_loss, fn_nornalize, fn_unnornalize, 
+            batch_diff, era5_data_vars, trainable,
+            type_metrics
+        ):
+        
+        # with autocast(device_type=self.device_type, dtype=torch.bfloat16):
+        #     with torch.set_grad_enabled(trainable):         
+        
+        pred = self(ss0, ss1, cascade_step)
+        
+        result_ss = Snapshot(ssY.year, ssY.month, ssY.day, ssY.hour, meteo=pred, meteo_unnormal=None, device=ssY.device)
+
+        target_normal = ssY.meteo
+        target_unnormal = ssY.meteo_unnormal
+        
+        lossAndMetrics = fn_loss(target_normal, pred, batch_diff, era5_data_vars)
+        loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
+
+        # if trainable:
+        #     loss.backward()
+        #         # grads = [p.grad.detach().clone() for p in self.parameters()]
+                
+        pred_unnormal = fn_unnornalize(pred)
+
+        if type_metrics == "rmse":
+            lossAndMetrics = fn_loss(target_unnormal, pred_unnormal, batch_diff, era5_data_vars)
+            unnormalized_metrics = lossAndMetrics[1] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
+        else:
+            unnormalized_metrics = torch.abs(target_unnormal - pred_unnormal).mean(dim=(0, 1, 3, 4))    # (C,)
+        
+        return result_ss, loss.detach().to("cpu"), unnormalized_metrics.detach().to("cpu")
+        # return result_ss, torch.tensor(1.0), torch.rand(82)
 
 # -----------------------
 # Demo
@@ -128,13 +220,15 @@ if __name__ == "__main__":
     Snapshot.device = device
     Snapshot.export_factor10 = model.factor10
     now = datetime.now(timezone.utc)
-    ss1 = Snapshot(now.year, now.month, now.day, now.hour, device=device)
+    ss1 = Snapshot(now.year, now.month, now.day, now.hour, meteo=None, meteo_unnormal=None, device=device)
     then = now + timedelta(hours=6)
-    ss2 = Snapshot(then.year, then.month, then.day, then.hour, device=device)
+    ss2 = Snapshot(then.year, then.month, then.day, then.hour, meteo=None, meteo_unnormal=None, device=device)
     
     s = time.time()
-    x_out = model(ss1, ss2)
+    x_out = model(ss1, ss2, 1)
     e = time.time()
     
     print(x_out.shape, "time: ", e-s)
+    export_size = Snapshot.get_export_size()
+    assert x_out.shape == (Snapshot.meteo_dims, export_size[0], export_size[1])
     

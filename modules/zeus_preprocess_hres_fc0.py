@@ -2,7 +2,7 @@
 """
 preprocess_hres_fc0.py
 
-Preprocess ECMWF HRES fc0 data into ML-ready 0.25° tensor for mike1_variables.
+Preprocess ECMWF HRES fc0 data into ML-ready 0.25° tensor for VARIABLE_NAME_LIST_UNCHANGEABLE.
 
 Steps:
 
@@ -29,7 +29,7 @@ ds = xr.open_dataset(nc_file)
 # ------------------------------
 # 2. Define variables used in ML
 # ------------------------------
-mike1_variables = [
+VARIABLE_NAME_LIST_UNCHANGEABLE = [
     # Upper-air
     "z_50","t_50","u_50","v_50","q_50",
     "z_100","t_100","u_100","v_100","q_100",
@@ -92,7 +92,7 @@ for key in surface_data:
 # ------------------------------
 # 6. Assemble ML input tensor
 # ------------------------------
-tensor = np.stack([upper_interpolated.get(v, surface_data.get(v)) for v in mike1_variables], axis=0)
+tensor = np.stack([upper_interpolated.get(v, surface_data.get(v)) for v in VARIABLE_NAME_LIST_UNCHANGEABLE], axis=0)
 # shape: (num_vars, lat, lon)
 
 # ------------------------------

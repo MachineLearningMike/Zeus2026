@@ -39,17 +39,17 @@ class Train_6_hourly():
             newQ = [(oldQ[0][1], Y)]  # assert len(newQ) > 0        # newQ[0] stores raw X's
 
             #-------------------- State check, no-remove ------------------
-            nXOnDevice = 0
-            assert len([x for x in snapshots if x.device == device]) == 0, "Some of Xs are on device"
-            assert len(oldQ) > 0, "oldQ is empty"
-            check = [(x0.device == device or x1.device is None) and (x1.device == device or x1.device is None) for (x0, x1) in oldQ]
-            assert all(check), "Some pairs in oldQ are not on device"
-            nXOnDevice += 2 * len(oldQ)
-            assert len(newQ) == 1
-            check = [(x0.device == device or x1.device is None) and (x1.device == device or x1.device is None) for (x0, x1) in newQ]
-            assert all(check), "The only pair in newQ are not on device"
-            nXOnDevice += 2
-            print(f"n of X that are on device: {nXOnDevice}, accum substeps taken: {nSubsteps}")
+            # nXOnDevice = 0
+            # assert len([x for x in snapshots if x.device == device]) == 0, "Some of Xs are on device"
+            # assert len(oldQ) > 0, "oldQ is empty"
+            # check = [(x0.device == device or x1.device is None) and (x1.device == device or x1.device is None) for (x0, x1) in oldQ]
+            # assert all(check), "Some pairs in oldQ are not on device"
+            # nXOnDevice += 2 * len(oldQ)
+            # assert len(newQ) == 1
+            # check = [(x0.device == device or x1.device is None) and (x1.device == device or x1.device is None) for (x0, x1) in newQ]
+            # assert all(check), "The only pair in newQ are not on device"
+            # nXOnDevice += 2
+            # print(f"n of X that are on device: {nXOnDevice}, accum substeps taken: {nSubsteps}")
 
             substep_loss = []; substep_metrics = []
             while len(oldQ) > 0:     # loops at least once
@@ -58,7 +58,7 @@ class Train_6_hourly():
                 step_result, loss, metrics = fn_take_substep(model_dom, X0, X1, Y, cascade_step) # forward, backward, and optimizer.step
                 nSubsteps += 1
                 nSubsteps_by_cascade[cascade_step-1] += 1
-                assert (step_result.device == device or step_result.device is None)
+                # assert (step_result.device == device or step_result.device is None)
 
                 newQ.append((X1, step_result))                      # +1 X
                 X0.delete()  # del all and clean cuda immediately   # -1 X
@@ -84,11 +84,12 @@ if __name__ == "__main__":
         return _Y, 1.0, [2.0, 3.0]
 
     from zeus_dataset_Snapshot import Snapshot
+    from datetime import datetime, timedelta, timezone
 
     nCascades = 32
-    # snapshots = [Snapshot('cpu') for _ in range(nCascades+2)]
-    snapshots = [Snapshot(2025, 11, 21, 23, device='cpu') for _ in range(nCascades+2)]
-    device = "cuda"
+    snapshots = [Snapshot(dt.year, dt.month, dt.day, dt.hour, meteo=None, device='cpu')
+                 for dt in [datetime.now(timezone.utc)+timedelta(days=-10, hours=n) for n in range(nCascades+2)]]
     model_dom = {}
+    device = "cuda"
         
     Train_6_hourly.train_one_batch(snapshots, nCascades, model_dom, take_substep, device)

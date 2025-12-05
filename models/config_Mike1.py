@@ -2,9 +2,11 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+from datetime import datetime, timedelta, timezone
+
 # Change
 
-from modules.zeus_dataset_var_names import mike1_variables
+from modules.zeus_dataset_var_names import VARIABLE_NAME_LIST_UNCHANGEABLE  # The order of variables must consistent across training and inference !!!!!!!!!!!!!!
 
 config = {
     #============================ project parameters ===============================
@@ -31,9 +33,11 @@ config = {
     
     #============================ data parameters ===========================================================================
     "dtype" : 32,   # 16 is complicated. deffered.
-    "variables": mike1_variables,
+    "variables": VARIABLE_NAME_LIST_UNCHANGEABLE,   #!!!!!!!!!!!!!!!!!!!!!!!!!!!! The order of variables must consistent across training and inference !!!!!!
     "pole_angle": 30.0,      #
     "hourly_offset": -1,
+    "modulo": 6,
+    "nCascades": 1,
 
     "org_height": 721,
     "org_width": 1440,
@@ -52,6 +56,11 @@ config = {
     "vali_pct": 20,
 
     "include_difficulty" : False,
+    
+    "train_start_dt":   datetime(2015, 1, 1, 0) - timedelta(hours=1),
+    "vali_start_dt" :   datetime(2023, 1, 1, 0) - timedelta(hours=1),
+    "test_start_dt" :   datetime(2024, 1, 1, 0) - timedelta(hours=1),
+    "test_end_dt_inclusive": datetime(2025, 1, 1, 0) - timedelta(hours=1),
 }
 
 
@@ -108,7 +117,7 @@ shared_model_params = {
     # SWIN
     "patch_kernel": 8,
     "patch_stride": 8,
-    "swin_dim"  : 16,
+    "swin_dim"  : 20,       # should embed 26 (air level 0), 36 (air level 1..12), and 50 (surface)
     "window_size" : (10, 10),
     "num_swin_block": 30,
 }
@@ -135,7 +144,7 @@ if platform.system() == "Windows":
     config["data_limit"] = 12
     
     # GPU: RTX 4070, Chunk2D
-    config["factor10"] = 4  # 2 is the minimum, as 1 causes a non-float parameter error.
+    config["factor10"] = 2  # 2 is the minimum, as 1 causes a non-float parameter error.
     config["dim_to_layerFFN_dim"] = 4
 
     config["nHeads"] = 128
@@ -148,6 +157,11 @@ if platform.system() == "Windows":
     config["epochs"] = 100
     config["steps_to_save"] = 2
     config["abundant_GPUs"] = False
+    
+    config["train_start_dt"] = datetime(2015, 1, 1, 12)
+    config["vali_start_dt"] = datetime(2015, 1, 10, 12)
+    config["test_start_dt"] = datetime(2015, 1, 20, 12)
+    config["test_end_dt_inclusive"] = datetime(2015, 1, 30, 17)
     
 else:
     if not config["dual_drive"]:

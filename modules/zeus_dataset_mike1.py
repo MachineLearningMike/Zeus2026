@@ -58,8 +58,10 @@ class Zeus_Dataset(Dataset):
 
             self.param_path = management_path / 'dataset_params.json'
             self.split_hours_path = management_path / 'split_hours.json'
-            self.mean_checkpoint_path = management_path / "mean_checkpoint.pth"
-            self.var_mean_checkpoint_path = management_path / "std_checkpoint.pth"
+            self.mean_meteo_checkpoint_path = management_path / "mean_meteo_checkpoint.pth"
+            self.var_mean_meteo_checkpoint_path = management_path / "mean_var_meteo_checkpoint.pth"
+            self.mean_tempo_checkpoint_path = management_path / "mean_tempo_checkpoint.pth"
+            self.var_mean_tempo_checkpoint_path = management_path / "mean_var_tempo_checkpoint.pth"
         else:
             self.cds_folder_even = dataset_path / "data_even" / "CDS"            
             self.cds_folder_even.mkdir(parents=True, exist_ok=True)
@@ -69,8 +71,10 @@ class Zeus_Dataset(Dataset):
     
             self.param_path = management_path /'dataset_params.json'
             self.split_hours_path = management_path / 'split_hours.json'
-            self.mean_checkpoint_path = management_path / "mean_checkpoint.pth"
-            self.var_mean_checkpoint_path = management_path / "std_checkpoint.pth"
+            self.mean_meteo_checkpoint_path = management_path / "mean_meteo_checkpoint.pth"
+            self.var_mean_meteo_checkpoint_path = management_path / "mean_var_meteo_checkpoint.pth"
+            self.mean_tempo_checkpoint_path = management_path / "mean_tempo_checkpoint.pth"
+            self.var_mean_tempo_checkpoint_path = management_path / "mean_var_tempo_checkpoint.pth"
         
         self.difficulties = None
         self.era5_data_vars = None
@@ -110,11 +114,20 @@ class Zeus_Dataset(Dataset):
         return int(delta.total_seconds() // 3600)
 
     def load_data(self):
-        self.mean, self.std, self.mean_ready_cpu, self.std_ready_cpu, self.mean_ready_cuda, self.std_ready_cuda = self.load_dataset_params()
+        self.mean_meteo, self.std_meteo, self.mean_tempo, self.std_tempo, \
+        self.mean_meteo_ready_cpu, self.std_meteo_ready_cpu, self.mean_meteo_ready_cuda, self.std_meteo_ready_cuda, \
+        self.mean_tempo_ready_cpu, self.std_tempo_ready_cpu, self.mean_tempo_ready_cuda, self.std_tempo_ready_cuda \
+        = self.load_dataset_params()
+        
         if self.pm.include_difficulty: 
             self.difficulties = self.load_difficulties()
+        
         self.era5_data_vars = self.load_era5_data_vars()
-        self.train_hours, self.vali_hours, self.test_hours = self.split_data_hours(renew=True, seed=self.pm.seed)
+        
+        self.train_hours, self.vali_hours, self.test_hours = self.split_data_hours_by_date_segents(
+            self.pm.train_start_dt, self.pm.vali_start_dt, self.pm.test_start_dt, self.pm.test_end_dt_inclusive,
+            renew=True, save=True, seed=self.pm.seed
+        )
         return
     
     def get_normalized_dataset(self):
@@ -163,13 +176,22 @@ class Zeus_Dataset(Dataset):
     
     #---------------------------------------------------------------------------   
     
-    def load_hourly_data(self, year, month, day, hour, modulo):
-        path = self.get_file_path_npz(year, month, day, hour, modulo)
+    def load_hourly_data(self, dt, modulo):
+        path = self.get_file_path_npz(dt.year, dt.month, dt.day, dt.hour, modulo)
+        arrays = []
         try:
             array_dict = load(path)
-        except:
-            array_dict = None
-        return array_dict
+            #----------------------------------- This decides the order of arrays !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+            #----------------------------------- The order must be consistent across training and inference. !!!!!!!!!!!!!
+            #----------------------------------- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+            for var in self.pm.variables:
+                arrays.append(array_dict[var])
+            array = np.stack(arrays, axis=0)
+            assert array.shape[0] == self.pm.nVariables
+        except Exception as e:
+            print(e)
+            array = None
+        return array
     
     def download_fuXi2_snapshots_levels_region_parallel_vars(
             self, variables, var_name_map,
@@ -227,10 +249,6 @@ class Zeus_Dataset(Dataset):
 
         def process_snapshot(year, month, day, hour):
             """Download all variables for a single snapshot in parallel."""
-            
-            # existing_snapshot = self.load_hourly_data(year, month, day, hour, modulo)
-            # if existing_snapshot is not None:
-            #     return snapshot_time
 
             exists = None
             snapshot_path = self.get_file_path_npz(year, month, day, hour, modulo)
@@ -469,20 +487,23 @@ class Zeus_Dataset(Dataset):
         return       
 
 
-    def get_mean_of_hourly_dataset(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6):
+    def get_mean_meteo(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6):
         """
         Compute the mean over all variables across hourly files, with checkpointing.
         """
         cuda_available = torch.cuda.is_available()
+        mean_dict = None
 
         # Load checkpoint if exists
         try:
             checkpoint = self.read_checkpoint(
-                self.mean_checkpoint_path,
-                ["mean", "step", "inclusive_left", "inclusive_right"]
+                self.mean_meteo_checkpoint_path,
+                ["mean_dict", "step", "inclusive_left", "inclusive_right"]
             )
 
-            mean = checkpoint[0] if len(checkpoint) > 0 else None
+            mean_dict = checkpoint[0] if len(checkpoint) > 0 else None
+            mean = np.array([mean_dict[var] for var in self.pm.variables]) if mean_dict is not None else None
+            
             # step = checkpoint[1] if len(checkpoint) > 1 else 0
             step = int(checkpoint[1]) if len(checkpoint) > 1 else 0
             ck_left_iso = checkpoint[2] if len(checkpoint) > 2 else None
@@ -495,13 +516,13 @@ class Zeus_Dataset(Dataset):
             ck_left_match = (ck_left == inclusive_left) or (ck_left is None and inclusive_left is None)
             ck_right_match = (ck_right == inclusive_right) or (ck_right is None and inclusive_right is None)
             if mean is None or not (ck_left_match and ck_right_match):
-                print("Checkpoint missing or date range mismatch. Starting new mean computation.")
+                print("Checkpoint missing or date range mismatch. Starting new mean meteo...")
                 mean = np.zeros((len(self.pm.variables),), dtype=np.float32)
                 step = 0
             else:
-                print(f"Resuming mean computation: step={step}")
+                print(f"Resuming existing mean meteo... step={step}")
         except:
-            print("No checkpoint found for mean. Starting new mean computation.")
+            print("No checkpoint found for mean meteo. Starting new mean meteo...")
             mean = np.zeros((len(self.pm.variables),), dtype=np.float32)
             step = 0
 
@@ -518,6 +539,8 @@ class Zeus_Dataset(Dataset):
                 continue
 
             data = load(file_path)
+            
+            # Make sure the order follows self.pm.variables
             arr = np.stack([data[key] for key in self.pm.variables], axis=0)  # (C, H, W)
 
             if cuda_available:
@@ -531,46 +554,52 @@ class Zeus_Dataset(Dataset):
 
             step += 1
             mean = mean * (step - 1)/step + _mean / step
+            
+            mean_dict = {var: mean[idx] for idx, var in enumerate(self.pm.variables)}
 
             if step % checkpoint_interval == 0:
-                print(f"Checkpointing mean... {step}: {year}-{month:02d}-{day:02d} {hour:02d}")
-                tmp_path = str(self.mean_checkpoint_path) + ".tmp"
+                print(f"Checkpointing mean_meteo... {step}: {year}-{month:02d}-{day:02d} {hour:02d}")
+                tmp_path = str(self.mean_meteo_checkpoint_path) + ".tmp"
                 self.save_checkpoint(tmp_path, {
-                    "mean": mean,
+                    "mean_dict": mean_dict,
                     "step": step,
                     "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
                     "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
                 })
-                shutil.move(tmp_path, self.mean_checkpoint_path)
+                shutil.move(tmp_path, self.mean_meteo_checkpoint_path)
 
         # Final save
-        path = str(self.mean_checkpoint_path)
+        path = str(self.mean_meteo_checkpoint_path)
         self.save_checkpoint(path, {
-            "mean": mean,
+            "mean_dict": mean_dict,
             "step": step,
             "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
             "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
         })
-        shutil.move(path, self.mean_checkpoint_path)
+        shutil.move(path, self.mean_meteo_checkpoint_path)
 
         return mean, step
 
 
-    def get_std_of_dataset(self, mean, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6):
+    def get_std_meteo(self, mean, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6):
         """
         Compute the standard deviation over all variables across hourly files, with checkpointing.
         Uses incremental variance formula.
         """
         cuda_available = torch.cuda.is_available()
+        var_mean_dict = None
 
         # Load checkpoint if exists
         try:
             checkpoint = self.read_checkpoint(
-                self.var_mean_checkpoint_path,
-                ["var_mean", "step", "inclusive_left", "inclusive_right"]
+                self.var_mean_meteo_checkpoint_path,
+                ["var_mean_dict", "step", "inclusive_left", "inclusive_right"]
             )
 
-            var_mean = checkpoint[0] if len(checkpoint) > 0 else None
+            var_mean_dict = checkpoint[0] if len(checkpoint) > 0 else None
+            var_mean = np.array([var_mean_dict[var] for var in self.pm.variables]) if var_mean_dict is not None else None
+
+            
             # step = checkpoint[1] if len(checkpoint) > 1 else 0
             step = int(checkpoint[1]) if len(checkpoint) > 1 else 0
             ck_left_iso = checkpoint[2] if len(checkpoint) > 2 else None
@@ -583,14 +612,14 @@ class Zeus_Dataset(Dataset):
             ck_left_match = (ck_left == inclusive_left) or (ck_left is None and inclusive_left is None)
             ck_right_match = (ck_right == inclusive_right) or (ck_right is None and inclusive_right is None)
             if var_mean is None or not (ck_left_match and ck_right_match):
-                print("Checkpoint missing or date range mismatch. Starting new std computation.")
-                var_mean = np.zeros((len(self.pm.variables),), dtype=np.float32)
+                print("Checkpoint missing or date range mismatch. Starting new std meteo...")
+                var_mean = np.ones((len(self.pm.variables),), dtype=np.float32)
                 step = 0
             else:
-                print(f"Resuming std computation: step={step}")
+                print(f"Resuming existing std meteo... step={step}")
         except:
-            print("No checkpoint found for std. Starting new std computation.")
-            var_mean = np.zeros((len(self.pm.variables),), dtype=np.float32)
+            print("No checkpoint found for std meteo. Starting new std meteo...")
+            var_mean = np.ones((len(self.pm.variables),), dtype=np.float32)
             step = 0
 
         skip = -1
@@ -610,6 +639,7 @@ class Zeus_Dataset(Dataset):
                 print(f"Skipping {file_path}, missing variables")
                 continue
 
+            # Make sure the order follows self.pm.variables
             arr = np.stack([data[key] for key in self.pm.variables], axis=0)  # (C, H, W)
 
             if cuda_available:
@@ -625,29 +655,215 @@ class Zeus_Dataset(Dataset):
             step += 1
             var_mean = var_mean * (step - 1)/step + _var / step
 
+            var_mean_dict = {var: var_mean[idx] for idx, var in enumerate(self.pm.variables)}
+
             if step % checkpoint_interval == 0:
-                print(f"Checkpointing var_mean...{step}: {year}-{month:02d}-{day:02d} {hour:02d}")
-                tmp_path = str(self.var_mean_checkpoint_path) + ".tmp"
+                print(f"Checkpointing var_mean_meteo...{step}: {year}-{month:02d}-{day:02d} {hour:02d}")
+                tmp_path = str(self.var_mean_meteo_checkpoint_path) + ".tmp"
+                self.save_checkpoint(tmp_path, {
+                    "var_mean_dict": var_mean_dict,
+                    "step": step,
+                    "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
+                    "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
+                })
+                shutil.move(tmp_path, self.var_mean_meteo_checkpoint_path)
+
+        # Final save
+        path = str(self.var_mean_meteo_checkpoint_path)
+        self.save_checkpoint(path, {
+            "var_mean_dict": var_mean_dict,
+            "step": step,
+            "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
+            "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
+        })
+        shutil.move(path, self.var_mean_meteo_checkpoint_path)
+
+        std = np.sqrt(var_mean)
+        return std, step
+    
+
+    def get_mean_tempo(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6):
+        """
+        Compute the mean over all variables across hourly files, with checkpointing.
+        """        
+        cuda_available = torch.cuda.is_available()
+        mean = None
+        Snapshot.set_original_settings()
+
+        # Load checkpoint if exists
+        try:
+            checkpoint = self.read_checkpoint(
+                self.mean_tempo_checkpoint_path,
+                ["mean", "step", "inclusive_left", "inclusive_right"]
+            )
+
+            mean = checkpoint[0] if len(checkpoint) > 0 else None
+            
+            # step = checkpoint[1] if len(checkpoint) > 1 else 0
+            step = int(checkpoint[1]) if len(checkpoint) > 1 else 0
+            ck_left_iso = checkpoint[2] if len(checkpoint) > 2 else None
+            ck_right_iso = checkpoint[3] if len(checkpoint) > 3 else None
+
+            ck_left = datetime.fromisoformat(ck_left_iso) if ck_left_iso else None
+            ck_right = datetime.fromisoformat(ck_right_iso) if ck_right_iso else None
+
+            # Check consistency
+            ck_left_match = (ck_left == inclusive_left) or (ck_left is None and inclusive_left is None)
+            ck_right_match = (ck_right == inclusive_right) or (ck_right is None and inclusive_right is None)
+            if mean is None or not (ck_left_match and ck_right_match):
+                print("Checkpoint missing or date range mismatch. Starting new mean tempo...")
+                mean = np.zeros((Snapshot.tempo_dims,), dtype=np.float32)
+                step = 0
+            else:
+                print(f"Resuming existing mean tempo... step={step}")
+        except:
+            print("No checkpoint found for mean tempo. Starting new mean tempo...")
+            mean = np.zeros((Snapshot.tempo_dims,), dtype=np.float32)
+            step = 0
+
+        skip = -1
+        for year, month, day, hour, file_path in self.iter_hourly_paths():
+            current_dt = datetime(year, month, day, hour)
+            if inclusive_left and current_dt < inclusive_left:
+                continue
+            if inclusive_right and current_dt > inclusive_right:
+                continue
+
+            skip += 1
+            if skip < step:
+                continue
+
+            tensor = Snapshot(year, month, day, hour, meteo=None, meteo_unnormal=None).tempo
+            assert tensor.shape == (Snapshot.tempo_dims, Snapshot.export_height_org, Snapshot.export_width_org)
+            
+            if cuda_available:
+                tensor = tensor.cuda()
+                _mean = tensor.mean(dim=(1, 2)).cpu().numpy()
+            else:
+                _mean = tensor.numpy().mean(axis=(1, 2))
+
+            if np.any(np.isnan(_mean)):
+                raise Exception(f"NaN found in hourly mean: {file_path}")
+
+            step += 1
+            mean = mean * (step - 1)/step + _mean / step
+            
+            if step % checkpoint_interval == 0:
+                print(f"Checkpointing mean_tempo... {step}: {year}-{month:02d}-{day:02d} {hour:02d}")
+                tmp_path = str(self.mean_tempo_checkpoint_path) + ".tmp"
+                self.save_checkpoint(tmp_path, {
+                    "mean": mean,
+                    "step": step,
+                    "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
+                    "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
+                })
+                shutil.move(tmp_path, self.mean_tempo_checkpoint_path)
+
+        # Final save
+        path = str(self.mean_tempo_checkpoint_path)
+        self.save_checkpoint(path, {
+            "mean": mean,
+            "step": step,
+            "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
+            "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
+        })
+        shutil.move(path, self.mean_tempo_checkpoint_path)
+
+        return mean, step
+
+
+    def get_std_tempo(self, mean, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6):
+        """
+        Compute the standard deviation over all variables across hourly files, with checkpointing.
+        Uses incremental variance formula.
+        """
+        cuda_available = torch.cuda.is_available()
+        var_mean = None
+        Snapshot.set_original_settings()
+
+        # Load checkpoint if exists
+        try:
+            checkpoint = self.read_checkpoint(
+                self.var_mean_tempo_checkpoint_path,
+                ["var_mean", "step", "inclusive_left", "inclusive_right"]
+            )
+
+            var_mean = checkpoint[0] if len(checkpoint) > 0 else None
+            
+            # step = checkpoint[1] if len(checkpoint) > 1 else 0
+            step = int(checkpoint[1]) if len(checkpoint) > 1 else 0
+            ck_left_iso = checkpoint[2] if len(checkpoint) > 2 else None
+            ck_right_iso = checkpoint[3] if len(checkpoint) > 3 else None
+            
+            ck_left = datetime.fromisoformat(ck_left_iso) if ck_left_iso else None
+            ck_right = datetime.fromisoformat(ck_right_iso) if ck_right_iso else None
+            
+            # Check consistency with provided boundaries
+            ck_left_match = (ck_left == inclusive_left) or (ck_left is None and inclusive_left is None)
+            ck_right_match = (ck_right == inclusive_right) or (ck_right is None and inclusive_right is None)
+            if var_mean is None or not (ck_left_match and ck_right_match):
+                print("Checkpoint missing or date range mismatch. Starting new std tempo...")
+                var_mean = np.ones((Snapshot.tempo_dims,), dtype=np.float32)
+                step = 0
+            else:
+                print(f"Resuming existing std tempo... step={step}")
+        except:
+            print("No checkpoint found for std tempo. Starting new std tempo...")
+            var_mean = np.ones((Snapshot.tempo_dims,), dtype=np.float32)
+            step = 0
+
+        skip = -1
+        for year, month, day, hour, file_path in self.iter_hourly_paths():
+            current_dt = datetime(year, month, day, hour)
+            if inclusive_left and current_dt < inclusive_left:
+                continue
+            if inclusive_right and current_dt > inclusive_right:
+                continue
+
+            skip += 1
+            if skip < step:
+                continue
+            
+            tensor = Snapshot(year, month, day, hour, meteo=None, meteo_unnormal=None).tempo
+            assert tensor.shape == (Snapshot.tempo_dims, Snapshot.export_height_org, Snapshot.export_width_org)
+            
+            if cuda_available:
+                tensor = tensor.cuda()
+                mean_tensor = torch.tensor(mean, dtype=torch.float32).cuda().view(-1, 1, 1)
+                _var = torch.mean((tensor - mean_tensor) ** 2, dim=(1, 2)).cpu().numpy()
+            else:
+                _var = np.mean((tensor.numpy() - mean[:, None, None]) ** 2, axis=(1, 2))
+
+            if np.any(np.isnan(_var)):
+                raise Exception(f"NaN found in hourly variance: {file_path}")
+
+            step += 1
+            var_mean = var_mean * (step - 1)/step + _var / step
+
+            if step % checkpoint_interval == 0:
+                print(f"Checkpointing var_mean_tempo...{step}: {year}-{month:02d}-{day:02d} {hour:02d}")
+                tmp_path = str(self.var_mean_tempo_checkpoint_path) + ".tmp"
                 self.save_checkpoint(tmp_path, {
                     "var_mean": var_mean,
                     "step": step,
                     "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
                     "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
                 })
-                shutil.move(tmp_path, self.var_mean_checkpoint_path)
+                shutil.move(tmp_path, self.var_mean_tempo_checkpoint_path)
 
         # Final save
-        path = str(self.var_mean_checkpoint_path)
+        path = str(self.var_mean_tempo_checkpoint_path)
         self.save_checkpoint(path, {
             "var_mean": var_mean,
             "step": step,
             "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
             "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
         })
-        shutil.move(path, self.var_mean_checkpoint_path)
+        shutil.move(path, self.var_mean_tempo_checkpoint_path)
 
         std = np.sqrt(var_mean)
         return std, step
+
 
     def analyze_hourly_dataset(self, save=False, inclusive_left=None, inclusive_right=None, modulo=6):
         """
@@ -664,15 +880,33 @@ class Zeus_Dataset(Dataset):
         """
 
         # Compute mean with checkpointing
-        mean, m = self.get_mean_of_hourly_dataset(
+        mean_meteo, m = self.get_mean_meteo(
             inclusive_left=inclusive_left,
             inclusive_right=inclusive_right,
             modulo = modulo
         )
 
         # Compute std with checkpointing
-        std, n = self.get_std_of_dataset(
-            mean,
+        std_meteo, n = self.get_std_meteo(
+            mean_meteo,
+            inclusive_left=inclusive_left,
+            inclusive_right=inclusive_right,
+            modulo = modulo
+        )
+
+        assert m == n, f"Step mismatch: mean step ({m}) vs std step ({n})"
+
+
+        # Compute mean with checkpointing
+        mean_tempo, m = self.get_mean_tempo(
+            inclusive_left=inclusive_left,
+            inclusive_right=inclusive_right,
+            modulo = modulo
+        )
+
+        # Compute std with checkpointing
+        std_tempo, n = self.get_std_tempo(
+            mean_tempo,
             inclusive_left=inclusive_left,
             inclusive_right=inclusive_right,
             modulo = modulo
@@ -683,8 +917,9 @@ class Zeus_Dataset(Dataset):
         # Save results if requested
         if save:
             # Map variable names to values
-            mean_dict = {var: float(val) for var, val in zip(self.pm.variables, mean)}
-            std_dict  = {var: float(val) for var, val in zip(self.pm.variables, std)}
+            # Make sure the order follows self.pm.variables
+            mean_meteo_dict = {var: float(val) for var, val in zip(self.pm.variables, mean_meteo)}  # mean, a numpy array, acts as a list
+            std_meteo_dict  = {var: float(val) for var, val in zip(self.pm.variables, std_meteo)}   # std, a numpy array, acts as a list
 
             # Load old data if it exists
             if self.param_path.exists() and self.param_path.is_file():
@@ -697,8 +932,10 @@ class Zeus_Dataset(Dataset):
                 data = {}
 
             # Update only the relevant fields
-            data["mean"] = mean_dict
-            data["std"] = std_dict
+            data["mean_meteo_dict"] = mean_meteo_dict
+            data["std_meteo_dict"] = std_meteo_dict
+            data["mean_tempo"] = mean_tempo.tolist()
+            data["std_tempo"] = std_tempo.tolist()
 
             # Save updated data
             with open(self.param_path, "w") as f:
@@ -706,57 +943,103 @@ class Zeus_Dataset(Dataset):
                 
             print("dataset params saved.")
             
-        return mean, std
+        return mean_tempo, std_tempo, mean_tempo, std_tempo
     
     def load_dataset_params(self):
         with open(self.param_path, "r") as f:
             data = json.load(f)
             # print('------', data, torch.tensor(data['mean']).shape)
-        mean_dict, std_dict = data['mean'], data['std']
+        mean_meteo_dict, std_meteo_dict, mean_tempo, std_tempo = \
+        data['mean_meteo_dict'], data['std_meteo_dict'], (data['mean_tempo']), data['std_tempo']
+        mean_tempo = np.array(mean_tempo, dtype=np.float32); std_tempo = np.array(std_tempo, dtype=np.float32)
+
+        #----------------- meteo -------------------        
+        mean_meteo = []
+        # Make sure, once again, the order follows self.pm.variables
+        for var in self.pm.variables:
+            mean_meteo.append(mean_meteo_dict[var])
+        std_meteo = []
+        for var in self.pm.variables:
+            std_meteo.append(std_meteo_dict[var])        
         
-        mean = []
-        for _, val in mean_dict.items():
-            mean.append(val)
-        std = []
-        for _, val in std_dict.items():
-            std.append(val)        
-        
-        mean, std = torch.tensor(mean), torch.tensor(std)
+        mean_meteo, std_meteo = torch.tensor(mean_meteo), torch.tensor(std_meteo)
                 
-        self.mean, self.std = mean, std
+        self.mean_meteo, self.std_meteo = mean_meteo, std_meteo
         
         # This violence may cause inconsistency, I know.
-        mean_ready_cpu = rearrange(mean, 'c -> c 1 1').to("cpu")
-        std_ready_cpu = rearrange(std, 'c -> c 1 1').to("cpu")
+        mean_meteo_ready_cpu = rearrange(mean_meteo, 'c -> c 1 1').to("cpu")
+        std_meteo_ready_cpu = rearrange(std_meteo, 'c -> c 1 1').to("cpu")
         
-        mean_ready_cuda, std_ready_cuda = None, None
+        mean_meteo_ready_cuda, std_meteo_ready_cuda = None, None
         if torch.cuda.is_available():
-            mean_ready_cuda = rearrange(mean, 'c -> c 1 1').to("cuda")
-            std_ready_cuda = rearrange(std, 'c -> c 1 1').to("cuda")
+            mean_meteo_ready_cuda = rearrange(mean_meteo, 'c -> c 1 1').to("cuda")
+            std_meteo_ready_cuda = rearrange(std_meteo, 'c -> c 1 1').to("cuda")
+
+
+        #----------------- tempo -------------------
         
-        return mean, std, mean_ready_cpu, std_ready_cpu, mean_ready_cuda, std_ready_cuda # (C,), (C,)
+        mean_tempo, std_tempo = torch.tensor(mean_tempo), torch.tensor(std_tempo)
+                
+        self.mean_tempo, self.std_tempo = mean_tempo, std_tempo
+        
+        # This violence may cause inconsistency, I know.
+        mean_tempo_ready_cpu = rearrange(mean_tempo, 'c -> c 1 1').to("cpu")
+        std_tempo_ready_cpu = rearrange(std_tempo, 'c -> c 1 1').to("cpu")
+        
+        mean_tempo_ready_cuda, std_tempo_ready_cuda = None, None
+        if torch.cuda.is_available():
+            mean_tempo_ready_cuda = rearrange(mean_tempo, 'c -> c 1 1').to("cuda")
+            std_tempo_ready_cuda = rearrange(std_tempo, 'c -> c 1 1').to("cuda")
+
+        pack = (
+            mean_meteo, std_meteo, mean_tempo, std_tempo, 
+            mean_meteo_ready_cpu, std_meteo_ready_cpu, mean_meteo_ready_cuda, std_meteo_ready_cuda,
+            mean_tempo_ready_cpu, std_tempo_ready_cpu, mean_tempo_ready_cuda, std_tempo_ready_cuda,
+        )
+        
+        return pack
 
     #----------------- Standardize --------------------
 
-    def standardize(self, data):    # data: (... C, H, W)
+    def normalize_meteo(self, data):    # data: (... C, H, W)
         # device = data.device
-        # return ( data - rearrange(self.mean, 'c -> c 1 1').to(device) ) / rearrange(self.std, 'c -> c 1 1').to(device)
+        # return ( data - rearrange(self.mean_meteo, 'c -> c 1 1').to(device) ) / rearrange(self.std_meteo, 'c -> c 1 1').to(device)
         if data.is_cuda:
-            return ( data - self.mean_ready_cuda ) / self.std_ready_cuda
+            return ( data - self.mean_meteo_ready_cuda ) / self.std_meteo_ready_cuda
         else:
-            return ( data - self.mean_ready_cpu ) / self.std_ready_cpu
+            return ( data - self.mean_meteo_ready_cpu ) / self.std_meteo_ready_cpu
     
-    def unstandardize(self, data):    # data: (... C, H, W)
+    def unnormalize_meteo(self, data):    # data: (... C, H, W)
         # Mike!!! I found this error Oct 23 only. 
         # Over 2 months of test training was based on this wrong formula, forcing neual networks to distort accordingly.
-        # return ( data - rearrange(self.mean, 'c -> c 1 1').to(device) ) / rearrange(self.std, 'c -> c 1 1').to(device)
+        # return ( data - rearrange(self.mean_meteo, 'c -> c 1 1').to(device) ) / rearrange(self.std_meteo, 'c -> c 1 1').to(device)
 
         # device = data.device
-        # return data * rearrange(self.std, 'c -> c 1 1').to(device) + rearrange(self.mean, 'c -> c 1 1').to(device)
+        # return data * rearrange(self.std_meteo, 'c -> c 1 1').to(device) + rearrange(self.mean_meteo, 'c -> c 1 1').to(device)
         if data.is_cuda:
-            return data * self.std_ready_cuda + self.mean_ready_cuda
+            return data * self.std_meteo_ready_cuda + self.mean_meteo_ready_cuda
         else:
-            return data * self.std_ready_cpu + self.mean_ready_cpu
+            return data * self.std_meteo_ready_cpu + self.mean_meteo_ready_cpu
+        
+    def normalize_tempo(self, data):    # data: (... C, H, W)
+        # device = data.device
+        # return ( data - rearrange(self.mean_tempo, 'c -> c 1 1').to(device) ) / rearrange(self.std_tempo, 'c -> c 1 1').to(device)
+        if data.is_cuda:
+            return ( data - self.mean_tempo_ready_cuda ) / self.std_tempo_ready_cuda
+        else:
+            return ( data - self.mean_tempo_ready_cpu ) / self.std_tempo_ready_cpu
+    
+    def unnormalize_tempo(self, data):    # data: (... C, H, W)
+        # Mike!!! I found this error Oct 23 only. 
+        # Over 2 months of test training was based on this wrong formula, forcing neual networks to distort accordingly.
+        # return ( data - rearrange(self.mean_tempo, 'c -> c 1 1').to(device) ) / rearrange(self.std_tempo, 'c -> c 1 1').to(device)
+
+        # device = data.device
+        # return data * rearrange(self.std_tempo, 'c -> c 1 1').to(device) + rearrange(self.mean_tempo, 'c -> c 1 1').to(device)
+        if data.is_cuda:
+            return data * self.std_tempo_ready_cuda + self.mean_tempo_ready_cuda
+        else:
+            return data * self.std_tempo_ready_cpu + self.mean_tempo_ready_cpu
     
     def load_era5_data_vars(self):
         vars = [ERA5_DATA_VARS[k] for k in self.pm.variables if k in ERA5_DATA_VARS.keys()]
@@ -1045,9 +1328,82 @@ class Zeus_Dataset(Dataset):
         return train_hours, vali_hours, test_hours
 
 
+    def split_data_hours_by_date_segents(self, train_start_dt, valid_start_dt, test_start_dt, test_end_dt_inclusive, renew=False, save=True, seed=None):
+        """
+        Returns:
+            train_hours, vali_hours, test_hours : list of datetime objects
+        """
+        old_train_hours = []
+        old_vali_hours = []
+        old_test_hours = []
+
+        # Load previous split if exists
+        try:
+            with open(self.split_hours_path, "r") as f:
+                data = json.load(f)
+
+            old_train_hours = [datetime.fromisoformat(d) for d in data["train_hours"]]
+            old_vali_hours  = [datetime.fromisoformat(d) for d in data["vali_hours"]]
+            old_test_hours  = [datetime.fromisoformat(d) for d in data["test_hours"]]
+        except:
+            print("Loading failed. Creating new data split...")
+
+        # Apply inclusive boundaries to old hours
+        def filter_hours(hours, inclusive_left, exclusive_right):
+            filtered = []
+            for h in hours:
+                if inclusive_left is not None and h < inclusive_left:
+                    continue
+                if exclusive_right is not None and h >= exclusive_right:
+                    continue
+                filtered.append(h)
+            return filtered
+
+        old_train_hours = filter_hours(old_train_hours, train_start_dt, valid_start_dt)
+        old_vali_hours  = filter_hours(old_vali_hours, valid_start_dt, test_start_dt)
+        old_test_hours  = filter_hours(old_test_hours, test_start_dt, test_end_dt_inclusive + timedelta(hours=1))
+
+        if not renew:
+            return old_train_hours, old_vali_hours, old_test_hours
+
+        # Collect all hourly datetimes using iter_hourly_paths
+        
+        def get_all_hours(inclusive_left, exclusive_right):
+            all_hours = []
+            for year, month, day, hour, _ in self.iter_hourly_paths():
+                dt = datetime(year, month, day, hour)
+                if inclusive_left is not None and dt < inclusive_left:
+                    continue
+                if exclusive_right is not None and dt >= exclusive_right:
+                    continue
+                all_hours.append(dt)
+            return all_hours
+
+        # Inherit old hours that still exist
+        train_hours_all =  get_all_hours(train_start_dt, valid_start_dt)
+        vali_hours_all = get_all_hours(valid_start_dt, test_start_dt)
+        test_hours_all = get_all_hours(test_start_dt, test_end_dt_inclusive + timedelta(hours=1))
+
+        random.shuffle(train_hours_all)
+        random.shuffle(vali_hours_all)
+        random.shuffle(test_hours_all)
+
+        # Save the split as ISO format datetimes
+        if save:
+            data = {
+                "train_hours": [h.isoformat() for h in train_hours_all],
+                "vali_hours":  [h.isoformat() for h in vali_hours_all],
+                "test_hours":  [h.isoformat() for h in test_hours_all],
+            }
+            with open(self.split_hours_path, "w") as f:
+                json.dump(data, f, indent=2)
+
+        return train_hours_all, vali_hours_all, test_hours_all
+
+
     def generate_x_hours(self, seed=None):
         if self.train_hours is None or self.vali_hours is None or self.test_hours is None:
-            print("Call split_data_hours first")
+            print("Call split_data_hours_by_date_segents first")
             return None, None, None
 
         # Make copies so the original splits remain unchanged
@@ -1071,7 +1427,7 @@ class Zeus_Dataset(Dataset):
 
     def refresh_x_set(self, x_label, seed=None, renew_if_new_epoch=False):
         renewed = False
-        if len(self.x_set) <= 0 or self.x_set is None:  # this is a branc-new epoch
+        if self.x_set is None or len(self.x_set) <= 0:  # this is a branc-new epoch
             # No need to copy.copy(), as self.x_sets are re-generated above.
             if renew_if_new_epoch is True:
                 self.train_hours, self.vali_hours, self.test_hours = self.generate_x_hours(seed=seed)
@@ -1153,13 +1509,17 @@ class Zeus_Dataset(Dataset):
         assert output.shape[-5:] == torch.Size([Fm, C, size_hw[0], size_hw[1]])
         return output
 
-    def load_from_drive(self, day, with_normalized=True):
-        unnormalied = torch.tensor(self.load_day_all_data(day))
-        normalized = None
-        if with_normalized:
-            normalized = self.standardize(unnormalied)
-        return unnormalied, normalized
-
+    def load_from_drive(self, dt, modulo, with_normalized=True):
+        array = self.load_hourly_data(dt, modulo)
+        assert array is not None
+        
+        unnormalied, normalized = None, None
+        if array is not None:
+            unnormalied = torch.tensor(array)
+            normalized = None
+            if with_normalized:
+                normalized = self.normalize_meteo(unnormalied)
+        return dt.year, dt.month, dt.day, dt.hour, unnormalied, normalized
 
     def take_batch(self):        
         if len(self.x_set) <= 0: return None
@@ -1168,11 +1528,6 @@ class Zeus_Dataset(Dataset):
         self.x_set = self.x_set[self.pm.batch_size:]
         # assert len(taken) > 0
 
-        def create_snapshot(dt):
-            meteo = self.load_snapshot(dt)
-            snapshot = Snapshot(dt.year, dt.month, dt.day, dt.hour, meteo=meteo)
-            return snapshot
-
         batch = []
 
         months = []
@@ -1180,18 +1535,20 @@ class Zeus_Dataset(Dataset):
             dt = taken[b]
             months.append(dt.month)
             
-            with_normalized = False
-            futures = [self._disk_threadPool.submit(self.load_from_drive, dt + timedelta(hours=modulo*cnt), with_normalized) for cnt in range(nSnapshots)]
+            with_normalized = True
+            futures = [
+                self._disk_threadPool.submit(
+                        self.load_from_drive, dt + timedelta(hours=self.pm.modulo*cnt), self.pm.modulo, with_normalized
+                    ) for cnt in range(self.pm.nCascades + 2)
+                ]
 
-            slots = []
+            snapshots = []
             for fu in futures:
-                data, _ = fu.result()
-                slots.append(data)
+                year, month, day, hour, unnormal_data, normal_data = fu.result()
+                assert unnormal_data is not None and normal_data is not None
+                snapshots.append(Snapshot(year, month, day, hour, meteo=normal_data, meteo_unnormal=unnormal_data))
             
-            batch.append(slots)
-
-        if self.pm.height < 721:
-            slots = slots[:, :, :, :, :self.pm.height, :]   # 721 -> 720 for transformer and factor10 == 10
+            batch.append(snapshots)
 
         # S, B, _, C, H, W = slots.shape
         # if self.pm.height != H or self.pm.width != W:
@@ -1218,13 +1575,8 @@ class Zeus_Dataset(Dataset):
             
         else:
             batch_diff = None
-
-        if self.pm.pole_h_lines > 0:
-            slots = slots[:, :, :, :, self.pm.pole_h_lines:-self.pm.pole_h_lines, :]
-            if batch_diff is not None:
-                batch_diff = batch_diff[:, self.pm.pole_h_lines:-self.pm.pole_h_lines, :]
         
-        return slots, batch_diff, self.era5_data_vars     # (B, T1FG, C, H, W), (B, T2FG, C, H, W), (B, 1, C, H, W), (C,)
+        return batch, batch_diff, self.era5_data_vars     # (B, T1FG, C, H, W), (B, T2FG, C, H, W), (B, 1, C, H, W), (C,)
     
     
     def visualize_frames(self, x_seq):
@@ -1471,7 +1823,7 @@ if __name__ == "__main__":
 
     from models.config_Mike1 import config
     from modules.params_Mike1 import Params
-    from modules.zeus_dataset_var_names import mike1_variables, var_name_map
+    from modules.zeus_dataset_var_names import VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map
     pm = Params(config)
 
     dataset = Zeus_Dataset(pm, Path(config['dataset_path']), Path(config['management_path']))
@@ -1483,49 +1835,44 @@ if __name__ == "__main__":
     # print(ds.data_vars)
     # pass
     
-    setup_logging()
-    dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
-        variables=mike1_variables, var_name_map = var_name_map,
-        start_year = 2015, 
-        end_year = 2024,
-        modulo=6,
-        # max_workers_snapshots=1, max_workers_vars=1,
-        verify_existing = False,
-    )
+    # setup_logging()
+    # dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
+    #     variables=VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map = var_name_map,
+    #     start_year = 2015, 
+    #     end_year = 2024,
+    #     modulo=6,
+    #     # max_workers_snapshots=1, max_workers_vars=1,
+    #     verify_existing = False,
+    # )
 
     dict = dataset.analyze_hourly_paths(inclusive_left=None, inclusive_right=None, modulo=6)
     # print(f"count: {dict['count']}, first_hour: {dict['first_hour']}, last_hour: {dict['last_hour']}, missing_hours: {dict['missing_hours']}")
     # print(dict)
     
     if len(dict["missing_hours"]) <= 0:
-        inclusive_left = None #datetime(2023, 10, 5, 12)
-        inclusive_right = None #datetime(2023, 10, 6, 12)
+        inclusive_left = datetime(2015, 1, 1, 12)
+        inclusive_right = datetime(2015, 1, 10, 12)
         dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=6)
         
     else:
         print(dict["missing_hours"])
         print("Missing hours found!")
 
-    mean, std, mean_ready_cpu, std_ready_cpu, mean_ready_cuda, std_ready_cuda = dataset.load_dataset_params()
-    print("mean: ", mean.shape, mean)
-    print("std: ", std.shape, std)
-    
-    # total_days, start_day, end_day, complete, data_dates = dataset.count_data_days()
-    # print(f"total_days {total_days}, start_day {start_day}, end_day {end_day}, complete {complete}")
-    
-    # mean, std = dataset.analyze_dataset(save=False)
-    # print(mean, std)
+    mean_meteo, std_meteo, mean_tempo, std_tempo, \
+    mean_meteo_ready_cpu, std_meteo_ready_cpu, mean_meteo_ready_cuda, std_meteo_ready_cuda, \
+    mean_tempo_ready_cpu, std_tempo_ready_cpu, mean_tempo_ready_cuda, std_tempo_ready_cuda \
+    = dataset.load_dataset_params()
 
-    # for _ in range(100):
-    #     print(dataset.get_T2_new())
+    print("-------- mean_meteo: ", mean_meteo.shape, mean_meteo[-3:])
+    print("-------- std_meteo: ", std_meteo.shape, std_meteo[-3:])
+    print("-------- mean_tempo: ", mean_tempo.shape, mean_tempo[-3:])
+    print("-------- std_tempo: ", std_tempo.shape, std_tempo[-3:])
 
-    # mean, std = dataset.analyze_dataset()
-    # print(mean, std)
+    # train_hours, vali_hours, test_hours = dataset.split_data_hours_by_date_segents(
+    #     datetime(2015, 1, 1, 10), datetime(2015, 1, 10, 10), datetime(2015, 1, 20, 10), datetime(2015, 1, 30, 10),
+    #     renew=True, save=False, seed=523
+    #     )
 
-    # mean, std = dataset.load_dataset_params()
-    # print("mean: {}, std: {}".format(mean, std))
-
-    # train_hours, vali_hours, test_hours = dataset.split_data_hours(renew=False, save=False, seed=523)
     # print("Lengths:", len(train_hours), len(vali_hours), len(test_hours))
     # print("train_hours[:3]", train_hours[:3])
 
