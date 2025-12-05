@@ -52,7 +52,7 @@ class Model_Trainer():
         self.setup_logging(project_path)
 
         self.dataset = Zeus_Dataset(self.pm, dataset_path, management_path)
-        # self.dataset = Zeus_DataLoader(Zeus_Dataset(self.pm, dataset_path, management_path), batch_size=None, shuffle=None)     # A bit slower?       
+        # self.dataset = Zeus_DataLoader(Zeus_Dataset(self.pm, dataset_path, management_path), batch_size=None, shuffle=None)     # A bit slower?
         
         self.dataset.load_data()
         logging.info("Zeus_Dataset created and loaded.")
@@ -248,7 +248,7 @@ class Model_Trainer():
         # 32, cuda, False ; 32, cuda, True !!!, 32, cuda, False, 32, cuda, False
         device = pred.device
         target = target.to(device)
-        rmse = ((pred - target) ** 2).mean(dim=(0,1,3,4)).sqrt()    # (C,), 32, cuda, True !!!
+        rmse = ((pred - target) ** 2).mean(dim=(1,2)).sqrt()    # (C,), 32, cuda, True !!!
         # self._print_tensor_state(1, target)                 # 
         # self._print_tensor_state(2, pred)
         # self._print_tensor_state(3, batch_diff)
@@ -270,12 +270,12 @@ class Model_Trainer():
         #     rmse = (1 - REWARD_IMPROVEMENT_WEIGHT) * quality_score + REWARD_IMPROVEMENT_WEIGHT * improvement_score    # (B, C, H, W), 32, cuda, True !!!
         #     # self._print_tensor_state(11, rmse)
         
-        era5_data_vars = era5_data_vars.to(device)
-        reward = rmse * era5_data_vars   # (C,), 32, cuda, True !!!, the-higher-the-worse
+        # era5_data_vars = era5_data_vars.to(device)
+        # reward = rmse * era5_data_vars   # (C,), 32, cuda, True !!!, the-higher-the-worse
         # self._print_tensor_state(12, reward)
-        reward = reward.mean()  # (,)
+        # reward = reward.mean()  # (,)
 
-        return reward, rmse # (,), (C,)     32, cuda, True
+        return rmse.mean(), rmse # (,), (C,)     32, cuda, True
     
     def clean_gpu_every(self, n_iter, step):
         if step % n_iter == 0:
@@ -399,15 +399,11 @@ class Model_Trainer():
                         # 2 * len(oldQ) count of X is stored in oldQ in device, together with model parameters.
                         # oldQ stores raw X's
                         
-                        for (x0, x1) in oldQ:
-                            assert x0.device == device and x1.device == device
-
                         #----------------------------------------- starting a step for md...
 
                         Y = Xs[0]; Y.to(device); Xs = Xs[1:]
                         newQ = [(oldQ[0][1], Y)]  # assert len(newQ) > 0        # newQ[0] stores raw X's
 
-                        substep_loss = []; substep_metrics = [] 
                         while len(oldQ) > 0:     # loops at least once
                             
                             #-------------------------------------- starting a substep for md...
@@ -416,39 +412,27 @@ class Model_Trainer():
                             cascade_step = len(newQ)
                             substep_result, _substep_loss, _substep_metrics = md.forward_backward_no_step(
                                     X0, X1, Y, cascade_step,
-                                    self.loss, self.dataset.standardize, self.dataset.unstandardize, 
+                                    self.loss, self.dataset.normalize_meteo, self.dataset.unnormalize_meteo, 
                                     batch_diff, era5_data_vars, trainable=trainable,
                                     type_metrics = self.pm.metrics,
                                 )
 
-                            for (x0, x1) in newQ:
-                                assert x0.device == device and x1.device == device
-
-                            assert X1.device == device
-                            assert substep_result.device == device
-
                             newQ.append((X1, substep_result))                      # +1 X
                             del X0
-                            
-                            for (x0, x1) in newQ:
-                                assert x0.device == device and x1.device == device
-                            
+                                                        
                             #--------------------------------------- The substep finished.
                             
-                            substep_loss.append(_substep_loss)          # [substep_loss...]
-                            substep_metrics.append(_substep_metrics)    # [substep_metrics...]
+                            step_loss.append(_substep_loss)          # [substep_loss...]
+                            step_metrics.append(_substep_metrics)    # [substep_metrics...]
                             
                         #------------------------------------------- The step finished.
-                            
-                        step_loss.append(substep_loss)                  # [[substep_loss...]...]
-                        step_metrics.append(substep_metrics)            # [[substep_metrics...]...]
 
                         # state: len(oldQ) == 0, len(oldQ) > 0
                         oldQ = newQ
                         
                     #------------------------------------------------ The set of steps finished.
 
-                    md.store_step_loss_and_metrics(step_loss, step_metrics) # [[substep_loss...]...], [[substep_metrics...]...]
+                    md.store_step_loss_and_metrics(step_loss, step_metrics) # [substep_loss...], [substep_metrics...]
 
                     
                     if trainable:
@@ -483,8 +467,8 @@ class Model_Trainer():
             self.save_state()
         if gpu_executor is not None: gpu_executor.shutdown()
 
-        epoch_losses = [torch.stack(md.epoch_losses, dim=0) if len(md.epoch_losses) > 0 else None for md in mds]
-        epoch_metrics = [torch.stack(md.epoch_metrics, dim=0) if len(md.epoch_metrics) > 0 else None for md in mds]
+        epoch_losses = [md.epoch_losses for md in mds]
+        epoch_metrics = [md.epoch_metrics for md in mds]
 
         return epoch_losses, epoch_metrics  # (,), (C,)
 
@@ -494,7 +478,7 @@ if __name__ == "__main__":
     from models.config_Mike1 import config
     from modules.params_Mike1 import Params
     
-    pm = Params(config)        
+    pm = Params(config)
     dataset_path = Path(pm.dataset_path)
     management_path = Path(pm.management_path)
     check_dir(management_path)

@@ -55,13 +55,6 @@ class Zeus_Dataset(Dataset):
             self.cds_folder = dataset_path / "CDS"
             self.cds_folder.mkdir(parents=True, exist_ok=True)
             self.shard_dirs = [self.cds_folder]
-
-            self.param_path = management_path / 'dataset_params.json'
-            self.split_hours_path = management_path / 'split_hours.json'
-            self.mean_meteo_checkpoint_path = management_path / "mean_meteo_checkpoint.pth"
-            self.var_mean_meteo_checkpoint_path = management_path / "mean_var_meteo_checkpoint.pth"
-            self.mean_tempo_checkpoint_path = management_path / "mean_tempo_checkpoint.pth"
-            self.var_mean_tempo_checkpoint_path = management_path / "mean_var_tempo_checkpoint.pth"
         else:
             self.cds_folder_even = dataset_path / "data_even" / "CDS"            
             self.cds_folder_even.mkdir(parents=True, exist_ok=True)
@@ -69,12 +62,12 @@ class Zeus_Dataset(Dataset):
             self.cds_folder_odd.mkdir(parents=True, exist_ok=True)
             self.shard_dirs = [self.cds_folder_even, self.cds_folder_odd]
     
-            self.param_path = management_path /'dataset_params.json'
-            self.split_hours_path = management_path / 'split_hours.json'
-            self.mean_meteo_checkpoint_path = management_path / "mean_meteo_checkpoint.pth"
-            self.var_mean_meteo_checkpoint_path = management_path / "mean_var_meteo_checkpoint.pth"
-            self.mean_tempo_checkpoint_path = management_path / "mean_tempo_checkpoint.pth"
-            self.var_mean_tempo_checkpoint_path = management_path / "mean_var_tempo_checkpoint.pth"
+        self.param_path = management_path / 'dataset_params.json'
+        self.split_hours_path = management_path / 'split_hours.json'
+        self.mean_meteo_checkpoint_path = management_path / "mean_meteo_checkpoint.pth"
+        self.var_mean_meteo_checkpoint_path = management_path / "mean_var_meteo_checkpoint.pth"
+        self.mean_tempo_checkpoint_path = management_path / "mean_tempo_checkpoint.pth"
+        self.var_mean_tempo_checkpoint_path = management_path / "mean_var_tempo_checkpoint.pth"
         
         self.difficulties = None
         self.era5_data_vars = None
@@ -1850,8 +1843,8 @@ if __name__ == "__main__":
     # print(dict)
     
     if len(dict["missing_hours"]) <= 0:
-        inclusive_left = datetime(2015, 1, 1, 12)
-        inclusive_right = datetime(2015, 1, 10, 12)
+        inclusive_left = datetime(2014, 12, 31, 23)
+        inclusive_right = datetime(2024, 12, 31, 23)
         dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=6)
         
     else:

@@ -462,19 +462,11 @@ class Model_Dom():
         )
         
     def store_step_loss_and_metrics(self, step_loss, step_metrics): # [substep_loss...], [substep_metrics...]
-        """
-        step_loss: [substep_loss...], where substep_loss was produced by self.forward_backward_no_step
-        step_metrics: [substep_metrics...], where substep_metrics was produced by self.forward_backward_no_step
-        
-        goal 1: append them to self.epoch_losses and self.epoch_metrics, respectively. self.epoch_losses: a list of scalars, self.epoch_metrics: a list of lists
-        goal 2. append to self.total_losses, which is a list of scalar
-        goal 3. get_pbar_description_step to create progress bar description for the step
-        """
         loss = torch.stack(step_loss).mean().item()
         self.epoch_losses.append(loss)
         self.total_losses.append(loss)
         
-        metrics = torch.stack(step_metrics, dim=0).mean(dim=0).item()
+        metrics = torch.stack(step_metrics, dim=0).mean(dim=0).tolist()
         # metrics = list(np.array(step_metrics).mean(axis=0))
         self.epoch_metrics.append(metrics)
 
