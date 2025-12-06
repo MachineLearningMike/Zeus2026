@@ -1,6 +1,9 @@
 import torch
 from types import SimpleNamespace
 
+class Model: 
+    def __init__(self): pass   
+
 class Params:
     def __init__(self, config):
         
@@ -66,9 +69,7 @@ class Params:
                 
         #============================ model, individual ========================================================================
 
-        self.models = []
-        class Model: 
-            def __init__(self): pass    
+        self.models = [] 
 
         for id in range(5):
             key = 'model_' + str(id)
