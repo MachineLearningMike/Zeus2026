@@ -168,7 +168,10 @@ class PatchFeatureExtractor(nn.Module):
         """
         super().__init__()
         self.c_out = c_out
-        self.channels = [level.shape[0] for level in sample_level_list]
+        
+        self.dim_for_cascade_embedding = 1
+        
+        self.channels = [level.shape[0] + self.dim_for_cascade_embedding for level in sample_level_list]
         
         self.level_extractors = nn.ModuleList(
             [
@@ -181,7 +184,7 @@ class PatchFeatureExtractor(nn.Module):
             ]
         )
         
-        c_in = sample_surface.shape[0]
+        c_in = sample_surface.shape[0] + self.dim_for_cascade_embedding
         
         self.surface_extractor = PatchFeatureExtractor_Surface(
             c_in,
@@ -196,6 +199,15 @@ class PatchFeatureExtractor(nn.Module):
         )
         
         self.nTotalLevels = len(sample_level_list) + 1      # +1 for the surface
+        
+        H, W = sample_surface.shape[1], sample_surface.shape[2]
+        self.max_cascades = 10      # 10 distictive cascades should be enough
+        self.cascade_embeds = nn.ParameterList([
+            nn.Parameter(
+                torch.randn(self.dim_for_cascade_embedding, H, W)
+            )
+            for _ in range(self.max_cascades)
+        ])
 
     def forward(self, level_list, surface, cascade_step):
         """
@@ -205,23 +217,26 @@ class PatchFeatureExtractor(nn.Module):
             Tensor: (c_out, nLevels, H//8, W//8)
         """
         levels_ext = []
+        cascade_embeds = self.cascade_embeds[min(cascade_step, self.max_cascades-1)]
         
         H_prev, W_prev = None, None
         for idx, level in enumerate(level_list):
             C, H, W = level.shape
 
-            if H_prev is None: H_prev = H
-            else: assert H_prev == H
-            if W_prev is None: W_prev = W
-            else: assert W_prev == W
+            # if H_prev is None: H_prev = H
+            # else: assert H_prev == H
+            # if W_prev is None: W_prev = W
+            # else: assert W_prev == W
 
-            assert self.channels[idx] == C
+            # assert self.channels[idx] == C + self.dim_for_cascade_embedding
 
+            level = torch.cat([level, cascade_embeds], dim=0)
             level = level.unsqueeze(0)
             level = self.level_extractors[idx](level)
             level = level.squeeze(0)
             levels_ext.append(level)    # (c_out, H//8, W//8)
-        
+
+        surface = torch.concat([surface, cascade_embeds])
         surface = surface.unsqueeze(0)
         surface_ext = self.surface_extractor(surface)
         surface_ext = surface_ext.squeeze(0)
@@ -282,9 +297,9 @@ if __name__ == "__main__":
     from datetime import datetime, timedelta, timezone
     
     now = datetime.now(timezone.utc)
-    ss1 = Snapshot(now.year, now.month, now.day, now.hour)
+    ss1 = Snapshot(now.year, now.month, now.day, now.hour, meteo=None, meteo_unnormal=None)
     then = now + timedelta(hours=6)
-    ss2 = Snapshot(then.year, then.month, then.day, then.hour)
+    ss2 = Snapshot(then.year, then.month, then.day, then.hour, meteo=None, meteo_unnormal=None)
     
     Snapshot.device = device
     levels, surface = Snapshot.pack_pair_snapshots(ss1, ss2)
@@ -297,10 +312,10 @@ if __name__ == "__main__":
     patcher.to(device)
     
     import time
-    loops = 3
+    loops = 5
     s = time.time()
-    for _ in range(loops):
-        patches = patcher(levels, surface)        # (c_out, 14, 90, 180)
+    for step in range(loops):
+        patches = patcher(levels, surface, cascade_step = step)        # (c_out, 14, 90, 180)
     e = time.time()
     print("packined to: ", patches.shape, "time: ", (e-s)/loops) 
     
@@ -319,3 +334,4 @@ if __name__ == "__main__":
     origin = origin.squeeze(0)
     print("unpacked to: ", origin.shape, "time: ", (e-s)/loops)
     
+

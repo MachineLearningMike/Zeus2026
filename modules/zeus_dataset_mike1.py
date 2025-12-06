@@ -1966,8 +1966,8 @@ if __name__ == "__main__":
     setup_logging()
     dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
         variables=VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map = var_name_map,
-        start_dt = datetime(2020, 12, 29, 5), 
-        end_dt = datetime(2020, 12, 29, 5),
+        start_dt = datetime(2023, 10, 27, 23), 
+        end_dt = datetime(2023, 10, 27, 23),
         modulo=6,
         # max_workers_snapshots=1, max_workers_vars=1,
         verify_existing = True,

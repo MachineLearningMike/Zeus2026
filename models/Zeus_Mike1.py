@@ -7,7 +7,7 @@ from pathlib import Path
 import os, sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from modules.zeus_patch_unpatch import PatchFeatureExtractor, UnpatchReconstructor
+from modules.zeus_patch_unpatch_individual import PatchFeatureExtractor, UnpatchReconstructor
 from modules.Zeus_Swin_Block_3D_CDHW import Zeus_SwinTransformerBlock3D
 from modules.zeus_dataset_Snapshot import Snapshot
 
