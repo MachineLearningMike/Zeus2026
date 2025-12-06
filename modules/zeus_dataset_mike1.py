@@ -188,7 +188,7 @@ class Zeus_Dataset(Dataset):
     
     def download_fuXi2_snapshots_levels_region_parallel_vars(
             self, variables, var_name_map,
-            start_year, end_year, lat_range=None, lon_range=None,
+            start_dt, end_dt, lat_range=None, lon_range=None,
             modulo=6, max_workers_snapshots=7, max_workers_vars=10, verify_existing=False):
         """
         Parallel download of FuXi2 snapshots:
@@ -291,12 +291,15 @@ class Zeus_Dataset(Dataset):
         with ThreadPoolExecutor(max_workers=max_workers_snapshots) as snap_executor:
             futures = []
 
+            start_year, end_year = start_dt.year, end_dt.year
+
             for year in range(start_year, end_year + 1):
                 for month in range(1, 13):
                     last_day = self.get_last_day_of_month(year, month)
                     for day in range(1, last_day + 1):
                         for hour in range(0, 24, modulo):
                             dt = datetime(year, month, day, hour) + timedelta(hours=self.pm.hourly_offset) # hourly_offset = -1
+                            if dt < start_dt or end_dt < dt: continue
                             futures.append(
                                 snap_executor.submit(process_snapshot, dt.year, dt.month, dt.day, dt.hour)
                             )
@@ -1831,11 +1834,11 @@ if __name__ == "__main__":
     setup_logging()
     dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
         variables=VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map = var_name_map,
-        start_year = 2015, 
-        end_year = 2024,
+        start_dt = datetime(2020, 12, 29, 5), 
+        end_dt = datetime(2020, 12, 29, 5),
         modulo=6,
         # max_workers_snapshots=1, max_workers_vars=1,
-        verify_existing = True,
+        verify_existing = False,
     )
 
     dict = dataset.analyze_hourly_paths(inclusive_left=None, inclusive_right=None, modulo=6)
