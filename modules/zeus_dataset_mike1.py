@@ -484,14 +484,125 @@ class Zeus_Dataset(Dataset):
         return       
 
 
-    def get_mean_meteo(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6):
+    # def get_mean_meteo(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6):
+    #     """
+    #     Compute the mean over all variables across hourly files, with checkpointing.
+    #     """
+    #     cuda_available = torch.cuda.is_available()
+    #     mean_dict = None
+
+    #     # Load checkpoint if exists
+    #     try:
+    #         checkpoint = self.read_checkpoint(
+    #             self.mean_meteo_checkpoint_path,
+    #             ["mean_dict", "step", "inclusive_left", "inclusive_right"]
+    #         )
+
+    #         mean_dict = checkpoint[0] if len(checkpoint) > 0 else None
+    #         mean = np.array([mean_dict[var] for var in self.pm.variables]) if mean_dict is not None else None
+            
+    #         # step = checkpoint[1] if len(checkpoint) > 1 else 0
+    #         step = int(checkpoint[1]) if len(checkpoint) > 1 else 0
+    #         ck_left_iso = checkpoint[2] if len(checkpoint) > 2 else None
+    #         ck_right_iso = checkpoint[3] if len(checkpoint) > 3 else None
+
+    #         ck_left = datetime.fromisoformat(ck_left_iso) if ck_left_iso else None
+    #         ck_right = datetime.fromisoformat(ck_right_iso) if ck_right_iso else None
+
+    #         # Check consistency
+    #         ck_left_match = (ck_left == inclusive_left) or (ck_left is None and inclusive_left is None)
+    #         ck_right_match = (ck_right == inclusive_right) or (ck_right is None and inclusive_right is None)
+    #         if mean is None or not (ck_left_match and ck_right_match):
+    #             print("Checkpoint missing or date range mismatch. Starting new mean meteo...")
+    #             mean = np.zeros((len(self.pm.variables),), dtype=np.float32)
+    #             step = 0
+    #         else:
+    #             print(f"Resuming existing mean meteo... step={step}")
+    #     except:
+    #         print("No checkpoint found for mean meteo. Starting new mean meteo...")
+    #         mean = np.zeros((len(self.pm.variables),), dtype=np.float32)
+    #         step = 0
+
+    #     skip = -1
+    #     for year, month, day, hour, file_path in self.iter_hourly_paths():
+    #         current_dt = datetime(year, month, day, hour)
+    #         if inclusive_left and current_dt < inclusive_left:
+    #             continue
+    #         if inclusive_right and current_dt > inclusive_right:
+    #             continue
+
+    #         skip += 1
+    #         if skip < step:
+    #             continue
+
+    #         data = load(file_path)
+            
+    #         # Make sure the order follows self.pm.variables
+    #         arr = np.stack([data[key] for key in self.pm.variables], axis=0)  # (C, H, W)
+
+    #         if cuda_available:
+    #             tensor_arr = torch.tensor(arr, dtype=torch.float32).cuda()
+    #             _mean = tensor_arr.mean(dim=(1, 2)).cpu().numpy()
+    #         else:
+    #             _mean = arr.mean(axis=(1, 2))
+
+    #         if np.any(np.isnan(_mean)):
+    #             raise Exception(f"NaN found in hourly mean: {file_path}")
+
+    #         step += 1
+    #         mean = mean * (step - 1)/step + _mean / step
+            
+    #         mean_dict = {var: mean[idx] for idx, var in enumerate(self.pm.variables)}
+
+    #         if step % checkpoint_interval == 0:
+    #             print(f"Checkpointing mean_meteo... {step}: {year}-{month:02d}-{day:02d} {hour:02d}")
+    #             tmp_path = str(self.mean_meteo_checkpoint_path) + ".tmp"
+    #             self.save_checkpoint(tmp_path, {
+    #                 "mean_dict": mean_dict,
+    #                 "step": step,
+    #                 "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
+    #                 "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
+    #             })
+    #             shutil.move(tmp_path, self.mean_meteo_checkpoint_path)
+
+    #     # Final save
+    #     path = str(self.mean_meteo_checkpoint_path)
+    #     self.save_checkpoint(path, {
+    #         "mean_dict": mean_dict,
+    #         "step": step,
+    #         "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
+    #         "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
+    #     })
+    #     shutil.move(path, self.mean_meteo_checkpoint_path)
+
+    #     return mean, step
+
+    def _compute_hourly_mean(self, args):
         """
-        Compute the mean over all variables across hourly files, with checkpointing.
+        Worker function run in parallel.
+        Loads the file, builds a stacked array, and returns (C,) mean.
         """
+        file_path, variables = args
+
+        data = load(file_path)
+        arr = np.stack([data[key] for key in variables], axis=0)  # (C, H, W)
+        _mean = arr.mean(axis=(1, 2))
+
+        if np.any(np.isnan(_mean)):
+            raise Exception(f"NaN found in hourly mean: {file_path}")
+
+        return _mean
+
+
+    def get_mean_meteo(self, inclusive_left=None, inclusive_right=None,
+                    checkpoint_interval=1, modulo=6):
+
         cuda_available = torch.cuda.is_available()
         mean_dict = None
 
-        # Load checkpoint if exists
+        # ---------------------------------------------------------
+        # Load checkpoint
+        # ---------------------------------------------------------
         try:
             checkpoint = self.read_checkpoint(
                 self.mean_meteo_checkpoint_path,
@@ -500,8 +611,7 @@ class Zeus_Dataset(Dataset):
 
             mean_dict = checkpoint[0] if len(checkpoint) > 0 else None
             mean = np.array([mean_dict[var] for var in self.pm.variables]) if mean_dict is not None else None
-            
-            # step = checkpoint[1] if len(checkpoint) > 1 else 0
+
             step = int(checkpoint[1]) if len(checkpoint) > 1 else 0
             ck_left_iso = checkpoint[2] if len(checkpoint) > 2 else None
             ck_right_iso = checkpoint[3] if len(checkpoint) > 3 else None
@@ -509,63 +619,83 @@ class Zeus_Dataset(Dataset):
             ck_left = datetime.fromisoformat(ck_left_iso) if ck_left_iso else None
             ck_right = datetime.fromisoformat(ck_right_iso) if ck_right_iso else None
 
-            # Check consistency
             ck_left_match = (ck_left == inclusive_left) or (ck_left is None and inclusive_left is None)
             ck_right_match = (ck_right == inclusive_right) or (ck_right is None and inclusive_right is None)
+
             if mean is None or not (ck_left_match and ck_right_match):
                 print("Checkpoint missing or date range mismatch. Starting new mean meteo...")
                 mean = np.zeros((len(self.pm.variables),), dtype=np.float32)
                 step = 0
             else:
                 print(f"Resuming existing mean meteo... step={step}")
+
         except:
             print("No checkpoint found for mean meteo. Starting new mean meteo...")
             mean = np.zeros((len(self.pm.variables),), dtype=np.float32)
             step = 0
 
+        # ---------------------------------------------------------
+        # Parallel computation setup
+        # ---------------------------------------------------------
         skip = -1
-        for year, month, day, hour, file_path in self.iter_hourly_paths():
-            current_dt = datetime(year, month, day, hour)
-            if inclusive_left and current_dt < inclusive_left:
-                continue
-            if inclusive_right and current_dt > inclusive_right:
-                continue
 
-            skip += 1
-            if skip < step:
-                continue
+        with Pool() as pool:
+            pending_result = None
 
-            data = load(file_path)
-            
-            # Make sure the order follows self.pm.variables
-            arr = np.stack([data[key] for key in self.pm.variables], axis=0)  # (C, H, W)
+            for year, month, day, hour, file_path in self.iter_hourly_paths():
 
-            if cuda_available:
-                tensor_arr = torch.tensor(arr, dtype=torch.float32).cuda()
-                _mean = tensor_arr.mean(dim=(1, 2)).cpu().numpy()
-            else:
-                _mean = arr.mean(axis=(1, 2))
+                # Time filtering
+                current_dt = datetime(year, month, day, hour)
+                if inclusive_left and current_dt < inclusive_left:
+                    continue
+                if inclusive_right and current_dt > inclusive_right:
+                    continue
 
-            if np.any(np.isnan(_mean)):
-                raise Exception(f"NaN found in hourly mean: {file_path}")
+                # Your original logic
+                skip += 1
+                if skip < step:
+                    continue
 
-            step += 1
-            mean = mean * (step - 1)/step + _mean / step
-            
-            mean_dict = {var: mean[idx] for idx, var in enumerate(self.pm.variables)}
+                # ------------------------------------
+                # PARALLEL WORKER JOB SUBMISSION
+                # ------------------------------------
+                # Launch parallel job immediately
+                pending_result = pool.apply_async(
+                    _compute_hourly_mean,
+                    args=((file_path, self.pm.variables),)
+                )
 
-            if step % checkpoint_interval == 0:
-                print(f"Checkpointing mean_meteo... {step}: {year}-{month:02d}-{day:02d} {hour:02d}")
-                tmp_path = str(self.mean_meteo_checkpoint_path) + ".tmp"
-                self.save_checkpoint(tmp_path, {
-                    "mean_dict": mean_dict,
-                    "step": step,
-                    "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
-                    "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
-                })
-                shutil.move(tmp_path, self.mean_meteo_checkpoint_path)
+                # Retrieve result and update state
+                _mean = pending_result.get()
 
+                # Sanity check
+                if np.any(np.isnan(_mean)):
+                    raise Exception(f"NaN found in hourly mean: {file_path}")
+
+                # Your incremental mean formula
+                step += 1
+                mean = mean * (step - 1)/step + _mean / step
+
+                # Convert to dict for checkpointing
+                mean_dict = {var: mean[idx] for idx, var in enumerate(self.pm.variables)}
+
+                # Checkpoint every interval
+                if step % checkpoint_interval == 0:
+                    print(f"Checkpointing mean_meteo... {step}: {year}-{month:02d}-{day:02d} {hour:02d}")
+                    tmp_path = str(self.mean_meteo_checkpoint_path) + ".tmp"
+                    self.save_checkpoint(tmp_path, {
+                        "mean_dict": mean_dict,
+                        "step": step,
+                        "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
+                        "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
+                    })
+                    shutil.move(tmp_path, self.mean_meteo_checkpoint_path)
+
+        # ---------------------------------------------------------
         # Final save
+        # ---------------------------------------------------------
+        mean_dict = {var: mean[idx] for idx, var in enumerate(self.pm.variables)}
+
         path = str(self.mean_meteo_checkpoint_path)
         self.save_checkpoint(path, {
             "mean_dict": mean_dict,
