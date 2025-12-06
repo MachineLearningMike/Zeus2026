@@ -89,8 +89,8 @@ class Zeus(nn.Module):
         print(f"x befor patching: {ss1.meteo.shape, ss1.tempo.shape, ss1.geo_dense.shape}")
 
         #----------- patch/extract level features ------------
-        levels, surface = Snapshot.pack_pair_snapshots(ss1, ss2)
         s = time.time()
+        levels, surface = Snapshot.pack_pair_snapshots(ss1, ss2)
         x = self.patch_extractor(levels, surface, cascade_step)
         e = time.time()
         print(f"x after patching: {x.shape}, time: {e-s}")
@@ -111,60 +111,15 @@ class Zeus(nn.Module):
         
         #------------ unpatch/reconstruct --------------
 
+        s = time.time()
         x = x.view(-1, H, W)
         x = x.unsqueeze(0)
-        s = time.time()
         x = self.unpatch_reconstructor(x)
         e = time.time()
         x = x.squeeze(0)
         print(f"x after unpatching: {x.shape}, time: {e-s}")
 
         return x
-
-    # def forward_backward_no_step(self, input_unnormalized, target_unnormalized, loss_fn, normalize, unnormalize, batch_diff, era5_data_vars, trainable=True, metrics="rmse"):
-    #     # Do not cast to 16bit for CNN networks.
-
-    #     # with autocast(device_type=self.device_type, dtype=torch.bfloat16):
-    #     #     with torch.set_grad_enabled(trainable):         
-
-    #     # assert input.requires_grad == False
-    #     # assert target.requires_grad == False
-
-    #     input_unnormalized = input_unnormalized.to(self.device)
-    #     target_unnormalized = target_unnormalized.to(self.device)
-        
-    #     input_normalized = normalize_meteo(input_unnormalized)
-    #     target_normalized = normalize_meteo(target_unnormalized)
-
-    #     context = torch.enable_grad if trainable else torch.no_grad       # This is the only place where grad is managed.
-    #     with context():
-    #         pred = self(input_normalized, target_normalized.shape[1])
-    #         lossAndMetrics = loss_fn(target_normalized, pred, batch_diff, era5_data_vars)
-    #         loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
-    #     if trainable:
-    #         loss.backward()
-    #             # grads = [p.grad.detach().clone() for p in self.parameters()]
-
-    #     if isinstance(lossAndMetrics, (tuple, list)):
-    #         detached_loss_metrics = [x.detach().cpu() if torch.is_tensor(x) else x for x in lossAndMetrics]
-    #     else:
-    #         detached_loss_metrics = lossAndMetrics.detach().cpu()
-        
-    #     pred = unnormalize_meteo(pred.detach())        # (B, T, C, H, W)
-        
-    #     # Temoporay to check for the accuracy near the equator.
-    #     # remain = 30
-    #     # trim = int((target_unnormalized.shape[3] - remain)/2)
-    #     # target_unnormalized = target_unnormalized[:, :, :, trim:-trim, :]
-    #     # pred = pred[:, :, :, trim:-trim, :]
-        
-    #     if metrics == "rmse":
-    #         lossAndMetrics = loss_fn(target_unnormalized, pred, batch_diff, era5_data_vars)
-    #         unnormalized_metrics = lossAndMetrics[1].cpu() if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics.cpu()
-    #     else:
-    #         unnormalized_metrics = torch.abs(pred - target_unnormalized).mean(dim=(0, 1, 3, 4)).cpu()    # (C,)
-                        
-    #     return detached_loss_metrics, unnormalized_metrics
     
     def forward_backward_no_step(self,
             ss0, ss1, ssY, cascade_step,
@@ -186,9 +141,9 @@ class Zeus(nn.Module):
         lossAndMetrics = fn_loss(target_normal, pred, batch_diff, era5_data_vars)
         loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
 
-        # if trainable:
-        #     loss.backward()
-        #         # grads = [p.grad.detach().clone() for p in self.parameters()]
+        if trainable:
+            loss.backward(retain_graph=True)
+                # grads = [p.grad.detach().clone() for p in self.parameters()]
                 
         pred_unnormal = fn_unnornalize(pred)
 
@@ -199,7 +154,6 @@ class Zeus(nn.Module):
             unnormalized_metrics = torch.abs(target_unnormal - pred_unnormal).mean(dim=(0, 1, 3, 4))    # (C,)
         
         return result_ss, loss.detach().to("cpu"), unnormalized_metrics.detach().to("cpu")
-        # return result_ss, torch.tensor(1.0), torch.rand(82)
 
 # -----------------------
 # Demo
