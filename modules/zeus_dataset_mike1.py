@@ -661,7 +661,7 @@ class Zeus_Dataset(Dataset):
                 # ------------------------------------
                 # Launch parallel job immediately
                 pending_result = pool.apply_async(
-                    _compute_hourly_mean,
+                    self._compute_hourly_mean,
                     args=((file_path, self.pm.variables),)
                 )
 
