@@ -86,7 +86,7 @@ class Zeus(nn.Module):
             )
 
     def forward(self, ss1, ss2, cascade_step):    # Not batch-processing, as hard drives are always bottlenecks.
-        print(f"x befor patching: {ss1.meteo.shape, ss1.tempo.shape, ss1.geo.shape}")
+        print(f"x befor patching: {ss1.meteo.shape, ss1.tempo.shape, ss1.geo_dense.shape}")
 
         #----------- patch/extract level features ------------
         levels, surface = Snapshot.pack_pair_snapshots(ss1, ss2)

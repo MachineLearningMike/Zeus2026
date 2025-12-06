@@ -862,7 +862,7 @@ class Zeus_Dataset(Dataset):
                 continue
 
             tensor = Snapshot(year, month, day, hour, meteo=None, meteo_unnormal=None).tempo
-            assert tensor.shape == (Snapshot.tempo_dims, Snapshot.export_height_org, Snapshot.export_width_org)
+            assert tensor.shape == (Snapshot.tempo_dims, Snapshot.full_export_h, Snapshot.full_export_w)
             
             if cuda_available:
                 tensor = tensor.cuda()
@@ -953,7 +953,7 @@ class Zeus_Dataset(Dataset):
                 continue
             
             tensor = Snapshot(year, month, day, hour, meteo=None, meteo_unnormal=None).tempo
-            assert tensor.shape == (Snapshot.tempo_dims, Snapshot.export_height_org, Snapshot.export_width_org)
+            assert tensor.shape == (Snapshot.tempo_dims, Snapshot.full_export_h, Snapshot.full_export_w)
             
             if cuda_available:
                 tensor = tensor.cuda()
@@ -1963,15 +1963,15 @@ if __name__ == "__main__":
     # print(ds.data_vars)
     # pass
     
-    setup_logging()
-    dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
-        variables=VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map = var_name_map,
-        start_dt = datetime(2023, 10, 27, 23), 
-        end_dt = datetime(2023, 10, 27, 23),
-        modulo=6,
-        # max_workers_snapshots=1, max_workers_vars=1,
-        verify_existing = True,
-    )
+    # setup_logging()
+    # dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
+    #     variables=VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map = var_name_map,
+    #     start_dt = datetime(2023, 10, 27, 23), 
+    #     end_dt = datetime(2023, 10, 27, 23),
+    #     modulo=6,
+    #     # max_workers_snapshots=1, max_workers_vars=1,
+    #     verify_existing = True,
+    # )
 
     dict = dataset.analyze_hourly_paths(inclusive_left=None, inclusive_right=None, modulo=6)
     # print(f"count: {dict['count']}, first_hour: {dict['first_hour']}, last_hour: {dict['last_hour']}, missing_hours: {dict['missing_hours']}")

@@ -325,14 +325,14 @@ class Geo_Tempo():
         lon_step = 360.0 / (W - 1)    # 0.25°
 
         # Latitudes: center of each cell
-        lat_tensor = torch.linspace(-90.0, 90.0, H, dtype=torch.float32) # - lat_step/2    # the - sign assumes -90 will be removed, because 721 is ugly.
+        lat_tensor = torch.linspace(-90.0, 90.0, H, dtype=torch.float32) # 0.25 x 721
         # print(lat_tensor[0], lat_tensor[-1], lat_tensor[1]-lat_tensor[0])
         # Longitudes: center of each cell
-        lon_tensor = torch.linspace(-180.0, 180.0, W, dtype=torch.float32) # - lon_step/2    # the - sign assumes -180 will be removed, -180 and 180 are the same.
+        lon_tensor = torch.linspace(-180.0, 180.0, W, dtype=torch.float32) # 0.25 x 1441
         # print(lon_tensor[0], lon_tensor[-1], lon_tensor[1]-lon_tensor[0])
 
-        lat_tensor = lat_tensor[:]
-        lon_tensor = lon_tensor[:-1]   # the +180 is removed
+        lat_tensor = lat_tensor[:]      # 0.25 x H
+        lon_tensor = lon_tensor[:-1]    # 0.25 x (W-1), the +180 is removed. why not -180? ERA5 does that.
 
         # Broadcast to grids
         lat_grid = lat_tensor.unsqueeze(1).expand(H, W-1)
