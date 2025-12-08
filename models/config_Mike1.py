@@ -34,10 +34,11 @@ config = {
     #============================ data parameters ===========================================================================
     "dtype" : 32,   # 16 is complicated. deffered.
     "variables": VARIABLE_NAME_LIST_UNCHANGEABLE,   #!!!!!!!!!!!!!!!!!!!!!!!!!!!! The order of variables must consistent across training and inference !!!!!!
+    "targetVariables": [ "t2m", "tp", "u100m","v100m", "d2m", "sp",],
     "pole_angle": 30.0,      #
     "hourly_offset": -1,
     "modulo": 6,
-    "nCascades": 5,
+    "nCascades": 2,
 
     "org_height": 721,
     "org_width": 1440,

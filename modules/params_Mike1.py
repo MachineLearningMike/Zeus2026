@@ -34,6 +34,7 @@ class Params:
 
         #============================ data, shared ===========================================================================
         self.variables = config['variables']
+        self.targetVariables = config['targetVariables']
         self.hourly_offset = config['hourly_offset']
         self.modulo = config['modulo']
         self.nCascades = config['nCascades']

@@ -537,7 +537,10 @@ VARIABLE_NAME_LIST_UNCHANGEABLE = [     # exported.
     "lcc","mcc","hcc","tcc",
     # radiation
     "ssr","ssrd","fdir","ttr",    
-    # targets
+    
+                #--------------------------------------
+                # Target variables come last. (All are surface variables)
+                # --------------------------------------
     "t2m", "tp", "u100m","v100m", "d2m", "sp",
 
     # Nov 28, 2025

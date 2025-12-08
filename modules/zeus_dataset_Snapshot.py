@@ -147,11 +147,12 @@ class Snapshot:
     assert mike1_variables_order == "[v_l for v ztuvq for l in levels] + surface_vars"
        
     export_factor10 = 10
+    
     # temporary. can be added and changed any time
     meteo_dims = len(VARIABLE_NAME_LIST_UNCHANGEABLE)
-    tempo_dims = 4      # 4 variables: sin/cos earth_orbital_angle (2), sin/cos true_solar_hour (2)
-    geo_dense_dims = 4
-    geo_cat_dims = 2
+    tempo_dims = 4      # [sin_orbital_angle', 'cos_orbital_angle', 'sin_solor_hour', 'cos_solar_hour']
+    geo_dense_dims = 4  # ['orograph', 'sin_lat', 'sin_lon', 'cos_lon']
+    geo_cat_dims = 2    # ['land_sea_mask', 'soil_type']
 
     full_export_h = 720        # exclude the north pole.
     full_export_w = 1440
@@ -374,7 +375,7 @@ class Snapshot:
     #--------------------------------------------------------------------------
     
     def create_tempo_era5(self):
-        # no need to normalize them.
+        # Do NOT mormalize this instance-wide. They should be normalized dataset-wide.
         dt_utc = datetime(self.year, self.month, self.day, self.hour, tzinfo=timezone.utc)
         sin_cos_earth_orbit_angle_tensor_era5 = Geo_Tempo.sin_cos_earth_orbit_angle_tensor_era5(dt_utc)
         sin_cos_true_solar_hours_tensor_era5 = Geo_Tempo.sin_cos_true_solar_hours_tensor_era5(dt_utc)
@@ -393,29 +394,34 @@ class Snapshot:
         
     def create_geo_dense_era5(dense_npy_paths):
         #------------------- dense, file -----------------
-        # load and standardize dense arrays. Convert to a tensor
+        # DO normalize them, because this instance are all repeated and dataset-wide normalization is equal to instance-wide normalization.
         dense_arrays = Snapshot.load_npy_files(dense_npy_paths)
         processed_arrays = []
         for arr in dense_arrays:
-            H, W = arr.shape
-            temp = np.zeros((Geo_Tempo.H_era5_grid, Geo_Tempo.W_era5_grid), dtype=np.float32)
-            h = min(H, Geo_Tempo.H_era5_grid)
-            w = min(W, Geo_Tempo.W_era5_grid)
-            temp[:h, :w] = arr[:h, :w].astype(np.float32)
-            processed_arrays.append(temp)
+            assert arr.shape == (Geo_Tempo.H_era5_grid, Geo_Tempo.W_era5_grid)
+            processed_arrays.append(arr)
 
         # Stack into one array
         stack = np.stack(processed_arrays, axis=0)  # shape: (n, final_H, final_W)
         # Vectorized per-array normalization
         means = stack.mean(axis=(1, 2), keepdims=True)
         stds  = stack.std(axis=(1, 2), keepdims=True)
-        stack = (stack - means) / (stds + 1e-8)  # avoid division by zero
+        stack = (stack - means) / (stds + 1e-12)  # avoid division by zero
 
         # Convert to PyTorch tensor
         geo_dense_tensor = torch.from_numpy(stack)  # shape: (n, final_H, final_W)
+
+        # This code gives the same precision as the above.                
+        # processed_arrays = [torch.from_numpy(arr) for arr in processed_arrays]
+        # stack = torch.stack(processed_arrays, dim=0)
+        # means = torch.mean(stack, dim=(1,2), keepdim=True)
+        # stds = torch.std(stack, dim=(1,2), keepdim=True)
+        # geo_dense_tensor = (stack - means) / (stds + 1e-12)
         
         #-------------------- dense, lat lon ------------------
         geo_sin_lat_sin_cos_lon_tensor = Geo_Tempo.sin_lat_sin_cos_lon_tensor_era5() # (3, final_H, final_W)
+        geo_sin_lat_sin_cos_lon_tensor = (geo_sin_lat_sin_cos_lon_tensor - torch.mean(geo_sin_lat_sin_cos_lon_tensor, dim=(1,2), keepdim=True)) \
+        / (torch.std(geo_sin_lat_sin_cos_lon_tensor, dim=(1,2), keepdim=True) + 1e-12)
         
         return torch.concat([geo_dense_tensor, geo_sin_lat_sin_cos_lon_tensor], dim=0)
 
@@ -482,16 +488,7 @@ class Snapshot:
         exp_h, exp_w = Snapshot.get_export_size()
         return tensor.shape[-2] == exp_h and tensor.shape[-1] == exp_w
 
-    #--------------------------------- meteo normalized ---------------------
-
-    
-    #--------------------------------- meteo unnormalized ---------------------
-    
-
-    
-    #------------------ miscellaneout --------------------
-    def delete(self):
-        self._device = 'cpu'
+    #----------------------- packinng --------------------
         
     def pack_pair_snapshots(ss1, ss2):
         """
@@ -543,6 +540,8 @@ class Snapshot:
         assert surface_paired.shape == ((Snapshot.meteo_dims - Snapshot.air_level_dims * Snapshot.num_air_levels + Snapshot.tempo_dims) * 2 + Snapshot.geo_dense_dims, export_size[0], export_size[1])
 
         return delevels_paired, surface_paired
+    
+    #------------------ miscellaneout --------------------
 
 Snapshot.set_original_settings()
 
@@ -631,7 +630,7 @@ if __name__ == "__main__":
         gl.top_labels = False
         gl.right_labels = False
 
-        plt.title(f"Geographical Distribution. data = {title}")
+        plt.title(f"data = {title}, mean = {data.mean():.5f}, std = {data.std():.5f}")
         plt.show()
 
     #------------- geo_cat, 2 -----------------
@@ -651,3 +650,44 @@ if __name__ == "__main__":
     # show_on_map(snapshot_now.tempo[2].numpy(), title="sin(true_solar_hour)")      # sin(true_solar_hour)
     # show_on_map(snapshot_now.tempo[3].numpy(), title="cos(true_solar_hour)")      # cos(true_solar_hour)
     # show_on_map(snapshot_now.tempo[4].numpy(), title="cascade_emb_placeholder")      # cascade_emb_placeholder
+
+
+    #------------------------------- test packing ----------------------
+    Snapshot.set_original_settings()
+    
+    now = datetime.now(timezone.utc)
+    ss1 = Snapshot(now.year, now.month, now.day, now.hour, meteo=None, meteo_unnormal=None)
+    then = now + timedelta(hours=6)
+    ss2 = Snapshot(then.year, then.month, then.day, then.hour, meteo=None, meteo_unnormal=None)
+    
+    delevels_paired, surface_paired = Snapshot.pack_pair_snapshots(ss1, ss2)
+
+    export_size = Snapshot.get_export_size()    
+    for lvl, group in zip(delevels_paired, Snapshot.delevel_plan):
+        assert lvl.shape == ((Snapshot.air_level_dims * len(group) + Snapshot.tempo_dims) * 2 + Snapshot.geo_dense_dims, export_size[0], export_size[1])
+    assert surface_paired.shape == ((Snapshot.meteo_dims - Snapshot.air_level_dims * Snapshot.num_air_levels + Snapshot.tempo_dims) * 2 + Snapshot.geo_dense_dims, export_size[0], export_size[1])
+
+    geo_dense_titles = ['orograph, const.', 'sin lat, const.', 'sin lon., const.', 'cos lon, const.']
+    geo_cat_titles = ['land sea mask, const.', 'soil type, const.']
+    tempo_titles = ['sin orbit, tempo.', 'cos orbit, tempo.', 'sin solor, tempo.', 'cos solar, tempo.']
+
+    surface_items = []
+    for dim in range(Snapshot.geo_dense_dims):
+        surface_items.append([(Snapshot.meteo_dims - Snapshot.air_level_dims * Snapshot.num_air_levels + Snapshot.tempo_dims) * 2 + dim, -1, geo_dense_titles[dim]])
+    for dim in range(Snapshot.tempo_dims):
+        for ss in range(2):   # 2 snapshots
+            surface_items.append([(Snapshot.meteo_dims - Snapshot.air_level_dims * Snapshot.num_air_levels + Snapshot.tempo_dims) * ss + Snapshot.meteo_dims - Snapshot.air_level_dims * Snapshot.num_air_levels + dim, ss, tempo_titles[dim]])
+
+    level_items = []
+    for level_id, group in enumerate(Snapshot.delevel_plan):
+        for dim in range(Snapshot.geo_dense_dims):
+            level_items.append([level_id, (Snapshot.air_level_dims * len(group) + Snapshot.tempo_dims) * 2 + dim, -1, geo_dense_titles[dim]])
+        for dim in range(Snapshot.tempo_dims):
+            for ss in range(2):   # 2 snapshots
+                level_items.append([level_id, (Snapshot.air_level_dims * len(group) + Snapshot.tempo_dims) * ss + Snapshot.air_level_dims * len(group) + dim, ss, tempo_titles[dim]])
+
+    # If packing is correct, this code should show correct geo-distributions.
+    for [channel_id, ss, title] in surface_items:
+        show_on_map(surface[channel_id].numpy(), title=f"{title} ss = {ss}, surface")
+    for [level_id, channel_id, ss, title] in level_items:
+        show_on_map(delevels_paired[level_id][channel_id].numpy(), title=f"{title} ss = {ss}, level {level_id}")

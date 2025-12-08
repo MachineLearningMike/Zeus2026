@@ -440,7 +440,7 @@ class Model_Dom():
             self.pbar_description = "md: {}, loss: {:.3f}, {}: ({})".format(self.md_id, _epoch_loss, self.pm.metrics, strC)
 
     def get_pbar_description_step(self, step_loss, step_metrics):   # (,), (C,)
-        strC = ", ".join(f"{x:.4f}" for x in step_metrics)
+        strC = ", ".join(f"{x:.4f}" for x in step_metrics[-len(self.pm.targetVariables):])
         self.pbar_description = "md {} lss {:.3f}, {} ({})".format(self.md_id, step_loss, self.pm.metrics, strC)
         
     def stepOptimizer(self, loss_item):

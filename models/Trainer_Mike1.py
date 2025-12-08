@@ -426,18 +426,15 @@ class Model_Trainer():
                             step_metrics.append(_substep_metrics)    # [substep_metrics...]
                             
                         #------------------------------------------- The step finished.
-
                         # state: len(oldQ) == 0, len(oldQ) > 0
                         oldQ = newQ
                         
                     #------------------------------------------------ The set of steps finished.
-
                     md.store_step_loss_and_metrics(step_loss, step_metrics) # [substep_loss...], [substep_metrics...]
-
                     
                     if trainable:
                         check_gradient(md.model)
-                        # md.lr_controller.stepOptimizer(loss.item()) if md.pm.useLRLearner else md.optimizer.step()
+                        md.lr_controller.stepOptimizer(_substep_loss.item()) if md.pm.useLRLearner else md.optimizer.step()
                         # md.scaler.update()
             else:
                 pass
@@ -452,7 +449,7 @@ class Model_Trainer():
             if trainable is True and step % self.pm.steps_to_save == 0:
                 [(md.pack_losses_metrics(), md.save_state()) for md in mds]
                 self.save_state()
-            self.clean_gpu_every(50, step)
+            self.clean_gpu_every(10, step)
             self.respond_to_cursor()
             start = time.time()
         
