@@ -68,7 +68,7 @@ config = {
 shared_model_params = {
     #============================ model parameters ========================================================================
     # Transformer    
-    "nHeads":        128, # (128) 8,     # 8    ----------------------    optimization param,  Chunk
+    "nHeads":        4, # (128) 8,     # 8    ----------------------    optimization param,  Chunk
     "heads_per_chunk":  2,  # (2)             ---------------------   optimization param,  Chunk
     "tokens_per_chunk":    8,    #             ---------------------   optimization param,  Chunk
     "kv_full_sequence": True,
@@ -116,20 +116,13 @@ shared_model_params = {
     "useLRLearner" : False,
 
     # SWIN
+    "nHeads": 2,
     "patch_kernel": 8,
     "patch_stride": 8,
     "swin_dim"  : 20,       # should embed 26 (air level 0), 36 (air level 1..12), and 50 (surface)
-    "window_size" : (10, 10),
+    "window_size" : (2, 9, 9),
     "num_swin_block": 30,
 }
-
-config.update({
-    "model_0": shared_model_params,
-    "model_1": shared_model_params,
-    "model_2": shared_model_params,
-    "model_3": shared_model_params,
-    "model_4": shared_model_params,
-})
 
 
 from pathlib import Path
@@ -148,10 +141,12 @@ if platform.system() == "Windows":
     config["factor10"] = 2  # 2 is the minimum, as 1 causes a non-float parameter error.
     config["dim_to_layerFFN_dim"] = 4
 
-    config["nHeads"] = 128
-    config["nLayers"] = 5
-    config["heads_per_chunk"] = None
-    config["tokens_per_chunk"] = None
+    shared_model_params['nHeads'] = 2
+    shared_model_params['patch_kernel'] = 8
+    shared_model_params['patch_stride'] = 8
+    shared_model_params['swin_dim'] = 20
+    shared_model_params['window_size'] = (2, 2, 2)
+    shared_model_params['num_swin_block'] = 30
     
     config["use_PE"] = True
     
@@ -176,9 +171,25 @@ else:
     config["factor10"] = 10  # 2 is the minimum, as 1 causes a non-float parameter error.
     # config["tokens_per_chunk"] = round(config["T1"] * 72 * config["factor10"] * 144 * config["factor10"] /config["patch_size"]/config["patch_size"]) // 2
 
+    shared_model_params['nHeads'] = 5
+    shared_model_params['patch_kernel'] = 8
+    shared_model_params['patch_stride'] = 8
+    shared_model_params['swin_dim'] = 30
+    shared_model_params['window_size'] = (2, 10, 10)
+    shared_model_params['num_swin_block'] = 30
+
     config["epochs"] = 100
     config["steps_to_save"] = 50
     config["abundant_GPUs"] = False
+
+config.update({
+    "model_0": shared_model_params,
+    "model_1": shared_model_params,
+    "model_2": shared_model_params,
+    "model_3": shared_model_params,
+    "model_4": shared_model_params,
+})
+
 
 n = config["nFrames"]
 C = len(config["variables"])
@@ -514,10 +525,6 @@ projects["Zeus_Swin_25Dec03"] = {
     "useLRLearner" : False,
     "accum_steps" : 10,   
     "skip_validation" : True,
-    "ObsorbHDistortion": False,
-    "nCNNBlocks" : 15,  # NO change - paramemters
-    "bottleneckRate" : 0.30,    # NO change - parameters
-    "bottleneck_dropout" : 0.00,
     },
         
     "model_1": {},

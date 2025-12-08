@@ -67,79 +67,86 @@ class Params:
         self.vali_start_dt = config['vali_start_dt']
         self.test_start_dt = config['test_start_dt']
         self.test_end_dt_inclusive = config['test_end_dt_inclusive']
-                
+            
         #============================ model, individual ========================================================================
 
         self.models = [] 
 
         for id in range(5):
             key = 'model_' + str(id)
-            params = config[key]
+            model_config_dict = config[key]
 
-            model = Model()
-            self.models.append(model)
+            obj = SimpleNamespace(**config[key])
+            self.models.append(obj)
+
+            # model_params_objectt = Model()
+            
+            
+            
+            
+            # self.models.append(model_config_dict)
                             
-            # Transformer            
-            model.nHeads = params['nHeads']
-            model.heads_per_chunk = params['heads_per_chunk']
-            model.tokens_per_chunk = params['tokens_per_chunk']
-            model.kv_full_sequence = params['kv_full_sequence'] 
-            model.layerFFN = params['layerFFN']
-            model.nLayers = params['nLayers']
-            model.zeusBlocks = params['zeusBlocks']        
-            model.crossLayers = params['crossLayers']
-            model.PE = params['PE']
-            model.learn_PE = params['learn_PE']
-            model.use_PE = params['use_PE']
-            model.patch_size = params['patch_size']                      # 16
+            # # Transformer            
+            # model_params_objectt.nHeads = model_config_dict['nHeads']
+            # model_params_objectt.heads_per_chunk = model_config_dict['heads_per_chunk']
+            # model_params_objectt.tokens_per_chunk = model_config_dict['tokens_per_chunk']
+            # model_params_objectt.kv_full_sequence = model_config_dict['kv_full_sequence'] 
+            # model_params_objectt.layerFFN = model_config_dict['layerFFN']
+            # model_params_objectt.nLayers = model_config_dict['nLayers']
+            # model_params_objectt.zeusBlocks = model_config_dict['zeusBlocks']        
+            # model_params_objectt.crossLayers = model_config_dict['crossLayers']
+            # model_params_objectt.PE = model_config_dict['PE']
+            # model_params_objectt.learn_PE = model_config_dict['learn_PE']
+            # model_params_objectt.use_PE = model_config_dict['use_PE']
+            # model_params_objectt.patch_size = model_config_dict['patch_size']                      # 16
             
-            model.nPatches_h = self.height // model.patch_size      # 720 / 16 = 45
-            model.nPatches_w = self.width // model.patch_size       # 1,440 / 16 = 90
-            model.nPatches = model.nPatches_h * model.nPatches_w           # 45 * 90 = 4,050       # spatial seq_len
-            model.patch_dim = self.nVariables * model.patch_size ** 2      # 16 * 16 * 5 = 1,280
-            model.d_model = model.patch_dim
-            model.dim_head = int(model.d_model / params['nHeads'])
+            # model_params_objectt.nPatches_h = self.height // model_params_objectt.patch_size      # 720 / 16 = 45
+            # model_params_objectt.nPatches_w = self.width // model_params_objectt.patch_size       # 1,440 / 16 = 90
+            # model_params_objectt.nPatches = model_params_objectt.nPatches_h * model_params_objectt.nPatches_w           # 45 * 90 = 4,050       # spatial seq_len
+            # model_params_objectt.patch_dim = self.nVariables * model_params_objectt.patch_size ** 2      # 16 * 16 * 5 = 1,280
+            # model_params_objectt.d_model = model_params_objectt.patch_dim
+            # model_params_objectt.dim_head = int(model_params_objectt.d_model / model_config_dict['nHeads'])
 
-            # CNN
-            model.add_spatial_conv = params['add_spatial_conv']        
-            model.blocksPerState = params['blocksPerState']
-            model.ObsorbHDistortion = params['ObsorbHDistortion']
-            model.Zeus_Model_module = params['Zeus_Model_module']
-            model.EncLayer = params['EncLayer']        
-            model.nCNNBlocks = params['nCNNBlocks']        
-            model.bottleneckRate = params['bottleneckRate']           
+            # # CNN
+            # model_params_objectt.add_spatial_conv = model_config_dict['add_spatial_conv']        
+            # model_params_objectt.blocksPerState = model_config_dict['blocksPerState']
+            # model_params_objectt.ObsorbHDistortion = model_config_dict['ObsorbHDistortion']
+            # model_params_objectt.Zeus_Model_module = model_config_dict['Zeus_Model_module']
+            # model_params_objectt.EncLayer = model_config_dict['EncLayer']        
+            # model_params_objectt.nCNNBlocks = model_config_dict['nCNNBlocks']        
+            # model_params_objectt.bottleneckRate = model_config_dict['bottleneckRate']           
             
-            model.dropout = params['dropout']
-            model.dropPath = params['dropPath']
-            model.dim_layerFFN = model.d_model * params['dim_to_layerFFN_dim']
+            # model_params_objectt.dropout = model_config_dict['dropout']
+            # model_params_objectt.dropPath = model_config_dict['dropPath']
+            # model_params_objectt.dim_layerFFN = model_params_objectt.d_model * model_config_dict['dim_to_layerFFN_dim']
             
-            model.radius = params['radius']
-            model.transient_steps = params['transient_steps']
+            # model_params_objectt.radius = model_config_dict['radius']
+            # model_params_objectt.transient_steps = model_config_dict['transient_steps']
 
-            model.optimizer = params['optimizer']
-            model.lr = params['lr']
-            model.bottleneck_dropout = params['bottleneck_dropout']
-            model.skip_validation = params['skip_validation']        
-            model.epochs = params['epochs']
-            model.overwrite_saved_lr = params['overwrite_saved_lr']
-            model.max_lr = params['max_lr']
-            model.total_steps = params['total_steps']
-            model.weight_decay = params['weight_decay']
-            model.pct_start = params['pct_start']
-            model.anneal_strategy = params['anneal_strategy']
-            model.div_factor = params['div_factor']
-            model.final_div_factor = params['final_div_factor']
-            model.accum_steps = params['accum_steps']
-            model.use_autocast = params['use_autocast']
-            model.epoch_patience = params['epoch_patience']
-            model.useLRLearner = params['useLRLearner']
+            # model_params_objectt.optimizer = model_config_dict['optimizer']
+            # model_params_objectt.lr = model_config_dict['lr']
+            # model_params_objectt.bottleneck_dropout = model_config_dict['bottleneck_dropout']
+            # model_params_objectt.skip_validation = model_config_dict['skip_validation']        
+            # model_params_objectt.epochs = model_config_dict['epochs']
+            # model_params_objectt.overwrite_saved_lr = model_config_dict['overwrite_saved_lr']
+            # model_params_objectt.max_lr = model_config_dict['max_lr']
+            # model_params_objectt.total_steps = model_config_dict['total_steps']
+            # model_params_objectt.weight_decay = model_config_dict['weight_decay']
+            # model_params_objectt.pct_start = model_config_dict['pct_start']
+            # model_params_objectt.anneal_strategy = model_config_dict['anneal_strategy']
+            # model_params_objectt.div_factor = model_config_dict['div_factor']
+            # model_params_objectt.final_div_factor = model_config_dict['final_div_factor']
+            # model_params_objectt.accum_steps = model_config_dict['accum_steps']
+            # model_params_objectt.use_autocast = model_config_dict['use_autocast']
+            # model_params_objectt.epoch_patience = model_config_dict['epoch_patience']
+            # model_params_objectt.useLRLearner = model_config_dict['useLRLearner']
             
-            # SWIN
-            model.patch_kernel = params['patch_kernel']
-            model.patch_stride = params['patch_stride']
-            model.swin_dim = params['swin_dim']
-            model.window_size = params['window_size']
-            model.num_swin_block = params['num_swin_block']
+            # # SWIN
+            # model_params_objectt.patch_kernel = model_config_dict['patch_kernel']
+            # model_params_objectt.patch_stride = model_config_dict['patch_stride']
+            # model_params_objectt.swin_dim = model_config_dict['swin_dim']
+            # model_params_objectt.window_size = model_config_dict['window_size']
+            # model_params_objectt.num_swin_block = model_config_dict['num_swin_block']
             
 def flatten_pm_single(pm, i):
     # Extract all top-level attributes except 'models'

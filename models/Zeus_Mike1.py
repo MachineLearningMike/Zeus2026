@@ -18,20 +18,30 @@ from modules.zeus_dataset_Snapshot import Snapshot
 class Zeus(nn.Module):
     def __init__(self, pm, device='cpu'):
         super().__init__()
-        
-        # patch_kernel = pm.patch_kernel
-        # patch_stride = pm.patch_stride
-        # swin_dim = pm.swin_dim
-        # window_size = pm.window_size
-        # num_swin_blocks = pm.num_swin_block        
 
         self.factor10 = pm.factor10
-        swin_dim, num_heads = 16, 4    
+                
+        patch_kernel = pm.patch_kernel
+        patch_stride = pm.patch_stride
+        swin_dim = pm.swin_dim
+        window_size = pm.window_size
+        num_swin_blocks = pm.num_swin_block
+        num_heads = pm.nHeads
+
+        # "patch_kernel": 8,
+        # "patch_stride": 8,
+        # "swin_dim"  : 20,       # should embed 26 (air level 0), 36 (air level 1..12), and 50 (surface)
+        # "window_size" : (10, 10),
+        # "num_swin_block": 30,
+
+        # self.factor10 = pm.factor10
+        # swin_dim, num_heads = pm.swin_dim, pm.nHeads
+        # swin_dim, num_heads = 16, 4    
         H, W = int(720/10*self.factor10), int(1440/10*self.factor10)
-        window_size = (2, int(self.factor10), int(self.factor10))
-        patch_kernel = 8
-        patch_stride = 8
-        num_swin_blocks = 30
+        # window_size = (2, int(self.factor10), int(self.factor10))
+        # patch_kernel = 8
+        # patch_stride = 8
+        # num_swin_blocks = 30
 
         self.device = device
     
