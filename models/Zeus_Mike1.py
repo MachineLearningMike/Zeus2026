@@ -86,17 +86,17 @@ class Zeus(nn.Module):
             )
 
     def forward(self, ss1, ss2, cascade_step):    # Not batch-processing, as hard drives are always bottlenecks.
-        print(f"x befor patching: {ss1.meteo.shape, ss1.tempo.shape, ss1.geo_dense.shape}")
+        # print(f"x befor patching: {ss1.meteo.shape, ss1.tempo.shape, ss1.geo_dense.shape}")
 
         #----------- patch/extract level features ------------
-        s = time.time()
+        # s = time.time()
         levels, surface = Snapshot.pack_pair_snapshots(ss1, ss2)
         x = self.patch_extractor(levels, surface, cascade_step)
-        e = time.time()
-        print(f"x after patching: {x.shape}, time: {e-s}")
+        # e = time.time()
+        # print(f"x after patching: {x.shape}, time: {e-s}")
 
         #----------- undergo swin blocks ----------------
-        s = time.time()
+        # s = time.time()
         x = x.unsqueeze(0)
         B, C, D, H, W = x.shape
         x_flat = x.permute(0,2,3,4,1).reshape(B, D*H*W, C)
@@ -106,18 +106,18 @@ class Zeus(nn.Module):
 
         x_out = x_flat.view(B, D, H, W, C).permute(0,4,1,2,3)
         x = x_out.squeeze(0)
-        e = time.time()
-        print(f"x after swin blocks: {x.shape}, time: {e-s}")
+        # e = time.time()
+        # print(f"x after swin blocks: {x.shape}, time: {e-s}")
         
         #------------ unpatch/reconstruct --------------
 
-        s = time.time()
+        # s = time.time()
         x = x.view(-1, H, W)
         x = x.unsqueeze(0)
         x = self.unpatch_reconstructor(x)
-        e = time.time()
         x = x.squeeze(0)
-        print(f"x after unpatching: {x.shape}, time: {e-s}")
+        # e = time.time()
+        # print(f"x after unpatching: {x.shape}, time: {e-s}")
 
         return x
     
