@@ -60,7 +60,7 @@ def window_reverse_3d(windows, window_size, D, H, W):
 # Position bias learner
 # ---------------------------
 class PositionBiasLearner3D(nn.Module):
-    def __init__(self, input_resolution, window_size, num_heads, hidden_dim=64, shift_size=(0,0,0)):
+    def __init__(self, input_resolution, window_size, num_heads, hidden_dim=6, shift_size=(0,0,0)):
         super().__init__()
         self.input_resolution = input_resolution
         self.window_size = window_size
@@ -127,8 +127,10 @@ class PositionBiasLearner3D(nn.Module):
         great_circle = 2*torch.asin(torch.sqrt(a))
         delta_depth = depth1 - depth2
 
+        # pair_pos_code_on_windows = torch.stack([cos_lat1, cos_lat2, great_circle], dim=-1)
         pair_pos_code_on_windows = torch.stack([cos_lat1, cos_lat2, great_circle, delta_depth], dim=-1)
-        return pair_pos_code_on_windows.view(N*P*P, 4), nWd, nWh, nWw
+
+        return pair_pos_code_on_windows.view(N*P*P, pair_pos_code_on_windows.shape[-1]), nWd, nWh, nWw
 
     def forward(self):
         flat_pair = self.shifted_flat_pair_pos_code_on_windows
@@ -204,7 +206,7 @@ class WindowAttention3D(nn.Module):
 # ---------------------------
 class Zeus_SwinTransformerBlock3D(nn.Module):
     def __init__(self, dim, input_resolution, num_heads, window_size=(2,4,4), shift_size=(0,0,0),
-                 mlp_ratio=4., qkv_bias=True, drop=0., attn_drop=0., drop_path=0.,
+                 mlp_ratio=2., qkv_bias=True, drop=0., attn_drop=0., drop_path=0.,
                  act_layer=nn.GELU, norm_layer=nn.LayerNorm):
         super().__init__()
         
@@ -230,7 +232,7 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
         mlp_hidden_dim = int(dim*mlp_ratio)
         self.mlp = Mlp(dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
         
-        self.positionBiasLearner = PositionBiasLearner3D(input_resolution, window_size, num_heads, shift_size=shift_size)
+        self.positionBiasLearner = PositionBiasLearner3D(input_resolution, window_size, num_heads, shift_size=shift_size, hidden_dim=6)
 
         if any(s != 0 for s in self.shift_size):
             # calculate attention mask for SW-MSA
