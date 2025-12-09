@@ -171,7 +171,7 @@ else:
     config["factor10"] = 10  # 2 is the minimum, as 1 causes a non-float parameter error.
     # config["tokens_per_chunk"] = round(config["T1"] * 72 * config["factor10"] * 144 * config["factor10"] /config["patch_size"]/config["patch_size"]) // 2
 
-    shared_model_params['nHeads'] = 5
+    shared_model_params['nHeads'] = 2
     shared_model_params['patch_kernel'] = 8
     shared_model_params['patch_stride'] = 8
     shared_model_params['swin_dim'] = 30
