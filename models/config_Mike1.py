@@ -122,6 +122,7 @@ shared_model_params = {
     "swin_dim"  : 20,       # should embed 26 (air level 0), 36 (air level 1..12), and 50 (surface)
     "window_size" : (2, 9, 9),
     "num_swin_block": 30,
+    "pair_bias_dim": 5,     # Careful, this changes code.
 }
 
 
@@ -136,17 +137,26 @@ if platform.system() == "Windows":
         config["management_path"] = "d:/zeus_data/management"
     
     config["data_limit"] = 12
+    config["dim_to_layerFFN_dim"] = 4
     
     # GPU: RTX 4070, Chunk2D
     config["factor10"] = 2  # 2 is the minimum, as 1 causes a non-float parameter error.
-    config["dim_to_layerFFN_dim"] = 4
-
     shared_model_params['nHeads'] = 2
     shared_model_params['patch_kernel'] = 8
     shared_model_params['patch_stride'] = 8
     shared_model_params['swin_dim'] = 20
     shared_model_params['window_size'] = (2, 2, 2)
     shared_model_params['num_swin_block'] = 30
+    
+    
+    # config["factor10"] = 10  # 2 is the minimum, as 1 causes a non-float parameter error.
+    # shared_model_params['nHeads'] = 1
+    # shared_model_params['patch_kernel'] = 8
+    # shared_model_params['patch_stride'] = 8
+    # shared_model_params['swin_dim'] = 30
+    # shared_model_params['window_size'] = (2, 5, 5)
+    # shared_model_params['num_swin_block'] = 30
+    
     
     config["use_PE"] = True
     
@@ -169,8 +179,6 @@ else:
     
     # GPU: 
     config["factor10"] = 10  # 2 is the minimum, as 1 causes a non-float parameter error.
-    # config["tokens_per_chunk"] = round(config["T1"] * 72 * config["factor10"] * 144 * config["factor10"] /config["patch_size"]/config["patch_size"]) // 2
-
     shared_model_params['nHeads'] = 1
     shared_model_params['patch_kernel'] = 8
     shared_model_params['patch_stride'] = 8

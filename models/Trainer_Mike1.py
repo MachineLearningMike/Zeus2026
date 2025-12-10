@@ -16,7 +16,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.utils import check_dir, check_gradient
 from modules.zeus_tqdm import zeus_tqdm
-from modules.params_14nov25 import flatten_pm_single
+from modules.params_Mike1 import flatten_pm_single
 from models.config_14nov25 import config
 
 module = import_module(config['Zeus_Model_module'])
@@ -30,7 +30,7 @@ from modules.zeus_dataset_mike1 import Zeus_Dataset
 # from models.Zeus_Mike1 import Zeus
 from modules.zeus_dataloader import Zeus_DataLoader
 import modules.utils as utils
-from modules.params_14nov25 import Params
+from modules.params_Mike1 import Params
 # from modules.read_cursor_keys_linux_windows_2 import KeyReader    This is crazy.
 from modules.read_cursor_keys_linux_windows import KeyReader
 

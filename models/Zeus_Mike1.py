@@ -8,7 +8,7 @@ import os, sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.zeus_patch_unpatch_individual import PatchFeatureExtractor, UnpatchReconstructor
-from modules.Zeus_Swin_Block_3D_CDHW import Zeus_SwinTransformerBlock3D
+from modules.Zeus_Swin_Block_3D_CDHW_big_footprint import Zeus_SwinTransformerBlock3D
 from modules.zeus_dataset_Snapshot import Snapshot
 
 
@@ -76,6 +76,7 @@ class Zeus(nn.Module):
                 num_heads=num_heads,
                 window_size=window_size,
                 shift_size=(0,0,0) if idx % 2 == 0 else (window_size[0]//2, window_size[1]//2, window_size[2]//2),
+                pair_bias_dim = pm.pair_bias_dim,
                 mlp_ratio=4.,
                 qkv_bias=True,
                 drop=0.0,
@@ -175,10 +176,11 @@ if __name__ == "__main__":
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     
     from models.config_Mike1 import config
-    from modules.params_Mike1 import Params
+    from modules.params_Mike1 import Params, flatten_pm_single
     pm = Params(config)    
-    
-    model = Zeus(pm, device=device)
+    flatten_pm = flatten_pm_single(pm, 0)
+        
+    model = Zeus(flatten_pm, device=device)
     model.to(device)
 
     Snapshot.device = device
