@@ -241,7 +241,6 @@ class Snapshot:
         self._geo_dense = Snapshot._geo_dense
         self._geo_cat = Snapshot._geo_cat
 
-        
     def crop_tensor(tensor, size):
         tensor_cropped = tensor[:, -size[0]:] if Geo_Tempo.respect_north else tensor[:, :size[0]]
         tensor_cropped = tensor_cropped[:, :, -size[1]:] if Geo_Tempo.respect_east else tensor_cropped[:, :, :size[1]]

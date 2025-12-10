@@ -59,6 +59,13 @@ def window_reverse_3d(windows, window_size, D, H, W):
 # ---------------------------
 # Position bias learner
 # ---------------------------
+
+import os, sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+from models.config_Mike1 import config
+from modules.zeus_dateset_geo_tempo import Geo_Tempo
+
 class PositionBiasLearner3D(nn.Module):
     pair_bias_shared, shifted_pair_bias_shared = None, None
     
@@ -76,8 +83,17 @@ class PositionBiasLearner3D(nn.Module):
         depth_step = 1.0
 
         depth = torch.arange(D, dtype=torch.float32) * depth_step
-        lat = torch.linspace(-90 + lat_step/2, 90 - lat_step/2, H)
-        lon = torch.linspace(-180 + lon_step/2, 180 - lon_step/2, W)
+        
+        # Do we need half-step? -----------------------------------------
+    
+        # lat = torch.linspace(-90 + lat_step/2, 90 - lat_step/2, H + 1)
+        # lon = torch.linspace(-180 + lon_step/2, 180 - lon_step/2, W + 1)
+        
+        lat = torch.linspace(-90, 90, H + 1)
+        lon = torch.linspace(-180, 180, W + 1)
+
+        lat = lat[1:] if Geo_Tempo.respect_north else lat[:-1]
+        lon = lon[1:] if Geo_Tempo.respect_east else lon[:-1]
 
         self.lat = lat[None,:,None].expand(D,H,W)
         self.lon = lon[None,None,:].expand(D,H,W)
@@ -115,7 +131,7 @@ class PositionBiasLearner3D(nn.Module):
                 PositionBiasLearner3D.shifted_pair_bias_shared = pair_bias
 
             self.register_buffer(
-                "shifted_pair_bias",
+                "pair_bias",
                 PositionBiasLearner3D.shifted_pair_bias_shared,
                 persistent=False
             )
@@ -150,9 +166,12 @@ class PositionBiasLearner3D(nn.Module):
         depth1, lat1, lon1 = A[...,0], A[...,1], A[...,2]
         depth2, lat2, lon2 = B[...,0], B[...,1], B[...,2]
 
-        delta_lon = ((lon1 - lon2 + 180) % 360) - 180
-        dlat = torch.deg2rad(lat1 - lat2)
-        dlon = torch.deg2rad(delta_lon)
+        dlat = lat1 - lat2
+        dlon = ((lon1 - lon2 + 180) % 360) - 180
+
+        dlat = torch.deg2rad(dlat)
+        dlon = torch.deg2rad(dlon)
+
         cos_lat1 = torch.cos(torch.deg2rad(lat1)).expand(-1,-1,P)
         cos_lat2 = torch.cos(torch.deg2rad(lat2)).expand(-1,P,-1)
         a = torch.sin(dlat/2)**2 + cos_lat1*cos_lat2*torch.sin(dlon/2)**2
@@ -173,7 +192,7 @@ class PositionBiasLearner3D(nn.Module):
         return pair_bias.view(N*P*P, pair_bias.shape[-1]), nWd, nWh, nWw
 
     def forward(self):
-        flat_pair = self.shifted_pair_bias if self.shifted else self.pair_bias
+        flat_pair = self.pair_bias
         h = self.act1(self.fc1(flat_pair))
         h = self.act2(self.fc2(h))
         h = self.fc3(h)
@@ -243,12 +262,16 @@ class WindowAttention3D(nn.Module):
 
 
 class AttentionMask3D(nn.Module):
+    #------------------------------------------------------------------------------------------------------------------------
+    # consistent attn_mask: ([roll negative, attend, roll positive], assert all(s >= 0 for s in shift_size), AttentionMask3D)
+    #------------------------------------------------------------------------------------------------------------------------
     attn_mask_shared = {}  # key: shift_size tuple, value: mask tensor
 
     def __init__(self, input_resolution, window_size, shift_size):
         super().__init__()
         self.input_resolution = input_resolution
         self.window_size = window_size
+        assert all(s >= 0 for s in shift_size)
         self.shift_size = shift_size  # tuple (shift_D, shift_H, shift_W)
 
         # Convert to hashable key for sharing
@@ -298,6 +321,9 @@ class AttentionMask3D(nn.Module):
 # Swin Block 3D
 # ---------------------------
 class Zeus_SwinTransformerBlock3D(nn.Module):
+    #------------------------------------------------------------------------------------------------------------------------
+    # consistent attn_mask: ([roll negative, attend, roll positive], assert all(s >= 0 for s in shift_size), AttentionMask3D)
+    #------------------------------------------------------------------------------------------------------------------------
     def __init__(self, dim, input_resolution, num_heads, window_size, shift_size, pair_bias_dim,
                  mlp_ratio=4., qkv_bias=True, drop=0., attn_drop=0., drop_path=0.,
                  act_layer=nn.GELU, norm_layer=nn.LayerNorm):
@@ -311,6 +337,7 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
         self.num_heads = num_heads
         self.window_size = window_size
         self.window_volume = window_size[0] * window_size[1] * window_size[2]
+        assert all(s >= 0 for s in shift_size)
         self.shift_size = shift_size
 
         for i in range(3):
@@ -340,7 +367,7 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
 
         # cyclic shift
         if any(s != 0 for s in self.shift_size):
-            shifted_x = torch.roll(x, shifts=self.shift_size, dims=(2,3,4))     # x: (B, C, D, H, W)
+            shifted_x = torch.roll(x, shifts=[ - s for s in self.shift_size], dims=(2,3,4))     # x: (B, C, D, H, W)
         else:
             shifted_x = x
 
@@ -360,7 +387,7 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
 
         # reverse cyclic shift
         if any(s != 0 for s in self.shift_size):
-            x = torch.roll(x, shifts=[-s for s in self.shift_size], dims=(2,3,4))
+            x = torch.roll(x, shifts=[s for s in self.shift_size], dims=(2,3,4))
 
         # flatten back
         x = x.permute(0,2,3,4,1).contiguous().reshape(B, D*H*W, C).contiguous()
@@ -518,7 +545,7 @@ def show_global_position_bias(PBLearner, pair_dim_idx=2, depth_idx=0):
     pair_bias_dim = PBLearner.fc1.in_features  # original input dim
 
     # Select the correct shared tensor
-    pair_bias_ref = PBLearner.shifted_pair_bias if PBLearner.shifted else PBLearner.pair_bias
+    pair_bias_ref = PBLearner.pair_bias
     # Reshape flat pair_bias to (nWindows, win_D, win_H, win_W, win_D, win_H, win_W, pair_bias_dim)
     pair_bias_grid = pair_bias_ref.reshape(
         nWd * nWh * nWw,
@@ -621,10 +648,11 @@ if __name__ == "__main__":
     pair_bias = pair_bias.view(D, H, W, pair_bias_dim)[0] # (H, W, 4).
     data = pair_bias[:, :, 2].numpy()    # cos_lat1, cos_lat2, great_circle, delta_depth
     
-    show_global_position_bias(PBLearner, pair_dim_idx=2, depth_idx=0)
+    # show_global_position_bias(PBLearner, pair_dim_idx=4, depth_idx=0)
+    # pair_bias = torch.stack([cos_lat1 ** 2, cos_lat2 ** 2, great_circle, delta_depth, torch.abs(delta_depth)], dim=-1)
 
     # show_on_map(data)    
     
     attn_mask = blocks3D[1].attn_mask_learner.attn_mask
     # show_global_attn_mask(attn_mask, window_size=window_size, input_resolution=input_resolution, depth_idx=0)
-    # show_global_attn_mask_map(attn_mask, window_size=window_size, input_resolution=input_resolution, depth_idx=0)
+    show_global_attn_mask_map(attn_mask, window_size=window_size, input_resolution=input_resolution, depth_idx=0)

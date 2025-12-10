@@ -12,9 +12,10 @@ ts = api.load.timescale()
 eph = api.load('de421.bsp')
 
 class Geo_Tempo():
-    #  -90 <= lat <= +90 [-90, +90], -180 <= lon < 180 [-180, +180) in our dataset scheme.
-    respect_north = True    # No change
-    respect_east = True     # No change
+    #  -90 <= lat <= +90 [-90, +90], -180 <= lon < 180 [-180, +180) in our dataset scheme, which follows ERA5.
+    # ---------------- DO NOT change -------------
+    respect_north = True    # ERA5 doesn't remove lat points. But we choose to remove the south polar region if we have to remove some lat points.
+    respect_east = False     # ERA5 choose to remove +180 when they remove a lon point to reflect that lontigude is cylindric.
     
     lat_lon_tensor_721_1440, lat_tensor_721, lon_tensor_1440 = None, None, None
     H_era5_grid, W_era5_grid = 721, 1440
@@ -332,7 +333,7 @@ class Geo_Tempo():
         # print(lon_tensor[0], lon_tensor[-1], lon_tensor[1]-lon_tensor[0])
 
         lat_tensor = lat_tensor[:]      # 0.25 x H
-        lon_tensor = lon_tensor[:-1]    # 0.25 x (W-1), the +180 is removed. why not -180? ERA5 does that.
+        lon_tensor = lon_tensor[:-1]    # 0.25 x (W-1), the +180, or E180, is removed. why not -180? ERA5 does that. So, west is respected.
 
         # Broadcast to grids
         lat_grid = lat_tensor.unsqueeze(1).expand(H, W-1)
@@ -350,7 +351,7 @@ class Geo_Tempo():
     def lat_lon_grid_tensor_era5_720():
         # BE CAREFULL !!!!
         lat_lon = Geo_Tempo.lat_lon_tensor_721_1440[:, 1:, :] if Geo_Tempo.respect_north else Geo_Tempo.lat_lon_tensor_721_1440[:, :-1, :]
-        lat = Geo_Tempo.lat_tensor_721[1:] if Geo_Tempo.respect_east else Geo_Tempo.lat_tensor_721[:-1]
+        lat = Geo_Tempo.lat_tensor_721[1:] if Geo_Tempo.respect_north else Geo_Tempo.lat_tensor_721[:-1]
         lon = Geo_Tempo.lon_tensor_1440
         return lat_lon, lat, lon
     
