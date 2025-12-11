@@ -501,7 +501,7 @@ class Zeus_Dataset(Dataset):
         torch.save(data, path)
         return       
 
-    def ensure_data_integrity_while_getting_meteo_mean(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6):
+    def ensure_meteo_data_integrity_while_getting_mean(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6):
         """
         Compute the mean over all variables across hourly files, with checkpointing.
         """
@@ -997,7 +997,7 @@ class Zeus_Dataset(Dataset):
         #     modulo = modulo
         # )
 
-        mean_meteo, m = self.ensure_data_integrity_while_getting_meteo_mean(
+        mean_meteo, m = self.ensure_meteo_data_integrity_while_getting_mean(
             inclusive_left=inclusive_left,
             inclusive_right=inclusive_right,
             modulo = modulo
@@ -1965,7 +1965,7 @@ if __name__ == "__main__":
     inclusive_left = datetime(2014, 12, 31, 23)
     inclusive_right = datetime(2024, 12, 31, 23)
 
-    mean_meteo, m = dataset.ensure_data_integrity_while_getting_meteo_mean(
+    mean_meteo, m = dataset.ensure_meteo_data_integrity_while_getting_mean(
         inclusive_left=inclusive_left,
         inclusive_right=inclusive_right,
         modulo = 6
