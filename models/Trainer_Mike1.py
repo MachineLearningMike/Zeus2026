@@ -17,7 +17,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 from modules.utils import check_dir, check_gradient
 from modules.zeus_tqdm import zeus_tqdm
 from modules.params_Mike1 import flatten_pm_single
-from models.config_14nov25 import config
+from models.config_Mike1 import config
 
 module = import_module(config['Zeus_Model_module'])
 Zeus = getattr(module, 'Zeus')
