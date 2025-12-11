@@ -143,8 +143,6 @@ class Zeus(nn.Module):
         #     with torch.set_grad_enabled(trainable):         
         
         pred = self(ss0, ss1, cascade_step)
-        
-        result_ss = Snapshot(ssY.year, ssY.month, ssY.day, ssY.hour, meteo=pred, meteo_unnormal=None, device=ssY.device)
 
         target_normal = ssY.meteo
         target_unnormal = ssY.meteo_unnormal
@@ -163,6 +161,8 @@ class Zeus(nn.Module):
             unnormalized_metrics = lossAndMetrics[1] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
         else:
             unnormalized_metrics = torch.abs(target_unnormal - pred_unnormal).mean(dim=(0, 1, 3, 4))    # (C,)
+        
+        result_ss = Snapshot(ssY.year, ssY.month, ssY.day, ssY.hour, meteo=pred.detach().to("cpu"), meteo_unnormal=None, device=ssY.device)
         
         return result_ss, loss.detach().to("cpu"), unnormalized_metrics.detach().to("cpu")
 
