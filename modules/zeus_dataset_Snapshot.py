@@ -538,7 +538,7 @@ class Snapshot:
             assert lvl.shape == ((Snapshot.air_level_dims * len(group) + Snapshot.tempo_dims) * 2 + Snapshot.geo_dense_dims, export_size[0], export_size[1])
         assert surface_paired.shape == ((Snapshot.meteo_dims - Snapshot.air_level_dims * Snapshot.num_air_levels + Snapshot.tempo_dims) * 2 + Snapshot.geo_dense_dims, export_size[0], export_size[1])
 
-        return delevels_paired, surface_paired
+        return delevels_paired, surface_paired  # requires_grad == False
     
     #------------------ miscellaneout --------------------
 
