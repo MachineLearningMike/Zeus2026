@@ -249,7 +249,7 @@ class Zeus_Dataset(Dataset):
             if snapshot_path.exists():
                 if verify_existing:
                     try:
-                        exists = (self.load_hourly_data(datetime(year, month, day, hour), modulo) is not None)
+                        exists = (self.load_hourly_data(datetime(year, month, day, hour), modulo) is not None)     
                     except:
                         exists = False
                 else:
