@@ -501,7 +501,7 @@ class Zeus_Dataset(Dataset):
         torch.save(data, path)
         return       
 
-    def get_mean_meteo_onestop_data(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6):
+    def ensure_data_integrity_while_getting_meteo_mean(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6):
         """
         Compute the mean over all variables across hourly files, with checkpointing.
         """
@@ -997,7 +997,7 @@ class Zeus_Dataset(Dataset):
         #     modulo = modulo
         # )
 
-        mean_meteo, m = self.get_mean_meteo_onestop_data(
+        mean_meteo, m = self.ensure_data_integrity_while_getting_meteo_mean(
             inclusive_left=inclusive_left,
             inclusive_right=inclusive_right,
             modulo = modulo
@@ -1965,10 +1965,13 @@ if __name__ == "__main__":
     inclusive_left = datetime(2014, 12, 31, 23)
     inclusive_right = datetime(2024, 12, 31, 23)
 
-    # inclusive_left = datetime(2015, 1, 2, 23)
-    # inclusive_right = datetime(2015, 1, 20, 23)
+    mean_meteo, m = dataset.ensure_data_integrity_while_getting_meteo_mean(
+        inclusive_left=inclusive_left,
+        inclusive_right=inclusive_right,
+        modulo = 6
+    )
 
-    dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=6)
+    # dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=6)
 
     dict = dataset.analyze_hourly_paths(inclusive_left=None, inclusive_right=None, modulo=6)
     # print(f"count: {dict['count']}, first_hour: {dict['first_hour']}, last_hour: {dict['last_hour']}, missing_hours: {dict['missing_hours']}")
