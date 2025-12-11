@@ -249,8 +249,7 @@ class Zeus_Dataset(Dataset):
             if snapshot_path.exists():
                 if verify_existing:
                     try:
-                        dict = load(snapshot_path)
-                        exists = True
+                        exists = (self.load_hourly_data(datetime(year, month, day, hour), modulo) is not None)
                     except:
                         exists = False
                 else:
@@ -261,6 +260,8 @@ class Zeus_Dataset(Dataset):
             if exists:                       
                 print(f"==================================== snapshot at {year}/{month}/{day}/{hour} exists!")       
                 return True
+            else:
+                print(f"==================================== snapshot at {year}/{month}/{day}/{hour} NOT exists! Downloading...")
 
             var_dict = {}
 
