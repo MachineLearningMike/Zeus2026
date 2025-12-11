@@ -275,7 +275,7 @@ class Snapshot:
         if not Snapshot.is_export_size(meteo):
             meteo = Snapshot.resize_for_export(meteo)
         
-        meteo = meteo.to(self.device) 
+        # meteo = meteo.to(self.device) 
         return meteo
 
     meteo = property(
@@ -289,7 +289,7 @@ class Snapshot:
         if Snapshot.export_factor10 != 10:
             _meteo_unnormal = Snapshot.resize_for_export(_meteo_unnormal)
     
-        _meteo_unnormal = _meteo_unnormal.to(self.device)    
+        # _meteo_unnormal = _meteo_unnormal.to(self.device)    
         return _meteo_unnormal
     
     meteo_unnormal = property(
@@ -310,7 +310,7 @@ class Snapshot:
         if not Snapshot.is_export_size(tempo):
             tempo = Snapshot.resize_for_export(tempo)
         
-        tempo = tempo.to(self.device)
+        # tempo = tempo.to(self.device)
         return tempo
 
     tempo = property(
@@ -330,7 +330,7 @@ class Snapshot:
         if not Snapshot.is_export_size(geo_dense):
             geo_dense = Snapshot.resize_for_export(geo_dense)
         
-        geo_dense = geo_dense.to(self.device)
+        # geo_dense = geo_dense.to(self.device)
         return geo_dense
 
     geo_dense = property(
@@ -357,7 +357,7 @@ class Snapshot:
         if not Snapshot.is_export_size(geo_cat):
             geo_cat = Snapshot.resize_for_export(geo_cat)
         
-        geo_cat = geo_cat.to(self.device)
+        # geo_cat = geo_cat.to(self.device)
         return geo_cat
 
     geo_cat = property(
