@@ -162,7 +162,7 @@ class Zeus(nn.Module):
         else:
             unnormalized_metrics = torch.abs(target_unnormal - pred_unnormal).mean(dim=(0, 1, 3, 4))    # (C,)
         
-        result_ss = Snapshot(ssY.year, ssY.month, ssY.day, ssY.hour, meteo=pred.detach().to("cpu"), meteo_unnormal=None, device=ssY.device)
+        result_ss = Snapshot(ssY.year, ssY.month, ssY.day, ssY.hour, meteo=pred.detach().to(ssY.meteo.device), meteo_unnormal=None, device=ssY.device)
         
         return result_ss, loss.detach().to("cpu"), unnormalized_metrics.detach().to("cpu")
 

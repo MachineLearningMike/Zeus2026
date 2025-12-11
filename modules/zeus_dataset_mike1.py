@@ -66,6 +66,7 @@ class Zeus_Dataset(Dataset):
         self.param_path = management_path / 'dataset_params.json'
         self.split_hours_path = management_path / 'split_hours.json'
         self.mean_meteo_checkpoint_path = management_path / "mean_meteo_checkpoint.pth"
+        self.mean_meteo_onestop_checkpoint_path = management_path / "mean_meteo_onestop_checkpoint.pth"
         self.var_mean_meteo_checkpoint_path = management_path / "mean_var_meteo_checkpoint.pth"
         self.mean_tempo_checkpoint_path = management_path / "mean_tempo_checkpoint.pth"
         self.var_mean_tempo_checkpoint_path = management_path / "mean_var_tempo_checkpoint.pth"
@@ -84,6 +85,8 @@ class Zeus_Dataset(Dataset):
         self.origin_date = datetime(1970,1,1)
         
         self.resizer = CylindricalResizer()
+        
+        self.total_ds = None
         
         # self.shard_dataset = ERA5ZarrShards(
         #     base_dirs=self.shard_dirs,
@@ -144,6 +147,7 @@ class Zeus_Dataset(Dataset):
         return dataset
 
     def get_file_path(self, year, month, day, hour, modulo):
+        # - self.pm.hourly_offset is not required
         cds_folder = self.cds_folder \
             if not self.pm.dual_drive \
             else self.cds_folder_even \
@@ -170,7 +174,16 @@ class Zeus_Dataset(Dataset):
     
     #---------------------------------------------------------------------------   
     
-    def load_hourly_data(self, dt, modulo):
+    def load_dict(self, dt, modulo):
+        path = self.get_file_path_npz(dt.year, dt.month, dt.day, dt.hour, modulo)
+        try:
+            array_dict = load(path)
+        except Exception as e:
+            print(e)
+            array_dict = None
+        return array_dict
+    
+    def load_array(self, dt, modulo):
         path = self.get_file_path_npz(dt.year, dt.month, dt.day, dt.hour, modulo)
         arrays = []
         try:
@@ -187,105 +200,109 @@ class Zeus_Dataset(Dataset):
             array = None
         return array
     
-    def download_fuXi2_snapshots_levels_region_parallel_vars(
-            self, variables, var_name_map,
-            start_dt, end_dt, lat_range=None, lon_range=None,
-            modulo=6, max_workers_snapshots=7, max_workers_vars=10, verify_existing=False):
-        """
-        Parallel download of FuXi2 snapshots:
-        - Snapshots (6-hourly) are parallelized.
-        - Variables inside each snapshot are parallelized.
-        """
+    def download_variable(self, idx,  year, month, day, hour, variable):
+        """Download a single variable for a given snapshot, interpolating NaNs if needed."""
+        
+        upper_air = False
+        snapshot_time = f"{year}-{month:02d}-{day:02d}T{hour:02d}:00"
 
-        total_ds = self.get_normalized_dataset()
-
-        def download_variable(idx,  year, month, day, hour, variable):
-            """Download a single variable for a given snapshot, interpolating NaNs if needed."""
+        if self.total_ds is None:
+            print("Getting normalized ERA5 dataset......", end='')
+            self.total_ds = self.get_normalized_dataset()
+            print("done.")
             
-            upper_air = False
-            snapshot_time = f"{year}-{month:02d}-{day:02d}T{hour:02d}:00"
+        total_ds = self.total_ds
 
-            # Check if it's an upper-air variable
-            if '_' in variable and variable.split('_')[0] in variable:
-                upper_air = True
-                var_name, level = variable.split('_')
-                era_var = var_name_map[var_name]
-                ds = total_ds[era_var].sel(level=int(level), time=snapshot_time)
-            else:
-                era_var = var_name_map[variable]
-                ds = total_ds[era_var].sel(time=snapshot_time)
+        # Check if it's an upper-air variable
+        if '_' in variable and variable.split('_')[0] in variable:
+            upper_air = True
+            var_name, level = variable.split('_')
+            era_var = var_name_map[var_name]
+            ds = total_ds[era_var].sel(level=int(level), time=snapshot_time)
+        else:
+            era_var = var_name_map[variable]
+            ds = total_ds[era_var].sel(time=snapshot_time)
 
-            # Select region
-            if lat_range is not None:
-                ds = ds.sel(latitude=slice(lat_range[0], lat_range[1]))
-            if lon_range is not None:
-                ds = ds.sel(longitude=slice(lon_range[0], lon_range[1]))
+        # Compute array
+        array = ds.values.astype(np.float32)
+        # array = np.random.rand(721, 1440)
 
-            # Compute array
-            array = ds.values.astype(np.float32)
-            # array = np.random.rand(721, 1440)
+        # If NaNs exist, try interpolation along 'level' for upper-air variables
+        if np.isnan(array).any() and upper_air:
+            logging.warning(f"NaNs detected in {idx} {variable}, interpolating along pressure levels...")
+            # Interpolate from neighboring levels
+            # ds_full = total_ds[era_var].sel(time=snapshot_time)
+            # Interpolation along 'level' to the desired level
+            array = ds.interp(level=int(level)).values.astype(np.float32)
 
-            # If NaNs exist, try interpolation along 'level' for upper-air variables
-            if np.isnan(array).any() and upper_air:
-                logging.warning(f"NaNs detected in {idx} {variable}, interpolating along pressure levels...")
-                # Interpolate from neighboring levels
-                # ds_full = total_ds[era_var].sel(time=snapshot_time)
-                # Interpolation along 'level' to the desired level
-                array = ds.interp(level=int(level)).values.astype(np.float32)
+        assert not np.isnan(array).any(), f"Warning: {idx} {variable} still has NaNs at {year}/{month}/{day}/{hour}"
 
-            assert not np.isnan(array).any(), f"Warning: {idx} {variable} still has NaNs at {year}/{month}/{day}/{hour}"
+        assert array.shape == (721, 1440), f"array.shape is not (721, 1440) but {array.shape}"
+        print(f"Checked OK: {idx} {variable} at {year}/{month}/{day}/{hour}")
 
-            assert array.shape == (721, 1440), f"array.shape is not (721, 1440) but {array.shape}"
-            print(f"Checked OK: {idx} {variable} at {year}/{month}/{day}/{hour}")
-
-            return variable, array
+        return variable, array
 
 
-        def process_snapshot(year, month, day, hour):
-            """Download all variables for a single snapshot in parallel."""
+    def any_get_snapshot_dict(self, year, month, day, hour, modulo, max_workers_vars, variables):
+        """Download all variables for a single snapshot in parallel."""
 
-            exists = None
-            snapshot_path = self.get_file_path_npz(year, month, day, hour, modulo)
-            if snapshot_path.exists():
-                if verify_existing:
-                    try:
-                        exists = (self.load_hourly_data(datetime(year, month, day, hour), modulo) is not None)
-                    except:
-                        exists = False
-                else:
-                    exists = True
-            else:
-                exists = False
-            
-            if exists:                       
-                print(f"==================================== snapshot at {year}/{month}/{day}/{hour} exists!")       
-                return True
-            else:
-                print(f"==================================== snapshot at {year}/{month}/{day}/{hour} NOT exists! Downloading...")
-
+        dict = None
+        
+        try:
+            dict = self.load_dict(datetime(year, month, day, hour), modulo)
+        except:
+            pass
+        
+        if dict is not None:                       
+            print(f"==================================== snapshot at {year}/{month}/{day}/{hour} exists!")       
+            return dict
+        
+        else:
             var_dict = {}
 
             # Parallel download of variables
             with ThreadPoolExecutor(max_workers=max_workers_vars) as var_executor:
-                var_futures = [var_executor.submit(download_variable, idx, year, month, day, hour, var) for idx, var in enumerate(variables)]
+                var_futures = [var_executor.submit(self.download_variable, idx, year, month, day, hour, var) for idx, var in enumerate(variables)]
 
                 for idx, future in enumerate(as_completed(var_futures)):
                     var_name, array = future.result()
                     var_dict[var_name] = array
 
+                success = True
                 for idx, var in enumerate(variables):
                     if var_dict.get(var, None) is None:
                         logging.fatal(f"--------------- variable: {idx} {year}/{month}/{day}/{hour}/{idx}, {variables[idx]} failed to download. Quiting snapshot...")
-                        logging.fatal(f"Exception: {e}")
-                        return False
+                        success = False; break
                     else:
                         assert var_dict[var].shape == (721, 1440)
 
-                path = self.get_file_path_npz(year, month, day, hour, modulo)
-                check_dir(path.parent)
-                save(path, var_dict)
-                print(f"==================================== snapshot at {year}/{month}/{day}/{hour} saved!")
-            return True
+                if success:
+                    snapshot_path = self.get_file_path_npz(year, month, day, hour, modulo)
+                    
+                    try:
+                        check_dir(snapshot_path.parent)
+                        save(snapshot_path, var_dict)
+                        dict = self.load_dict(datetime(year, month, day, hour), modulo)
+                    except:
+                        pass
+
+                if dict is not None:
+                    print(f"==================================== snapshot at {year}/{month}/{day}/{hour} saved         !")
+                else:
+                    print(f"==================================== snapshot at {year}/{month}/{day}/{hour} failed        !!!")                        
+
+        return dict
+    
+    
+    def download_fuXi2_snapshots_levels_region_parallel_vars(
+            self, variables, var_name_map,
+            start_dt, end_dt, lat_range=None, lon_range=None,
+            modulo=6, max_workers_snapshots=7, max_workers_vars=10):
+        """
+        Parallel download of FuXi2 snapshots:
+        - Snapshots (6-hourly) are parallelized.
+        - Variables inside each snapshot are parallelized.
+        """
 
         # -------------------------
         # Parallel execution of snapshots
@@ -303,13 +320,13 @@ class Zeus_Dataset(Dataset):
                             dt = datetime(year, month, day, hour) + timedelta(hours=self.pm.hourly_offset) # hourly_offset = -1
                             if dt < start_dt or end_dt < dt: continue
                             futures.append(
-                                snap_executor.submit(process_snapshot, dt.year, dt.month, dt.day, dt.hour)
+                                snap_executor.submit(self.any_get_snapshot_dict, dt.year, dt.month, dt.day, dt.hour, modulo, max_workers_vars, variables)
                             )
 
             # Wait for all snapshots to finish
             for future in as_completed(futures):
                 try:
-                    timestamp = future.result()
+                    dict = future.result()
                 except Exception as e:
                     print(f"Error processing snapshot: {e}")
                     continue
@@ -484,136 +501,101 @@ class Zeus_Dataset(Dataset):
         torch.save(data, path)
         return       
 
+    def get_mean_meteo_onestop_data(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6):
+        """
+        Compute the mean over all variables across hourly files, with checkpointing.
+        """
+        cuda_available = torch.cuda.is_available()
+        mean_dict = None
 
-    # def _compute_hourly_mean(self, args):
-    #     """
-    #     Worker function run in parallel.
-    #     Loads the file, builds a stacked array, and returns (C,) mean.
-    #     """
-    #     file_path, variables = args
+        # Load checkpoint if exists
+        try:
+            checkpoint = self.read_checkpoint(
+                self.mean_meteo_onestop_checkpoint_path,
+                ["mean_dict", "step", "inclusive_left", "inclusive_right"]
+            )
 
-    #     data = load(file_path)
-    #     arr = np.stack([data[key] for key in variables], axis=0)  # (C, H, W)
-    #     _mean = arr.mean(axis=(1, 2))
+            mean_dict = checkpoint[0] if len(checkpoint) > 0 else None
+            mean = np.array([mean_dict[var] for var in self.pm.variables]) if mean_dict is not None else None
+            
+            # step = checkpoint[1] if len(checkpoint) > 1 else 0
+            step = int(checkpoint[1]) if len(checkpoint) > 1 else 0
+            ck_left_iso = checkpoint[2] if len(checkpoint) > 2 else None
+            ck_right_iso = checkpoint[3] if len(checkpoint) > 3 else None
 
-    #     if np.any(np.isnan(_mean)):
-    #         raise Exception(f"NaN found in hourly mean: {file_path}")
+            ck_left = datetime.fromisoformat(ck_left_iso) if ck_left_iso else None
+            ck_right = datetime.fromisoformat(ck_right_iso) if ck_right_iso else None
 
-    #     return _mean
+            # Check consistency
+            ck_left_match = (ck_left == inclusive_left) or (ck_left is None and inclusive_left is None)
+            ck_right_match = (ck_right == inclusive_right) or (ck_right is None and inclusive_right is None)
+            if mean is None or not (ck_left_match and ck_right_match):
+                print("Checkpoint missing or date range mismatch. Starting new mean meteo...")
+                mean = np.zeros((len(self.pm.variables),), dtype=np.float32)
+                step = 0
+            else:
+                print(f"Resuming existing mean meteo... step={step}")
+        except:
+            print("No checkpoint found for mean meteo. Starting new mean meteo...")
+            mean = np.zeros((len(self.pm.variables),), dtype=np.float32)
+            step = 0
 
-    #------------- This multiprocessing doesn't seed up at all -----------------
-    # def get_mean_meteo(self, inclusive_left=None, inclusive_right=None,
-    #                 checkpoint_interval=1, modulo=6):
+        skip = -1
+                        
+        dt = inclusive_left - timedelta(hours=modulo)
+        right = inclusive_right - timedelta(hours=modulo)
+        while dt <= right:
+            dt += timedelta(hours=modulo)
+            year, month, day, hour = dt.year, dt.month, dt.day, dt.hour
+            
+            skip += 1
+            if skip < step:
+                continue
 
-    #     cuda_available = torch.cuda.is_available()
-    #     mean_dict = None
+            data = self.any_get_snapshot_dict(dt.year, dt.month, dt.day, dt.hour, modulo, max_workers_vars=30, variables=self.pm.variables)
+            if data is None:
+                print("Filed to load data. Quiting...") 
+                sys.exit()
+            
+            # Make sure the order follows self.pm.variables
+            arr = np.stack([data[key] for key in self.pm.variables], axis=0)  # (C, H, W)
 
-    #     # ---------------------------------------------------------
-    #     # Load checkpoint
-    #     # ---------------------------------------------------------
-    #     try:
-    #         checkpoint = self.read_checkpoint(
-    #             self.mean_meteo_checkpoint_path,
-    #             ["mean_dict", "step", "inclusive_left", "inclusive_right"]
-    #         )
+            if cuda_available:
+                tensor_arr = torch.tensor(arr, dtype=torch.float32).cuda()
+                _mean = tensor_arr.mean(dim=(1, 2)).cpu().numpy()
+            else:
+                _mean = arr.mean(axis=(1, 2))
 
-    #         mean_dict = checkpoint[0] if len(checkpoint) > 0 else None
-    #         mean = np.array([mean_dict[var] for var in self.pm.variables]) if mean_dict is not None else None
+            if np.any(np.isnan(_mean)):
+                raise Exception(f"NaN found in hourly mean: {dt}")
 
-    #         step = int(checkpoint[1]) if len(checkpoint) > 1 else 0
-    #         ck_left_iso = checkpoint[2] if len(checkpoint) > 2 else None
-    #         ck_right_iso = checkpoint[3] if len(checkpoint) > 3 else None
+            step += 1
+            mean = mean * (step - 1)/step + _mean / step
+            
+            mean_dict = {var: mean[idx] for idx, var in enumerate(self.pm.variables)}
 
-    #         ck_left = datetime.fromisoformat(ck_left_iso) if ck_left_iso else None
-    #         ck_right = datetime.fromisoformat(ck_right_iso) if ck_right_iso else None
+            if step % checkpoint_interval == 0:
+                print(f"Checkpointing mean_meteo... {step}: {year}-{month:02d}-{day:02d} {hour:02d}")
+                tmp_path = str(self.mean_meteo_onestop_checkpoint_path) + ".tmp"
+                self.save_checkpoint(tmp_path, {
+                    "mean_dict": mean_dict,
+                    "step": step,
+                    "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
+                    "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
+                })
+                shutil.move(tmp_path, self.mean_meteo_onestop_checkpoint_path)
 
-    #         ck_left_match = (ck_left == inclusive_left) or (ck_left is None and inclusive_left is None)
-    #         ck_right_match = (ck_right == inclusive_right) or (ck_right is None and inclusive_right is None)
+        # Final save
+        path = str(self.mean_meteo_onestop_checkpoint_path)
+        self.save_checkpoint(path, {
+            "mean_dict": mean_dict,
+            "step": step,
+            "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
+            "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
+        })
+        shutil.move(path, self.mean_meteo_onestop_checkpoint_path)
 
-    #         if mean is None or not (ck_left_match and ck_right_match):
-    #             print("Checkpoint missing or date range mismatch. Starting new mean meteo...")
-    #             mean = np.zeros((len(self.pm.variables),), dtype=np.float32)
-    #             step = 0
-    #         else:
-    #             print(f"Resuming existing mean meteo... step={step}")
-
-    #     except:
-    #         print("No checkpoint found for mean meteo. Starting new mean meteo...")
-    #         mean = np.zeros((len(self.pm.variables),), dtype=np.float32)
-    #         step = 0
-
-    #     # ---------------------------------------------------------
-    #     # Parallel computation setup
-    #     # ---------------------------------------------------------
-    #     skip = -1
-
-    #     with Pool() as pool:
-    #         pending_result = None
-
-    #         for year, month, day, hour, file_path in self.iter_hourly_paths():
-
-    #             # Time filtering
-    #             current_dt = datetime(year, month, day, hour)
-    #             if inclusive_left and current_dt < inclusive_left:
-    #                 continue
-    #             if inclusive_right and current_dt > inclusive_right:
-    #                 continue
-
-    #             # Your original logic
-    #             skip += 1
-    #             if skip < step:
-    #                 continue
-
-    #             # ------------------------------------
-    #             # PARALLEL WORKER JOB SUBMISSION
-    #             # ------------------------------------
-    #             # Launch parallel job immediately
-    #             pending_result = pool.apply_async(
-    #                 self._compute_hourly_mean,
-    #                 args=((file_path, self.pm.variables),)
-    #             )
-
-    #             # Retrieve result and update state
-    #             _mean = pending_result.get()
-
-    #             # Sanity check
-    #             if np.any(np.isnan(_mean)):
-    #                 raise Exception(f"NaN found in hourly mean: {file_path}")
-
-    #             # Your incremental mean formula
-    #             step += 1
-    #             mean = mean * (step - 1)/step + _mean / step
-
-    #             # Convert to dict for checkpointing
-    #             mean_dict = {var: mean[idx] for idx, var in enumerate(self.pm.variables)}
-
-    #             # Checkpoint every interval
-    #             if step % checkpoint_interval == 0:
-    #                 print(f"Checkpointing mean_meteo... {step}: {year}-{month:02d}-{day:02d} {hour:02d}")
-    #                 tmp_path = str(self.mean_meteo_checkpoint_path) + ".tmp"
-    #                 self.save_checkpoint(tmp_path, {
-    #                     "mean_dict": mean_dict,
-    #                     "step": step,
-    #                     "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
-    #                     "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
-    #                 })
-    #                 shutil.move(tmp_path, self.mean_meteo_checkpoint_path)
-
-    #     # ---------------------------------------------------------
-    #     # Final save
-    #     # ---------------------------------------------------------
-    #     mean_dict = {var: mean[idx] for idx, var in enumerate(self.pm.variables)}
-
-    #     path = str(self.mean_meteo_checkpoint_path)
-    #     self.save_checkpoint(path, {
-    #         "mean_dict": mean_dict,
-    #         "step": step,
-    #         "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
-    #         "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
-    #     })
-    #     shutil.move(path, self.mean_meteo_checkpoint_path)
-
-    #     return mean, step
+        return mean, step
 
 
     def get_mean_meteo(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6):
@@ -1008,8 +990,14 @@ class Zeus_Dataset(Dataset):
             std  (np.ndarray): std values (C,)
         """
 
-        # Compute mean with checkpointing
-        mean_meteo, m = self.get_mean_meteo(
+        # # Compute mean with checkpointing
+        # mean_meteo, m = self.get_mean_meteo(
+        #     inclusive_left=inclusive_left,
+        #     inclusive_right=inclusive_right,
+        #     modulo = modulo
+        # )
+
+        mean_meteo, m = self.get_mean_meteo_onestop_data(
             inclusive_left=inclusive_left,
             inclusive_right=inclusive_right,
             modulo = modulo
@@ -1638,8 +1626,8 @@ class Zeus_Dataset(Dataset):
         assert output.shape[-5:] == torch.Size([Fm, C, size_hw[0], size_hw[1]])
         return output
 
-    def load_from_drive(self, dt, modulo, with_normalized=True):
-        array = self.load_hourly_data(dt, modulo)
+    def load_norrmalize_array(self, dt, modulo, with_normalized=True):
+        array = self.load_array(dt, modulo)
         assert array is not None
         
         unnormalied, normalized = None, None
@@ -1667,7 +1655,7 @@ class Zeus_Dataset(Dataset):
             with_normalized = True
             futures = [
                 self._disk_threadPool.submit(
-                        self.load_from_drive, dt + timedelta(hours=self.pm.modulo*cnt), self.pm.modulo, with_normalized
+                        self.load_norrmalize_array, dt + timedelta(hours=self.pm.modulo*cnt), self.pm.modulo, with_normalized
                     ) for cnt in range(self.pm.nCascades + 2)
                 ]
 
@@ -1974,28 +1962,36 @@ if __name__ == "__main__":
     #     verify_existing = True,
     # )
 
-    dict = dataset.analyze_hourly_paths(inclusive_left=None, inclusive_right=None, modulo=6)
-    # print(f"count: {dict['count']}, first_hour: {dict['first_hour']}, last_hour: {dict['last_hour']}, missing_hours: {dict['missing_hours']}")
-    # print(dict)
+    # inclusive_left = datetime(2014, 12, 31, 23)
+    # inclusive_right = datetime(2024, 12, 31, 23)
+
+    inclusive_left = datetime(2015, 1, 2, 23)
+    inclusive_right = datetime(2015, 1, 20, 23)
+
+    dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=6)
+
+    # dict = dataset.analyze_hourly_paths(inclusive_left=None, inclusive_right=None, modulo=6)
+    # # print(f"count: {dict['count']}, first_hour: {dict['first_hour']}, last_hour: {dict['last_hour']}, missing_hours: {dict['missing_hours']}")
+    # # print(dict)
     
-    if len(dict["missing_hours"]) <= 0:
-        inclusive_left = datetime(2014, 12, 31, 23)
-        inclusive_right = datetime(2024, 12, 31, 23)
-        dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=6)
+    # if len(dict["missing_hours"]) <= 0:
+    #     inclusive_left = datetime(2014, 12, 31, 23)
+    #     inclusive_right = datetime(2024, 12, 31, 23)
+    #     dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=6)
         
-    else:
-        print(dict["missing_hours"])
-        print("Missing hours found!")
+    # else:
+    #     print(dict["missing_hours"])
+    #     print("Missing hours found!")
 
-    mean_meteo, std_meteo, mean_tempo, std_tempo, \
-    mean_meteo_ready_cpu, std_meteo_ready_cpu, mean_meteo_ready_cuda, std_meteo_ready_cuda, \
-    mean_tempo_ready_cpu, std_tempo_ready_cpu, mean_tempo_ready_cuda, std_tempo_ready_cuda \
-    = dataset.load_dataset_params()
+    # mean_meteo, std_meteo, mean_tempo, std_tempo, \
+    # mean_meteo_ready_cpu, std_meteo_ready_cpu, mean_meteo_ready_cuda, std_meteo_ready_cuda, \
+    # mean_tempo_ready_cpu, std_tempo_ready_cpu, mean_tempo_ready_cuda, std_tempo_ready_cuda \
+    # = dataset.load_dataset_params()
 
-    print("-------- mean_meteo: ", mean_meteo.shape, mean_meteo[-3:])
-    print("-------- std_meteo: ", std_meteo.shape, std_meteo[-3:])
-    print("-------- mean_tempo: ", mean_tempo.shape, mean_tempo[-3:])
-    print("-------- std_tempo: ", std_tempo.shape, std_tempo[-3:])
+    # print("-------- mean_meteo: ", mean_meteo.shape, mean_meteo[-3:])
+    # print("-------- std_meteo: ", std_meteo.shape, std_meteo[-3:])
+    # print("-------- mean_tempo: ", mean_tempo.shape, mean_tempo[-3:])
+    # print("-------- std_tempo: ", std_tempo.shape, std_tempo[-3:])
 
     # train_hours, vali_hours, test_hours = dataset.split_data_hours_by_date_segents(
     #     datetime(2015, 1, 1, 10), datetime(2015, 1, 10, 10), datetime(2015, 1, 20, 10), datetime(2015, 1, 30, 10),
