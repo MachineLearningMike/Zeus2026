@@ -1631,16 +1631,31 @@ class Zeus_Dataset(Dataset):
         
         if array is not None:
             
-            if self.unnormalized[idx] is not None:
-                self.unnormalized[idx].copy_(torch.tensor(array, device='cuda'))      #---------------------------------------- cuda for speed. ugly --------------
-            else:
-                self.unnormalized[idx] = torch.tensor(array, device='cuda')
+            # if self.unnormalized[idx] is not None:
+            #     self.unnormalized[idx].copy_(torch.tensor(array, device='cuda'))      #---------------------------------------- cuda for speed. ugly --------------
+            # else:
+            #     self.unnormalized[idx] = torch.tensor(array, device='cuda')
             
+            # if with_normalized:
+            #     if self.normalized[idx] is not None:
+            #         self.normalize_meteo(self.unnormalized[idx], self.normalized[idx])
+            #     else:
+            #         self.normalized[idx] = self.unnormalized[idx].clone()  # allocate once
+            #         self.normalize_meteo(self.unnormalized[idx], self.normalized[idx])
+                    
+            if self.unnormalized[idx] is not None:
+                self.unnormalized[idx].copy_(torch.as_tensor(array, dtype=torch.float32).pin_memory().to('cuda', non_blocking=True)
+                )
+            else:
+                self.unnormalized[idx] = torch.as_tensor(array, dtype=torch.float32).pin_memory().to('cuda', non_blocking=True)
+
             if with_normalized:
                 if self.normalized[idx] is not None:
+                    # In-place normalization, reusing existing buffer
                     self.normalize_meteo(self.unnormalized[idx], self.normalized[idx])
                 else:
-                    self.normalized[idx] = self.unnormalized[idx].clone()  # allocate once
+                    # Allocate once, then reuse for future calls
+                    self.normalized[idx] = self.unnormalized[idx].clone()
                     self.normalize_meteo(self.unnormalized[idx], self.normalized[idx])
                                         
         return dt.year, dt.month, dt.day, dt.hour, self.unnormalized[idx], self.normalized[idx]
