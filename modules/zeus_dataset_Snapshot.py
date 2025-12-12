@@ -310,7 +310,7 @@ class Snapshot:
         if not Snapshot.is_export_size(tempo):
             tempo = Snapshot.resize_for_export(tempo)
         
-        # tempo = tempo.to(self.device)
+        tempo = tempo.to(self.device)
         return tempo
 
     tempo = property(
@@ -330,7 +330,7 @@ class Snapshot:
         if not Snapshot.is_export_size(geo_dense):
             geo_dense = Snapshot.resize_for_export(geo_dense)
         
-        # geo_dense = geo_dense.to(self.device)
+        geo_dense = geo_dense.to(self.device)
         return geo_dense
 
     geo_dense = property(
@@ -357,7 +357,7 @@ class Snapshot:
         if not Snapshot.is_export_size(geo_cat):
             geo_cat = Snapshot.resize_for_export(geo_cat)
         
-        # geo_cat = geo_cat.to(self.device)
+        geo_cat = geo_cat.to(self.device)
         return geo_cat
 
     geo_cat = property(
