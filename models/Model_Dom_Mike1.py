@@ -437,11 +437,12 @@ class Model_Dom():
             _epoch_loss = np.array(self.epoch_losses).mean().item()  # (,)
             _epoch_metrics = np.array(self.epoch_metrics).mean(axis=0)       # (C,)
             strC = ", ".join(f"{x:.2f}" for x in _epoch_metrics)
-            self.pbar_description = "md: {}, loss: {:.3f}, {}: ({})".format(self.md_id, _epoch_loss, self.pm.metrics, strC)
+            self.pbar_description = "md: {}, loss: {:.4f}, {}: ({})".format(self.md_id, _epoch_loss, self.pm.metrics, strC)
 
     def get_pbar_description_step(self, step_loss, step_metrics):   # (,), (C,)
-        strC = ", ".join(f"{x:.4f}" for x in step_metrics[-len(self.pm.targetVariables):])
-        self.pbar_description = "md {} lss {:.3f}, {} ({})".format(self.md_id, step_loss, self.pm.metrics, strC)
+        strC = ", ".join(f"{x:.5f}" for x in step_metrics[-len(self.pm.targetVariables):])
+        # self.pbar_description = "md {} loss {:.3f}, {} ({})".format(self.md_id, step_loss, self.pm.metrics, strC)
+        self.pbar_description = "loss {:.5f}, {} ({})".format(step_loss, self.pm.metrics, strC)
         
     def stepOptimizer(self, loss_item):
         performed_step, lr, grad_norm = self.lr_controller.stepOptimizer(loss_item)

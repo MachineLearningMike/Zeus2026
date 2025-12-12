@@ -376,7 +376,7 @@ class Model_Trainer():
                 # with torch.set_grad_enabled(trainable):   # grad is managed by single_GPU_forward_loss_backward
 
                 device = self.devices[0]
-                # for _ in  range(self.train_bombs):
+                # for _ in  range(self.train_bombs):    # train_bomb cannot work because we destroy batch_of_ss_lists.
                     
                 Xs = batch_of_ss_lists[0]   # batch_of_ss_lists undergoes changes. This code doesn't know the content of X
                     
@@ -436,15 +436,18 @@ class Model_Trainer():
                     
                     if trainable:
                         check_gradient(md.model)
-                        md.lr_controller.stepOptimizer(_substep_loss.item()) if md.pm.useLRLearner else md.optimizer.step()
-                        # md.scaler.update()
+                        if md.pm.useLRLearner:
+                            md.lr_controller.stepOptimizer(_substep_loss.item())
+                        else:
+                            md.optimizer.step()
+                            # md.scaler.update()
             else:
                 pass
                     
             md_focus = self.get_md_focus(mds)
             end1 = time.time()
-            pbar.set_description("{}, wait/cycle {:.0f}/{:.0f} u {:.0f} lr {:1.1e} tb {} mds {}"
-                .format(md_focus.pbar_description, (end-start) * 1000, (end1-start1) * 1000, ((end1-start1) * 1000 - (end-start) * 1000) / self.train_bombs, md_focus.get_learning_rate(), self.train_bombs, len(mds)))
+            pbar.set_description("{}, wait/cycle {:.0f}/{:.0f} u {:.0f} lr {:1.1e} tb {}"
+                .format(md_focus.pbar_description, (end-start) * 1000, (end1-start1) * 1000, ((end1-start1) * 1000 - (end-start) * 1000) / self.train_bombs, md_focus.get_learning_rate(), self.train_bombs))
             start1 = time.time()
             
             step += 1
