@@ -1644,10 +1644,10 @@ class Zeus_Dataset(Dataset):
             #         self.normalize_meteo(self.unnormalized[idx], self.normalized[idx])
                     
             if self.unnormalized[idx] is not None:
-                self.unnormalized[idx].copy_(torch.as_tensor(array, dtype=torch.float32).pin_memory().to('cuda', non_blocking=True)
-                )
+                cpu_tensor = torch.from_numpy(array).float().pin_memory()
+                self.unnormalized[idx].copy_(cpu_tensor, non_blocking=True)
             else:
-                self.unnormalized[idx] = torch.as_tensor(array, dtype=torch.float32).pin_memory().to('cuda', non_blocking=True)
+                self.unnormalized[idx] = torch.from_numpy(array).float().pin_memory().to('cuda', non_blocking=True)
 
             if with_normalized:
                 if self.normalized[idx] is not None:
