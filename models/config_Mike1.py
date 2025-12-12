@@ -123,6 +123,8 @@ shared_model_params = {
     "window_size" : (2, 5, 5),
     "num_swin_block": 30,
     "pair_bias_dim": 5,     # Careful, this changes code.
+    
+    "snapshot_pair_on_cuda": False,
 }
 
 

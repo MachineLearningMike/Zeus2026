@@ -153,8 +153,13 @@ class Zeus(nn.Module):
         if trainable:
             loss.backward(retain_graph=True)
                 # grads = [p.grad.detach().clone() for p in self.parameters()]
+        
+        # before changing pred
+        pred = pred.detach()
+        result_ss = Snapshot(ssY.year, ssY.month, ssY.day, ssY.hour, meteo=pred.to(ssY.meteo.device), meteo_unnormal=None, device=ssY.device)
                 
-        pred_unnormal = fn_unnornalize(pred)
+        pred_unnormal = pred.clone()
+        fn_unnornalize(pred, pred_unnormal)
 
         if type_metrics == "rmse":
             lossAndMetrics = fn_loss(target_unnormal, pred_unnormal, batch_diff, era5_data_vars)
@@ -162,7 +167,6 @@ class Zeus(nn.Module):
         else:
             unnormalized_metrics = torch.abs(target_unnormal - pred_unnormal).mean(dim=(0, 1, 3, 4))    # (C,)
         
-        result_ss = Snapshot(ssY.year, ssY.month, ssY.day, ssY.hour, meteo=pred.detach().to(ssY.meteo.device), meteo_unnormal=None, device=ssY.device)
         
         return result_ss, loss.detach().to("cpu"), unnormalized_metrics.detach().to("cpu")
 

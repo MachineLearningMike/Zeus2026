@@ -88,6 +88,11 @@ class Zeus_Dataset(Dataset):
         
         self.total_ds = None
         
+        #-------------------------------------------------------------------------
+        self.normalized = [None] * (self.pm.nCascades + 2)
+        self.unnormalized = [None] * (self.pm.nCascades + 2)
+        
+        
         # self.shard_dataset = ERA5ZarrShards(
         #     base_dirs=self.shard_dirs,
         #     shard_shapes=self.get_shard_shape(),
@@ -1118,25 +1123,19 @@ class Zeus_Dataset(Dataset):
 
     #----------------- Standardize --------------------
 
-    def normalize_meteo(self, data):    # data: (... C, H, W)
-        # device = data.device
-        # return ( data - rearrange(self.mean_meteo, 'c -> c 1 1').to(device) ) / rearrange(self.std_meteo, 'c -> c 1 1').to(device)
-        if data.is_cuda:
-            return ( data - self.mean_meteo_ready_cuda ) / self.std_meteo_ready_cuda
-        else:
-            return ( data - self.mean_meteo_ready_cpu ) / self.std_meteo_ready_cpu
-    
-    def unnormalize_meteo(self, data):    # data: (... C, H, W)
-        # Mike!!! I found this error Oct 23 only. 
-        # Over 2 months of test training was based on this wrong formula, forcing neual networks to distort accordingly.
-        # return ( data - rearrange(self.mean_meteo, 'c -> c 1 1').to(device) ) / rearrange(self.std_meteo, 'c -> c 1 1').to(device)
-
-        # device = data.device
-        # return data * rearrange(self.std_meteo, 'c -> c 1 1').to(device) + rearrange(self.mean_meteo, 'c -> c 1 1').to(device)
-        if data.is_cuda:
-            return data * self.std_meteo_ready_cuda + self.mean_meteo_ready_cuda
-        else:
-            return data * self.std_meteo_ready_cpu + self.mean_meteo_ready_cpu
+    def normalize_meteo(self, input, output):
+        mean = self.mean_meteo_ready_cuda if input.is_cuda else self.mean_meteo_ready_cpu
+        std  = self.std_meteo_ready_cuda if input.is_cuda else self.std_meteo_ready_cpu
+        if input is not output:
+            output.copy_(input)        # copy input into the output tensor
+        output.sub_(mean).div_(std)  # normalize in-place
+        
+    def unnormalize_meteo(self, input, output):
+        std  = self.std_meteo_ready_cuda if input.is_cuda else self.std_meteo_ready_cpu
+        mean = self.mean_meteo_ready_cuda if input.is_cuda else self.mean_meteo_ready_cpu
+        if input is not output:    
+            output.copy_(input)   # copy input into output buffer
+        output.mul_(std).add_(mean)  # in-place unnormalize
         
     def normalize_tempo(self, data):    # data: (... C, H, W)
         # device = data.device
@@ -1626,17 +1625,25 @@ class Zeus_Dataset(Dataset):
         assert output.shape[-5:] == torch.Size([Fm, C, size_hw[0], size_hw[1]])
         return output
 
-    def load_norrmalize_array(self, dt, modulo, with_normalized=True):
+    def load_norrmalize_array(self, dt, modulo, with_normalized, idx):
         array = self.load_array(dt, modulo)
         assert array is not None
         
-        unnormalied, normalized = None, None
         if array is not None:
-            unnormalied = torch.tensor(array).to('cuda', non_blocking=True)        #---------------------------------------- cuda for speed. ugly --------------
-            normalized = None
+            
+            if self.unnormalized[idx] is not None:
+                self.unnormalized[idx].copy_(torch.tensor(array, device='cuda'))      #---------------------------------------- cuda for speed. ugly --------------
+            else:
+                self.unnormalized[idx] = torch.tensor(array, device='cuda')
+            
             if with_normalized:
-                normalized = self.normalize_meteo(unnormalied)
-        return dt.year, dt.month, dt.day, dt.hour, unnormalied, normalized
+                if self.normalized[idx] is not None:
+                    self.normalize_meteo(self.unnormalized[idx], self.normalized[idx])
+                else:
+                    self.normalized[idx] = self.unnormalized[idx].clone()  # allocate once
+                    self.normalize_meteo(self.unnormalized[idx], self.normalized[idx])
+                                        
+        return dt.year, dt.month, dt.day, dt.hour, self.unnormalized[idx], self.normalized[idx]
 
     def take_batch(self):        
         if len(self.x_set) <= 0: return None
@@ -1655,8 +1662,8 @@ class Zeus_Dataset(Dataset):
             with_normalized = True
             futures = [
                 self._disk_threadPool.submit(
-                        self.load_norrmalize_array, dt + timedelta(hours=self.pm.modulo*cnt), self.pm.modulo, with_normalized
-                    ) for cnt in range(self.pm.nCascades + 2)
+                        self.load_norrmalize_array, dt + timedelta(hours=self.pm.modulo*idx), self.pm.modulo, with_normalized, idx
+                    ) for idx in range(self.pm.nCascades + 2)
                 ]
 
             snapshots = []
