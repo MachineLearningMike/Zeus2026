@@ -1733,7 +1733,7 @@ class Zeus_Dataset(Dataset):
         self._worker_thread = threading.Thread(target=self._prefetch_loop, daemon=True)
         self._worker_thread.start()
         
-        self._disk_threadPool = ThreadPoolExecutor(max_workers=2)
+        self._disk_threadPool = ThreadPoolExecutor(max_workers=4)
         
         return
 
