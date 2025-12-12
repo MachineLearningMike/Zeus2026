@@ -141,13 +141,15 @@ if platform.system() == "Windows":
     
     # GPU: RTX 4070, Chunk2D
     config["factor10"] = 2  # 2 is the minimum, as 1 causes a non-float parameter error.
+    config['nCascades'] = 1
+
     shared_model_params['nHeads'] = 2
     shared_model_params['patch_kernel'] = 8
     shared_model_params['patch_stride'] = 8
     shared_model_params['swin_dim'] = 20
     shared_model_params['window_size'] = (2, 2, 2)
     shared_model_params['num_swin_block'] = 30
-    
+        
     config["use_PE"] = True
     
     config["epochs"] = 100
