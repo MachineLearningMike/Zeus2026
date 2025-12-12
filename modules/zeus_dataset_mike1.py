@@ -1632,7 +1632,7 @@ class Zeus_Dataset(Dataset):
         
         unnormalied, normalized = None, None
         if array is not None:
-            unnormalied = torch.tensor(array).to('cuda')        #---------------------------------------- cuda for speed. ugly --------------
+            unnormalied = torch.tensor(array).to('cuda', non_blocking=True)        #---------------------------------------- cuda for speed. ugly --------------
             normalized = None
             if with_normalized:
                 normalized = self.normalize_meteo(unnormalied)
