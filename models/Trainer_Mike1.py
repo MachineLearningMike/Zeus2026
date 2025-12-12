@@ -275,7 +275,9 @@ class Model_Trainer():
         # self._print_tensor_state(12, reward)
         # reward = reward.mean()  # (,)
 
-        return rmse.mean(), rmse # (,), (C,)     32, cuda, True
+        # return rmse.mean(), rmse # (,), (C,)     32, cuda, True
+        era5_data_vars = era5_data_vars.to(device)
+        return (rmse[-6:] * era5_data_vars).mean(), rmse # (,), (C,)     32, cuda, True
     
     def clean_gpu_every(self, n_iter, step):
         if step % n_iter == 0:

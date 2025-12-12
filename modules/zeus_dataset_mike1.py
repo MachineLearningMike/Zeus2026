@@ -38,6 +38,7 @@ from modules_zeus.constants import ERA5_DATA_VARS
 from modules_zeus.sample import Era5Sample
 from modules_zeus.coordinates import get_bbox, slice_bbox
 from modules_zeus.era5_cds import Era5CDSLoader, get_today
+from modules.zeus_dataset_var_names import VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map
 
 from modules.zeus_dataset_codec_Mike1 import load, save
 from modules.zeus_dataset_Snapshot import Snapshot
@@ -1158,7 +1159,7 @@ class Zeus_Dataset(Dataset):
             return data * self.std_tempo_ready_cpu + self.mean_tempo_ready_cpu
     
     def load_era5_data_vars(self):
-        vars = [ERA5_DATA_VARS[k] for k in self.pm.variables if k in ERA5_DATA_VARS.keys()]
+        vars = [ERA5_DATA_VARS[var_name_map[k]] for k in self.pm.variables[-6:] if var_name_map[k] in ERA5_DATA_VARS.keys()]
         era5_data_vars = torch.tensor(vars, dtype=self.pm.dtype)
         return era5_data_vars
    
