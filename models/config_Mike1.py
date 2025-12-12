@@ -38,7 +38,7 @@ config = {
     "pole_angle": 30.0,      #
     "hourly_offset": -1,
     "modulo": 6,
-    "nCascades": 2,
+    "nCascades": 3,
 
     "org_height": 721,
     "org_width": 1440,
