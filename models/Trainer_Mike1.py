@@ -277,7 +277,7 @@ class Model_Trainer():
 
         # return rmse.mean(), rmse # (,), (C,)     32, cuda, True
         era5_data_vars = era5_data_vars.to(device)
-        return (rmse[-6:] * era5_data_vars).mean(), rmse # (,), (C,)     32, cuda, True
+        return (rmse[-len(self.pm.targetVariables):] * era5_data_vars).sum(), rmse # (,), (C,)     32, cuda, True
     
     def clean_gpu_every(self, n_iter, step):
         if step % n_iter == 0:

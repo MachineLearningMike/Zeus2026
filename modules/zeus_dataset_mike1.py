@@ -1159,7 +1159,7 @@ class Zeus_Dataset(Dataset):
             return data * self.std_tempo_ready_cpu + self.mean_tempo_ready_cpu
     
     def load_era5_data_vars(self):
-        vars = [ERA5_DATA_VARS[var_name_map[k]] for k in self.pm.variables[-6:] if var_name_map[k] in ERA5_DATA_VARS.keys()]
+        vars = [ERA5_DATA_VARS[var_name_map[k]] for k in self.pm.targetVariables if var_name_map[k] in ERA5_DATA_VARS.keys()]
         era5_data_vars = torch.tensor(vars, dtype=self.pm.dtype)
         return era5_data_vars
    
