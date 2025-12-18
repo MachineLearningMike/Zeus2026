@@ -182,10 +182,10 @@ else:
     
     # GPU: 
     config["factor10"] = 10  # 
-    shared_model_params['nHeads'] = 8
+    shared_model_params['nHeads'] = 4
     shared_model_params['patch_kernel'] = 4
     shared_model_params['patch_stride'] = 4
-    shared_model_params['swin_dim'] = 480
+    shared_model_params['swin_dim'] = 320
     shared_model_params['window_size'] = (2, 2, 2)
     shared_model_params['num_swin_block'] = 30
     shared_model_params['nLevels'] = 6
