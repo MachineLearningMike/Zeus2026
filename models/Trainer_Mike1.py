@@ -432,7 +432,7 @@ class Model_Trainer():
                                     X0, X1, Y, cascade_step,
                                     self.loss, self.dataset.normalize_meteo, self.dataset.unnormalize_meteo, 
                                     batch_diff, era5_data_vars, trainable=trainable,
-                                    type_metrics = self.pm.metrics,
+                                    type_metrics = self.pm.metrics, continued = (len(Xs) > 0 or len(oldQ) > 0)
                                 )
 
                             if self.pm.pair_not_single_snapshot:

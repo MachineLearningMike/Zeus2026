@@ -452,14 +452,14 @@ class Model_Dom():
             X0, X1, Y, cascade_step,
             fn_loss, fn_nornalize, fn_unnornalize, 
             batch_diff, era5_data_vars, trainable,
-            type_metrics
+            type_metrics, continued,
         ):
         
         return self.model.forward_backward_no_step(
             X0, X1, Y, cascade_step,
             fn_loss, fn_nornalize, fn_unnornalize, 
             batch_diff, era5_data_vars, trainable,
-            type_metrics
+            type_metrics, continued,
         )
         
     def store_step_loss_and_metrics(self, step_loss, step_metrics): # [substep_loss...], [substep_metrics...]

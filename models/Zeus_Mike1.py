@@ -141,14 +141,17 @@ class Zeus(nn.Module):
             ss0, ss1, ssY, cascade_step,
             fn_loss, fn_nornalize, fn_unnornalize, 
             batch_diff, era5_data_vars, trainable,
-            type_metrics
+            type_metrics, continued,
         ):
         
         # with autocast(device_type=self.device_type, dtype=torch.bfloat16):
         #     with torch.set_grad_enabled(trainable):         
         
         pred = self(ss0, ss1, cascade_step)
-        result_ss = Snapshot(ssY.year, ssY.month, ssY.day, ssY.hour, meteo=pred.detach().to(ssY.meteo.device), meteo_unnormal=None, device=ssY.device)
+        if continued:
+            result_ss = Snapshot(ssY.year, ssY.month, ssY.day, ssY.hour, meteo=pred.detach().to(ssY.meteo.device), meteo_unnormal=None, device=ssY.device)
+        else:
+            result_ss = None
 
         pred_unnormal = pred.clone()
         fn_unnornalize(pred, pred_unnormal)
