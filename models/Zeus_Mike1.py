@@ -164,13 +164,14 @@ class Zeus(nn.Module):
                 # grads = [p.grad.detach().clone() for p in self.parameters()]
         
         if type_metrics == "rmse":
-            normalized_metrics = lossAndMetrics[1] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
+            lossAndMetrics = fn_loss(target_unnormal, pred_unnormal, batch_diff, era5_data_vars)
+            unnormalized_metrics = lossAndMetrics[1] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
         elif type_metrics == "mae":
-            normalized_metrics = torch.abs(target_normal - pred).mean(dim=(1, 2))    # (C,)
+            unnormalized_metrics = torch.abs(target_normal - pred).mean(dim=(1, 2))    # (C,)
         else:
             raise Exception("type_metrics is invalid")
                 
-        return result_ss, loss.detach().to("cpu"), normalized_metrics.detach().to("cpu")
+        return result_ss, loss.detach().to("cpu"), unnormalized_metrics.detach().to("cpu")
 
 # -----------------------
 # Demo
