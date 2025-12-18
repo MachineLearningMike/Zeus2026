@@ -31,6 +31,8 @@ class Params:
         self.management_path = config['management_path']
         
         self.models_to_play = config['models_to_play']
+        
+        self.train_hours_limit = config['train_hours_limit']
 
         #============================ data, shared ===========================================================================
         self.variables = config['variables']
@@ -67,6 +69,9 @@ class Params:
         self.vali_start_dt = config['vali_start_dt']
         self.test_start_dt = config['test_start_dt']
         self.test_end_dt_inclusive = config['test_end_dt_inclusive']
+        
+        self.snapshot_pair_on_cuda = config['snapshot_pair_on_cuda']
+        self.pair_not_single_snapshot = config['pair_not_single_snapshot']
             
         #============================ model, individual ========================================================================
 

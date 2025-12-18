@@ -47,12 +47,17 @@ class Zeus(nn.Module):
     
         #---------------- Patch extractor -----------------
         
-        Snapshot.export_factor10 = self.factor10
+        Snapshot.set_original_settings(factor10=pm.factor10, increasing=pm.increasing, levels=pm.nLevels - 1)  #------------- SETUP
         
         now = datetime.now(timezone.utc)
         ss1 = Snapshot(now.year, now.month, now.day, now.hour, meteo=None, meteo_unnormal=None)
-        then = now + timedelta(hours=6)
-        ss2 = Snapshot(then.year, then.month, then.day, then.hour, meteo=None, meteo_unnormal=None)
+        
+        if pm.pair_not_single_snapshot:
+            then = now + timedelta(hours=6)
+            ss2 = Snapshot(then.year, then.month, then.day, then.hour, meteo=None, meteo_unnormal=None)
+        else:
+            ss2 = ss1
+
         levels, surface = Snapshot.pack_pair_snapshots(ss1, ss2)
         
         self.patch_kernel=(patch_kernel,patch_kernel)

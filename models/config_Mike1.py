@@ -31,6 +31,8 @@ config = {
     "freeze_zeus1" : False,
     "skip_net_for_zeus2" : True,
     
+    "train_hours_limit" : 3,    #------------------------------------------------------------------ for tests ----
+    
     #============================ data parameters ===========================================================================
     "dtype" : 32,   # 16 is complicated. deffered.
     "variables": VARIABLE_NAME_LIST_UNCHANGEABLE,   #!!!!!!!!!!!!!!!!!!!!!!!!!!!! The order of variables must consistent across training and inference !!!!!!
@@ -62,6 +64,10 @@ config = {
     "vali_start_dt" :   datetime(2023, 1, 1, 0) - timedelta(hours=1),
     "test_start_dt" :   datetime(2024, 1, 1, 0) - timedelta(hours=1),
     "test_end_dt_inclusive": datetime(2025, 1, 1, 0) - timedelta(hours=1),
+    
+    
+    "snapshot_pair_on_cuda": False,
+    "pair_not_single_snapshot": True,
 }
 
 
@@ -117,14 +123,15 @@ shared_model_params = {
 
     # SWIN
     "nHeads": 2,
-    "patch_kernel": 8,
-    "patch_stride": 8,
-    "swin_dim"  : 40,       # should embed 26 (air level 0), 36 (air level 1..12), and 50 (surface)
-    "window_size" : (2, 5, 5),
+    "patch_kernel": 2,
+    "patch_stride": 2,
+    "swin_dim"  : 512,       # Check it.
+    "window_size" : (2, 4, 4),      # blocks 1-10: 2 x 2, blocks 11-20: 4 x 4, blocks 21-30: 4 x 4 or 6 x 6
     "num_swin_block": 30,
     "pair_bias_dim": 5,     # Careful, this changes code.
-    
-    "snapshot_pair_on_cuda": False,
+    "nLevels": 6,
+    "increasing": True,
+
 }
 
 
@@ -142,15 +149,17 @@ if platform.system() == "Windows":
     config["dim_to_layerFFN_dim"] = 4
     
     # GPU: RTX 4070, Chunk2D
-    config["factor10"] = 2  # 2 is the minimum, as 1 causes a non-float parameter error.
     config['nCascades'] = 1
 
-    shared_model_params['nHeads'] = 2
-    shared_model_params['patch_kernel'] = 8
-    shared_model_params['patch_stride'] = 8
-    shared_model_params['swin_dim'] = 20
+    config["factor10"] = 10  # 
+    shared_model_params['nHeads'] = 8
+    shared_model_params['patch_kernel'] = 4
+    shared_model_params['patch_stride'] = 4
+    shared_model_params['swin_dim'] = 480
     shared_model_params['window_size'] = (2, 2, 2)
     shared_model_params['num_swin_block'] = 30
+    shared_model_params['nLevels'] = 6
+    shared_model_params['increasing'] = True
         
     config["use_PE"] = True
     
@@ -172,13 +181,15 @@ else:
         config["management_path"] = "/home/mike/zeus_management"
     
     # GPU: 
-    config["factor10"] = 10  # 2 is the minimum, as 1 causes a non-float parameter error.
-    shared_model_params['nHeads'] = 2
-    shared_model_params['patch_kernel'] = 8
-    shared_model_params['patch_stride'] = 8
-    shared_model_params['swin_dim'] = 40
-    shared_model_params['window_size'] = (2, 5, 5)
+    config["factor10"] = 10  # 
+    shared_model_params['nHeads'] = 8
+    shared_model_params['patch_kernel'] = 4
+    shared_model_params['patch_stride'] = 4
+    shared_model_params['swin_dim'] = 480
+    shared_model_params['window_size'] = (2, 2, 2)
     shared_model_params['num_swin_block'] = 30
+    shared_model_params['nLevels'] = 6
+    shared_model_params['increasing'] = True
 
     config["epochs"] = 100
     config["steps_to_save"] = 50
@@ -563,8 +574,36 @@ projects["Zeus_Swin_25Dec12"] = {
     "model_4": {},
 }
 
+projects["Zeus_Swin_25Dec18_1"] = {
+    "management": {
+    "Zeus_Model_module" : "Zeus_Mike1",
+    "GPUWaitsData" : True,
+    "models_to_play": [0,],
+    "metrics" : "mae", # "mae", "rmse"
+    },
+    
+    "data": {
+    "org_height": 721,
+    "batch_size": 1,
+    },
+    
+    "model_0": {
+    "lr": 1e-5,     # 1e-3 for the first 120,000 steps
+    "max_lr": 1e-5,
+    "overwrite_saved_lr": False,
+    "useLRLearner" : False,
+    "accum_steps" : 10,   
+    "skip_validation" : True,
+    },
+        
+    "model_1": {},
+    "model_2": {},
+    "model_3": {},
+    "model_4": {},
+}
+
 #-------------------------------- select proejct -----------------------
-project = "Zeus_Swin_25Dec12" # "ResNet50-NewCodec-2" #"ResNet50-9M" # "ResNet50-3753K" #"ResNet50-NewCodec-2"  #"ResNet50-24M-2"
+project = "Zeus_Swin_25Dec18_1" # "ResNet50-NewCodec-2" #"ResNet50-9M" # "ResNet50-3753K" #"ResNet50-NewCodec-2"  #"ResNet50-24M-2"
 config["bayesProject"] = project
 config.update(projects[project]["management"])
 config.update(projects[project]["data"])

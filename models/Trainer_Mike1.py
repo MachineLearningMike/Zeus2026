@@ -71,6 +71,8 @@ class Model_Trainer():
         self.transient_step = 0
         self.train_bombs = 1
         
+        self.train_start_time = time.time()
+        
     def setup_logging(self, log_dir):
         """
         logging.info("This is an info message")
@@ -357,6 +359,8 @@ class Model_Trainer():
         start1 = time.time()
         for batch in pbar:              # Wait for the asynchronous .prefetch
             end = time.time()
+            
+            if (end-self.train_start_time) > self.pm.train_hours_limit * 3600: break
 
             if not pbar.no_more_data():  pbar.prefetch(x_set_label)        # Prefetch ensures getting new bacthes.
             if batch is None: break     # just in case
@@ -383,11 +387,17 @@ class Model_Trainer():
                 for md in mds:
                     #------------------------ this algorithm is studied in zeus_train_6_hourly.py -----------
                     
-                    assert len(Xs) >= 2, "length of Xs should be >= 2"
-                    X0, X1 = Xs[0], Xs[1]; X0.to(device); X1.to(device); Xs = Xs[2:]
+                    assert len(Xs) >= 2, "length of Xs is not enough 1"
+                    
+                    X0 = Xs[0]; X0.to(device); Xs = Xs[1:]
+                    if self.pm.pair_not_single_snapshot:
+                        X1 = Xs[0]; X1.to(device); Xs = Xs[1:]
+                    else:
+                        X1 = X0
+                                        
                     oldQ = [(X0, X1)]
 
-                    assert len(Xs) > 0, "length of Xs should be >= 3"
+                    assert len(Xs) > 0, "length of Xs is not enough 2"
 
                     for (x0, x1) in oldQ:
                         assert x0.device == device and x1.device == device
@@ -404,7 +414,11 @@ class Model_Trainer():
                         #----------------------------------------- starting a step for md...
 
                         Y = Xs[0]; Y.to(device); Xs = Xs[1:]
-                        newQ = [(oldQ[0][1], Y)]  # assert len(newQ) > 0        # newQ[0] stores raw X's
+                        
+                        if self.pm.pair_not_single_snapshot:
+                            newQ = [(oldQ[0][1], Y)]  # assert len(newQ) > 0        # newQ[0] stores raw X's
+                        else:
+                            newQ = [(Y, Y)]
 
                         while len(oldQ) > 0:     # loops at least once
                             
@@ -419,8 +433,14 @@ class Model_Trainer():
                                     type_metrics = self.pm.metrics,
                                 )
 
-                            newQ.append((X1, substep_result))                      # +1 X
+                            if self.pm.pair_not_single_snapshot:
+                                newQ.append((X1, substep_result))                      # +1 X
+                            else:
+                                newQ.append((substep_result, substep_result))
+                                
                             del X0
+                            if not self.pm.pair_not_single_snapshot:
+                                del X1      # The same object, but different reference.
                                                         
                             #--------------------------------------- The substep finished.
                             

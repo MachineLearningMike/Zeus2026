@@ -143,7 +143,7 @@ class PositionBiasLearner3D(nn.Module):
         self.act2 = nn.GELU()
         self.fc3 = nn.Linear(hidden_dim, num_heads)
         
-        self.scale = nn.Parameter(torch.ones(1)*1.5)
+        self.scale = nn.Parameter(torch.ones(1)*1.5, requires_grad=True)
 
     def pair_position_partition(self, lat, lon, depth, shift_size, pair_bias_dim):
 
@@ -156,6 +156,8 @@ class PositionBiasLearner3D(nn.Module):
             shifted_depth_lat_lon,        # (B, C, D, H, W)
             self.window_size
         )
+        
+        print(f"reporting... windows.shape {windows.shape}, nWd {nWd}, nWh {nWh}, nWw {nWw}")
 
         N = windows.shape[0]
         P = self.window_volume
@@ -214,8 +216,8 @@ class WindowAttention3D(nn.Module):
 
         self.qkv = nn.Linear(dim, dim*3, bias=False)
         if qkv_bias:
-            self.q_bias = nn.Parameter(torch.zeros(dim))
-            self.v_bias = nn.Parameter(torch.zeros(dim))
+            self.q_bias = nn.Parameter(torch.zeros(dim), requires_grad=True)
+            self.v_bias = nn.Parameter(torch.zeros(dim), requires_grad=True)
         else:
             self.q_bias = None
             self.v_bias = None

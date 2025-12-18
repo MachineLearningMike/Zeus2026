@@ -1679,7 +1679,7 @@ class Zeus_Dataset(Dataset):
             futures = [
                 self._disk_threadPool.submit(
                         self.load_norrmalize_array, dt + timedelta(hours=self.pm.modulo*idx), self.pm.modulo, with_normalized, idx
-                    ) for idx in range(self.pm.nCascades + 2)
+                    ) for idx in range(self.pm.nCascades + (2 if self.pm.pair_not_single_snapshot else 1))
                 ]
 
             snapshots = []

@@ -165,8 +165,8 @@ class Snapshot:
     _geo_dense = None   # on device
     _geo_cat = None
     
-    def set_original_settings():
-        Snapshot.export_factor10 = 10
+    def set_original_settings(factor10=10, increasing=True, levels=7):
+        Snapshot.export_factor10 = factor10
         # temporary. can be added and changed any time
         Snapshot.meteo_dims = len(VARIABLE_NAME_LIST_UNCHANGEABLE)
         Snapshot.tempo_dims = 4      # 4 variables + 1 embedding: sin/cos earth_orbital_angle (2), sin/cos true_solar_hour (2), cascade_emb
@@ -179,7 +179,10 @@ class Snapshot:
         Snapshot.num_air_levels = num_levels
         Snapshot.air_level_dims = num_vars_per_level
     
-        Snapshot.delevel_plan = best_segments_increasing(Snapshot.num_air_levels, 7)
+        if increasing:
+            Snapshot.delevel_plan = best_segments_increasing(Snapshot.num_air_levels, levels)
+        else:
+            Snapshot.delevel_plan = best_segments_decreasing(Snapshot.num_air_levels, levels)
         
         categorical_npy_paths = [config['land_sea_mask_npy_path'], config['soil_type_npy_path']]
         dense_npy_paths = [config['orograph_npy_path']]
@@ -523,20 +526,28 @@ class Snapshot:
 
         # --- Process snapshots ---
         lev1, surf1 = arrange_by_level(ss1)
-        lev2, surf2 = arrange_by_level(ss2)
-        
-        assert ss1.device == ss2.device
+        if ss1 != ss2:
+            lev2, surf2 = arrange_by_level(ss2)
+    
+        if ss1 != ss2:    
+            assert ss1.device == ss2.device
 
         # --- Concatenate corresponding levels ---
         _, H, W = ss1.meteo.shape
-        delevels_paired = [torch.cat([l1, l2, ss1.geo_dense], dim=0).to(ss1.device) for l1, l2 in zip(lev1, lev2)]  # list of (m+t+g)*2, H, W
-        surface_paired = torch.cat([surf1, surf2, ss1.geo_dense], dim=0).to(ss2.device)                             # (m_surf+t+g)*2, H, W
-        assert not torch.isnan(surface_paired).any()
 
+        if ss1 != ss2:    
+            delevels_paired = [torch.cat([l1, l2, ss1.geo_dense], dim=0).to(ss1.device) for l1, l2 in zip(lev1, lev2)]  # list of (m+t+g)*2, H, W
+            surface_paired = torch.cat([surf1, surf2, ss1.geo_dense], dim=0).to(ss1.device)                             # (m_surf+t+g)*2, H, W
+        else:
+            delevels_paired = [torch.cat([l1, ss1.geo_dense], dim=0).to(ss1.device) for l1 in lev1]  # list of (m+t+g)*2, H, W
+            surface_paired = torch.cat([surf1, ss1.geo_dense], dim=0).to(ss1.device)                             # (m_surf+t+g)*2, H, W
+        
+        assert not torch.isnan(surface_paired).any()
         export_size = Snapshot.get_export_size()
+        nSnapshots = 2 if ss1 != ss2 else 1
         for lvl, group in zip(delevels_paired, Snapshot.delevel_plan):
-            assert lvl.shape == ((Snapshot.air_level_dims * len(group) + Snapshot.tempo_dims) * 2 + Snapshot.geo_dense_dims, export_size[0], export_size[1])
-        assert surface_paired.shape == ((Snapshot.meteo_dims - Snapshot.air_level_dims * Snapshot.num_air_levels + Snapshot.tempo_dims) * 2 + Snapshot.geo_dense_dims, export_size[0], export_size[1])
+            assert lvl.shape == ((Snapshot.air_level_dims * len(group) + Snapshot.tempo_dims) * nSnapshots + Snapshot.geo_dense_dims, export_size[0], export_size[1])
+        assert surface_paired.shape == ((Snapshot.meteo_dims - Snapshot.air_level_dims * Snapshot.num_air_levels + Snapshot.tempo_dims) * nSnapshots + Snapshot.geo_dense_dims, export_size[0], export_size[1])
 
         return delevels_paired, surface_paired  # requires_grad == False
     
@@ -660,11 +671,14 @@ if __name__ == "__main__":
     ss2 = Snapshot(then.year, then.month, then.day, then.hour, meteo=None, meteo_unnormal=None)
     
     delevels_paired, surface_paired = Snapshot.pack_pair_snapshots(ss1, ss2)
+    delevels, surface = Snapshot.pack_pair_snapshots(ss1, ss1)
 
-    export_size = Snapshot.get_export_size()    
+    nSnapshots = 2 if ss1 != ss2 else 1
+    
+    export_size = Snapshot.get_export_size()
     for lvl, group in zip(delevels_paired, Snapshot.delevel_plan):
-        assert lvl.shape == ((Snapshot.air_level_dims * len(group) + Snapshot.tempo_dims) * 2 + Snapshot.geo_dense_dims, export_size[0], export_size[1])
-    assert surface_paired.shape == ((Snapshot.meteo_dims - Snapshot.air_level_dims * Snapshot.num_air_levels + Snapshot.tempo_dims) * 2 + Snapshot.geo_dense_dims, export_size[0], export_size[1])
+        assert lvl.shape == ((Snapshot.air_level_dims * len(group) + Snapshot.tempo_dims) * nSnapshots + Snapshot.geo_dense_dims, export_size[0], export_size[1])
+    assert surface_paired.shape == ((Snapshot.meteo_dims - Snapshot.air_level_dims * Snapshot.num_air_levels + Snapshot.tempo_dims) * nSnapshots + Snapshot.geo_dense_dims, export_size[0], export_size[1])
 
     geo_dense_titles = ['orograph, const.', 'sin lat, const.', 'sin lon., const.', 'cos lon, const.']
     geo_cat_titles = ['land sea mask, const.', 'soil type, const.']
@@ -672,21 +686,21 @@ if __name__ == "__main__":
 
     surface_items = []
     for dim in range(Snapshot.geo_dense_dims):
-        surface_items.append([(Snapshot.meteo_dims - Snapshot.air_level_dims * Snapshot.num_air_levels + Snapshot.tempo_dims) * 2 + dim, -1, geo_dense_titles[dim]])
+        surface_items.append([(Snapshot.meteo_dims - Snapshot.air_level_dims * Snapshot.num_air_levels + Snapshot.tempo_dims) * nSnapshots + dim, -1, geo_dense_titles[dim]])
     for dim in range(Snapshot.tempo_dims):
-        for ss in range(2):   # 2 snapshots
+        for ss in range(nSnapshots):   # 2 snapshots
             surface_items.append([(Snapshot.meteo_dims - Snapshot.air_level_dims * Snapshot.num_air_levels + Snapshot.tempo_dims) * ss + Snapshot.meteo_dims - Snapshot.air_level_dims * Snapshot.num_air_levels + dim, ss, tempo_titles[dim]])
 
     level_items = []
     for level_id, group in enumerate(Snapshot.delevel_plan):
         for dim in range(Snapshot.geo_dense_dims):
-            level_items.append([level_id, (Snapshot.air_level_dims * len(group) + Snapshot.tempo_dims) * 2 + dim, -1, geo_dense_titles[dim]])
+            level_items.append([level_id, (Snapshot.air_level_dims * len(group) + Snapshot.tempo_dims) * nSnapshots + dim, -1, geo_dense_titles[dim]])
         for dim in range(Snapshot.tempo_dims):
             for ss in range(2):   # 2 snapshots
                 level_items.append([level_id, (Snapshot.air_level_dims * len(group) + Snapshot.tempo_dims) * ss + Snapshot.air_level_dims * len(group) + dim, ss, tempo_titles[dim]])
 
     # If packing is correct, this code should show correct geo-distributions.
     for [channel_id, ss, title] in surface_items:
-        show_on_map(surface[channel_id].numpy(), title=f"{title} ss = {ss}, surface")
+        show_on_map(surface_paired[channel_id].numpy(), title=f"{title} ss = {ss}, surface")
     for [level_id, channel_id, ss, title] in level_items:
         show_on_map(delevels_paired[level_id][channel_id].numpy(), title=f"{title} ss = {ss}, level {level_id}")
