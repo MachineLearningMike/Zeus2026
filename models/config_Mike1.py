@@ -151,7 +151,7 @@ if platform.system() == "Windows":
     # GPU: RTX 4070, Chunk2D
     config['nCascades'] = 1
 
-    config["factor10"] = 10  # 
+    config["factor10"] = 2  # 
     shared_model_params['nHeads'] = 4
     shared_model_params['patch_kernel'] = 4
     shared_model_params['patch_stride'] = 4
