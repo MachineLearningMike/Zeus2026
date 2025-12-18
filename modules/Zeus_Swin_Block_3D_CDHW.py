@@ -157,8 +157,6 @@ class PositionBiasLearner3D(nn.Module):
             self.window_size
         )
         
-        print(f"reporting... windows.shape {windows.shape}, nWd {nWd}, nWh {nWh}, nWw {nWw}")
-
         N = windows.shape[0]
         P = self.window_volume
         flat = windows.view(N,3,P).permute(0,2,1).contiguous()

@@ -226,8 +226,8 @@ class PatchFeatureExtractor(nn.Module):
             c_out,
             stem_channels=None,
             num_res_blocks=0,   #----------- save time ----------
-            patch_kernel=(8,8),
-            patch_stride=(8,8),
+            patch_kernel=patch_kernel,
+            patch_stride=patch_stride,
             norm_layer=nn.LayerNorm,
             act_layer=nn.GELU,
             use_overlap=True

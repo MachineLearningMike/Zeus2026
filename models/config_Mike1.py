@@ -67,7 +67,7 @@ config = {
     
     
     "snapshot_pair_on_cuda": False,
-    "pair_not_single_snapshot": True,
+    "pair_not_single_snapshot": False,
 }
 
 
@@ -152,7 +152,7 @@ if platform.system() == "Windows":
     config['nCascades'] = 1
 
     config["factor10"] = 10  # 
-    shared_model_params['nHeads'] = 8
+    shared_model_params['nHeads'] = 4
     shared_model_params['patch_kernel'] = 4
     shared_model_params['patch_stride'] = 4
     shared_model_params['swin_dim'] = 480
@@ -185,7 +185,7 @@ else:
     shared_model_params['nHeads'] = 4
     shared_model_params['patch_kernel'] = 4
     shared_model_params['patch_stride'] = 4
-    shared_model_params['swin_dim'] = 320
+    shared_model_params['swin_dim'] = 480
     shared_model_params['window_size'] = (2, 2, 2)
     shared_model_params['num_swin_block'] = 30
     shared_model_params['nLevels'] = 6
