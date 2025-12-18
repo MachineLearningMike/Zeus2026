@@ -148,33 +148,28 @@ class Zeus(nn.Module):
         #     with torch.set_grad_enabled(trainable):         
         
         pred = self(ss0, ss1, cascade_step)
+        result_ss = Snapshot(ssY.year, ssY.month, ssY.day, ssY.hour, meteo=pred.detach().to(ssY.meteo.device), meteo_unnormal=None, device=ssY.device)
+
+        pred_unnormal = pred.clone()
+        fn_unnornalize(pred, pred_unnormal)
 
         target_normal = ssY.meteo
         target_unnormal = ssY.meteo_unnormal
         
-        lossAndMetrics = fn_loss(target_normal, pred, batch_diff, era5_data_vars)
+        lossAndMetrics = fn_loss(target_unnormal, pred_unnormal, batch_diff, era5_data_vars)
         loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
 
         if trainable:
             loss.backward(retain_graph=True)
                 # grads = [p.grad.detach().clone() for p in self.parameters()]
         
-        # before changing pred
-        pred = pred.detach()
-        result_ss = Snapshot(ssY.year, ssY.month, ssY.day, ssY.hour, meteo=pred.to(ssY.meteo.device), meteo_unnormal=None, device=ssY.device)
-                
-        pred_unnormal = pred.clone()
-        fn_unnornalize(pred, pred_unnormal)
-
         if type_metrics == "rmse":
-            lossAndMetrics = fn_loss(target_unnormal, pred_unnormal, batch_diff, era5_data_vars)
             unnormalized_metrics = lossAndMetrics[1] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
         elif type_metrics == "mae":
             unnormalized_metrics = torch.abs(target_unnormal - pred_unnormal).mean(dim=(1, 2))    # (C,)
         else:
             raise Exception("type_metrics is invalid")
-        
-        
+                
         return result_ss, loss.detach().to("cpu"), unnormalized_metrics.detach().to("cpu")
 
 # -----------------------
