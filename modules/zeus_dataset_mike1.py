@@ -199,7 +199,9 @@ class Zeus_Dataset(Dataset):
             #----------------------------------- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             for var in self.ext_variables:
                 if var.startswith('p_'):
-                    pressure = int(var[2:]) * 1000.0
+                    # newly added pressure variables at air levels.
+                    hecta = 100.0
+                    pressure = int(var[2:]) * hecta
                     arr = np.ones(shape=(721, 1440), dtype=np.float32) * pressure
                 else:
                     arr = array_dict[var]
@@ -1097,24 +1099,38 @@ class Zeus_Dataset(Dataset):
                 for var in group:
                     mean_meteo_dict[var] = mean
                     std_meteo_dict[var] = var_mean **  0.5
-                    
-        paskals = [p * 100 for p in self.pm.hecta_pascals]
-        paskals.append(mean_meteo_dict['sp'])   # surface pressure
-        pressure_mean = np.array(paskals).mean().item()
-        paskals = [0] * len(self.pm.hecta_pascals)
-        paskals.append(std_meteo_dict['sp']**2)
-        pressure_std = np.array(paskals).mean().item()**0.5
+
+        # air pressure mean: [...] _ [sp.mean, msl'mean]
+        hecta = 100
+        pascals = [p * hecta for p in self.pm.hecta_pascals]
+        pascals.append(mean_meteo_dict['sp'])   # surface pressure
+        pascals.append(mean_meteo_dict['msl'])        
+        pressure_mean = np.array(pascals).mean().item()
+
+        # air pressure var: [0] * 13 + [sp'var, msl'var]
+        pascals = [0] * len(self.pm.hecta_pascals)
+        pascals.append(std_meteo_dict['sp']**2)
+        pascals.append(std_meteo_dict['msl']**2)
+        pressure_std = np.array(pascals).mean().item()**0.5
             
+        #----------------- 
         ext_variables = []
         cnt = 0
         for var in self.pm.variables:
             if cnt % num_vars_per_level == 0 and cnt // num_vars_per_level < num_levels:
+            #----------------- add P_level -----------------
                 var_name = "p_" + str(HECTA_PASCAL_UNCHANGEABLE[cnt // num_vars_per_level])
                 ext_variables.append(var_name)
                 mean_meteo_dict[var_name] = pressure_mean
-                std_meteo_dict[var_name] = pressure_std               
+                std_meteo_dict[var_name] = pressure_std    
+            if var == 'msl' or var == 'sp':
+            #----------------- handle msl and sp
+                mean_meteo_dict[var] = pressure_mean
+                std_meteo_dict[var] = pressure_std  
             ext_variables.append(var)
             cnt += 1
+            
+        # Find where and how self.ext_variables is used.
         self.ext_variables = ext_variables
             
         mean_meteo = []
