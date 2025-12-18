@@ -6,7 +6,8 @@ from datetime import datetime, timedelta, timezone
 
 # Change
 
-from modules.zeus_dataset_var_names import VARIABLE_NAME_LIST_UNCHANGEABLE  # The order of variables must consistent across training and inference !!!!!!!!!!!!!!
+from modules.zeus_dataset_var_names import VARIABLE_NAME_LIST_UNCHANGEABLE, VARIABLE_GROUP_LIST_UNCHANGEABLE, KILLO_PASKAL_UNCHANGEABLE
+# The order of variables must consistent across training and inference !!!!!!!!!!!!!!
 
 config = {
     #============================ project parameters ===============================
@@ -36,6 +37,8 @@ config = {
     #============================ data parameters ===========================================================================
     "dtype" : 32,   # 16 is complicated. deffered.
     "variables": VARIABLE_NAME_LIST_UNCHANGEABLE,   #!!!!!!!!!!!!!!!!!!!!!!!!!!!! The order of variables must consistent across training and inference !!!!!!
+    "variable_groups" : VARIABLE_GROUP_LIST_UNCHANGEABLE,
+    "killo_paskals" : KILLO_PASKAL_UNCHANGEABLE,
     "targetVariables": [ "t2m", "tp", "u100m","v100m", "d2m", "sp",],
     "pole_angle": 30.0,      #
     "hourly_offset": -1,
@@ -68,6 +71,7 @@ config = {
     
     "snapshot_pair_on_cuda": False,
     "pair_not_single_snapshot": False,
+    "group_normalize": True,
 }
 
 

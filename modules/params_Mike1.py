@@ -36,6 +36,8 @@ class Params:
 
         #============================ data, shared ===========================================================================
         self.variables = config['variables']
+        self.variable_groups = config['variable_groups']
+        self.killo_paskals = config['killo_paskals']
         self.targetVariables = config['targetVariables']
         self.hourly_offset = config['hourly_offset']
         self.modulo = config['modulo']
@@ -72,6 +74,7 @@ class Params:
         
         self.snapshot_pair_on_cuda = config['snapshot_pair_on_cuda']
         self.pair_not_single_snapshot = config['pair_not_single_snapshot']
+        self.group_normalize = config['group_normalize']
             
         #============================ model, individual ========================================================================
 

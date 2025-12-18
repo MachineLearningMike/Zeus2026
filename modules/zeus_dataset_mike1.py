@@ -1079,11 +1079,33 @@ class Zeus_Dataset(Dataset):
         #----------------- meteo -------------------        
         mean_meteo = []
         # Make sure, once again, the order follows self.pm.variables
+
+        if self.pm.group_normalize:
+            for group in self.pm.variable_groups:
+                mean_sum = 0.0; var_sum = 0.0
+                for var in group:
+                    mean_sum = mean_sum + mean_meteo_dict[var]
+                    var_sum = var_sum + (std_meteo_dict[var]) ** 2
+
+                mean = mean_sum / len(group)
+                var_mean = var_sum / len(group)
+
+                for var in group:
+                    mean_meteo_dict[var] = mean
+                    std_meteo_dict[var] = var_mean **  0.5
+                    
+        paskals = [p * 1000 for p in self.pm.killo_paskals]
+        paskals.append(mean_meteo_dict['sp'])   # surface pressure
+        self.pressure_mean = np.array(paskals).mean().item()
+        paskals = [0] * len(self.pm.killo_paskals)
+        paskals.append(std_meteo_dict['sp']**2)
+        self.pressure_std = np.array(paskals).mean().item()**0.5
+            
         for var in self.pm.variables:
             mean_meteo.append(mean_meteo_dict[var])
         std_meteo = []
         for var in self.pm.variables:
-            std_meteo.append(std_meteo_dict[var])        
+            std_meteo.append(std_meteo_dict[var])
         
         mean_meteo, std_meteo = torch.tensor(mean_meteo), torch.tensor(std_meteo)
                 
