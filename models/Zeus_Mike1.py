@@ -47,7 +47,7 @@ class Zeus(nn.Module):
     
         #---------------- Patch extractor -----------------
         
-        Snapshot.set_original_settings(factor10=pm.factor10, increasing=pm.increasing, levels=pm.nLevels - 1)  #------------- SETUP
+        Snapshot.set_original_settings(factor10=pm.factor10, increasing=pm.increasing, packed_levels=pm.nLevels - 1)  #------------- SETUP
         
         now = datetime.now(timezone.utc)
         ss1 = Snapshot(now.year, now.month, now.day, now.hour, meteo=None, meteo_unnormal=None)

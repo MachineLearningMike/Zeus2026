@@ -38,7 +38,7 @@ from modules_zeus.constants import ERA5_DATA_VARS
 from modules_zeus.sample import Era5Sample
 from modules_zeus.coordinates import get_bbox, slice_bbox
 from modules_zeus.era5_cds import Era5CDSLoader, get_today
-from modules.zeus_dataset_var_names import VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map
+from modules.zeus_dataset_var_names import VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map, num_vars_per_level, num_levels, KILLO_PASKAL_UNCHANGEABLE
 
 from modules.zeus_dataset_codec_Mike1 import load, save
 from modules.zeus_dataset_Snapshot import Snapshot
@@ -197,10 +197,15 @@ class Zeus_Dataset(Dataset):
             #----------------------------------- This decides the order of arrays !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             #----------------------------------- The order must be consistent across training and inference. !!!!!!!!!!!!!
             #----------------------------------- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-            for var in self.pm.variables:
-                arrays.append(array_dict[var])
+            for var in self.ext_variables:
+                if var.startswith('p_'):
+                    pressure = int(var[2:]) * 1000.0
+                    arr = np.ones(shape=(721, 1440), dtype=np.float32) * pressure
+                else:
+                    arr = array_dict[var]
+                arrays.append(arr)
             array = np.stack(arrays, axis=0)
-            assert array.shape[0] == self.pm.nVariables
+            assert array.shape[0] == self.pm.nVariables + len(KILLO_PASKAL_UNCHANGEABLE)
         except Exception as e:
             print(e)
             array = None
@@ -1077,7 +1082,6 @@ class Zeus_Dataset(Dataset):
         mean_tempo = np.array(mean_tempo, dtype=np.float32); std_tempo = np.array(std_tempo, dtype=np.float32)
 
         #----------------- meteo -------------------        
-        mean_meteo = []
         # Make sure, once again, the order follows self.pm.variables
 
         if self.pm.group_normalize:
@@ -1096,15 +1100,28 @@ class Zeus_Dataset(Dataset):
                     
         paskals = [p * 1000 for p in self.pm.killo_paskals]
         paskals.append(mean_meteo_dict['sp'])   # surface pressure
-        self.pressure_mean = np.array(paskals).mean().item()
+        pressure_mean = np.array(paskals).mean().item()
         paskals = [0] * len(self.pm.killo_paskals)
         paskals.append(std_meteo_dict['sp']**2)
-        self.pressure_std = np.array(paskals).mean().item()**0.5
+        pressure_std = np.array(paskals).mean().item()**0.5
             
+        ext_variables = []
+        cnt = 0
         for var in self.pm.variables:
+            if cnt % num_vars_per_level == 0 and cnt // num_vars_per_level < num_levels:
+                var_name = "p_" + str(KILLO_PASKAL_UNCHANGEABLE[cnt // num_vars_per_level])
+                ext_variables.append(var_name)
+                mean_meteo_dict[var_name] = pressure_mean
+                std_meteo_dict[var_name] = pressure_std               
+            ext_variables.append(var)
+            cnt += 1
+        self.ext_variables = ext_variables
+            
+        mean_meteo = []
+        for var in self.ext_variables:
             mean_meteo.append(mean_meteo_dict[var])
         std_meteo = []
-        for var in self.pm.variables:
+        for var in self.ext_variables:
             std_meteo.append(std_meteo_dict[var])
         
         mean_meteo, std_meteo = torch.tensor(mean_meteo), torch.tensor(std_meteo)
