@@ -1132,6 +1132,16 @@ class Zeus_Dataset(Dataset):
             
         # Find where and how self.ext_variables is used.
         self.ext_variables = ext_variables
+        
+        loss_target = []
+        for var in self.ext_variables:
+            if var.startswith("p_"):
+                loss_target.append(0.)
+            else:
+                loss_target.append(1.)
+        self.pm.loss_target_cpu = torch.tensor(loss_target, dtype=torch.float32)
+        if torch.cuda.is_available():
+            self.pm.loss_target_cuda = torch.tensor(loss_target, dtype=torch.float32).to("cuda")
             
         mean_meteo = []
         for var in self.ext_variables:
