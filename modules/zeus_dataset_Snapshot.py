@@ -11,7 +11,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 from models.config_Mike1 import config
 
 from modules.zeus_dateset_geo_tempo import Geo_Tempo
-from modules.zeus_dataset_var_names import VARIABLE_NAME_LIST_UNCHANGEABLE, mike1_variables_order, num_vars_per_level, num_levels, KILLO_PASKAL_UNCHANGEABLE
+from modules.zeus_dataset_var_names import VARIABLE_NAME_LIST_UNCHANGEABLE, mike1_variables_order, num_vars_per_level, num_levels, HECTA_PASCAL_UNCHANGEABLE
 
 import math
 
@@ -149,7 +149,7 @@ class Snapshot:
     export_factor10 = 10
     
     # temporary. can be added and changed any time
-    meteo_dims = len(VARIABLE_NAME_LIST_UNCHANGEABLE) + len(KILLO_PASKAL_UNCHANGEABLE)
+    meteo_dims = len(VARIABLE_NAME_LIST_UNCHANGEABLE) + len(HECTA_PASCAL_UNCHANGEABLE)
     tempo_dims = 4      # [sin_orbital_angle', 'cos_orbital_angle', 'sin_solor_hour', 'cos_solar_hour']
     geo_dense_dims = 4  # ['orograph', 'sin_lat', 'sin_lon', 'cos_lon']
     geo_cat_dims = 2    # ['land_sea_mask', 'soil_type']
@@ -168,7 +168,7 @@ class Snapshot:
     def set_original_settings(factor10=10, increasing=True, packed_levels=7):
         Snapshot.export_factor10 = factor10
         # temporary. can be added and changed any time
-        Snapshot.meteo_dims = len(VARIABLE_NAME_LIST_UNCHANGEABLE) + len(KILLO_PASKAL_UNCHANGEABLE )
+        Snapshot.meteo_dims = len(VARIABLE_NAME_LIST_UNCHANGEABLE) + len(HECTA_PASCAL_UNCHANGEABLE )
         Snapshot.tempo_dims = 4      # 4 variables + 1 embedding: sin/cos earth_orbital_angle (2), sin/cos true_solar_hour (2), cascade_emb
         Snapshot.geo_dense_dims = 4
         Snapshot.geo_cat_dims = 2
@@ -177,7 +177,7 @@ class Snapshot:
         Snapshot.full_export_w = 1440
         
         Snapshot.num_air_levels = num_levels
-        Snapshot.air_level_dims = num_vars_per_level + int(len(KILLO_PASKAL_UNCHANGEABLE )/num_levels)
+        Snapshot.air_level_dims = num_vars_per_level + int(len(HECTA_PASCAL_UNCHANGEABLE )/num_levels)
     
         if increasing:
             Snapshot.delevel_plan = best_segments_increasing(Snapshot.num_air_levels, packed_levels)

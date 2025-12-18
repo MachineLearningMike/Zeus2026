@@ -38,7 +38,7 @@ from modules_zeus.constants import ERA5_DATA_VARS
 from modules_zeus.sample import Era5Sample
 from modules_zeus.coordinates import get_bbox, slice_bbox
 from modules_zeus.era5_cds import Era5CDSLoader, get_today
-from modules.zeus_dataset_var_names import VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map, num_vars_per_level, num_levels, KILLO_PASKAL_UNCHANGEABLE
+from modules.zeus_dataset_var_names import VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map, num_vars_per_level, num_levels, HECTA_PASCAL_UNCHANGEABLE
 
 from modules.zeus_dataset_codec_Mike1 import load, save
 from modules.zeus_dataset_Snapshot import Snapshot
@@ -205,7 +205,7 @@ class Zeus_Dataset(Dataset):
                     arr = array_dict[var]
                 arrays.append(arr)
             array = np.stack(arrays, axis=0)
-            assert array.shape[0] == self.pm.nVariables + len(KILLO_PASKAL_UNCHANGEABLE)
+            assert array.shape[0] == self.pm.nVariables + len(HECTA_PASCAL_UNCHANGEABLE)
         except Exception as e:
             print(e)
             array = None
@@ -1098,10 +1098,10 @@ class Zeus_Dataset(Dataset):
                     mean_meteo_dict[var] = mean
                     std_meteo_dict[var] = var_mean **  0.5
                     
-        paskals = [p * 1000 for p in self.pm.killo_paskals]
+        paskals = [p * 100 for p in self.pm.hecta_pascals]
         paskals.append(mean_meteo_dict['sp'])   # surface pressure
         pressure_mean = np.array(paskals).mean().item()
-        paskals = [0] * len(self.pm.killo_paskals)
+        paskals = [0] * len(self.pm.hecta_pascals)
         paskals.append(std_meteo_dict['sp']**2)
         pressure_std = np.array(paskals).mean().item()**0.5
             
@@ -1109,7 +1109,7 @@ class Zeus_Dataset(Dataset):
         cnt = 0
         for var in self.pm.variables:
             if cnt % num_vars_per_level == 0 and cnt // num_vars_per_level < num_levels:
-                var_name = "p_" + str(KILLO_PASKAL_UNCHANGEABLE[cnt // num_vars_per_level])
+                var_name = "p_" + str(HECTA_PASCAL_UNCHANGEABLE[cnt // num_vars_per_level])
                 ext_variables.append(var_name)
                 mean_meteo_dict[var_name] = pressure_mean
                 std_meteo_dict[var_name] = pressure_std               

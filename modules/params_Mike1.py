@@ -37,7 +37,7 @@ class Params:
         #============================ data, shared ===========================================================================
         self.variables = config['variables']
         self.variable_groups = config['variable_groups']
-        self.killo_paskals = config['killo_paskals']
+        self.hecta_pascals = config['hecta_pascals']
         self.targetVariables = config['targetVariables']
         self.hourly_offset = config['hourly_offset']
         self.modulo = config['modulo']
