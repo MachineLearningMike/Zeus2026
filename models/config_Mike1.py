@@ -585,7 +585,7 @@ projects["Zeus_Swin_25Dec18_1"] = {
     "Zeus_Model_module" : "Zeus_Mike1",
     "GPUWaitsData" : True,
     "models_to_play": [0,],
-    "metrics" : "mae", # "mae", "rmse"
+    "metrics" : "rmse", # "mae", "rmse"
     },
     
     "data": {
