@@ -164,6 +164,7 @@ if platform.system() == "Windows":
     shared_model_params['num_swin_block'] = 30
     shared_model_params['nLevels'] = 6
     shared_model_params['increasing'] = True
+    shared_model_params['use_pos_bias'] = False
         
     config["use_PE"] = True
     
@@ -196,6 +197,7 @@ else:
     shared_model_params['num_swin_block'] = 30
     shared_model_params['nLevels'] = 6
     shared_model_params['increasing'] = True
+    shared_model_params['use_pos_bias'] = False
 
     config["epochs"] = 100
     config["steps_to_save"] = 50
@@ -604,11 +606,12 @@ projects["Zeus_Swin_25Dec18_1"] = {
     'nHeads' : 2,
     'patch_kernel' : 4,
     'patch_stride' : 4,
-    'swin_dim' : 40,           # 200
+    'swin_dim' : 200,           # 200
     'window_size' : (2, 2, 2),
     'num_swin_block' : 30,
     'nLevels' : 6,
     'increasing' : True,
+    'use_pos_bias' : False,
     },
     
     "model_1": {},

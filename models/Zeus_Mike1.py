@@ -86,7 +86,8 @@ class Zeus(nn.Module):
                 qkv_bias=True,
                 drop=0.0,
                 attn_drop=0.0,
-                drop_path=0.0
+                drop_path=0.0,
+                use_pos_bias = pm.use_pos_bias,
             )
             for idx in range(num_swin_blocks)  # reduced number for testing
         ])

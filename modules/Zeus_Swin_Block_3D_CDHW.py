@@ -412,7 +412,7 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
     #------------------------------------------------------------------------------------------------------------------------
     def __init__(self, dim, input_resolution, num_heads, window_size, shift_size, pair_bias_dim,
                  mlp_ratio=4., qkv_bias=True, drop=0., attn_drop=0., drop_path=0.,
-                 act_layer=nn.GELU, norm_layer=nn.LayerNorm):
+                 act_layer=nn.GELU, norm_layer=nn.LayerNorm, use_pos_bias=True):
         super().__init__()
         
         assert any(s==0 for s in shift_size) or any(s!=0 for s in shift_size)
@@ -438,7 +438,10 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
         mlp_hidden_dim = int(dim*mlp_ratio)
         self.mlp = Mlp(dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
         
-        self.positionBiasLearner = PositionBiasLearner3D(input_resolution, window_size, num_heads, shift_size=shift_size, pair_bias_dim=pair_bias_dim, hidden_dim=pair_bias_dim * 4)
+        if use_pos_bias:
+            self.positionBiasLearner = PositionBiasLearner3D(input_resolution, window_size, num_heads, shift_size=shift_size, pair_bias_dim=pair_bias_dim, hidden_dim=pair_bias_dim * 4)
+        else:
+            self.positionBiasLearner = None
 
         self.attn_mask_learner = AttentionMask3D(input_resolution, window_size, shift_size)
 
@@ -462,8 +465,10 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
         x_windows = x_windows.view(-1, C, self.window_volume).permute(0,2,1).contiguous()
 
         # posision bias
-        position_bias = self.positionBiasLearner()      # (nWindows, win_volume, win_volume, num_heads)
-        # position_bias = None
+        if self.positionBiasLearner is not None:
+            position_bias = self.positionBiasLearner()      # (nWindows, win_volume, win_volume, num_heads)
+        else:
+            position_bias = None
 
         # attention
         attn_windows = self.attn(x_windows, position_bias, mask=self.attn_mask_learner.attn_mask)
