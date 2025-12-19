@@ -190,13 +190,13 @@ else:
     shared_model_params['patch_kernel'] = 4
     shared_model_params['patch_stride'] = 4
     shared_model_params['swin_dim'] = 200
-    shared_model_params['window_size'] = (2, 4, 4)
+    shared_model_params['window_size'] = (2, 2, 2)
     shared_model_params['num_swin_block'] = 30
     shared_model_params['nLevels'] = 6
     shared_model_params['increasing'] = True
 
     config["epochs"] = 100
-    config["steps_to_save"] = 500
+    config["steps_to_save"] = 50
     config["abundant_GPUs"] = False
 
 config.update({
