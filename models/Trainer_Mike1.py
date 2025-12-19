@@ -477,7 +477,7 @@ class Model_Trainer():
             if trainable is True and step % self.pm.steps_to_save == 0:
                 [(md.pack_losses_metrics(), md.save_state()) for md in mds]
                 self.save_state()
-            self.clean_gpu_every(10, step)
+            self.clean_gpu_every(1, step)
             self.respond_to_cursor()
             start = time.time()
         
