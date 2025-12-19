@@ -664,7 +664,7 @@ projects["Zeus_Swin_25Dec20_P4W2"] = {
     "model_4": {},
 }
 
-projects["Zeus_Swin_25Dec20_P6W2"] = {      #---------------- 107 GB, B200
+projects["Zeus_Swin_25Dec20_P6W2"] = {      #---------------- 192 dim: 107 GB, B200, 256 dim: 140 GB
     "management": {
     "Zeus_Model_module" : "Zeus_Mike1",
     "GPUWaitsData" : True,
@@ -690,7 +690,7 @@ projects["Zeus_Swin_25Dec20_P6W2"] = {      #---------------- 107 GB, B200
     'nHeads' : 4,
     'patch_kernel' : 6,
     'patch_stride' : 6,
-    'swin_dim' : 256, #192 works with 107GB on B200,           # 480 is the right value, if we have enough GPU memory. Reduce this to fit onto GPU memory.
+    'swin_dim' : 192, #192: 107GB, 256: 140GB,           # 480 is the right value, if we have enough GPU memory. Reduce this to fit onto GPU memory.
     'window_size' : (2, 2, 2),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
     'num_swin_block' : 30,
     'nLevels' : 8,
