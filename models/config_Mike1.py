@@ -125,16 +125,16 @@ shared_model_params = {
     "epoch_patience" : 10,       # Mike!!!
     "useLRLearner" : False,
 
-    # SWIN
-    "nHeads": 2,
-    "patch_kernel": 2,
-    "patch_stride": 2,
-    "swin_dim"  : 512,       # Check it.
-    "window_size" : (2, 4, 4),      # blocks 1-10: 2 x 2, blocks 11-20: 4 x 4, blocks 21-30: 4 x 4 or 6 x 6
-    "num_swin_block": 30,
-    "pair_bias_dim": 5,     # Careful, this changes code.
-    "nLevels": 6,
-    "increasing": True,
+    # # SWIN
+    # "nHeads": 2,
+    # "patch_kernel": 2,
+    # "patch_stride": 2,
+    # "swin_dim"  : 512,       # Check it.
+    # "window_size" : (2, 4, 4),      # blocks 1-10: 2 x 2, blocks 11-20: 4 x 4, blocks 21-30: 4 x 4 or 6 x 6
+    # "num_swin_block": 30,
+    # "pair_bias_dim": 5,     # Careful, this changes code.
+    # "nLevels": 6,
+    # "increasing": True,
 
 }
 
@@ -156,15 +156,16 @@ if platform.system() == "Windows":
     config['nCascades'] = 1
 
     config["factor10"] = 2  # 
-    shared_model_params['nHeads'] = 4
-    shared_model_params['patch_kernel'] = 4
-    shared_model_params['patch_stride'] = 4
-    shared_model_params['swin_dim'] = 40
-    shared_model_params['window_size'] = (2, 2, 2)
-    shared_model_params['num_swin_block'] = 30
-    shared_model_params['nLevels'] = 6
-    shared_model_params['increasing'] = True
-    shared_model_params['use_pos_bias'] = False
+    
+    # shared_model_params['nHeads'] = 4
+    # shared_model_params['patch_kernel'] = 4
+    # shared_model_params['patch_stride'] = 4
+    # shared_model_params['swin_dim'] = 40
+    # shared_model_params['window_size'] = (2, 2, 2)
+    # shared_model_params['num_swin_block'] = 30
+    # shared_model_params['nLevels'] = 6
+    # shared_model_params['increasing'] = True
+    # shared_model_params['use_pos_bias'] = False
         
     config["use_PE"] = True
     
@@ -189,15 +190,16 @@ else:
     
     # GPU: 
     config["factor10"] = 10  # 
-    shared_model_params['nHeads'] = 2
-    shared_model_params['patch_kernel'] = 4
-    shared_model_params['patch_stride'] = 4
-    shared_model_params['swin_dim'] = 200
-    shared_model_params['window_size'] = (2, 2, 2)
-    shared_model_params['num_swin_block'] = 30
-    shared_model_params['nLevels'] = 6
-    shared_model_params['increasing'] = True
-    shared_model_params['use_pos_bias'] = False
+    
+    # shared_model_params['nHeads'] = 2
+    # shared_model_params['patch_kernel'] = 4
+    # shared_model_params['patch_stride'] = 4
+    # shared_model_params['swin_dim'] = 200
+    # shared_model_params['window_size'] = (2, 2, 2)
+    # shared_model_params['num_swin_block'] = 30
+    # shared_model_params['nLevels'] = 6
+    # shared_model_params['increasing'] = True
+    # shared_model_params['use_pos_bias'] = False
 
     config["epochs"] = 100
     config["steps_to_save"] = 50
@@ -612,6 +614,7 @@ projects["Zeus_Swin_25Dec18_1"] = {
     'nLevels' : 6,
     'increasing' : True,
     'use_pos_bias' : True,
+    'pair_bias_dim' : 5,
     },
     
     "model_1": {},
@@ -652,6 +655,7 @@ projects["Zeus_Swin_25Dec20_P4W2"] = {
     'nLevels' : 6,
     'increasing' : True,
     'use_pos_bias' : False,
+    'pair_bias_dim' : 5,
     },
     
     "model_1": {},
@@ -692,6 +696,7 @@ projects["Zeus_Swin_25Dec20_P6W2"] = {
     'nLevels' : 8,
     'increasing' : True,
     'use_pos_bias' : False,
+    'pair_bias_dim' : 5,
     },
     
     "model_1": {},
@@ -732,6 +737,7 @@ projects["Zeus_Swin_25Dec20_P8W2"] = {
     'nLevels' : 6,
     'increasing' : True,
     'use_pos_bias' : False,
+    'pair_bias_dim' : 5,
     },
     
     "model_1": {},
