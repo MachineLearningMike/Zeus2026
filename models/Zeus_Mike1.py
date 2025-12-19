@@ -19,35 +19,30 @@ class Zeus(nn.Module):
     def __init__(self, pm, device='cpu'):
         super().__init__()
 
-        self.factor10 = pm.factor10
-                
+        factor10 = pm.factor10
+        num_heads = pm.nHeads
         patch_kernel = pm.patch_kernel
         patch_stride = pm.patch_stride
         swin_dim = pm.swin_dim
         window_size = pm.window_size
         num_swin_blocks = pm.num_swin_block
-        num_heads = pm.nHeads
+        nLevels = pm.nLevels
+        increasing = pm.increasing
+        use_pos_bias = pm.use_pos_bias
+        
+        pair_bias_dim = pm.pair_bias_dim
 
-        # "patch_kernel": 8,
-        # "patch_stride": 8,
-        # "swin_dim"  : 20,       # should embed 26 (air level 0), 36 (air level 1..12), and 50 (surface)
-        # "window_size" : (10, 10),
-        # "num_swin_block": 30,
-
-        # self.factor10 = pm.factor10
-        # swin_dim, num_heads = pm.swin_dim, pm.nHeads
-        # swin_dim, num_heads = 16, 4    
-        H, W = int(720/10*self.factor10), int(1440/10*self.factor10)
-        # window_size = (2, int(self.factor10), int(self.factor10))
-        # patch_kernel = 8
-        # patch_stride = 8
-        # num_swin_blocks = 30
+        H, W = int(720/10 * factor10), int(1440/10 * factor10)
+    
+        print("Zeus model being created..............................................................")
+        print(f"factor10 {factor10}, num_heads {num_heads}, patch_kernel {patch_kernel}, patch_stride {patch_stride}, swin_dim {swin_dim}")
+        print(f"window_size {window_size}, num_swin_blocks {num_swin_blocks}, nLevels {nLevels}, increasing {increasing}, use_pos_bias {use_pos_bias}")
 
         self.device = device
     
         #---------------- Patch extractor -----------------
         
-        Snapshot.set_original_settings(factor10=pm.factor10, increasing=pm.increasing, packed_levels=pm.nLevels - 1)  #------------- SETUP
+        Snapshot.set_original_settings(factor10=factor10, increasing=increasing, packed_levels=nLevels - 1)  #------------- SETUP
         
         now = datetime.now(timezone.utc)
         ss1 = Snapshot(now.year, now.month, now.day, now.hour, meteo=None, meteo_unnormal=None)
@@ -81,13 +76,13 @@ class Zeus(nn.Module):
                 num_heads=num_heads,
                 window_size=window_size,
                 shift_size=(0,0,0) if idx % 2 == 0 else (window_size[0]//2, window_size[1]//2, window_size[2]//2),
-                pair_bias_dim = pm.pair_bias_dim,
+                pair_bias_dim = pair_bias_dim,
                 mlp_ratio=4.,
                 qkv_bias=True,
                 drop=0.0,
                 attn_drop=0.0,
                 drop_path=0.0,
-                use_pos_bias = pm.use_pos_bias,
+                use_pos_bias = use_pos_bias,
             )
             for idx in range(num_swin_blocks)  # reduced number for testing
         ])

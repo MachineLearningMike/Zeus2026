@@ -262,7 +262,7 @@ class WindowAttention3D(nn.Module):
         x = self.proj_drop(x)
         return x
 
-    # #------------------------------------------------ Times-shot attention
+    # #------------------------------------------------ Multi-shot attention
     # def forward(self, x, position_bias, mask=None):
     #     B_, N, C = x.shape  # B * nWindows, win_volume, C
         
@@ -347,7 +347,7 @@ class WindowAttention3D(nn.Module):
         
     #     return x
 
-class AttentionMask3D(nn.Module):
+class AttentionMask3D(nn.Module):     # original, mine
     #------------------------------------------------------------------------------------------------------------------------
     # consistent attn_mask: ([roll negative, attend, roll positive], assert all(s >= 0 for s in shift_size), AttentionMask3D)
     #------------------------------------------------------------------------------------------------------------------------
@@ -384,6 +384,7 @@ class AttentionMask3D(nn.Module):
         h_slices = (slice(0, -window_size[1]),
                     slice(-window_size[1], -shift_size[1]),
                     slice(-shift_size[1], None))
+        
         w_slices = (slice(0, -window_size[2]),
                     slice(-window_size[2], -shift_size[2]),
                     slice(-shift_size[2], None))
@@ -392,7 +393,8 @@ class AttentionMask3D(nn.Module):
         for d in d_slices:
             for h in h_slices:
                 for w in w_slices:
-                    img_mask[:, :, d, h, w] = cnt
+                    # img_mask[:, :, d, h, w] = cnt
+                    img_mask[:, :, d, h] = cnt          #----------------------- This should give cylindric effects on W dim.
                     cnt += 1
 
         # Partition windows
@@ -401,7 +403,7 @@ class AttentionMask3D(nn.Module):
         attn_mask = mask_windows.unsqueeze(1) - mask_windows.unsqueeze(2)
         attn_mask = attn_mask.masked_fill(attn_mask != 0, float(-100.0)).masked_fill(attn_mask == 0, float(0.0))
         return attn_mask
-
+    
 
 # ---------------------------
 # Swin Block 3D
@@ -445,7 +447,7 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
 
         self.attn_mask_learner = AttentionMask3D(input_resolution, window_size, shift_size)
 
-    #---------------------------------------- Single-shot forward
+    #---------------------------------------- One-shot FFN
     def forward(self, x):
         D, H, W = self.input_resolution
         B, L, C = x.shape
@@ -489,7 +491,7 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
         x = x + self.drop_path(self.norm2(self.mlp(x)))
         return x
     
-    # #--------------------------------------- Multi-shot forward
+    # #--------------------------------------- Multi-shot FFN
     # def forward(self, x):
     #     """Modified forward with chunked MLP - minimal changes"""
     #     D, H, W = self.input_resolution
