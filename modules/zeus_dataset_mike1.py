@@ -93,6 +93,9 @@ class Zeus_Dataset(Dataset):
         self.normal_meteo_buffers = [None] * (self.pm.nCascades + 2)
         self.unnormal_meteo_buffers = [None] * (self.pm.nCascades + 2)
         
+        self.normal_tempo_buffers = [None] * (self.pm.nCascades + 2)
+        self.unnormal_tempo_buffers = [None] * (self.pm.nCascades + 2)
+
         
         # self.shard_dataset = ERA5ZarrShards(
         #     base_dirs=self.shard_dirs,
@@ -1690,23 +1693,11 @@ class Zeus_Dataset(Dataset):
         assert output.shape[-5:] == torch.Size([Fm, C, size_hw[0], size_hw[1]])
         return output
 
-    def load_norrmalize_array(self, dt, modulo, with_normalized, idx):
+    def load_snapshot(self, dt, modulo, with_normalized, idx):
         array = self.load_array(dt, modulo)
         assert array is not None
         
         if array is not None:
-            
-            # if self.unnormal_meteo_buffers[idx] is not None:
-            #     self.unnormal_meteo_buffers[idx].copy_(torch.tensor(array, device='cuda'))      #---------------------------------------- cuda for speed. ugly --------------
-            # else:
-            #     self.unnormal_meteo_buffers[idx] = torch.tensor(array, device='cuda')
-            
-            # if with_normalized:
-            #     if self.normal_meteo_buffers[idx] is not None:
-            #         self.normalize_meteo(self.unnormal_meteo_buffers[idx], self.normal_meteo_buffers[idx])
-            #     else:
-            #         self.normal_meteo_buffers[idx] = self.unnormal_meteo_buffers[idx].clone()  # allocate once
-            #         self.normalize_meteo(self.unnormal_meteo_buffers[idx], self.normal_meteo_buffers[idx])
                     
             if self.unnormal_meteo_buffers[idx] is not None:
                 cpu_tensor = torch.from_numpy(array).float().pin_memory()
@@ -1722,8 +1713,13 @@ class Zeus_Dataset(Dataset):
                     # Allocate once, then reuse for future calls
                     self.normal_meteo_buffers[idx] = self.unnormal_meteo_buffers[idx].clone()
                     self.normalize_meteo(self.unnormal_meteo_buffers[idx], self.normal_meteo_buffers[idx])
+                    
+            ss = Snapshot(dt.year, dt.month, dt.day, dt.hour, meteo=self.normal_meteo_buffers[idx], meteo_unnormal=self.unnormal_meteo_buffers[idx])
+
+            self.normalize_tempo(ss.tempo, ss.tempo)
                                         
-        return dt.year, dt.month, dt.day, dt.hour, self.unnormal_meteo_buffers[idx], self.normal_meteo_buffers[idx]
+        return ss
+
 
     def take_batch(self):        
         if len(self.x_set) <= 0: return None
@@ -1742,16 +1738,13 @@ class Zeus_Dataset(Dataset):
             with_normalized = True
             futures = [
                 self._disk_threadPool.submit(
-                        self.load_norrmalize_array, dt + timedelta(hours=self.pm.modulo*idx), self.pm.modulo, with_normalized, idx
+                        self.load_snapshot, dt + timedelta(hours=self.pm.modulo*idx), self.pm.modulo, with_normalized, idx
                     ) for idx in range(self.pm.nCascades + (2 if self.pm.pair_not_single_snapshot else 1))
                 ]
 
             snapshots = []
             for fu in futures:
-                year, month, day, hour, unnormal_data, normal_data = fu.result()
-                assert unnormal_data is not None and normal_data is not None
-                ss = Snapshot(year, month, day, hour, meteo=normal_data, meteo_unnormal=unnormal_data)
-                
+                ss = fu.result()
                 snapshots.append(ss)
             
             batch.append(snapshots)
@@ -1822,7 +1815,7 @@ class Zeus_Dataset(Dataset):
         self._worker_thread = threading.Thread(target=self._prefetch_loop, daemon=True)
         self._worker_thread.start()
         
-        self._disk_threadPool = ThreadPoolExecutor(max_workers=4)
+        self._disk_threadPool = ThreadPoolExecutor(max_workers=1)
         
         return
 
