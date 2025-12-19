@@ -664,7 +664,7 @@ projects["Zeus_Swin_25Dec20_P4W2"] = {
     "model_4": {},
 }
 
-projects["Zeus_Swin_25Dec20_P6W2"] = {      #---------------- 192 dim: 107 GB, B200, 256 dim: 140 GB
+projects["Zeus_Swin_25Dec20_P6W2"] = {      #---------------- 192 dim B200: 107 GB 1200 ms; 256 dim B200: 140 GB 1500 ms
     "management": {
     "Zeus_Model_module" : "Zeus_Mike1",
     "GPUWaitsData" : True,
