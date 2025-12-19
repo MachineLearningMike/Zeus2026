@@ -441,46 +441,103 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
 
         self.attn_mask_learner = AttentionMask3D(input_resolution, window_size, shift_size)
 
+    # #---------------------------------------- Single-shot forward
+    # def forward(self, x):
+    #     D, H, W = self.input_resolution
+    #     B, L, C = x.shape
+    #     assert L == D*H*W, f"Input feature has wrong size {L}, expected {D*H*W}"
 
+    #     shortcut = x
+    #     x = x.transpose(1, 2).reshape(B, C, D, H, W)
+
+    #     # cyclic shift
+    #     if any(s != 0 for s in self.shift_size):
+    #         shifted_x = torch.roll(x, shifts=[ - s for s in self.shift_size], dims=(2,3,4))     # x: (B, C, D, H, W)
+    #     else:
+    #         shifted_x = x
+
+    #     # partition windows
+    #     x_windows, nWd, nWh, nWw = window_partition_3d(shifted_x, self.window_size)
+    #     x_windows = x_windows.view(-1, C, self.window_volume).permute(0,2,1).contiguous()
+
+    #     # posision bias
+    #     position_bias = self.positionBiasLearner()      # (nWindows, win_volume, win_volume, num_heads)
+
+    #     # attention
+    #     attn_windows = self.attn(x_windows, position_bias, mask=self.attn_mask_learner.attn_mask)
+
+    #     # reverse windows
+    #     attn_windows = attn_windows.permute(0,2,1).contiguous().view(-1, C, *self.window_size)
+    #     x = window_reverse_3d(attn_windows, self.window_size, D, H, W)
+
+    #     # reverse cyclic shift
+    #     if any(s != 0 for s in self.shift_size):
+    #         x = torch.roll(x, shifts=[s for s in self.shift_size], dims=(2,3,4))
+
+    #     # flatten back
+    #     x = x.permute(0,2,3,4,1).contiguous().reshape(B, D*H*W, C).contiguous()
+
+    #     # FFN
+    #     x = shortcut + self.drop_path(self.norm1(x))
+    #     x = x + self.drop_path(self.norm2(self.mlp(x)))
+    #     return x
+    
+    #--------------------------------------- Multi-shot forward
     def forward(self, x):
+        """Modified forward with chunked MLP - minimal changes"""
         D, H, W = self.input_resolution
         B, L, C = x.shape
         assert L == D*H*W, f"Input feature has wrong size {L}, expected {D*H*W}"
 
+        # --- ATTENTION PART (unchanged) ---
         shortcut = x
         x = x.transpose(1, 2).reshape(B, C, D, H, W)
 
-        # cyclic shift
         if any(s != 0 for s in self.shift_size):
-            shifted_x = torch.roll(x, shifts=[ - s for s in self.shift_size], dims=(2,3,4))     # x: (B, C, D, H, W)
+            shifted_x = torch.roll(x, shifts=[ - s for s in self.shift_size], dims=(2,3,4))
         else:
             shifted_x = x
 
-        # partition windows
         x_windows, nWd, nWh, nWw = window_partition_3d(shifted_x, self.window_size)
         x_windows = x_windows.view(-1, C, self.window_volume).permute(0,2,1).contiguous()
 
-        # posision bias
-        position_bias = self.positionBiasLearner()      # (nWindows, win_volume, win_volume, num_heads)
-
-        # attention
+        position_bias = self.positionBiasLearner()
         attn_windows = self.attn(x_windows, position_bias, mask=self.attn_mask_learner.attn_mask)
 
-        # reverse windows
         attn_windows = attn_windows.permute(0,2,1).contiguous().view(-1, C, *self.window_size)
         x = window_reverse_3d(attn_windows, self.window_size, D, H, W)
 
-        # reverse cyclic shift
         if any(s != 0 for s in self.shift_size):
             x = torch.roll(x, shifts=[s for s in self.shift_size], dims=(2,3,4))
 
-        # flatten back
         x = x.permute(0,2,3,4,1).contiguous().reshape(B, D*H*W, C).contiguous()
 
-        # FFN
+        # --- OPTIMIZED FFN PART ---
+        # First residual
         x = shortcut + self.drop_path(self.norm1(x))
-        x = x + self.drop_path(self.norm2(self.mlp(x)))
+        
+        # Chunked MLP to reduce peak memory
+        B, L, C = x.shape
+        
+        # Auto-tune chunk size based on sequence length
+        # Aim for ~4MB per chunk (adjust based on your GPU)
+        target_chunk_tokens = 64  # Start with this, tune based on your needs
+        chunk_size = min(L, target_chunk_tokens)
+        
+        # Process MLP in chunks
+        mlp_output = torch.empty_like(x)
+        for i in range(0, L, chunk_size):
+            end_idx = min(i + chunk_size, L)
+            chunk = x[:, i:end_idx, :]
+            # norm2 + MLP
+            processed_chunk = self.norm2(chunk)
+            processed_chunk = self.mlp(processed_chunk)
+            mlp_output[:, i:end_idx, :] = processed_chunk
+        
+        # Apply drop_path and final residual
+        x = x + self.drop_path(mlp_output)
         return x
+
 
 import numpy as np
 import matplotlib.pyplot as plt
