@@ -604,7 +604,7 @@ projects["Zeus_Swin_25Dec18_1"] = {
     'nHeads' : 2,
     'patch_kernel' : 4,
     'patch_stride' : 4,
-    'swin_dim' : 200,           # 200
+    'swin_dim' : 40,           # 200
     'window_size' : (2, 2, 2),
     'num_swin_block' : 30,
     'nLevels' : 6,

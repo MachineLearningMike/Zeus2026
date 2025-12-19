@@ -225,126 +225,127 @@ class WindowAttention3D(nn.Module):
         self.proj_drop = nn.Dropout(proj_drop)
         self.softmax = nn.Softmax(dim=-1)
 
-    # #------------------------------------------------ One-shot attention 
-    # def forward(self, x, position_bias, mask=None):
-    #     B_, N, C = x.shape  # B * nWindows, win_volume, C
-
-    #     qkv_bias = None
-    #     if self.q_bias is not None:
-    #         qkv_bias = torch.cat((self.q_bias, torch.zeros_like(self.v_bias, requires_grad=False), self.v_bias))
-    #     qkv = F.linear(x, self.qkv.weight, bias=qkv_bias)
-    #     qkv = qkv.reshape(B_, N, 3, self.num_heads, C // self.num_heads).permute(2,0,3,1,4).contiguous()
-    #     q, k, v = qkv[0], qkv[1], qkv[2]
-
-    #     attn = (F.normalize(q, dim=-1) @ F.normalize(k, dim=-1).transpose(-2,-1))
-    #     logit_scale = torch.clamp(self.logit_scale, max=torch.log(torch.tensor(1./0.01).to(self.logit_scale.device))).exp()
-    #     attn = attn * logit_scale
-
-    #     position_bias = position_bias.permute(0,3,1,2).contiguous() # (nWindows, num_heads, win_volume, win_volume)
-    #     if self.nWindows is None:
-    #         self.nWindows = position_bias.shape[0]
-    #     B = B_ // self.nWindows
-    #     attn = attn.view(B, self.nWindows, self.num_heads, N, N)    # (B, nWindows, num_heads, win_volume, win_volume)
-    #     position_bias = 16 * torch.sigmoid(position_bias)
-    #     attn = attn + position_bias         # propagate to B
-    #     attn = attn.view(B_, self.num_heads, N, N)
-
-    #     if mask is not None:
-    #         nW = mask.shape[0]
-    #         attn = attn.view(B_ // nW, nW, self.num_heads, N, N) + mask.unsqueeze(1).unsqueeze(0)
-    #         attn = attn.view(-1, self.num_heads, N, N)
-
-    #     attn = self.softmax(attn)
-    #     attn = self.attn_drop(attn)
-    #     x = (attn @ v).transpose(1,2).reshape(B_, N, C)
-    #     x = self.proj(x)
-    #     x = self.proj_drop(x)
-    #     return x
-
-    #------------------------------------------------ Times-shot attention
+    #------------------------------------------------ One-shot attention 
     def forward(self, x, position_bias, mask=None):
         B_, N, C = x.shape  # B * nWindows, win_volume, C
-        
+
         qkv_bias = None
         if self.q_bias is not None:
             qkv_bias = torch.cat((self.q_bias, torch.zeros_like(self.v_bias, requires_grad=False), self.v_bias))
-        
         qkv = F.linear(x, self.qkv.weight, bias=qkv_bias)
-        qkv = qkv.reshape(B_, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4).contiguous()
+        qkv = qkv.reshape(B_, N, 3, self.num_heads, C // self.num_heads).permute(2,0,3,1,4).contiguous()
         q, k, v = qkv[0], qkv[1], qkv[2]
-        
-        # Normalize queries and keys
-        q = F.normalize(q, dim=-1)
-        k = F.normalize(k, dim=-1)
-        
+
+        attn = (F.normalize(q, dim=-1) @ F.normalize(k, dim=-1).transpose(-2,-1))
         logit_scale = torch.clamp(self.logit_scale, max=torch.log(torch.tensor(1./0.01).to(self.logit_scale.device))).exp()
-        
-        # Prepare position bias
-        position_bias = position_bias.permute(0, 3, 1, 2).contiguous()  # (nWindows, num_heads, win_volume, win_volume)
-        position_bias = 16 * torch.sigmoid(position_bias)
-        
-        if self.nWindows is None:
-            self.nWindows = position_bias.shape[0]
-        B = B_ // self.nWindows
-        
-        # Initialize output
-        output = torch.zeros(B_, self.num_heads, N, C // self.num_heads, dtype=x.dtype, device=x.device)
-        
-        # Process in chunks to save memory
-        Times = 4  # You can adjust this value
-        chunk_size = N // Times
-        if chunk_size == 0:
-            chunk_size = 1
-            Times = N
-        
-        for i in range(Times):
-            start_idx = i * chunk_size
-            end_idx = min((i + 1) * chunk_size, N)
-            chunk_length = end_idx - start_idx
-            
-            # Calculate attention for current chunk
-            attn_chunk = torch.matmul(q[:, :, start_idx:end_idx], k.transpose(-2, -1))
-            attn_chunk = attn_chunk * logit_scale
-            
-            # Reshape attention for position bias addition
-            # attn_chunk shape: (B_, num_heads, chunk_length, N)
-            attn_chunk = attn_chunk.view(B, self.nWindows, self.num_heads, chunk_length, N)
-            
-            # Add position bias
-            # position_bias shape: (nWindows, num_heads, N, N)
-            # We need to extract the right slice for the chunk
-            position_bias_chunk = position_bias[:, :, start_idx:end_idx, :]  # (nWindows, num_heads, chunk_length, N)
-            attn_chunk = attn_chunk + position_bias_chunk.unsqueeze(0)
-            
-            # Reshape back
-            attn_chunk = attn_chunk.view(B_, self.num_heads, chunk_length, N)
-            
-            # Apply mask if provided
-            if mask is not None:
-                nW = mask.shape[0]
-                # Reshape for mask addition
-                attn_chunk_view = attn_chunk.view(B_ // nW, nW, self.num_heads, chunk_length, N)
-                
-                # Get the appropriate mask slice
-                mask_chunk = mask[:, start_idx:end_idx, :]  # (nW, chunk_length, N)
-                
-                attn_chunk = attn_chunk_view + mask_chunk.unsqueeze(1).unsqueeze(0)
-                attn_chunk = attn_chunk.view(-1, self.num_heads, chunk_length, N)
-            
-            # Apply softmax and attention dropout
-            attn_chunk = self.softmax(attn_chunk)
-            attn_chunk = self.attn_drop(attn_chunk)
-            
-            # Apply attention to values
-            output_chunk = torch.matmul(attn_chunk, v)  # (B_, num_heads, chunk_length, head_dim)
-            output[:, :, start_idx:end_idx] = output_chunk
-        
-        # Transpose and reshape output
-        x = output.transpose(1, 2).reshape(B_, N, C)
+        attn = attn * logit_scale
+
+        if position_bias is not None:
+            position_bias = position_bias.permute(0,3,1,2).contiguous() # (nWindows, num_heads, win_volume, win_volume)
+            if self.nWindows is None:
+                self.nWindows = position_bias.shape[0]
+            B = B_ // self.nWindows
+            attn = attn.view(B, self.nWindows, self.num_heads, N, N)    # (B, nWindows, num_heads, win_volume, win_volume)
+            position_bias = 16 * torch.sigmoid(position_bias)
+            attn = attn + position_bias         # propagate to B
+            attn = attn.view(B_, self.num_heads, N, N)
+
+        if mask is not None:
+            nW = mask.shape[0]
+            attn = attn.view(B_ // nW, nW, self.num_heads, N, N) + mask.unsqueeze(1).unsqueeze(0)
+            attn = attn.view(-1, self.num_heads, N, N)
+
+        attn = self.softmax(attn)
+        attn = self.attn_drop(attn)
+        x = (attn @ v).transpose(1,2).reshape(B_, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
-        
         return x
+
+    # #------------------------------------------------ Times-shot attention
+    # def forward(self, x, position_bias, mask=None):
+    #     B_, N, C = x.shape  # B * nWindows, win_volume, C
+        
+    #     qkv_bias = None
+    #     if self.q_bias is not None:
+    #         qkv_bias = torch.cat((self.q_bias, torch.zeros_like(self.v_bias, requires_grad=False), self.v_bias))
+        
+    #     qkv = F.linear(x, self.qkv.weight, bias=qkv_bias)
+    #     qkv = qkv.reshape(B_, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4).contiguous()
+    #     q, k, v = qkv[0], qkv[1], qkv[2]
+        
+    #     # Normalize queries and keys
+    #     q = F.normalize(q, dim=-1)
+    #     k = F.normalize(k, dim=-1)
+        
+    #     logit_scale = torch.clamp(self.logit_scale, max=torch.log(torch.tensor(1./0.01).to(self.logit_scale.device))).exp()
+        
+    #     # Prepare position bias
+    #     position_bias = position_bias.permute(0, 3, 1, 2).contiguous()  # (nWindows, num_heads, win_volume, win_volume)
+    #     position_bias = 16 * torch.sigmoid(position_bias)
+        
+    #     if self.nWindows is None:
+    #         self.nWindows = position_bias.shape[0]
+    #     B = B_ // self.nWindows
+        
+    #     # Initialize output
+    #     output = torch.zeros(B_, self.num_heads, N, C // self.num_heads, dtype=x.dtype, device=x.device)
+        
+    #     # Process in chunks to save memory
+    #     Times = 4  # You can adjust this value
+    #     chunk_size = N // Times
+    #     if chunk_size == 0:
+    #         chunk_size = 1
+    #         Times = N
+        
+    #     for i in range(Times):
+    #         start_idx = i * chunk_size
+    #         end_idx = min((i + 1) * chunk_size, N)
+    #         chunk_length = end_idx - start_idx
+            
+    #         # Calculate attention for current chunk
+    #         attn_chunk = torch.matmul(q[:, :, start_idx:end_idx], k.transpose(-2, -1))
+    #         attn_chunk = attn_chunk * logit_scale
+            
+    #         # Reshape attention for position bias addition
+    #         # attn_chunk shape: (B_, num_heads, chunk_length, N)
+    #         attn_chunk = attn_chunk.view(B, self.nWindows, self.num_heads, chunk_length, N)
+            
+    #         # Add position bias
+    #         # position_bias shape: (nWindows, num_heads, N, N)
+    #         # We need to extract the right slice for the chunk
+    #         position_bias_chunk = position_bias[:, :, start_idx:end_idx, :]  # (nWindows, num_heads, chunk_length, N)
+    #         attn_chunk = attn_chunk + position_bias_chunk.unsqueeze(0)
+            
+    #         # Reshape back
+    #         attn_chunk = attn_chunk.view(B_, self.num_heads, chunk_length, N)
+            
+    #         # Apply mask if provided
+    #         if mask is not None:
+    #             nW = mask.shape[0]
+    #             # Reshape for mask addition
+    #             attn_chunk_view = attn_chunk.view(B_ // nW, nW, self.num_heads, chunk_length, N)
+                
+    #             # Get the appropriate mask slice
+    #             mask_chunk = mask[:, start_idx:end_idx, :]  # (nW, chunk_length, N)
+                
+    #             attn_chunk = attn_chunk_view + mask_chunk.unsqueeze(1).unsqueeze(0)
+    #             attn_chunk = attn_chunk.view(-1, self.num_heads, chunk_length, N)
+            
+    #         # Apply softmax and attention dropout
+    #         attn_chunk = self.softmax(attn_chunk)
+    #         attn_chunk = self.attn_drop(attn_chunk)
+            
+    #         # Apply attention to values
+    #         output_chunk = torch.matmul(attn_chunk, v)  # (B_, num_heads, chunk_length, head_dim)
+    #         output[:, :, start_idx:end_idx] = output_chunk
+        
+    #     # Transpose and reshape output
+    #     x = output.transpose(1, 2).reshape(B_, N, C)
+    #     x = self.proj(x)
+    #     x = self.proj_drop(x)
+        
+    #     return x
 
 class AttentionMask3D(nn.Module):
     #------------------------------------------------------------------------------------------------------------------------
@@ -441,102 +442,103 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
 
         self.attn_mask_learner = AttentionMask3D(input_resolution, window_size, shift_size)
 
-    # #---------------------------------------- Single-shot forward
-    # def forward(self, x):
-    #     D, H, W = self.input_resolution
-    #     B, L, C = x.shape
-    #     assert L == D*H*W, f"Input feature has wrong size {L}, expected {D*H*W}"
-
-    #     shortcut = x
-    #     x = x.transpose(1, 2).reshape(B, C, D, H, W)
-
-    #     # cyclic shift
-    #     if any(s != 0 for s in self.shift_size):
-    #         shifted_x = torch.roll(x, shifts=[ - s for s in self.shift_size], dims=(2,3,4))     # x: (B, C, D, H, W)
-    #     else:
-    #         shifted_x = x
-
-    #     # partition windows
-    #     x_windows, nWd, nWh, nWw = window_partition_3d(shifted_x, self.window_size)
-    #     x_windows = x_windows.view(-1, C, self.window_volume).permute(0,2,1).contiguous()
-
-    #     # posision bias
-    #     position_bias = self.positionBiasLearner()      # (nWindows, win_volume, win_volume, num_heads)
-
-    #     # attention
-    #     attn_windows = self.attn(x_windows, position_bias, mask=self.attn_mask_learner.attn_mask)
-
-    #     # reverse windows
-    #     attn_windows = attn_windows.permute(0,2,1).contiguous().view(-1, C, *self.window_size)
-    #     x = window_reverse_3d(attn_windows, self.window_size, D, H, W)
-
-    #     # reverse cyclic shift
-    #     if any(s != 0 for s in self.shift_size):
-    #         x = torch.roll(x, shifts=[s for s in self.shift_size], dims=(2,3,4))
-
-    #     # flatten back
-    #     x = x.permute(0,2,3,4,1).contiguous().reshape(B, D*H*W, C).contiguous()
-
-    #     # FFN
-    #     x = shortcut + self.drop_path(self.norm1(x))
-    #     x = x + self.drop_path(self.norm2(self.mlp(x)))
-    #     return x
-    
-    #--------------------------------------- Multi-shot forward
+    #---------------------------------------- Single-shot forward
     def forward(self, x):
-        """Modified forward with chunked MLP - minimal changes"""
         D, H, W = self.input_resolution
         B, L, C = x.shape
         assert L == D*H*W, f"Input feature has wrong size {L}, expected {D*H*W}"
 
-        # --- ATTENTION PART (unchanged) ---
         shortcut = x
         x = x.transpose(1, 2).reshape(B, C, D, H, W)
 
+        # cyclic shift
         if any(s != 0 for s in self.shift_size):
-            shifted_x = torch.roll(x, shifts=[ - s for s in self.shift_size], dims=(2,3,4))
+            shifted_x = torch.roll(x, shifts=[ - s for s in self.shift_size], dims=(2,3,4))     # x: (B, C, D, H, W)
         else:
             shifted_x = x
 
+        # partition windows
         x_windows, nWd, nWh, nWw = window_partition_3d(shifted_x, self.window_size)
         x_windows = x_windows.view(-1, C, self.window_volume).permute(0,2,1).contiguous()
 
-        position_bias = self.positionBiasLearner()
+        # posision bias
+        position_bias = self.positionBiasLearner()      # (nWindows, win_volume, win_volume, num_heads)
+        # position_bias = None
+
+        # attention
         attn_windows = self.attn(x_windows, position_bias, mask=self.attn_mask_learner.attn_mask)
 
+        # reverse windows
         attn_windows = attn_windows.permute(0,2,1).contiguous().view(-1, C, *self.window_size)
         x = window_reverse_3d(attn_windows, self.window_size, D, H, W)
 
+        # reverse cyclic shift
         if any(s != 0 for s in self.shift_size):
             x = torch.roll(x, shifts=[s for s in self.shift_size], dims=(2,3,4))
 
+        # flatten back
         x = x.permute(0,2,3,4,1).contiguous().reshape(B, D*H*W, C).contiguous()
 
-        # --- OPTIMIZED FFN PART ---
-        # First residual
+        # FFN
         x = shortcut + self.drop_path(self.norm1(x))
-        
-        # Chunked MLP to reduce peak memory
-        B, L, C = x.shape
-        
-        # Auto-tune chunk size based on sequence length
-        # Aim for ~4MB per chunk (adjust based on your GPU)
-        target_chunk_tokens = 64  # Start with this, tune based on your needs
-        chunk_size = min(L, target_chunk_tokens)
-        
-        # Process MLP in chunks
-        mlp_output = torch.empty_like(x)
-        for i in range(0, L, chunk_size):
-            end_idx = min(i + chunk_size, L)
-            chunk = x[:, i:end_idx, :]
-            # norm2 + MLP
-            processed_chunk = self.norm2(chunk)
-            processed_chunk = self.mlp(processed_chunk)
-            mlp_output[:, i:end_idx, :] = processed_chunk
-        
-        # Apply drop_path and final residual
-        x = x + self.drop_path(mlp_output)
+        x = x + self.drop_path(self.norm2(self.mlp(x)))
         return x
+    
+    # #--------------------------------------- Multi-shot forward
+    # def forward(self, x):
+    #     """Modified forward with chunked MLP - minimal changes"""
+    #     D, H, W = self.input_resolution
+    #     B, L, C = x.shape
+    #     assert L == D*H*W, f"Input feature has wrong size {L}, expected {D*H*W}"
+
+    #     # --- ATTENTION PART (unchanged) ---
+    #     shortcut = x
+    #     x = x.transpose(1, 2).reshape(B, C, D, H, W)
+
+    #     if any(s != 0 for s in self.shift_size):
+    #         shifted_x = torch.roll(x, shifts=[ - s for s in self.shift_size], dims=(2,3,4))
+    #     else:
+    #         shifted_x = x
+
+    #     x_windows, nWd, nWh, nWw = window_partition_3d(shifted_x, self.window_size)
+    #     x_windows = x_windows.view(-1, C, self.window_volume).permute(0,2,1).contiguous()
+
+    #     position_bias = self.positionBiasLearner()
+    #     attn_windows = self.attn(x_windows, position_bias, mask=self.attn_mask_learner.attn_mask)
+
+    #     attn_windows = attn_windows.permute(0,2,1).contiguous().view(-1, C, *self.window_size)
+    #     x = window_reverse_3d(attn_windows, self.window_size, D, H, W)
+
+    #     if any(s != 0 for s in self.shift_size):
+    #         x = torch.roll(x, shifts=[s for s in self.shift_size], dims=(2,3,4))
+
+    #     x = x.permute(0,2,3,4,1).contiguous().reshape(B, D*H*W, C).contiguous()
+
+    #     # --- OPTIMIZED FFN PART ---
+    #     # First residual
+    #     x = shortcut + self.drop_path(self.norm1(x))
+        
+    #     # Chunked MLP to reduce peak memory
+    #     B, L, C = x.shape
+        
+    #     # Auto-tune chunk size based on sequence length
+    #     # Aim for ~4MB per chunk (adjust based on your GPU)
+    #     target_chunk_tokens = 64  # Start with this, tune based on your needs
+    #     chunk_size = min(L, target_chunk_tokens)
+        
+    #     # Process MLP in chunks
+    #     mlp_output = torch.empty_like(x)
+    #     for i in range(0, L, chunk_size):
+    #         end_idx = min(i + chunk_size, L)
+    #         chunk = x[:, i:end_idx, :]
+    #         # norm2 + MLP
+    #         processed_chunk = self.norm2(chunk)
+    #         processed_chunk = self.mlp(processed_chunk)
+    #         mlp_output[:, i:end_idx, :] = processed_chunk
+        
+    #     # Apply drop_path and final residual
+    #     x = x + self.drop_path(mlp_output)
+    #     return x
 
 
 import numpy as np
