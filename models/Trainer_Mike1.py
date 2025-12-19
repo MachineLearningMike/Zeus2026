@@ -386,28 +386,26 @@ class Model_Trainer():
                 # for _ in  range(self.train_bombs):    # train_bomb cannot work because we destroy batch_of_ss_lists.
                     
                 Xs = batch_of_ss_lists[0]   # batch_of_ss_lists undergoes changes. This code doesn't know the content of X
+                assert len(Xs) == self.pm.nCascades + (2 if self.pm.pair_not_single_snapshot else 1)
                     
                 for md in mds:
                     #------------------------ this algorithm is studied in zeus_train_6_hourly.py -----------
                     
-                    assert len(Xs) >= 2, "length of Xs is not enough 1"
+                    # assert len(Xs) >= 2, "length of Xs is not enough 1"
                     
-                    X0 = Xs[0]; X0.to(device); Xs = Xs[1:]
+                    X0 = Xs[0]; Xs = Xs[1:]
                     if self.pm.pair_not_single_snapshot:
-                        X1 = Xs[0]; X1.to(device); Xs = Xs[1:]
+                        X1 = Xs[0]; Xs = Xs[1:]
                     else:
                         X1 = X0
                                         
                     oldQ = [(X0, X1)]
 
-                    assert len(Xs) > 0, "length of Xs is not enough 2"
-
-                    for (x0, x1) in oldQ:
-                        assert x0.device == device and x1.device == device
+                    # assert len(Xs) > 0, "length of Xs is not enough 2"
                     
                     #--------------------------------------------- starting a set of steps for md...
 
-                    step_loss = []; step_metrics = []
+                    step_loss = []; step_metrics = []; cnt = 0
                     while len(Xs) > 0:  # loops at least once
                         # State: 
                         # len(Xs) > 0, len(oldQ) > 0, [x0.device == device and x1.device == device for (x0, x1) in oldQ]
@@ -416,7 +414,7 @@ class Model_Trainer():
                         
                         #----------------------------------------- starting a step for md...
 
-                        Y = Xs[0]; Y.to(device); Xs = Xs[1:]
+                        Y = Xs[0]; Xs = Xs[1:]
                         
                         if self.pm.pair_not_single_snapshot:
                             newQ = [(oldQ[0][1], Y)]  # assert len(newQ) > 0        # newQ[0] stores raw X's
@@ -429,12 +427,19 @@ class Model_Trainer():
                             
                             X0, X1 = oldQ[0]; oldQ = oldQ[1:]    # assert X.device == device
                             cascade_step = len(newQ)
+                            
+                            X0.to(device)
+                            if self.pm.pair_not_single_snapshot:
+                                X1.to(device)
+                            Y.to(device)
+                                                        
                             substep_result, _substep_loss, _substep_metrics = md.forward_backward_no_step(
                                     X0, X1, Y, cascade_step,
                                     self.loss, self.dataset.normalize_meteo, self.dataset.unnormalize_meteo, 
                                     batch_diff, era5_data_vars, trainable=trainable,
                                     type_metrics = self.pm.metrics, continued = (len(Xs) > 0 or len(oldQ) > 0)
                                 )
+                            cnt += 1
 
                             if self.pm.pair_not_single_snapshot:
                                 newQ.append((X1, substep_result))                      # +1 X
@@ -453,6 +458,8 @@ class Model_Trainer():
                         #------------------------------------------- The step finished.
                         # state: len(oldQ) == 0, len(oldQ) > 0
                         oldQ = newQ
+                        
+                    assert cnt == int((self.pm.nCascades + 1) * self.pm.nCascades / 2)
                         
                     #------------------------------------------------ The set of steps finished.
                     md.store_step_loss_and_metrics(step_loss, step_metrics) # [substep_loss...], [substep_metrics...]

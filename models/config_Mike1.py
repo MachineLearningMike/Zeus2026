@@ -600,8 +600,17 @@ projects["Zeus_Swin_25Dec18_1"] = {
     "useLRLearner" : False,
     "accum_steps" : 10,   
     "skip_validation" : True,
+    #----------------------------------- SWIN ------------------------
+    'nHeads' : 2,
+    'patch_kernel' : 4,
+    'patch_stride' : 4,
+    'swin_dim' : 200,           # 200
+    'window_size' : (2, 2, 2),
+    'num_swin_block' : 30,
+    'nLevels' : 6,
+    'increasing' : True,
     },
-        
+    
     "model_1": {},
     "model_2": {},
     "model_3": {},
@@ -611,11 +620,14 @@ projects["Zeus_Swin_25Dec18_1"] = {
 #-------------------------------- select proejct -----------------------
 project = "Zeus_Swin_25Dec18_1" # "ResNet50-NewCodec-2" #"ResNet50-9M" # "ResNet50-3753K" #"ResNet50-NewCodec-2"  #"ResNet50-24M-2"
 config["bayesProject"] = project
+# updata 'management'
 config.update(projects[project]["management"])
+# updata 'data
 config.update(projects[project]["data"])
+# update 'model_x'
 for id in range(5):
     key = "model_" + str(id)
     config[key].update(projects[project][key])
 
 print("bayesProject:", config["bayesProject"])
-# print(config)
+print(config['model_0'])
