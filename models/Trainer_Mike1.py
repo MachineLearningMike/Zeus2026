@@ -281,7 +281,7 @@ class Model_Trainer():
 
         # era5_data_vars = era5_data_vars.to(device)
         
-        loss = rmse * self.pm.loss_target_cuda
+        loss = rmse * self.pm.loss_weights_cuda
         return loss.mean(), loss # (,), (C,)     32, cuda, True
     
     def clean_gpu_every(self, n_iter, step):

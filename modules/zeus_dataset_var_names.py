@@ -538,9 +538,9 @@ VARIABLE_NAME_LIST_UNCHANGEABLE = [     # exported.
     # radiation
     "ssr","ssrd","fdir","ttr",    
     
-                #--------------------------------------
-                # Target variables come last. (All are surface variables)
-                # --------------------------------------
+    #--------------------------------------
+    # Target variables come last - FIXED. (All are surface variables)
+    # --------------------------------------
     "t2m", "tp", "u100m","v100m", "d2m", "sp",
 
     # Nov 28, 2025

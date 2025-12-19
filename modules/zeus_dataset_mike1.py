@@ -90,8 +90,8 @@ class Zeus_Dataset(Dataset):
         self.total_ds = None
         
         #-------------------------------------------------------------------------
-        self.normalized = [None] * (self.pm.nCascades + 2)
-        self.unnormalized = [None] * (self.pm.nCascades + 2)
+        self.normal_meteo_buffers = [None] * (self.pm.nCascades + 2)
+        self.unnormal_meteo_buffers = [None] * (self.pm.nCascades + 2)
         
         
         # self.shard_dataset = ERA5ZarrShards(
@@ -220,7 +220,7 @@ class Zeus_Dataset(Dataset):
         snapshot_time = f"{year}-{month:02d}-{day:02d}T{hour:02d}:00"
 
         if self.total_ds is None:
-            print("Getting normalized ERA5 dataset......", end='')
+            print("Getting normal_meteo_buffers ERA5 dataset......", end='')
             self.total_ds = self.get_normalized_dataset()
             print("done.")
             
@@ -1133,16 +1133,21 @@ class Zeus_Dataset(Dataset):
         # Find where and how self.ext_variables is used.
         self.ext_variables = ext_variables
         
-        loss_target = []
+        #--------------------------------- loss weights --------------------
+        loss_weights = []
         for var in self.ext_variables:
             if var.startswith("p_"):
-                loss_target.append(0.)
+                loss_weights.append(0.)
+            elif var in ["t2m", "tp", "u100m","v100m", "d2m", "sp"]:
+                loss_weights.append(2.)
             else:
-                loss_target.append(1.)
-        self.pm.loss_target_cpu = torch.tensor(loss_target, dtype=torch.float32)
+                loss_weights.append(1.)
+        
+        self.pm.loss_weights_cpu = torch.tensor(loss_weights, dtype=torch.float32)
         if torch.cuda.is_available():
-            self.pm.loss_target_cuda = torch.tensor(loss_target, dtype=torch.float32).to("cuda")
-            
+            self.pm.loss_weights_cuda = torch.tensor(loss_weights, dtype=torch.float32).to("cuda")
+        
+        #-------------------------------- meteo ----------------------
         mean_meteo = []
         for var in self.ext_variables:
             mean_meteo.append(mean_meteo_dict[var])
@@ -1203,25 +1208,19 @@ class Zeus_Dataset(Dataset):
             output.copy_(input)   # copy input into output buffer
         output.mul_(std).add_(mean)  # in-place unnormalize
         
-    def normalize_tempo(self, data):    # data: (... C, H, W)
-        # device = data.device
-        # return ( data - rearrange(self.mean_tempo, 'c -> c 1 1').to(device) ) / rearrange(self.std_tempo, 'c -> c 1 1').to(device)
-        if data.is_cuda:
-            return ( data - self.mean_tempo_ready_cuda ) / self.std_tempo_ready_cuda
-        else:
-            return ( data - self.mean_tempo_ready_cpu ) / self.std_tempo_ready_cpu
-    
-    def unnormalize_tempo(self, data):    # data: (... C, H, W)
-        # Mike!!! I found this error Oct 23 only. 
-        # Over 2 months of test training was based on this wrong formula, forcing neual networks to distort accordingly.
-        # return ( data - rearrange(self.mean_tempo, 'c -> c 1 1').to(device) ) / rearrange(self.std_tempo, 'c -> c 1 1').to(device)
-
-        # device = data.device
-        # return data * rearrange(self.std_tempo, 'c -> c 1 1').to(device) + rearrange(self.mean_tempo, 'c -> c 1 1').to(device)
-        if data.is_cuda:
-            return data * self.std_tempo_ready_cuda + self.mean_tempo_ready_cuda
-        else:
-            return data * self.std_tempo_ready_cpu + self.mean_tempo_ready_cpu
+    def normalize_tempo(self, input, output):    # data: (... C, H, W)
+        mean = self.mean_tempo_ready_cuda if input.is_cuda else self.mean_tempo_ready_cpu
+        std  = self.std_tempo_ready_cuda if input.is_cuda else self.std_tempo_ready_cpu
+        if input is not output:
+            output.copy_(input)        # copy input into the output tensor
+        output.sub_(mean).div_(std)  # normalize in-place
+            
+    def unnormalize_tempo(self, input, output):    # data: (... C, H, W)
+        std  = self.std_tempo_ready_cuda if input.is_cuda else self.std_tempo_ready_cpu
+        mean = self.mean_tempo_ready_cuda if input.is_cuda else self.mean_tempo_ready_cpu
+        if input is not output:    
+            output.copy_(input)   # copy input into output buffer
+        output.mul_(std).add_(mean)  # in-place unnormalize
     
     def load_era5_data_vars(self):
         vars = [ERA5_DATA_VARS[var_name_map[k]] for k in self.pm.targetVariables if var_name_map[k] in ERA5_DATA_VARS.keys()]
@@ -1697,34 +1696,34 @@ class Zeus_Dataset(Dataset):
         
         if array is not None:
             
-            # if self.unnormalized[idx] is not None:
-            #     self.unnormalized[idx].copy_(torch.tensor(array, device='cuda'))      #---------------------------------------- cuda for speed. ugly --------------
+            # if self.unnormal_meteo_buffers[idx] is not None:
+            #     self.unnormal_meteo_buffers[idx].copy_(torch.tensor(array, device='cuda'))      #---------------------------------------- cuda for speed. ugly --------------
             # else:
-            #     self.unnormalized[idx] = torch.tensor(array, device='cuda')
+            #     self.unnormal_meteo_buffers[idx] = torch.tensor(array, device='cuda')
             
             # if with_normalized:
-            #     if self.normalized[idx] is not None:
-            #         self.normalize_meteo(self.unnormalized[idx], self.normalized[idx])
+            #     if self.normal_meteo_buffers[idx] is not None:
+            #         self.normalize_meteo(self.unnormal_meteo_buffers[idx], self.normal_meteo_buffers[idx])
             #     else:
-            #         self.normalized[idx] = self.unnormalized[idx].clone()  # allocate once
-            #         self.normalize_meteo(self.unnormalized[idx], self.normalized[idx])
+            #         self.normal_meteo_buffers[idx] = self.unnormal_meteo_buffers[idx].clone()  # allocate once
+            #         self.normalize_meteo(self.unnormal_meteo_buffers[idx], self.normal_meteo_buffers[idx])
                     
-            if self.unnormalized[idx] is not None:
+            if self.unnormal_meteo_buffers[idx] is not None:
                 cpu_tensor = torch.from_numpy(array).float().pin_memory()
-                self.unnormalized[idx].copy_(cpu_tensor, non_blocking=True)
+                self.unnormal_meteo_buffers[idx].copy_(cpu_tensor, non_blocking=True)
             else:
-                self.unnormalized[idx] = torch.from_numpy(array).float().pin_memory().to('cuda', non_blocking=True)
+                self.unnormal_meteo_buffers[idx] = torch.from_numpy(array).float().pin_memory().to('cuda', non_blocking=True)
 
             if with_normalized:
-                if self.normalized[idx] is not None:
+                if self.normal_meteo_buffers[idx] is not None:
                     # In-place normalization, reusing existing buffer
-                    self.normalize_meteo(self.unnormalized[idx], self.normalized[idx])
+                    self.normalize_meteo(self.unnormal_meteo_buffers[idx], self.normal_meteo_buffers[idx])
                 else:
                     # Allocate once, then reuse for future calls
-                    self.normalized[idx] = self.unnormalized[idx].clone()
-                    self.normalize_meteo(self.unnormalized[idx], self.normalized[idx])
+                    self.normal_meteo_buffers[idx] = self.unnormal_meteo_buffers[idx].clone()
+                    self.normalize_meteo(self.unnormal_meteo_buffers[idx], self.normal_meteo_buffers[idx])
                                         
-        return dt.year, dt.month, dt.day, dt.hour, self.unnormalized[idx], self.normalized[idx]
+        return dt.year, dt.month, dt.day, dt.hour, self.unnormal_meteo_buffers[idx], self.normal_meteo_buffers[idx]
 
     def take_batch(self):        
         if len(self.x_set) <= 0: return None
@@ -1751,7 +1750,9 @@ class Zeus_Dataset(Dataset):
             for fu in futures:
                 year, month, day, hour, unnormal_data, normal_data = fu.result()
                 assert unnormal_data is not None and normal_data is not None
-                snapshots.append(Snapshot(year, month, day, hour, meteo=normal_data, meteo_unnormal=unnormal_data))
+                ss = Snapshot(year, month, day, hour, meteo=normal_data, meteo_unnormal=unnormal_data)
+                
+                snapshots.append(ss)
             
             batch.append(snapshots)
 
