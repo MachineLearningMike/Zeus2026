@@ -611,7 +611,7 @@ projects["Zeus_Swin_25Dec18_1"] = {
     'num_swin_block' : 30,
     'nLevels' : 6,
     'increasing' : True,
-    'use_pos_bias' : False,
+    'use_pos_bias' : True,
     },
     
     "model_1": {},
