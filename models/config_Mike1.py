@@ -692,7 +692,7 @@ projects["Zeus_Swin_25Dec20_P6W2"] = {
     'patch_stride' : 6,
     'swin_dim' : 192, #192 works with 83GB on B200,           # 480 is the right value, if we have enough GPU memory. Reduce this to fit onto GPU memory.
     'window_size' : (2, 2, 2),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
-    'num_swin_block' : 30,
+    'num_swin_block' : 31,
     'nLevels' : 8,
     'increasing' : True,
     'use_pos_bias' : False,
