@@ -153,7 +153,7 @@ if platform.system() == "Windows":
     config["dim_to_layerFFN_dim"] = 4
     
     # GPU: RTX 4070, Chunk2D
-    config['nCascades'] = 1
+    config['nCascades'] = 2
 
     config["factor10"] = 2  # 
     shared_model_params['nHeads'] = 4
@@ -183,6 +183,8 @@ else:
     else:
         config["dataset_path"] = "/mnt"
         config["management_path"] = "/home/mike/zeus_management"
+
+    config['nCascades'] = 2
     
     # GPU: 
     config["factor10"] = 10  # 

@@ -2051,8 +2051,11 @@ if __name__ == "__main__":
     #     verify_existing = True,
     # )
 
-    inclusive_left = datetime(2014, 12, 31, 23)
-    inclusive_right = datetime(2024, 12, 31, 23)
+    # inclusive_left = datetime(2014, 12, 31, 23)
+    # inclusive_right = datetime(2024, 12, 31, 23)
+
+    inclusive_left = datetime(2015, 1, 1, 23)
+    inclusive_right = datetime(2015, 1, 31, 23)
 
     mean_meteo, m = dataset.ensure_meteo_data_integrity_while_getting_mean(
         inclusive_left=inclusive_left,
