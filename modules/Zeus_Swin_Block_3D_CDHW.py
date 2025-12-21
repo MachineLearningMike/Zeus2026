@@ -384,17 +384,19 @@ class AttentionMask3D(nn.Module):     # original, mine
         h_slices = (slice(0, -window_size[1]),
                     slice(-window_size[1], -shift_size[1]),
                     slice(-shift_size[1], None))
-        
-        w_slices = (slice(0, -window_size[2]),
-                    slice(-window_size[2], -shift_size[2]),
-                    slice(-shift_size[2], None))
+                
+        # w_slices = (slice(0, -window_size[2]),
+        #             slice(-window_size[2], -shift_size[2]),
+        #             slice(-shift_size[2], None))
+
+        # This line replaces the above block and creates an attention mask that's cylindric on W dim.
+        w_slices = (slice(None),)
 
         cnt = 0
         for d in d_slices:
             for h in h_slices:
                 for w in w_slices:
-                    # img_mask[:, :, d, h, w] = cnt
-                    img_mask[:, :, d, h] = cnt          #----------------------- This should give cylindric effects on W dim.
+                    img_mask[:, :, d, h, w] = cnt
                     cnt += 1
 
         # Partition windows
