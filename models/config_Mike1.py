@@ -165,7 +165,7 @@ if platform.system() == "Windows":
     # shared_model_params['num_swin_block'] = 30
     # shared_model_params['nLevels'] = 6
     # shared_model_params['increasing'] = True
-    # shared_model_params['use_pos_bias'] = False
+    # shared_model_params['type_pos_bias'] = 'lonBand' # 'shpere', 'lonBand', 'None'
         
     config["use_PE"] = True
     
@@ -199,7 +199,7 @@ else:
     # shared_model_params['num_swin_block'] = 30
     # shared_model_params['nLevels'] = 6
     # shared_model_params['increasing'] = True
-    # shared_model_params['use_pos_bias'] = False
+    # shared_model_params['type_pos_bias'] = 'lonBand' # 'shpere', 'lonBand', 'None'
 
     config["epochs"] = 100
     config["steps_to_save"] = 50
@@ -613,7 +613,7 @@ projects["Zeus_Swin_25Dec18_1"] = {
     'num_swin_block' : 30,
     'nLevels' : 6,
     'increasing' : True,
-    'use_pos_bias' : True,
+    'type_pos_bias' : 'lonBand', # 'shpere', 'lonBand', 'None'
     'pair_bias_dim' : 5,
     },
     
@@ -654,7 +654,7 @@ projects["Zeus_Swin_25Dec20_P4W2"] = {
     'num_swin_block' : 30,
     'nLevels' : 6,
     'increasing' : True,
-    'use_pos_bias' : False,
+    'type_pos_bias' : 'lonBand', # 'shpere', 'lonBand', 'None'
     'pair_bias_dim' : 5,
     },
     
@@ -695,7 +695,7 @@ projects["Zeus_Swin_25Dec20_P6W2"] = {      #---------------- 192 dim B200: 107 
     'num_swin_block' : 30,
     'nLevels' : 8,
     'increasing' : True,
-    'use_pos_bias' : False,
+    'type_pos_bias' : 'lonBand', # 'shpere', 'lonBand', 'None'
     'pair_bias_dim' : 5,
     },
     
@@ -736,7 +736,49 @@ projects["Zeus_Swin_25Dec20_P8W2"] = {
     'num_swin_block' : 30,
     'nLevels' : 6,
     'increasing' : True,
-    'use_pos_bias' : False,
+    'type_pos_bias' : 'lonBand', # 'sphere', 'None'
+    'pair_bias_dim' : 5,
+    },
+    
+    "model_1": {},
+    "model_2": {},
+    "model_3": {},
+    "model_4": {},
+}
+
+
+projects["Zeus_Swin_25Dec22"] = {
+    "management": {
+    "Zeus_Model_module" : "Zeus_Mike1",
+    "GPUWaitsData" : True,
+    "models_to_play": [0,],
+    "metrics" : "rmse", # "mae", "rmse"
+    },
+    
+    "data": {
+    "org_height": 721,
+    "batch_size": 1,
+    },
+    
+    "model_0": {
+    "lr": 1e-5,     # 1e-3 for the first 120,000 steps
+    "max_lr": 1e-5,
+    "overwrite_saved_lr": False,
+    "useLRLearner" : False,
+    "accum_steps" : 10,   
+    "skip_validation" : True,
+    #----------------------------------- SWIN ------------------------
+    # 'factor10' : 2 on Windows else 10.   3 works on 8GB, 10 will work on 80GB?
+    
+    'nHeads' : 4,
+    'patch_kernel' : 8,
+    'patch_stride' : 8,
+    'swin_dim' : 192,           # 480 is the right value, if we have enough GPU memory. Reduce this to fit onto GPU memory.
+    'window_size' : (2, 6, 12),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
+    'num_swin_block' : 30,
+    'nLevels' : 8,
+    'increasing' : True,
+    'type_pos_bias' : 'lonBand', # 'sphere', 'None'
     'pair_bias_dim' : 5,
     },
     
@@ -747,7 +789,7 @@ projects["Zeus_Swin_25Dec20_P8W2"] = {
 }
 
 #-------------------------------- select proejct -----------------------
-project = "Zeus_Swin_25Dec20_P6W2" # "ResNet50-NewCodec-2" #"ResNet50-9M" # "ResNet50-3753K" #"ResNet50-NewCodec-2"  #"ResNet50-24M-2"
+project = "Zeus_Swin_25Dec22" # "ResNet50-NewCodec-2" #"ResNet50-9M" # "ResNet50-3753K" #"ResNet50-NewCodec-2"  #"ResNet50-24M-2"
 config["bayesProject"] = project
 # updata 'management'
 config.update(projects[project]["management"])

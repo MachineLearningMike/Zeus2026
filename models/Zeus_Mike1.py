@@ -28,7 +28,7 @@ class Zeus(nn.Module):
         num_swin_blocks = pm.num_swin_block
         nLevels = pm.nLevels
         increasing = pm.increasing
-        use_pos_bias = pm.use_pos_bias
+        type_pos_bias = pm.type_pos_bias
         
         pair_bias_dim = pm.pair_bias_dim
 
@@ -36,7 +36,7 @@ class Zeus(nn.Module):
     
         print("Zeus model being created..............................................................")
         print(f"factor10 {factor10}, num_heads {num_heads}, patch_kernel {patch_kernel}, patch_stride {patch_stride}, swin_dim {swin_dim}")
-        print(f"window_size {window_size}, num_swin_blocks {num_swin_blocks}, nLevels {nLevels}, increasing {increasing}, use_pos_bias {use_pos_bias}")
+        print(f"window_size {window_size}, num_swin_blocks {num_swin_blocks}, nLevels {nLevels}, increasing {increasing}, type_pos_bias {type_pos_bias}")
 
         self.device = device
     
@@ -82,9 +82,10 @@ class Zeus(nn.Module):
                 drop=0.0,
                 attn_drop=0.0,
                 drop_path=0.0,
-                use_pos_bias = use_pos_bias,
+                type_pos_bias = type_pos_bias,
             )
-            for idx in range(num_swin_blocks)  # reduced number for testing
+            for idx in range(num_swin_blocks)  # reduced number for testing            
+            
         ])
         
         #--------------- Unpatch reconstructor        
