@@ -8,7 +8,7 @@ import os, sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.zeus_patch_unpatch_individual import PatchFeatureExtractor, UnpatchReconstructor
-from modules.Zeus_Swin_Block_3D_CDHW import Zeus_SwinTransformerBlock3D
+from modules.Zeus_Swin_Block_3D_CDHW import Encoder_Decoder
 from modules.zeus_dataset_Snapshot import Snapshot
 
 
@@ -19,16 +19,20 @@ class Zeus(nn.Module):
     def __init__(self, pm, device='cpu'):
         super().__init__()
 
+        self.factor10 = pm.factor10
+
         factor10 = pm.factor10
         num_heads = pm.nHeads
         patch_kernel = pm.patch_kernel
         patch_stride = pm.patch_stride
         swin_dim = pm.swin_dim
         window_size = pm.window_size
-        num_swin_blocks = pm.num_swin_block
+        num_encoder_decoder = pm.num_swin_block
         nLevels = pm.nLevels
         increasing = pm.increasing
         type_pos_bias = pm.type_pos_bias
+        depth_list = pm.depth_list
+        head_list = pm.head_list
         
         pair_bias_dim = pm.pair_bias_dim
 
@@ -36,7 +40,9 @@ class Zeus(nn.Module):
     
         print("Zeus model being created..............................................................")
         print(f"factor10 {factor10}, num_heads {num_heads}, patch_kernel {patch_kernel}, patch_stride {patch_stride}, swin_dim {swin_dim}")
-        print(f"window_size {window_size}, num_swin_blocks {num_swin_blocks}, nLevels {nLevels}, increasing {increasing}, type_pos_bias {type_pos_bias}")
+        print(f"window_size {window_size}, num_encoder_decoder {num_encoder_decoder}, nLevels {nLevels}, increasing {increasing}, type_pos_bias {type_pos_bias}")
+        print(f"depth_list {depth_list}, head_list {head_list}")
+        print(".......................................................................................")
 
         self.device = device
     
@@ -67,27 +73,16 @@ class Zeus(nn.Module):
         
         #---------------- Swin blocks ----------------------
         
-        input_resolution = (self.patch_extractor.nTotalLevels, H//patch_stride, W//patch_stride) 
-        
-        self.swin_blocks = nn.ModuleList([
-            Zeus_SwinTransformerBlock3D(
-                dim=swin_dim,
-                input_resolution=input_resolution,
-                num_heads=num_heads,
-                window_size=window_size,
-                shift_size=(0,0,0) if idx % 2 == 0 else (window_size[0]//2, window_size[1]//2, window_size[2]//2),
-                pair_bias_dim = pair_bias_dim,
-                mlp_ratio=4.,
-                qkv_bias=True,
-                drop=0.0,
-                attn_drop=0.0,
-                drop_path=0.0,
-                type_pos_bias = type_pos_bias,
-            )
-            for idx in range(num_swin_blocks)  # reduced number for testing            
-            
-        ])
-        
+        input_resolution = (self.patch_extractor.nTotalLevels, H//patch_stride, W//patch_stride)
+        qkv_bias = False    #------------------------- True makes attn.qkv.bias not receive a gradient !!!!!!!!!!!!!!!!
+        use_checkpoint = False
+        self.encoder_decoder = Encoder_Decoder(
+                input_resolution = input_resolution, embed_dim=swin_dim, depths=depth_list, num_heads=head_list,    #--------- num_heads to revise for deployment.
+                window_size=window_size, mlp_ratio=4., qkv_bias=qkv_bias,
+                drop_rate=0., attn_drop_rate=0., drop_path_rate=0.0,
+                norm_layer=nn.LayerNorm, ape=True,
+                use_checkpoint=use_checkpoint, pretrained_window_sizes=[0, 0, 0, 0])
+                
         #--------------- Unpatch reconstructor        
         self.unpatch_reconstructor = UnpatchReconstructor(
                 in_channels=self.patch_extractor.nTotalLevels * swin_dim, 
@@ -98,7 +93,7 @@ class Zeus(nn.Module):
                 stride=self.patch_stride
             )
 
-    def forward(self, ss1, ss2, cascade_step):    # Not batch-processing, as hard drives are always bottlenecks.
+    def forward(self, ss1, ss2, cascade_step):    # Not batch-processing, as hard drives are always bottlenecks.       
         # print(f"x befor patching: {ss1.meteo.shape, ss1.tempo.shape, ss1.geo_dense.shape}")
 
         #----------- patch/extract level features ------------
@@ -114,10 +109,9 @@ class Zeus(nn.Module):
         B, C, D, H, W = x.shape
         x_flat = x.permute(0,2,3,4,1).reshape(B, D*H*W, C)
 
-        for b in self.swin_blocks:
-            x_flat = b(x_flat)
+        x_flat = self.encoder_decoder(x_flat)
 
-        x_out = x_flat.view(B, D, H, W, C).permute(0,4,1,2,3)
+        x_out = x_flat.view(B, D, H, W, C).permute(0,4,1,2,3).contiguous()
         x = x_out.squeeze(0)
         # e = time.time()
         # print(f"x after swin blocks: {x.shape}, time: {e-s}")
@@ -139,12 +133,17 @@ class Zeus(nn.Module):
             fn_loss, fn_nornalize, fn_unnornalize, 
             batch_diff, era5_data_vars, trainable,
             type_metrics, continued,
+            pressure_indices, pressure_values,
         ):
         
         # with autocast(device_type=self.device_type, dtype=torch.bfloat16):
         #     with torch.set_grad_enabled(trainable):         
         
         pred = self(ss0, ss1, cascade_step)
+        pred[pressure_indices, :, :] = pressure_values.view(-1, 1, 1).to(pred.dtype)
+
+        # pred = torch.index_select(pred, dim=0, index=target_indices)
+
         if continued:
             result_ss = Snapshot(ssY.year, ssY.month, ssY.day, ssY.hour, meteo=pred.detach().to(ssY.meteo.device), meteo_unnormal=None, device=ssY.device)
         else:

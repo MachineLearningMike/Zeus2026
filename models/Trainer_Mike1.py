@@ -177,7 +177,8 @@ class Model_Trainer():
             # md_focus_list = [md for md in mds_to_train if md.md_id == self.focus_md_id]
             # md_focus = md_focus_list[0] if len(md_focus_list) == 1 else mds_to_train[0]
             
-            train_losses, train_metrics = self.run_epoch(mds_to_train, "train_set", trainable=True)   # (,), (C,)
+            with autocast(device_type='cuda', dtype=torch.bfloat16):    # time: 97 -> 82, memory: little
+                train_losses, train_metrics = self.run_epoch(mds_to_train, "train_set", trainable=True)   # (,), (C,)
 
             [md.get_epoch_display_batch(loss_list, metric_list) for (md, loss_list, metric_list) in zip(mds_to_train, train_losses, train_metrics)]
             [logging.info("Finished train epoch {}, {}".format(md.epoch, (md.display))) for md in mds_to_train]
@@ -437,14 +438,17 @@ class Model_Trainer():
                                     X0, X1, Y, cascade_step,
                                     self.loss, self.dataset.normalize_meteo, self.dataset.unnormalize_meteo, 
                                     batch_diff, era5_data_vars, trainable=trainable,
-                                    type_metrics = self.pm.metrics, continued = (len(Xs) > 0 or len(oldQ) > 0)
+                                    type_metrics = self.pm.metrics, continued = (len(Xs) > 0 or len(oldQ) > 0),
+                                    pressure_indices = self.dataset.pressure_indices,
+                                    pressure_values = self.dataset.pressure_values,
                                 )
                             cnt += 1
 
-                            if self.pm.pair_not_single_snapshot:
-                                newQ.append((X1, substep_result))                      # +1 X
-                            else:
-                                newQ.append((substep_result, substep_result))
+                            if len(newQ) < self.pm.max_cascade_step: 
+                                if self.pm.pair_not_single_snapshot:
+                                    newQ.append((X1, substep_result))                      # +1 X
+                                else:
+                                    newQ.append((substep_result, substep_result))
                                 
                             del X0
                             if not self.pm.pair_not_single_snapshot:
@@ -459,7 +463,8 @@ class Model_Trainer():
                         # state: len(oldQ) == 0, len(oldQ) > 0
                         oldQ = newQ
                         
-                    assert cnt == int((self.pm.nYSnapshots + 1) * self.pm.nYSnapshots / 2)
+                    # assert cnt == int((self.pm.nYSnapshots + 1) * self.pm.nYSnapshots / 2)
+                    # print('++++++++++++++++++++++++++', cnt)
                         
                     #------------------------------------------------ The set of steps finished.
                     md.store_step_loss_and_metrics(step_loss, step_metrics) # [substep_loss...], [substep_metrics...]

@@ -218,7 +218,7 @@ class WindowAttention3D(nn.Module):
 
         # self.logit_scale = nn.Parameter(torch.log(10 * torch.ones((num_heads, 1, 1))), requires_grad=True)
 
-        self.qkv = nn.Linear(dim, dim*3, bias=False)
+        self.qkv = nn.Linear(dim, dim*3, bias=qkv_bias)
         if qkv_bias:
             self.q_bias = nn.Parameter(torch.zeros(dim), requires_grad=True)
             self.v_bias = nn.Parameter(torch.zeros(dim), requires_grad=True)
@@ -1157,6 +1157,7 @@ class Decoder(nn.Module):
 
         # build layers
         self.layers = nn.ModuleList()
+        self.skip_learners = nn.ModuleList()
         prev_resolution = (input_resolution[0] * 2, input_resolution[1] * 2, input_resolution[2] * 2)
         for i_layer in range(self.num_layers):
 
@@ -1173,6 +1174,7 @@ class Decoder(nn.Module):
                         prev_resolution[1] // 2,
                         prev_resolution[2] // 2,
             ]
+            dim = int(embed_dim * 2 ** i_layer)
 
             padding = []
             for i in range(3):
@@ -1189,7 +1191,7 @@ class Decoder(nn.Module):
                 for i in range(3):
                     assert resolution[i] % 2 == 0, f"BasicLayer {i_layer} has an odd input resolution {resolution} while having PatchMerging."
             
-            layer = BasicLayer(dim=int(embed_dim * 2 ** i_layer),
+            layer = BasicLayer(dim=dim,
                                input_resolution=resolution,
                                depth=depths[i_layer],
                                num_heads=num_heads[i_layer],
@@ -1204,8 +1206,12 @@ class Decoder(nn.Module):
                                pretrained_window_size=pretrained_window_sizes[i_layer],
                                pair_bias_dim = pair_bias_dim, padding=padding,
                                in_encoder=False)
-            
             self.layers.append(layer)
+            
+            skip_learner = nn.Linear(dim, dim, bias=False)
+            torch.nn.init.eye_(skip_learner.weight)
+            self.skip_learners.append(skip_learner)            
+            
             prev_resolution = resolution
 
         self.apply(self._init_weights)
@@ -1232,9 +1238,9 @@ class Decoder(nn.Module):
     def forward(self, enc_x_by_layer):        
         dec_x_after_us = torch.zeros_like(enc_x_by_layer[-1][0])
             
-        for idx, (dec_layer, (enc_x_before_ds, _)) in enumerate(zip(reversed(self.layers), reversed(enc_x_by_layer))):
+        for idx, (dec_layer, (enc_x_before_ds, _), skip_learner) in enumerate(zip(reversed(self.layers), reversed(enc_x_by_layer), reversed(self.skip_learners))):
             # print(f"{idx}, dec_layer: {dec_layer.dim}, {dec_layer.input_resolution}, enc_before_ds: {enc_x_before_ds.shape}")
-            input = dec_x_after_us + enc_x_before_ds 
+            input = dec_x_after_us + skip_learner(enc_x_before_ds) 
             (_, dec_x_after_us) = dec_layer(input)
 
         return dec_x_after_us
@@ -1262,11 +1268,14 @@ class Encoder_Decoder(nn.Module):
                 # absolute position eocoding is required in geo-shpere, because geo-cat and geo-dense is not enough.
                 use_checkpoint=use_checkpoint, pretrained_window_sizes=pretrained_window_sizes, pair_bias_dim=pair_bias_dim, **kwargs)
         
+        self.skip_learner = nn.Linear(embed_dim, embed_dim, bias=False)
+        torch.nn.init.eye_(self.skip_learner.weight)
+        
     def forward(self, x_flat):
         x_skip = x_flat     # .clone() ------ no clone() because self.encoder doesn't modify its input arguments.
         x_by_layer = self.encoder(x_flat)
         x = self.decoder(x_by_layer)
-        x = x + x_skip
+        x = x + self.skip_learner(x_skip)
         return x
         
 import numpy as np
@@ -1548,8 +1557,8 @@ if __name__ == "__main__":
     
     #------------------------ Encoder -----------------------------
 
-    # factor10, window_size = 2, (2, 4, 4)
-    factor10, window_size = 10, (2, 6, 6)
+    factor10, window_size = 2, (2, 4, 4)
+    # factor10, window_size = 10, (2, 6, 6)
 
     H, W, D = int(180/10*factor10), int(360/10*factor10), 8
     print("H, W, D", H, W, D)

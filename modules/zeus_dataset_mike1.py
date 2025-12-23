@@ -95,6 +95,9 @@ class Zeus_Dataset(Dataset):
         
         self.normal_tempo_buffers = [None] * (self.pm.nYSnapshots + 2)
         self.unnormal_tempo_buffers = [None] * (self.pm.nYSnapshots + 2)
+        
+        self.pressure_indices = None
+        self.pressure_values = None
 
         
         # self.shard_dataset = ERA5ZarrShards(
@@ -200,7 +203,7 @@ class Zeus_Dataset(Dataset):
             #----------------------------------- This decides the order of arrays !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             #----------------------------------- The order must be consistent across training and inference. !!!!!!!!!!!!!
             #----------------------------------- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-            for var in self.ext_variables:
+            for var in self.p_intercalated_vars:
                 if var.startswith('p_'):
                     # newly added pressure variables at air levels.
                     hecta = 100.0
@@ -1117,28 +1120,39 @@ class Zeus_Dataset(Dataset):
         pressure_std = np.array(pascals).mean().item()**0.5
             
         #----------------- 
-        ext_variables = []
+        p_intercalated_vars = []
         cnt = 0
         for var in self.pm.variables:
             if cnt % num_vars_per_level == 0 and cnt // num_vars_per_level < num_levels:
             #----------------- add P_level -----------------
                 var_name = "p_" + str(HECTA_PASCAL_UNCHANGEABLE[cnt // num_vars_per_level])
-                ext_variables.append(var_name)
+                p_intercalated_vars.append(var_name)
                 mean_meteo_dict[var_name] = pressure_mean
-                std_meteo_dict[var_name] = pressure_std    
+                std_meteo_dict[var_name] = pressure_std
             if var == 'msl' or var == 'sp':
             #----------------- handle msl and sp
                 mean_meteo_dict[var] = pressure_mean
                 std_meteo_dict[var] = pressure_std  
-            ext_variables.append(var)
+            p_intercalated_vars.append(var)
             cnt += 1
             
-        # Find where and how self.ext_variables is used.
-        self.ext_variables = ext_variables
+        # Find where and how self.p_intercalated_vars is used.
+        self.p_intercalated_vars = p_intercalated_vars
         
+        pressure_indices = []
+        pressure_values = []
+        for idx, var in enumerate(self.p_intercalated_vars):
+            if var.startswith("p_"):
+                pressure_indices.append(idx)
+                hecta = 100.0
+                pressure = int(var[2:]) * hecta
+                pressure_values.append(pressure)
+        self.pressure_indices = torch.tensor(pressure_indices).to("cuda" if torch.cuda.is_available() else "cpu")
+        self.pressure_values = torch.tensor(pressure_values).to("cuda" if torch.cuda.is_available() else "cpu")
+            
         #--------------------------------- loss weights --------------------
         loss_weights = []
-        for var in self.ext_variables:
+        for var in self.p_intercalated_vars:
             if var.startswith("p_"):
                 loss_weights.append(0.)
             elif var in ["t2m", "tp", "u100m","v100m", "d2m", "sp"]:
@@ -1152,10 +1166,10 @@ class Zeus_Dataset(Dataset):
         
         #-------------------------------- meteo ----------------------
         mean_meteo = []
-        for var in self.ext_variables:
+        for var in self.p_intercalated_vars:
             mean_meteo.append(mean_meteo_dict[var])
         std_meteo = []
-        for var in self.ext_variables:
+        for var in self.p_intercalated_vars:
             std_meteo.append(std_meteo_dict[var])
         
         mean_meteo, std_meteo = torch.tensor(mean_meteo), torch.tensor(std_meteo)
@@ -1777,6 +1791,27 @@ class Zeus_Dataset(Dataset):
         
         return batch, batch_diff, self.era5_data_vars     # (B, T1FG, C, H, W), (B, T2FG, C, H, W), (B, 1, C, H, W), (C,)
     
+    def check_accumulation_periods(self):
+        """Check accumulation periods for flux variables."""
+        if self.total_ds is None:
+            self.total_ds = self.get_normalized_dataset()
+        
+        flux_vars = ['tp', 'ssr', 'ssrd', 'ttr', 'fdir']
+        
+        for var_name in flux_vars:
+            era_var = var_name_map.get(var_name, var_name)
+            if era_var in self.total_ds:
+                data_var = self.total_ds[era_var]
+                print(f"\n{var_name} ({era_var}):")
+                print(f"  Shape: {data_var.shape}")
+                print(f"  Attributes: {data_var.attrs}")
+                
+                # Check for accumulation info in attributes
+                if 'accumulated' in data_var.attrs:
+                    print(f"  Accumulation period: {data_var.attrs['accumulated']}")
+                elif 'interval' in data_var.attrs:
+                    print(f"  Interval: {data_var.attrs['interval']}")
+    
     
     def visualize_frames(self, x_seq):
         seq_len, C, H, W = x_seq.shape
@@ -2026,6 +2061,9 @@ if __name__ == "__main__":
     pm = Params(config)
 
     dataset = Zeus_Dataset(pm, Path(config['dataset_path']), Path(config['management_path']))
+    
+    # dataset.check_accumulation_periods()
+    
     # variables = ["geopotential_at_surface", "land_sea_mask", "soil_type"]
     # dict = dataset.get_geo_data(Path(config['management_path']), variables)
 

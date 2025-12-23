@@ -453,6 +453,7 @@ class Model_Dom():
             fn_loss, fn_nornalize, fn_unnornalize, 
             batch_diff, era5_data_vars, trainable,
             type_metrics, continued,
+            pressure_indices, pressure_values,
         ):
         
         return self.model.forward_backward_no_step(
@@ -460,6 +461,7 @@ class Model_Dom():
             fn_loss, fn_nornalize, fn_unnornalize, 
             batch_diff, era5_data_vars, trainable,
             type_metrics, continued,
+            pressure_indices, pressure_values,
         )
         
     def store_step_loss_and_metrics(self, step_loss, step_metrics): # [substep_loss...], [substep_metrics...]
