@@ -520,7 +520,7 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
     #------------------------------------------------------------------------------------------------------------------------
     def __init__(self, dim, input_resolution, num_heads, window_size, shift_size, pair_bias_dim,
                  mlp_ratio=4., qkv_bias=True, drop=0., attn_drop=0., drop_path=0.,
-                 act_layer=nn.GELU, norm_layer=nn.LayerNorm, type_pos_bias='lonBand', padding=(), is_gate=False, in_encoder=True):
+                 act_layer=nn.GELU, norm_layer=nn.LayerNorm, type_pos_bias='lonBand', padding=(), is_padding_block=False, in_encoder=True):
         super().__init__()
         
         # assert all(s==0 for s in shift_size) or all(s!=0 for s in shift_size)
@@ -528,6 +528,7 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
 
         self.dim = dim
         self.input_resolution = input_resolution
+        self.input_vol = input_resolution[0] * input_resolution[1] * input_resolution[2]
         self.num_heads = num_heads
         self.window_size = window_size
         self.window_volume = window_size[0] * window_size[1] * window_size[2]
@@ -566,6 +567,7 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
             pad = 0 if len(pad) <= 0 else pad[0]
             pads.append(pad)
         self.unpadded_resolution = [input_resolution[dim] - pads[dim] for dim in range(3)]  # resolutions for D, H and W each
+        self.unpadded_vol = self.unpadded_resolution[0] * self.unpadded_resolution[1] * self.unpadded_resolution[2]
 
         self.padding = padding
         
@@ -579,10 +581,10 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
                 pad_config += [pad, 0]  # D, H, W, resectively according to idx
                 
             pad_config += [0, 0]    # dim of (B, D, H, W, dim)
-            pad_config = tuple(reversed(pad_config))
+            pad_config = tuple(pad_config)
             self.padding_config = pad_config
             
-        self.is_gate = is_gate
+        self.is_padding_block = is_padding_block
         self.in_encoder = in_encoder
 
     def build_pair_type_matrix_sphere(self):
@@ -631,8 +633,9 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
 
     #---------------------------------------- One-shot FFN
     def forward(self, x):
-        if self.in_encoder and self.is_gate and self.padding_config is not None:     # padding takes place.
+        if self.in_encoder and self.is_padding_block and self.padding_config is not None:     # padding takes place.
             [D, H, W] = self.unpadded_resolution
+            
             B, L, dim = x.shape
             x = x.view(B, D, H, W, dim)
             x = F.pad(x, self.padding_config, mode='constant')  # zeros
@@ -694,11 +697,11 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
         x = shortcut + self.drop_path(self.norm1(x))
         x = x + self.drop_path(self.norm2(self.mlp(x)))
         
-        if not self.in_encoder and self.is_gate and self.padding_config is not None:     # padding takes place.
+        if not self.in_encoder and self.is_padding_block and self.padding_config is not None:     # padding takes place.
             [D, H, W] = self.input_resolution
             B, L, dim = x.shape
             x = x.view(B, D, H, W, dim)
-            padding_config = [c for c in self.padding_config]
+            padding_config = [-c for c in self.padding_config]
             x = F.pad(x, tuple(padding_config), mode='constant')  # zeros
             x = x.view(B, -1, dim)
         
@@ -930,14 +933,14 @@ class BasicLayer(nn.Module):
         attn_drop (float, optional): Attention dropout rate. Default: 0.0
         drop_path (float | tuple[float], optional): Stochastic depth rate. Default: 0.0
         norm_layer (nn.Module, optional): Normalization layer. Default: nn.LayerNorm
-        downsample (nn.Module | None, optional): Downsample layer at the end of the layer. Default: None
+        resampler (nn.Module | None, optional): Downsample layer at the end of the layer. Default: None
         use_checkpoint (bool): Whether to use checkpointing to save memory. Default: False.
         pretrained_window_size (int): Local window size in pre-training.
     """
 
     def __init__(self, dim, input_resolution, depth, num_heads, window_size, pair_bias_dim,
                  mlp_ratio=4., qkv_bias=True, drop=0., attn_drop=0.,
-                 drop_path=0., norm_layer=nn.LayerNorm, downsample=PatchMerging3D, use_checkpoint=False,
+                 drop_path=0., norm_layer=nn.LayerNorm, resampler=PatchMerging3D, use_checkpoint=False,
                  pretrained_window_size=0, type_pos_bias='lonBand', padding=(), in_encoder=True):
 
         super().__init__()
@@ -946,6 +949,7 @@ class BasicLayer(nn.Module):
         self.depth = depth
         self.use_checkpoint = use_checkpoint
         self.padding = padding
+        self.in_encoder = in_encoder
 
         # build blocks
         self.blocks = nn.ModuleList()
@@ -970,27 +974,30 @@ class BasicLayer(nn.Module):
                                 norm_layer=norm_layer,
                                 #  pretrained_window_size=pretrained_window_size,
                                 type_pos_bias = type_pos_bias, padding=padding,
-                                is_gate=(i==0 if in_encoder else i==depth-1),
+                                is_padding_block=(i==0),
                                 in_encoder = in_encoder,
                                 )
             self.blocks.append(block)
 
         # patch merging layer
-        if downsample is not None:
-            self.downsample = downsample(input_resolution, dim=dim, norm_layer=norm_layer)
+        if resampler is not None:
+            incoming_resolution = input_resolution if in_encoder else self.blocks[0].unpadded_resolution
+            
+            self.resampler = resampler(incoming_resolution, dim=dim, norm_layer=norm_layer)
         else:
-            self.downsample = None
+            self.resampler = None
 
     def forward(self, x, ):
         output_by_phase = []
-        for blk in self.blocks:
+        blocks = self.blocks if self.in_encoder else reversed(self.blocks)
+        for blk in blocks:
             if self.use_checkpoint:
                 x = checkpoint.checkpoint(blk, x)
             else:
                 x = blk(x)
         output_by_phase.append(x)
-        if self.downsample is not None:
-            x = self.downsample(x)
+        if self.resampler is not None:
+            x = self.resampler(x)
         output_by_phase.append(x)
         return output_by_phase
 
@@ -1001,8 +1008,8 @@ class BasicLayer(nn.Module):
         flops = 0
         for blk in self.blocks:
             flops += blk.flops()
-        if self.downsample is not None:
-            flops += self.downsample.flops()
+        if self.resampler is not None:
+            flops += self.resampler.flops()
         return flops
 
     def _init_respostnorm(self):
@@ -1060,8 +1067,8 @@ class Encoder(nn.Module):
                 # Ensure resolution is a multiple of window size
                 pad = 0 if resolution[i] % window_size[i] == 0 else window_size[i] - resolution[i] % window_size[i]
                 if pad != 0:
+                    print(f"!!!!!!!!!! Encoder layer {i_layer}: input resolution[{i}] {resolution[i]} is increased by {pad} to be a multiple of window size {window_size[i]}")
                     resolution[i] += pad
-                    print(f"input resolution is increased by {pad}")
                     padding.append((i, pad))
             padding = tuple(padding) if len(padding) >= 0 else ()
             
@@ -1080,7 +1087,7 @@ class Encoder(nn.Module):
                                drop=drop_rate, attn_drop=attn_drop_rate,
                                drop_path=dpr[sum(depths[:i_layer]):sum(depths[:i_layer + 1])],
                                norm_layer=norm_layer,
-                               downsample=donwsample,
+                               resampler=donwsample,
                                use_checkpoint=use_checkpoint,
                                pretrained_window_size=pretrained_window_sizes[i_layer],
                                pair_bias_dim = pair_bias_dim, padding=padding,
@@ -1120,8 +1127,8 @@ class Encoder(nn.Module):
             output_by_layer.append(output_by_phase)
             x = output_by_phase[1]
 
-        for idx, (enc_layer, (before_ds, after_ds)) in enumerate(zip(self.layers, output_by_layer)):
-            print(f"{idx}, enc_layer: {enc_layer.dim}, {enc_layer.input_resolution}, enc_before_ds: {before_ds.shape}, enc_after_ds: {after_ds.shape}")
+        # for idx, (enc_layer, (before_ds, after_ds)) in enumerate(zip(self.layers, output_by_layer)):
+        #     print(f"{idx}, enc_layer: {enc_layer.dim}, {enc_layer.input_resolution}, enc_before_ds: {before_ds.shape}, enc_after_ds: {after_ds.shape}")
 
         return output_by_layer
 
@@ -1158,8 +1165,10 @@ class Decoder(nn.Module):
             for i in range(3):
                 pad = 0 if resolution[i] % window_size[i] == 0 else window_size[i] - resolution[i] % window_size[i]
                 if pad != 0:
+                    print(f"!!!!!!!!!! Decoder layer {i_layer}: input resolution[{i}] {resolution[i]} is increased by {pad} to be a multiple of window size {window_size[i]}")
                     resolution[i] += pad
                     padding.append((i, pad))
+
             padding = tuple(padding) if len(padding) >= 0 else ()
             
             layer = BasicLayer(dim=int(embed_dim * 2 ** i_layer),
@@ -1172,7 +1181,7 @@ class Decoder(nn.Module):
                                drop=drop_rate, attn_drop=attn_drop_rate,
                                drop_path=dpr[sum(depths[:i_layer]):sum(depths[:i_layer + 1])],
                                norm_layer=norm_layer,
-                               downsample=PatchUnmerging3D if i_layer > 0 else None, # (i_layer < self.num_layers - 1) else None,
+                               resampler=PatchUnmerging3D if i_layer > 0 else None, # (i_layer < self.num_layers - 1) else None,
                                use_checkpoint=use_checkpoint,
                                pretrained_window_size=pretrained_window_sizes[i_layer],
                                pair_bias_dim = pair_bias_dim, padding=padding,
@@ -1204,7 +1213,7 @@ class Decoder(nn.Module):
         dec_x_after_us = torch.zeros_like(enc_x_by_layer[-1][0])
             
         for idx, (dec_layer, (enc_x_before_ds, _)) in enumerate(zip(reversed(self.layers), reversed(enc_x_by_layer))):
-            print(f"{idx}, dec_layer: {dec_layer.dim}, {dec_layer.input_resolution}, enc_before_ds: {enc_x_before_ds.shape}")
+            # print(f"{idx}, dec_layer: {dec_layer.dim}, {dec_layer.input_resolution}, enc_before_ds: {enc_x_before_ds.shape}")
             input = dec_x_after_us + enc_x_before_ds 
             (_, dec_x_after_us) = dec_layer(input)
 
@@ -1366,7 +1375,7 @@ def show_global_attn_mask_map(attn_mask, window_size, input_resolution, depth_id
     ax.add_feature(cfeature.BORDERS, linewidth=0.5)
     ax.add_feature(cfeature.COASTLINE, linewidth=0.5)
     plt.colorbar(c, ax=ax, orientation='vertical', label='Attention Mask')
-    plt.title(f"Maks: depth {depth_idx}, R {input_resolution}, WS {window_size}, " + title)
+    plt.title(f"Maks: depth {depth_idx}, R {input_resolution}, WS {window_size}, " + title, fontsize=9)
     plt.show()
 
 import numpy as np
@@ -1507,7 +1516,7 @@ if __name__ == "__main__":
     merging = False          
     bLayer = BasicLayer(dim=C, input_resolution=input_resolution, depth=depth, num_heads=num_heads, window_size=window_size, pair_bias_dim=pair_bias_dim,
                  mlp_ratio=4., qkv_bias=True, drop=0., attn_drop=0.,
-                 drop_path=0., norm_layer=nn.LayerNorm, downsample=PatchMerging3D if merging else PatchMerging3D, use_checkpoint=False,
+                 drop_path=0., norm_layer=nn.LayerNorm, resampler=PatchMerging3D if merging else PatchMerging3D, use_checkpoint=False,
                  pretrained_window_size=0, type_pos_bias='lonBand').to(device)
     
     # Forward pass
@@ -1519,11 +1528,12 @@ if __name__ == "__main__":
     
     #------------------------ Encoder -----------------------------
 
-    factor10 = 10  # 2, 3
+    factor10, window_size = 2, (2, 4, 4)
+    # factor10, window_size = 10, (2, 6, 6)
+
     H, W, D = int(180/10*factor10), int(360/10*factor10), 8
     print("H, W, D", H, W, D)
-    C, num_heads = 16, 4
-    window_size = (2, int(10/10*factor10), int(10/10*factor10))  # (win_D, win_H, win_W)
+    C, num_heads = 8, 4
     pair_bias_dim = 5
 
     input_resolution=(D, H, W)
@@ -1543,7 +1553,7 @@ if __name__ == "__main__":
 
     # encoder = Encoder(input_resolution = (D, H, W), embed_dim=192, depths=[4, 8, 4], num_heads=[4, 8, 16],
     encoder = Encoder(input_resolution = (D, H, W), embed_dim=C, depths=[4, 8, 4], num_heads=[4, 8, 16],    #--------- num_heads to revise for deployment.
-                window_size=(2, 6, 6), mlp_ratio=4., qkv_bias=True,     #---------- window_size=(2, 6, 6) for deployment
+                window_size=window_size, mlp_ratio=4., qkv_bias=True,     #---------- window_size=(2, 6, 6) for deployment
                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.0,
                 norm_layer=nn.LayerNorm, ape=True,
                 use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0]).to(device)
@@ -1559,7 +1569,7 @@ if __name__ == "__main__":
     
     #----------------------- Decoder -----------------------------------
     decoder = Decoder(input_resolution = (D, H, W), embed_dim=C, depths=[4, 8, 4], num_heads=[4, 8, 16],    #--------- num_heads to revise for deployment.
-            window_size=(2, 6, 6), mlp_ratio=4., qkv_bias=True,     #---------- window_size=(2, 5, 5) for deployment
+            window_size=window_size, mlp_ratio=4., qkv_bias=True,     #---------- window_size=(2, 5, 5) for deployment
             drop_rate=0., attn_drop_rate=0., drop_path_rate=0.0,
             norm_layer=nn.LayerNorm, ape=True,
             use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0]).to(device)
@@ -1573,18 +1583,18 @@ if __name__ == "__main__":
     #--------------------- Encoder_Decoder ------------------------------
     
     codec = Encoder_Decoder(input_resolution = (D, H, W), embed_dim=C, depths=[4, 8, 4], num_heads=[4, 8, 16],    #--------- num_heads to revise for deployment.
-            window_size=(2, 6, 6), mlp_ratio=4., qkv_bias=True,     #---------- window_size=(2, 5, 5) for deployment
+            window_size=window_size, mlp_ratio=4., qkv_bias=True,     #---------- window_size=(2, 5, 5) for deployment
             drop_rate=0., attn_drop_rate=0., drop_path_rate=0.0,
             norm_layer=nn.LayerNorm, ape=True,
             use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0]).to(device)
 
-    # print(f"Encoder_Decoder. x_flat: {x_flat.shape}")
+    print(f"Encoder_Decoder. x_flat: {x_flat.shape}")
 
-    # s = time.time()
-    # x = codec(x_flat)
-    # e = time.time()
+    s = time.time()
+    x = codec(x_flat)
+    e = time.time()
     
-    # print(f"==================== output after encoder_decoder. x: {x.shape} time: {e-s}")
+    print(f"==================== output after encoder_decoder. x: {x.shape} time: {e-s}")
         
     #-----------------------------------------------------------------
 
@@ -1609,15 +1619,7 @@ if __name__ == "__main__":
 
     # show_on_map(data)    
     
-    # attn_mask = blocks3D[1].attn_mask.attn_mask
-    # # show_global_attn_mask(attn_mask, window_size=window_size, input_resolution=input_resolution, depth_idx=0)
-    # show_global_attn_mask_map(attn_mask, window_size=window_size, input_resolution=input_resolution, depth_idx=0)
-    
-
-    # block = encoder.layers[-3].blocks[0]
-    # attn_mask = block.attn_mask.attn_mask
-    # show_global_attn_mask_map(attn_mask, block.window_size, block.input_resolution, depth_idx=0)
-
+    print("----------------------------------- printing ... ----------------------------------")
     encoder = codec.decoder
     nLayers = len(encoder.layers)
     for layer_idx in range(nLayers):
