@@ -581,7 +581,7 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
                 pad_config += [pad, 0]  # D, H, W, resectively according to idx
                 
             pad_config += [0, 0]    # dim of (B, D, H, W, dim)
-            pad_config = tuple(pad_config)
+            pad_config = tuple(reversed(pad_config))
             self.padding_config = pad_config
             
         self.is_padding_block = is_padding_block
@@ -1048,6 +1048,7 @@ class Encoder(nn.Module):
 
         # build layers
         self.layers = nn.ModuleList()
+        prev_resolution = (input_resolution[0] * 2, input_resolution[1] * 2, input_resolution[2] * 2)
         for i_layer in range(self.num_layers):
 
             #--------------------- Define input_resolution -----------------
@@ -1056,12 +1057,14 @@ class Encoder(nn.Module):
             # 2) If input_resolution[dim] % (2 ** i_layer) > 0, x.shape and input_resolution mismatches in forward passes.
 
             for dim in range(3):
-                assert input_resolution[dim] % (2 ** i_layer) == 0, f"Input resolution will mismatch with incoming x.shape in BasicLayer {i_layer}"
+                assert prev_resolution[dim] % 2 == 0, f"Input resolution will mismatch with incoming x.shape in BasicLayer {i_layer}"
 
-            resolution=[input_resolution[0] // (2 ** i_layer),
-                                input_resolution[1] // (2 ** i_layer),
-                                input_resolution[2] // (2 ** i_layer),
+            # This will be the output resolution from the previous BasicLayer, if it has downsampler as we ensure here.
+            resolution=[prev_resolution[0] // 2,
+                        prev_resolution[1] // 2,
+                        prev_resolution[2] // 2,
             ]
+
             padding = []
             for i in range(3):
                 # Ensure resolution is a multiple of window size
@@ -1092,7 +1095,9 @@ class Encoder(nn.Module):
                                pretrained_window_size=pretrained_window_sizes[i_layer],
                                pair_bias_dim = pair_bias_dim, padding=padding,
                                in_encoder=True)
-            self.layers.append(layer)
+            
+            self.layers.append(layer)            
+            prev_resolution = resolution
 
         self.apply(self._init_weights)
         for bly in self.layers:
@@ -1528,8 +1533,8 @@ if __name__ == "__main__":
     
     #------------------------ Encoder -----------------------------
 
-    factor10, window_size = 2, (2, 4, 4)
-    # factor10, window_size = 10, (2, 6, 6)
+    # factor10, window_size = 2, (2, 4, 4)
+    factor10, window_size = 10, (2, 6, 6)
 
     H, W, D = int(180/10*factor10), int(360/10*factor10), 8
     print("H, W, D", H, W, D)
