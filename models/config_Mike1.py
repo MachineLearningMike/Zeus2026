@@ -186,7 +186,7 @@ else:
         config["dataset_path"] = "/mnt"
         config["management_path"] = "/home/mike/zeus_management"
 
-    config['nYSnapshots'] = 1
+    config['nYSnapshots'] = 3
     
     # GPU: 
     config["factor10"] = 10  # 
