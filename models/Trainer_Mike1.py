@@ -386,7 +386,7 @@ class Model_Trainer():
                 # for _ in  range(self.train_bombs):    # train_bomb cannot work because we destroy batch_of_ss_lists.
                     
                 Xs = batch_of_ss_lists[0]   # batch_of_ss_lists undergoes changes. This code doesn't know the content of X
-                assert len(Xs) == self.pm.nCascades + (2 if self.pm.pair_not_single_snapshot else 1)
+                assert len(Xs) == self.pm.nYSnapshots + (2 if self.pm.pair_not_single_snapshot else 1)
                     
                 for md in mds:
                     #------------------------ this algorithm is studied in zeus_train_6_hourly.py -----------
@@ -459,7 +459,7 @@ class Model_Trainer():
                         # state: len(oldQ) == 0, len(oldQ) > 0
                         oldQ = newQ
                         
-                    assert cnt == int((self.pm.nCascades + 1) * self.pm.nCascades / 2)
+                    assert cnt == int((self.pm.nYSnapshots + 1) * self.pm.nYSnapshots / 2)
                         
                     #------------------------------------------------ The set of steps finished.
                     md.store_step_loss_and_metrics(step_loss, step_metrics) # [substep_loss...], [substep_metrics...]

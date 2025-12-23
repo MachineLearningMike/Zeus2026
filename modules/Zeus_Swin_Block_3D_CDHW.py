@@ -376,7 +376,7 @@ class AttentionMask3D(nn.Module):     # original, mine
     #------------------------------------------------------------------------------------------------------------------------
     attn_mask_shared = {}  # key: shift_size tuple, value: mask tensor
 
-    def __init__(self, input_resolution, window_size, shift_size):
+    def __init__(self, input_resolution, window_size, shift_size, padding=()):
         super().__init__()
         self.input_resolution = input_resolution
         self.window_size = window_size
@@ -384,20 +384,21 @@ class AttentionMask3D(nn.Module):     # original, mine
         self.shift_size = shift_size  # tuple (shift_D, shift_H, shift_W)
 
         # Convert to hashable key for sharing
-        key = (*input_resolution, *window_size, *shift_size)
+        padding = () if padding is None else padding
+        key = (*input_resolution, *window_size, *shift_size, *padding)
         if key not in AttentionMask3D.attn_mask_shared:
             # Compute mask once
-            attn_mask = self.compute_mask(input_resolution, window_size, shift_size)
+            attn_mask = self.compute_mask(input_resolution, window_size, shift_size, padding)
             AttentionMask3D.attn_mask_shared[key] = attn_mask
 
         # Register buffer for this instance
         self.register_buffer("attn_mask", AttentionMask3D.attn_mask_shared[key], persistent=False)
 
     @staticmethod
-    def compute_mask(input_resolution, window_size, shift_size):
+    def compute_mask(input_resolution, window_size, shift_size, padding):
         D, H, W = input_resolution
-        if all(s == 0 for s in shift_size):
-            return None  # no shift, no mask
+        if all(s == 0 for s in shift_size) and padding == ():
+            return None
 
         #------------------------- torch.roll ------------------------------------------------------------------------------------
         #   x = torch.tensor([0, 1, 2, 3, 4, 5])
@@ -409,35 +410,98 @@ class AttentionMask3D(nn.Module):     # original, mine
         #
         #   NOTE: A negative shift or positive shift, there is no imparity like which side of indices are respected more.
         #-------------------------------------------------------------------------------------------------------------------------
+        def get_slices(s_size, w_size, pad):
+            if s_size != 0 and pad == 0:  # shift only, it's a standard Swin mask.
+                slices = (slice(0, -w_size),            # L = total - w_size        # (0, 1, 2, 3)              window_size[0] == 2
+                            slice(-w_size, -s_size),    # L = w_size - s_size       # (4)                       shift_size[0] == 1
+                            slice(-s_size, None))       # L = s_size                # (5)
+                                                                                    # (t, t, t, t, t1, t2)            after filling in with type_id
+                                                                                    # (t, t), (t, t), (t1, t2)        after window_partition_3d
+                                                                                    # (0,0; 0,0), (0,0; 0,0), (0,-100; -100,0)    after masked_fill
+                                                                                    # This means mask is palced on the higher-index side.
+                                                                                    # This is consistent with negative shift, where the higher-index side has imigrants, like 0.
+            elif s_size == 0 and pad != 0:  # pad only
+                slices = (slice(0, pad),                # pad.    L = pad                   # Left pad columns are no-values.
+                            slice(pad, None))           # main.   L = total - pad
 
-        # Create mask
-        img_mask = torch.zeros((1, 1, D, H, W))
-        d_slices = (slice(0, -window_size[0]),                  # (0, 1, 2, 3)              window_size[0] == 2
-                    slice(-window_size[0], -shift_size[0]),     # (4)                       shift_size[0] == 1
-                    slice(-shift_size[0], None))                # (5)
-                                                                # (t, t, t, t, t1, t2)            after filling in with type_id
-                                                                # (t, t), (t, t), (t1, t2)        after window_partition_3d
-                                                                # (0,0; 0,0), (0,0; 0,0), (0,-100; -100,0)    after masked_fill
-                                                                # This means mask is palced on the higher-index side.
-                                                                # This is consistent with negative shift, where the higher-index side has imigrants, like 0.
+            elif s_size != 0 and pad != 0:
+                if pad <= s_size:                               # The whole pad is rolled to the right.
+                    slices = (slice(0, -w_size),                # main.         L = total - w_size
+                                slice(-w_size, -s_size),        # originals.    L = w_size - s_size
+                                slice(-s_size, -pad),           # immigrants.   L = s_size - pad
+                                slice(-pad, None))              # pad.          L = pad
+                else:
+                    slices = (slice(0, pad - s_size),           # pad2.         L = pad - s_size
+                                slice(pad - s_size, -w_size),   # main.         L = total - pad + s_size - w_size
+                                slice(-w_size, -s_size),        # originals.    L = w_size - s_size
+                                slice(-s_size, None))           # pad1.         L = s_size
+            elif s_size == 0 and pad == 0:              # s_size == 0 includes total <= w_size
+                slices = (slice(None),)                      # total L = total
+            
+            return slices      
+      
+        #------------------------------------------ D ------------------------------------------------------------  
+        idx = 0
+        pad = [p for (i, p) in padding if i == idx]
+        pad = 0 if len(pad) <= 0 else pad[0]
+        w_size = window_size[idx]
+        s_size = shift_size[idx]
+        assert pad < w_size
+        
+        d_slices = get_slices(s_size, w_size, pad)
 
-        h_slices = (slice(0, -window_size[1]),
-                    slice(-window_size[1], -shift_size[1]),
-                    slice(-shift_size[1], None))
-                
-        # w_slices = (slice(0, -window_size[2]),
-        #             slice(-window_size[2], -shift_size[2]),
-        #             slice(-shift_size[2], None))
+        #------------------------------------------ H ------------------------------------------------------------  
+        idx = 1
+        pad = [p for (i, p) in padding if i == idx]
+        pad = 0 if len(pad) <= 0 else pad[0]
+        w_size = window_size[idx]
+        s_size = shift_size[idx]
+        assert pad < w_size
+        
+        h_slices = get_slices(s_size, w_size, pad)
+        
+        #------------------------------------------ W ------------------------------------------------------------  
+        idx = 2
+        pad = [p for (i, p) in padding if i == idx]
+        pad = 0 if len(pad) <= 0 else pad[0]
+        w_size = window_size[idx]
+        s_size = shift_size[idx]
+        assert pad < w_size
+
+        # w_slices = (slice(0, -w_size),
+        #             slice(-w_size, -shift_size),
+        #             slice(-s_size, None))
 
         # This line replaces the above block and creates an attention mask that's cylindric on W dim.
-        w_slices = (slice(None),)
+        
+        if s_size != 0 and pad == 0:                        # shift only, in a cylindric mode.  Attend free.
+            w_slices = (slice(None),)                       # total L = total
+            
+        elif s_size == 0 and pad != 0:                      # The whole pad is on the left.
+            w_slices = (slice(0, pad),                      # pad.   L = pad
+                        slice(pad, None))                   # main.  L = total - pad   ----------- total L = total
+            
+        elif s_size != 0 and pad != 0:
+            if pad <= s_size:                               # The whole pad is rolled to the right.
+                w_slices = (slice(0, -pad),                 # main.  L = total - pad
+                            slice(-pad, None))              # pad.   L = pad   --------- total L = total
+            else:
+                w_slices = (slice(0, pad - s_size),         # pad2.  L = pad - s_size
+                            slice(pad - s_size, -s_size),   # main.  L = total - pad + s_size - s_size = total - pad
+                            slice(-s_size, None))           # pad1.  L = s_size    ------- total L = total
+        else:
+            w_slices = (slice(None),)                       # total L = total
 
-        type_id = 0
+        #-------------------------------------- Build --------------------------------------
+        # Create mask
+        img_mask = torch.zeros((1, 1, D, H, W))
+        
+        region_id = 0
         for d in d_slices:
             for h in h_slices:
                 for w in w_slices:
-                    img_mask[:, :, d, h, w] = type_id
-                    type_id += 1
+                    img_mask[:, :, d, h, w] = region_id
+                    region_id += 1
 
         # Partition windows
         windows, nWd, nWh, nWw = window_partition_3d(img_mask, window_size)
@@ -456,7 +520,7 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
     #------------------------------------------------------------------------------------------------------------------------
     def __init__(self, dim, input_resolution, num_heads, window_size, shift_size, pair_bias_dim,
                  mlp_ratio=4., qkv_bias=True, drop=0., attn_drop=0., drop_path=0.,
-                 act_layer=nn.GELU, norm_layer=nn.LayerNorm, type_pos_bias='lonBand'):
+                 act_layer=nn.GELU, norm_layer=nn.LayerNorm, type_pos_bias='lonBand', padding=(), is_gate=False, in_encoder=True):
         super().__init__()
         
         # assert all(s==0 for s in shift_size) or all(s!=0 for s in shift_size)
@@ -494,8 +558,32 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
             self.learnable_pair_types = nn.Parameter(torch.empty(int(D/wd) * int(H/wh), wd*wd, wh*wh, (2*ww-1), num_heads), requires_grad=True)
             nn.init.trunc_normal_(self.learnable_pair_types, std=0.02)
             
-        self.attn_mask = AttentionMask3D(input_resolution, window_size, shift_size)
+        self.attn_mask = AttentionMask3D(input_resolution, window_size, shift_size, padding=padding)
 
+        pads = []
+        for dim in range(3):
+            pad = [p for (i, p) in padding if i == dim]
+            pad = 0 if len(pad) <= 0 else pad[0]
+            pads.append(pad)
+        self.unpadded_resolution = [input_resolution[dim] - pads[dim] for dim in range(3)]  # resolutions for D, H and W each
+
+        self.padding = padding
+        
+        self.padding_config = None
+        if padding != ():
+            pad_config = [0, 0]     # B of (B, D, H, W, dim)        
+            
+            for idx in range(3):
+                pad = [p for (i, p) in padding if i == idx]
+                pad = 0 if len(pad) <= 0 else pad[0]
+                pad_config += [pad, 0]  # D, H, W, resectively according to idx
+                
+            pad_config += [0, 0]    # dim of (B, D, H, W, dim)
+            pad_config = tuple(reversed(pad_config))
+            self.padding_config = pad_config
+            
+        self.is_gate = is_gate
+        self.in_encoder = in_encoder
 
     def build_pair_type_matrix_sphere(self):
         """
@@ -543,6 +631,13 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
 
     #---------------------------------------- One-shot FFN
     def forward(self, x):
+        if self.in_encoder and self.is_gate and self.padding_config is not None:     # padding takes place.
+            [D, H, W] = self.unpadded_resolution
+            B, L, dim = x.shape
+            x = x.view(B, D, H, W, dim)
+            x = F.pad(x, self.padding_config, mode='constant')  # zeros
+            x = x.view(B, -1, dim)
+        
         D, H, W = self.input_resolution
         B, L, C = x.shape
         assert L == D*H*W, f"Input feature has wrong size {L}, expected {D*H*W}"
@@ -598,6 +693,15 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
         # FFN
         x = shortcut + self.drop_path(self.norm1(x))
         x = x + self.drop_path(self.norm2(self.mlp(x)))
+        
+        if not self.in_encoder and self.is_gate and self.padding_config is not None:     # padding takes place.
+            [D, H, W] = self.input_resolution
+            B, L, dim = x.shape
+            x = x.view(B, D, H, W, dim)
+            padding_config = [c for c in self.padding_config]
+            x = F.pad(x, tuple(padding_config), mode='constant')  # zeros
+            x = x.view(B, -1, dim)
+        
         return x
     
     def flops(self):
@@ -834,13 +938,14 @@ class BasicLayer(nn.Module):
     def __init__(self, dim, input_resolution, depth, num_heads, window_size, pair_bias_dim,
                  mlp_ratio=4., qkv_bias=True, drop=0., attn_drop=0.,
                  drop_path=0., norm_layer=nn.LayerNorm, downsample=PatchMerging3D, use_checkpoint=False,
-                 pretrained_window_size=0, type_pos_bias='lonBand'):
+                 pretrained_window_size=0, type_pos_bias='lonBand', padding=(), in_encoder=True):
 
         super().__init__()
         self.dim = dim
         self.input_resolution = input_resolution
         self.depth = depth
         self.use_checkpoint = use_checkpoint
+        self.padding = padding
 
         # build blocks
         self.blocks = nn.ModuleList()
@@ -864,7 +969,9 @@ class BasicLayer(nn.Module):
                                 drop_path=drop_path[i] if isinstance(drop_path, list) else drop_path,
                                 norm_layer=norm_layer,
                                 #  pretrained_window_size=pretrained_window_size,
-                                type_pos_bias = type_pos_bias,
+                                type_pos_bias = type_pos_bias, padding=padding,
+                                is_gate=(i==0 if in_encoder else i==depth-1),
+                                in_encoder = in_encoder,
                                 )
             self.blocks.append(block)
 
@@ -935,11 +1042,36 @@ class Encoder(nn.Module):
         # build layers
         self.layers = nn.ModuleList()
         for i_layer in range(self.num_layers):
+
+            #--------------------- Define input_resolution -----------------
+            # 1) There is no general mothod to find compact input resolution that is both a multiple of window size and an even number.
+            # A even number resolution is required if the BasicLayer has PatchMerghing3D
+            # 2) If input_resolution[dim] % (2 ** i_layer) > 0, x.shape and input_resolution mismatches in forward passes.
+
+            for dim in range(3):
+                assert input_resolution[dim] % (2 ** i_layer) == 0, f"Input resolution will mismatch with incoming x.shape in BasicLayer {i_layer}"
+
+            resolution=[input_resolution[0] // (2 ** i_layer),
+                                input_resolution[1] // (2 ** i_layer),
+                                input_resolution[2] // (2 ** i_layer),
+            ]
+            padding = []
+            for i in range(3):
+                # Ensure resolution is a multiple of window size
+                pad = 0 if resolution[i] % window_size[i] == 0 else window_size[i] - resolution[i] % window_size[i]
+                if pad != 0:
+                    resolution[i] += pad
+                    print(f"input resolution is increased by {pad}")
+                    padding.append((i, pad))
+            padding = tuple(padding) if len(padding) >= 0 else ()
+            
+            donwsample = PatchMerging3D if (i_layer < self.num_layers - 1) else None
+            if donwsample is not None:
+                for i in range(3):
+                    assert resolution[i] % 2 == 0, f"BasicLayer {i_layer} has an odd input resolution {resolution} while having PatchMerging."
+            
             layer = BasicLayer(dim=int(embed_dim * 2 ** i_layer),
-                               input_resolution=(input_resolution[0] // (2 ** i_layer),
-                                                 input_resolution[1] // (2 ** i_layer),
-                                                 input_resolution[2] // (2 ** i_layer),
-                                                 ),
+                               input_resolution=resolution,
                                depth=depths[i_layer],
                                num_heads=num_heads[i_layer],
                                window_size=window_size,
@@ -948,10 +1080,11 @@ class Encoder(nn.Module):
                                drop=drop_rate, attn_drop=attn_drop_rate,
                                drop_path=dpr[sum(depths[:i_layer]):sum(depths[:i_layer + 1])],
                                norm_layer=norm_layer,
-                               downsample=PatchMerging3D if (i_layer < self.num_layers - 1) else None,
+                               downsample=donwsample,
                                use_checkpoint=use_checkpoint,
                                pretrained_window_size=pretrained_window_sizes[i_layer],
-                               pair_bias_dim = pair_bias_dim)
+                               pair_bias_dim = pair_bias_dim, padding=padding,
+                               in_encoder=True)
             self.layers.append(layer)
 
         self.apply(self._init_weights)
@@ -992,6 +1125,7 @@ class Encoder(nn.Module):
 
         return output_by_layer
 
+
 class Decoder(nn.Module):
     def __init__(self, input_resolution = (8, 180, 360), embed_dim=192, depths=[4, 10, 2], num_heads=[4, 8, 16],
                 window_size=(2, 6, 12), mlp_ratio=4., qkv_bias=True,
@@ -1012,11 +1146,24 @@ class Decoder(nn.Module):
         # build layers
         self.layers = nn.ModuleList()
         for i_layer in range(self.num_layers):
+            
+            for dim in range(3):
+                assert input_resolution[dim] % (2 ** i_layer) == 0, f"Input resolution will mismatch with incoming x.shape in BasicLayer {i_layer}"
+            
+            resolution=[input_resolution[0] // (2 ** i_layer),
+                                input_resolution[1] // (2 ** i_layer),
+                                input_resolution[2] // (2 ** i_layer),
+            ]
+            padding = []
+            for i in range(3):
+                pad = 0 if resolution[i] % window_size[i] == 0 else window_size[i] - resolution[i] % window_size[i]
+                if pad != 0:
+                    resolution[i] += pad
+                    padding.append((i, pad))
+            padding = tuple(padding) if len(padding) >= 0 else ()
+            
             layer = BasicLayer(dim=int(embed_dim * 2 ** i_layer),
-                               input_resolution=(input_resolution[0] // (2 ** i_layer),
-                                                 input_resolution[1] // (2 ** i_layer),
-                                                 input_resolution[2] // (2 ** i_layer),
-                                                 ),
+                               input_resolution=resolution,
                                depth=depths[i_layer],
                                num_heads=num_heads[i_layer],
                                window_size=window_size,
@@ -1028,7 +1175,8 @@ class Decoder(nn.Module):
                                downsample=PatchUnmerging3D if i_layer > 0 else None, # (i_layer < self.num_layers - 1) else None,
                                use_checkpoint=use_checkpoint,
                                pretrained_window_size=pretrained_window_sizes[i_layer],
-                               pair_bias_dim = pair_bias_dim)
+                               pair_bias_dim = pair_bias_dim, padding=padding,
+                               in_encoder=False)
             self.layers.append(layer)
 
         self.apply(self._init_weights)
@@ -1179,7 +1327,7 @@ def show_global_attn_mask(attn_mask, window_size, input_resolution, depth_idx=0)
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 
-def show_global_attn_mask_map(attn_mask, window_size, input_resolution, depth_idx=0):
+def show_global_attn_mask_map(attn_mask, window_size, input_resolution, depth_idx=0, title=""):
     if attn_mask is None:
         print("No attention mask (no shift).")
         return
@@ -1218,7 +1366,7 @@ def show_global_attn_mask_map(attn_mask, window_size, input_resolution, depth_id
     ax.add_feature(cfeature.BORDERS, linewidth=0.5)
     ax.add_feature(cfeature.COASTLINE, linewidth=0.5)
     plt.colorbar(c, ax=ax, orientation='vertical', label='Attention Mask')
-    plt.title(f"Global Attention Mask at depth={depth_idx}")
+    plt.title(f"Maks: depth {depth_idx}, R {input_resolution}, WS {window_size}, " + title)
     plt.show()
 
 import numpy as np
@@ -1338,6 +1486,23 @@ if __name__ == "__main__":
 
     #------------------------ Basic layer -----------------------
     
+    factor10 = 2  # 2, 3
+    H, W, D = int(180/10*factor10), int(360/10*factor10), 8
+    print("H, W, D", H, W, D)
+    C, num_heads = 16, 4
+    window_size = (2, int(10/10*factor10), int(10/10*factor10))  # (win_D, win_H, win_W)
+    pair_bias_dim = 5
+
+    input_resolution=(D, H, W)
+    
+    # Random input: (B, C, D, H, W)
+    x_in = torch.randn(1, C, D, H, W).to(device).to(device)
+
+    # Flatten input for block input
+    B, C, D, H, W = x_in.shape
+    x_flat = x_in.permute(0,2,3,4,1).contiguous().reshape(B, D*H*W, C).contiguous()
+    
+    
     depth = 6
     merging = False          
     bLayer = BasicLayer(dim=C, input_resolution=input_resolution, depth=depth, num_heads=num_heads, window_size=window_size, pair_bias_dim=pair_bias_dim,
@@ -1354,6 +1519,23 @@ if __name__ == "__main__":
     
     #------------------------ Encoder -----------------------------
 
+    factor10 = 10  # 2, 3
+    H, W, D = int(180/10*factor10), int(360/10*factor10), 8
+    print("H, W, D", H, W, D)
+    C, num_heads = 16, 4
+    window_size = (2, int(10/10*factor10), int(10/10*factor10))  # (win_D, win_H, win_W)
+    pair_bias_dim = 5
+
+    input_resolution=(D, H, W)
+    
+    # Random input: (B, C, D, H, W)
+    x_in = torch.randn(1, C, D, H, W).to(device).to(device)
+
+    # Flatten input for block input
+    B, C, D, H, W = x_in.shape
+    x_flat = x_in.permute(0,2,3,4,1).contiguous().reshape(B, D*H*W, C).contiguous()
+    
+
     # # mask = AttentionMask3D(input_resolution=(4, 9, 18), window_size=(2, 3, 3), shift_size=(1, 1, 1))
     # # print("input_resolution=(4, 9, 18), window_size=(2, 3, 3), shift_size=(1, 1, 1)", mask.attn_mask.shape)
     # mask = AttentionMask3D(input_resolution=(2, 9, 18), window_size=(2, 3, 3), shift_size=(0, 1, 1))    # shift == 0 if D == window_size[0]
@@ -1361,7 +1543,7 @@ if __name__ == "__main__":
 
     # encoder = Encoder(input_resolution = (D, H, W), embed_dim=192, depths=[4, 8, 4], num_heads=[4, 8, 16],
     encoder = Encoder(input_resolution = (D, H, W), embed_dim=C, depths=[4, 8, 4], num_heads=[4, 8, 16],    #--------- num_heads to revise for deployment.
-                window_size=(2, 3, 3), mlp_ratio=4., qkv_bias=True,     #---------- window_size=(2, 5, 5) for deployment
+                window_size=(2, 6, 6), mlp_ratio=4., qkv_bias=True,     #---------- window_size=(2, 6, 6) for deployment
                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.0,
                 norm_layer=nn.LayerNorm, ape=True,
                 use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0]).to(device)
@@ -1377,7 +1559,7 @@ if __name__ == "__main__":
     
     #----------------------- Decoder -----------------------------------
     decoder = Decoder(input_resolution = (D, H, W), embed_dim=C, depths=[4, 8, 4], num_heads=[4, 8, 16],    #--------- num_heads to revise for deployment.
-            window_size=(2, 3, 3), mlp_ratio=4., qkv_bias=True,     #---------- window_size=(2, 5, 5) for deployment
+            window_size=(2, 6, 6), mlp_ratio=4., qkv_bias=True,     #---------- window_size=(2, 5, 5) for deployment
             drop_rate=0., attn_drop_rate=0., drop_path_rate=0.0,
             norm_layer=nn.LayerNorm, ape=True,
             use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0]).to(device)
@@ -1391,18 +1573,18 @@ if __name__ == "__main__":
     #--------------------- Encoder_Decoder ------------------------------
     
     codec = Encoder_Decoder(input_resolution = (D, H, W), embed_dim=C, depths=[4, 8, 4], num_heads=[4, 8, 16],    #--------- num_heads to revise for deployment.
-            window_size=(2, 3, 3), mlp_ratio=4., qkv_bias=True,     #---------- window_size=(2, 5, 5) for deployment
+            window_size=(2, 6, 6), mlp_ratio=4., qkv_bias=True,     #---------- window_size=(2, 5, 5) for deployment
             drop_rate=0., attn_drop_rate=0., drop_path_rate=0.0,
             norm_layer=nn.LayerNorm, ape=True,
             use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0]).to(device)
 
-    print(f"Encoder_Decoder. x_flat: {x_flat.shape}")
+    # print(f"Encoder_Decoder. x_flat: {x_flat.shape}")
 
-    s = time.time()
-    x = codec(x_flat)
-    e = time.time()
+    # s = time.time()
+    # x = codec(x_flat)
+    # e = time.time()
     
-    print(f"==================== output after encoder_decoder. x: {x.shape} time: {e-s}")
+    # print(f"==================== output after encoder_decoder. x: {x.shape} time: {e-s}")
         
     #-----------------------------------------------------------------
 
@@ -1427,6 +1609,22 @@ if __name__ == "__main__":
 
     # show_on_map(data)    
     
-    attn_mask = blocks3D[1].attn_mask.attn_mask
-    # show_global_attn_mask(attn_mask, window_size=window_size, input_resolution=input_resolution, depth_idx=0)
-    show_global_attn_mask_map(attn_mask, window_size=window_size, input_resolution=input_resolution, depth_idx=0)
+    # attn_mask = blocks3D[1].attn_mask.attn_mask
+    # # show_global_attn_mask(attn_mask, window_size=window_size, input_resolution=input_resolution, depth_idx=0)
+    # show_global_attn_mask_map(attn_mask, window_size=window_size, input_resolution=input_resolution, depth_idx=0)
+    
+
+    # block = encoder.layers[-3].blocks[0]
+    # attn_mask = block.attn_mask.attn_mask
+    # show_global_attn_mask_map(attn_mask, block.window_size, block.input_resolution, depth_idx=0)
+
+    encoder = codec.decoder
+    nLayers = len(encoder.layers)
+    for layer_idx in range(nLayers):
+        nBlocks = len(encoder.layers[layer_idx].blocks)
+        for block_idx in range(nBlocks):
+            block = encoder.layers[layer_idx].blocks[block_idx]
+            attn_mask = block.attn_mask.attn_mask
+            u_res = block.unpadded_resolution
+            title = f"L {layer_idx}/{nLayers}, B {block_idx}/{nBlocks}, UR {u_res}"
+            show_global_attn_mask_map(attn_mask, block.window_size, block.input_resolution, depth_idx=0, title=title)
