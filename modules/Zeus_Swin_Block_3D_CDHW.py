@@ -1157,24 +1157,37 @@ class Decoder(nn.Module):
 
         # build layers
         self.layers = nn.ModuleList()
+        prev_resolution = (input_resolution[0] * 2, input_resolution[1] * 2, input_resolution[2] * 2)
         for i_layer in range(self.num_layers):
-            
+
+            #--------------------- Define input_resolution -----------------
+            # 1) There is no general mothod to find compact input resolution that is both a multiple of window size and an even number.
+            # A even number resolution is required if the BasicLayer has PatchMerghing3D
+            # 2) If input_resolution[dim] % (2 ** i_layer) > 0, x.shape and input_resolution mismatches in forward passes.
+
             for dim in range(3):
-                assert input_resolution[dim] % (2 ** i_layer) == 0, f"Input resolution will mismatch with incoming x.shape in BasicLayer {i_layer}"
-            
-            resolution=[input_resolution[0] // (2 ** i_layer),
-                                input_resolution[1] // (2 ** i_layer),
-                                input_resolution[2] // (2 ** i_layer),
+                assert prev_resolution[dim] % 2 == 0, f"Input resolution will mismatch with incoming x.shape in BasicLayer {i_layer}"
+
+            # This will be the output resolution from the previous BasicLayer, if it has downsampler as we ensure here.
+            resolution=[prev_resolution[0] // 2,
+                        prev_resolution[1] // 2,
+                        prev_resolution[2] // 2,
             ]
+
             padding = []
             for i in range(3):
+                # Ensure resolution is a multiple of window size
                 pad = 0 if resolution[i] % window_size[i] == 0 else window_size[i] - resolution[i] % window_size[i]
                 if pad != 0:
-                    print(f"!!!!!!!!!! Decoder layer {i_layer}: input resolution[{i}] {resolution[i]} is increased by {pad} to be a multiple of window size {window_size[i]}")
+                    print(f"!!!!!!!!!! Encoder layer {i_layer}: input resolution[{i}] {resolution[i]} is increased by {pad} to be a multiple of window size {window_size[i]}")
                     resolution[i] += pad
                     padding.append((i, pad))
-
             padding = tuple(padding) if len(padding) >= 0 else ()
+            
+            donwsample = PatchMerging3D if (i_layer < self.num_layers - 1) else None
+            if donwsample is not None:
+                for i in range(3):
+                    assert resolution[i] % 2 == 0, f"BasicLayer {i_layer} has an odd input resolution {resolution} while having PatchMerging."
             
             layer = BasicLayer(dim=int(embed_dim * 2 ** i_layer),
                                input_resolution=resolution,
@@ -1191,7 +1204,9 @@ class Decoder(nn.Module):
                                pretrained_window_size=pretrained_window_sizes[i_layer],
                                pair_bias_dim = pair_bias_dim, padding=padding,
                                in_encoder=False)
+            
             self.layers.append(layer)
+            prev_resolution = resolution
 
         self.apply(self._init_weights)
         for bly in self.layers:
