@@ -601,9 +601,9 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
         nGWindows = int(D/wd) * int(H/wh)
 
         # --- Token coordinates inside a window
-        d = torch.arange(wd, device=device)
-        h = torch.arange(wh, device=device)
-        w = torch.arange(ww, device=device)
+        d = torch.arange(wd) #, device=device)
+        h = torch.arange(wh) #, device=device)
+        w = torch.arange(ww) #, device=device)
         coords = torch.stack(torch.meshgrid(d, h, w, indexing="ij")).view(3, -1)  # (3, N)
         d1, d2 = coords[0][:, None], coords[0][None, :]
         h1, h2 = coords[1][:, None], coords[1][None, :]
@@ -614,8 +614,8 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
         idx_w = (w1 - w2 + (ww - 1)) % (2*ww-1)  # cylindric along W
 
         # Expand along longitude
-        G_idx = torch.arange(nGWindows, device=device)[:, None, None, None]
-        W_idx = torch.arange(W // ww, device=device)[None, :, None, None]  # number of windows along longitude
+        G_idx = torch.arange(nGWindows)[:, None, None, None]
+        W_idx = torch.arange(W // ww)[None, :, None, None]  # number of windows along longitude
 
         D_idx = idx_d[None, None, :, :]
         H_idx = idx_h[None, None, :, :]
@@ -631,8 +631,9 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
         """
         wd, wh, ww = self.window_size
         D, H, W = self.input_resolution
-        G, _, _, _, num_heads = self.learnable_pair_types.shape
+        nGWindows, _, _, _, num_heads = self.learnable_pair_types.shape
         N = wd * wh * ww
+        # nGWindows = int(D/wd) * int(H/wh) # No work
 
         # repeat learnable_pair_types along longitude
         pair_type_matrix = self.learnable_pair_types[:, None, :, :, :, :].repeat(1, W // ww, 1, 1, 1, 1)
@@ -647,7 +648,7 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
         ]  # (G, num_lon_windows, N, N, num_heads)
 
         # merge G and longitude dims
-        pair_type_matrix = pair_type_matrix.view(G * (W // ww), N, N, num_heads)
+        pair_type_matrix = pair_type_matrix.view(nGWindows * (W // ww), N, N, num_heads)
         
         return pair_type_matrix
 
