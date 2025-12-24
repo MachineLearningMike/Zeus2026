@@ -558,7 +558,8 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
             D, H, W = input_resolution
             wd, wh, ww = window_size
             # (n_windows on a lon band of windows, win_vol, win_vol, num_heads)
-            self.learnable_pair_types = nn.Parameter(torch.empty(int(D/wd) * int(H/wh), wd*wd, wh*wh, (2*ww-1), num_heads), requires_grad=True)
+            nGWindows = int(D/wd) * int(H/wh)
+            self.learnable_pair_types = nn.Parameter(torch.empty(nGWindows, wd*wd, wh*wh, (2*ww-1), num_heads), requires_grad=True)
             nn.init.trunc_normal_(self.learnable_pair_types, std=0.02)
             
             key = (*input_resolution, *window_size)
@@ -597,8 +598,7 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
     def compute_indices(self, input_resolution, window_size):
         wd, wh, ww = window_size
         D, H, W = input_resolution
-        G, _, _, _, num_heads = self.learnable_pair_types.shape
-        N = wd * wh * ww
+        nGWindows = int(D/wd) * int(H/wh)
 
         # --- Token coordinates inside a window
         d = torch.arange(wd, device=device)
@@ -614,7 +614,7 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
         idx_w = (w1 - w2 + (ww - 1)) % (2*ww-1)  # cylindric along W
 
         # Expand along longitude
-        G_idx = torch.arange(G, device=device)[:, None, None, None]
+        G_idx = torch.arange(nGWindows, device=device)[:, None, None, None]
         W_idx = torch.arange(W // ww, device=device)[None, :, None, None]  # number of windows along longitude
 
         D_idx = idx_d[None, None, :, :]
@@ -631,30 +631,8 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
         """
         wd, wh, ww = self.window_size
         D, H, W = self.input_resolution
-        device = self.learnable_pair_types.device
         G, _, _, _, num_heads = self.learnable_pair_types.shape
         N = wd * wh * ww
-
-        # # --- Token coordinates inside a window
-        # d = torch.arange(wd, device=device)
-        # h = torch.arange(wh, device=device)
-        # w = torch.arange(ww, device=device)
-        # coords = torch.stack(torch.meshgrid(d, h, w, indexing="ij")).view(3, -1)  # (3, N)
-        # d1, d2 = coords[0][:, None], coords[0][None, :]
-        # h1, h2 = coords[1][:, None], coords[1][None, :]
-        # w1, w2 = coords[2][:, None], coords[2][None, :]
-
-        # idx_d = d1 * wd + d2
-        # idx_h = h1 * wh + h2
-        # idx_w = (w1 - w2 + (ww - 1)) % (2*ww-1)  # cylindric along W
-
-        # # Expand along longitude
-        # G_idx = torch.arange(G, device=device)[:, None, None, None]
-        # W_idx = torch.arange(W // ww, device=device)[None, :, None, None]  # number of windows along longitude
-
-        # D_idx = idx_d[None, None, :, :]
-        # H_idx = idx_h[None, None, :, :]
-        # W_idx_tokens = idx_w[None, None, :, :]
 
         # repeat learnable_pair_types along longitude
         pair_type_matrix = self.learnable_pair_types[:, None, :, :, :, :].repeat(1, W // ww, 1, 1, 1, 1)
@@ -670,6 +648,7 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
 
         # merge G and longitude dims
         pair_type_matrix = pair_type_matrix.view(G * (W // ww), N, N, num_heads)
+        
         return pair_type_matrix
 
     #---------------------------------------- One-shot FFN
