@@ -43,7 +43,7 @@ config = {
     "pole_angle": 30.0,      #
     "hourly_offset": -1,
     "modulo": 6,
-    "nYSnapshots": 1,
+    "nStepsPerBatch": 1,
 
     "org_height": 721,
     "org_width": 1440,
@@ -153,7 +153,7 @@ if platform.system() == "Windows":
     config["dim_to_layerFFN_dim"] = 4
     
     # GPU: RTX 4070, Chunk2D
-    config['nYSnapshots'] = 1
+    config['nStepsPerBatch'] = 1
 
     config["factor10"] = 2  # 
     
@@ -187,7 +187,7 @@ else:
         config["management_path"] = "/home/mike/zeus_management"
 
     config["factor10"] = 10  # 
-    config['nYSnapshots'] = 4
+    config['nStepsPerBatch'] = 2
     
     # shared_model_params['nHeads'] = 2
     # shared_model_params['patch_kernel'] = 4

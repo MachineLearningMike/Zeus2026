@@ -42,7 +42,7 @@ class Params:
         self.targetVariables = config['targetVariables']
         self.hourly_offset = config['hourly_offset']
         self.modulo = config['modulo']
-        self.nYSnapshots = config['nYSnapshots']
+        self.nStepsPerBatch = config['nStepsPerBatch']
         
         self.height = int(config['org_height'] * config['factor10'] / 10)       # int not round , config['org_height'] = 721 (transformer) or 720 (CNN)
         self.width = int(config['org_width'] * config['factor10'] / 10)         # int not round , config['org_width'] = 1440

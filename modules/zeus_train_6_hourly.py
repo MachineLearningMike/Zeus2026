@@ -2,7 +2,7 @@ class Train_6_hourly():
     def __init__(self):
         pass
 
-    def train_one_batch(snapshots, nYSnapshots, model_dom, fn_take_substep, device):
+    def train_one_batch(snapshots, nStepsPerBatch, model_dom, fn_take_substep, device):
         #------- Mike1 algorithm, a 6-hourly training algorithm that mitigates the bottleneck on data pipeline ------
         # It takes 528 training substeps, with varing cascade steps, with 2 + 32 raw data X.
         # The distribution of cascase steps is: 
@@ -19,7 +19,7 @@ class Train_6_hourly():
         # Quite feasible on a 100GB-GPU virtual machine.
         # 528 training substeps with 34 raw X's, ... might allow multi-GPU training, although GPU-loading of data may conflict a lot.
         
-        assert len(snapshots) == nYSnapshots + 2
+        assert len(snapshots) == nStepsPerBatch + 2
         assert len(snapshots) >= 2, "length of Xs should be >= 2"
         X0, X1 = snapshots[0], snapshots[1]; X0.to(device); X1.to(device); snapshots = snapshots[2:]
         oldQ = [(X0, X1)]
@@ -27,7 +27,7 @@ class Train_6_hourly():
         assert len(snapshots) > 0, "length of Xs should be >= 3"
 
         nSubsteps = 0
-        nSubsteps_by_cascade = [0] * nYSnapshots
+        nSubsteps_by_cascade = [0] * nStepsPerBatch
         step_loss = []; step_metrics = []
         while len(snapshots) > 0:  # loops at least once
             # State: 
@@ -73,7 +73,7 @@ class Train_6_hourly():
             oldQ = newQ
         print("nSubsteps", nSubsteps)
         print("nSubsteps_by_cascade", nSubsteps_by_cascade)
-        assert nSubsteps == int((nYSnapshots+1)*(nYSnapshots)/2)
+        assert nSubsteps == int((nStepsPerBatch+1)*(nStepsPerBatch)/2)
 
 
 if __name__ == "__main__":
@@ -86,10 +86,10 @@ if __name__ == "__main__":
     from zeus_dataset_Snapshot import Snapshot
     from datetime import datetime, timedelta, timezone
 
-    nYSnapshots = 32
+    nStepsPerBatch = 32
     snapshots = [Snapshot(dt.year, dt.month, dt.day, dt.hour, meteo=None, device='cpu')
-                 for dt in [datetime.now(timezone.utc)+timedelta(days=-10, hours=n) for n in range(nYSnapshots+2)]]
+                 for dt in [datetime.now(timezone.utc)+timedelta(days=-10, hours=n) for n in range(nStepsPerBatch+2)]]
     model_dom = {}
     device = "cuda"
         
-    Train_6_hourly.train_one_batch(snapshots, nYSnapshots, model_dom, take_substep, device)
+    Train_6_hourly.train_one_batch(snapshots, nStepsPerBatch, model_dom, take_substep, device)
