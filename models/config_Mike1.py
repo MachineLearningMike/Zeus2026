@@ -829,7 +829,7 @@ projects["Zeus_Swin_25Dec24"] = {
     "model_4": {},
 }
 
-projects["Zeus_Swin_25Dec24_test"] = {
+projects["Zeus_Swin_25Dec25"] = {
     "management": {
     "Zeus_Model_module" : "Zeus_Mike1",
     "GPUWaitsData" : True,
@@ -874,7 +874,7 @@ projects["Zeus_Swin_25Dec24_test"] = {
 }
 
 #-------------------------------- select proejct -----------------------
-project = "Zeus_Swin_25Dec24_test" # "ResNet50-NewCodec-2" #"ResNet50-9M" # "ResNet50-3753K" #"ResNet50-NewCodec-2"  #"ResNet50-24M-2"
+project = "Zeus_Swin_25Dec25" # "ResNet50-NewCodec-2" #"ResNet50-9M" # "ResNet50-3753K" #"ResNet50-NewCodec-2"  #"ResNet50-24M-2"
 config["bayesProject"] = project
 # updata 'management'
 config.update(projects[project]["management"])
