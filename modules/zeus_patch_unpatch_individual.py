@@ -207,20 +207,23 @@ class PatchFeatureExtractor(nn.Module):
         ])
         self.total_dims_geo_cat = sum(self.dims_list_cat_emb)
         
+        # Create layer-wise feature extractors for upper air levels, sharing as much parameters as possible
         self.channels = [level.shape[0] + self.dims_cascade_emb + self.total_dims_geo_cat for level in sample_level_list]
-        self.level_extractors = nn.ModuleList(
-            [
-                PatchFeatureExtractor_Level(
+        self.level_extractors = nn.ModuleList()
+        for idx, c_in in enumerate(self.channels):
+            layer = PatchFeatureExtractor_Level(
                     c_in, 
                     c_out, 
                     patch_kernel=patch_kernel, 
                     patch_stride=patch_stride
-                    ) for c_in in self.channels
-            ]
-        )
-        
-        c_in = sample_surface.shape[0] + self.dims_cascade_emb + self.total_dims_geo_cat
-        
+                    )
+            for i in range(idx):
+                if self.channels[i] == c_in:
+                    layer.load_state_dict(self.level_extractors[i].state_dict())
+            self.level_extractors.append(layer)
+
+        # Create layer-wise feature extractors for surface.
+        c_in = sample_surface.shape[0] + self.dims_cascade_emb + self.total_dims_geo_cat        
         self.surface_extractor = PatchFeatureExtractor_Surface(
             c_in,
             c_out,

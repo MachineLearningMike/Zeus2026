@@ -5,6 +5,7 @@ import torch.utils.checkpoint as checkpoint
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 import numpy as np
 
+# from Flash2DMHA_Standard import Flash2DMHA    # No, Flash2DMHA's blockbox functions don't give a chance to add position bias.
 # ---------------------------
 # MLP
 # ---------------------------
@@ -208,12 +209,10 @@ class PositionBiasLearner3D_Shpere(nn.Module):
 # WindowAttention3D
 # ---------------------------
 class WindowAttention3D(nn.Module):
-    def __init__(self, dim, input_resolution, window_size, num_heads, qkv_bias=True, attn_drop=0., proj_drop=0.):
+    def __init__(self, dim, num_heads, qkv_bias=True, attn_drop=0., proj_drop=0.):
         super().__init__()
         self.dim = dim
         self.num_heads = num_heads
-        self.input_resolution = input_resolution
-        self.window_size = window_size
         self.nWindows = None
 
         # self.logit_scale = nn.Parameter(torch.log(10 * torch.ones((num_heads, 1, 1))), requires_grad=True)
@@ -544,7 +543,11 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
         #         self.window_size = tuple(self.input_resolution)
 
         self.norm1 = norm_layer(dim)
-        self.attn = WindowAttention3D(dim, input_resolution, window_size, num_heads, qkv_bias, attn_drop, drop)
+        
+        self.attn = WindowAttention3D(dim, num_heads, qkv_bias, attn_drop, drop)
+        # self.attn = Flash2DMHA(dim, num_heads, attn_drop, causal=False, tokens_per_chunk=None, heads_per_chunk=None, kv_full_sequence=True)
+
+        
         self.drop_path = DropPath(drop_path) if drop_path>0. else nn.Identity()
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim*mlp_ratio)

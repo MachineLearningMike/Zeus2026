@@ -152,10 +152,8 @@ if platform.system() == "Windows":
     config["data_limit"] = 12
     config["dim_to_layerFFN_dim"] = 4
     
-    # GPU: RTX 4070, Chunk2D
-    config['nYSnapshots'] = 3
-
     config["factor10"] = 2  # 
+    config['nYSnapshots'] = 1
     
     # shared_model_params['nHeads'] = 4
     # shared_model_params['patch_kernel'] = 4
@@ -186,10 +184,9 @@ else:
         config["dataset_path"] = "/mnt"
         config["management_path"] = "/home/mike/zeus_management"
 
-    config['nYSnapshots'] = 2
+    config["factor10"] = 10
     
-    # GPU: 
-    config["factor10"] = 10  # 
+    config['nYSnapshots'] = 2
     
     # shared_model_params['nHeads'] = 2
     # shared_model_params['patch_kernel'] = 4
