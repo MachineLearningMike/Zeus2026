@@ -845,8 +845,8 @@ projects["Zeus_Swin_25Dec25_2"] = {
     },
     
     "model_0": {
-        "lr": 1e-5,     # 1e-3 for the first 120,000 steps
-        "max_lr": 1e-5,
+        "lr": 1e-4,
+        "max_lr": 1e-4,
         "overwrite_saved_lr": False,
         "useLRLearner" : False,
         "accum_steps" : 10,   
