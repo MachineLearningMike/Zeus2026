@@ -218,8 +218,8 @@ class WindowAttention3D(nn.Module):
 
         # self.logit_scale = nn.Parameter(torch.log(10 * torch.ones((num_heads, 1, 1))), requires_grad=True)
 
-        # self.qkv = nn.Linear(dim, dim*3, bias=qkv_bias)   # qkv_bais==True leads to 'gradient not received'
-        self.qkv = nn.Linear(dim, dim*3)
+        self.qkv = nn.Linear(dim, dim*3, bias=qkv_bias)   # qkv_bais==True leads to 'gradient not received'
+        # self.qkv = nn.Linear(dim, dim*3)
         if qkv_bias:
             self.q_bias = nn.Parameter(torch.zeros(dim), requires_grad=True)
             self.v_bias = nn.Parameter(torch.zeros(dim), requires_grad=True)
@@ -1269,14 +1269,14 @@ class Encoder_Decoder(nn.Module):
                 # absolute position eocoding is required in geo-shpere, because geo-cat and geo-dense is not enough.
                 use_checkpoint=use_checkpoint, pretrained_window_sizes=pretrained_window_sizes, pair_bias_dim=pair_bias_dim, **kwargs)
         
-        self.skip_learner = nn.Linear(embed_dim, embed_dim, bias=False)
-        torch.nn.init.eye_(self.skip_learner.weight)
+        # self.skip_learner = nn.Linear(embed_dim, embed_dim, bias=False)
+        # torch.nn.init.eye_(self.skip_learner.weight)
         
     def forward(self, x_flat):
-        x_skip = x_flat     # .clone() ------ no clone() because self.encoder doesn't modify its input arguments.
+        # x_skip = x_flat     # .clone() ------ no clone() because self.encoder doesn't modify its input arguments.
         x_by_layer = self.encoder(x_flat)
         x = self.decoder(x_by_layer)
-        x = x + self.skip_learner(x_skip)
+        # x = x + self.skip_learner(x_skip)
         return x
         
 import numpy as np
