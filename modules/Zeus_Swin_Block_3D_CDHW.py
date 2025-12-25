@@ -1145,20 +1145,22 @@ class Decoder(nn.Module):
                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.0,
                 norm_layer=nn.LayerNorm, ape=True,  
                 # absolute position eocoding is required in geo-shpere, because geo-cat and geo-dense is not enough.
-                use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0], pair_bias_dim=5, **kwargs):
+                use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0], pair_bias_dim=5, skip_learn=False, **kwargs):
         super().__init__()
 
         self.num_layers = len(depths)
         self.embed_dim = embed_dim
         self.ape = ape
         self.mlp_ratio = mlp_ratio
+        self.skip_learn = skip_learn
 
         # stochastic depth
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
 
         # build layers
         self.layers = nn.ModuleList()
-        self.skip_learners = nn.ModuleList()
+        if skip_learn:
+            self.skip_learners = nn.ModuleList()
         prev_resolution = (input_resolution[0] * 2, input_resolution[1] * 2, input_resolution[2] * 2)
         for i_layer in range(self.num_layers):
 
@@ -1209,9 +1211,10 @@ class Decoder(nn.Module):
                                in_encoder=False)
             self.layers.append(layer)
             
-            skip_learner = nn.Linear(dim, dim, bias=False)
-            torch.nn.init.eye_(skip_learner.weight)
-            self.skip_learners.append(skip_learner)            
+            if skip_learn:
+                skip_learner = nn.Linear(dim, dim, bias=False)
+                torch.nn.init.eye_(skip_learner.weight)
+                self.skip_learners.append(skip_learner)            
             
             prev_resolution = resolution
 
@@ -1238,11 +1241,18 @@ class Decoder(nn.Module):
 
     def forward(self, enc_x_by_layer):        
         dec_x_after_us = torch.zeros_like(enc_x_by_layer[-1][0])
-            
-        for idx, (dec_layer, (enc_x_before_ds, _), skip_learner) in enumerate(zip(reversed(self.layers), reversed(enc_x_by_layer), reversed(self.skip_learners))):
-            # print(f"{idx}, dec_layer: {dec_layer.dim}, {dec_layer.input_resolution}, enc_before_ds: {enc_x_before_ds.shape}")
-            input = dec_x_after_us + skip_learner(enc_x_before_ds) 
-            (_, dec_x_after_us) = dec_layer(input)
+
+        if self.skip_learn:            
+            for idx, (dec_layer, (enc_x_before_ds, _), skip_learner) in enumerate(zip(reversed(self.layers), reversed(enc_x_by_layer), reversed(self.skip_learners))):
+                # print(f"{idx}, dec_layer: {dec_layer.dim}, {dec_layer.input_resolution}, enc_before_ds: {enc_x_before_ds.shape}")
+                input = dec_x_after_us + skip_learner(enc_x_before_ds) 
+                (_, dec_x_after_us) = dec_layer(input)
+        else:
+            for idx, (dec_layer, (enc_x_before_ds, _)) in enumerate(zip(reversed(self.layers), reversed(enc_x_by_layer))):
+                # print(f"{idx}, dec_layer: {dec_layer.dim}, {dec_layer.input_resolution}, enc_before_ds: {enc_x_before_ds.shape}")
+                input = dec_x_after_us + enc_x_before_ds 
+                (_, dec_x_after_us) = dec_layer(input)
+
 
         return dec_x_after_us
 
