@@ -1148,6 +1148,8 @@ class Decoder(nn.Module):
                 use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0], pair_bias_dim=5, skip_learn=False, **kwargs):
         super().__init__()
 
+        skip_learn = True   # no time to put it in the config
+
         self.num_layers = len(depths)
         self.embed_dim = embed_dim
         self.ape = ape
