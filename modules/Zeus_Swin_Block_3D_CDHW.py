@@ -1078,7 +1078,7 @@ class Encoder(nn.Module):
             donwsample = PatchMerging3D if (i_layer < self.num_layers - 1) else None
             if donwsample is not None:
                 for i in range(3):
-                    assert resolution[i] % 2 == 0, f"BasicLayer {i_layer} has an odd input resolution {resolution} while having PatchMerging."
+                    assert resolution[i] % 2 == 0, f"Encoder: BasicLayer {i_layer} has an odd input resolution {resolution} while having PatchMerging."
             
             layer = BasicLayer(dim=int(embed_dim * 2 ** i_layer),
                                input_resolution=resolution,
@@ -1181,7 +1181,7 @@ class Decoder(nn.Module):
                 # Ensure resolution is a multiple of window size
                 pad = 0 if resolution[i] % window_size[i] == 0 else window_size[i] - resolution[i] % window_size[i]
                 if pad != 0:
-                    print(f"!!!!!!!!!! Encoder layer {i_layer}: input resolution[{i}] {resolution[i]} is increased by {pad} to be a multiple of window size {window_size[i]}")
+                    print(f"!!!!!!!!!! Decoder layer {i_layer}: input resolution[{i}] {resolution[i]} is increased by {pad} to be a multiple of window size {window_size[i]}")
                     resolution[i] += pad
                     padding.append((i, pad))
             padding = tuple(padding) if len(padding) >= 0 else ()
@@ -1189,7 +1189,7 @@ class Decoder(nn.Module):
             donwsample = PatchMerging3D if (i_layer < self.num_layers - 1) else None
             if donwsample is not None:
                 for i in range(3):
-                    assert resolution[i] % 2 == 0, f"BasicLayer {i_layer} has an odd input resolution {resolution} while having PatchMerging."
+                    assert resolution[i] % 2 == 0, f"Decoder: BasicLayer {i_layer} has an odd input resolution {resolution} while having PatchMerging."
             
             layer = BasicLayer(dim=dim,
                                input_resolution=resolution,
@@ -1365,7 +1365,7 @@ def show_global_attn_mask(attn_mask, window_size, input_resolution, depth_idx=0)
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 
-def show_global_attn_mask_map(attn_mask, window_size, input_resolution, depth_idx=0, title=""):
+def show_global_attn_mask_map(attn_mask, window_size, input_resolution, depth_idx=0, title="", projection='HW'):
     if attn_mask is None:
         print("No attention mask (no shift).")
         return
@@ -1385,17 +1385,34 @@ def show_global_attn_mask_map(attn_mask, window_size, input_resolution, depth_id
             for w in range(nWw):
                 mask_win = attn_mask[idx]  # (window_volume, window_volume)
                 mask_win_6d = mask_win.view(win_D, win_H, win_W, win_D, win_H, win_W)
-                mask_slice = mask_win_6d[depth_idx, :, :, depth_idx, :, :].sum(dim=(2,3))
-                global_mask[d*win_D + depth_idx, h*win_H:(h+1)*win_H, w*win_W:(w+1)*win_W] = mask_slice
+                
+                if projection == 'HW':
+                    mask_slice = mask_win_6d[depth_idx, :, :, depth_idx, :, :].sum(dim=(2,3))
+                    global_mask[d*win_D + depth_idx, h*win_H:(h+1)*win_H, w*win_W:(w+1)*win_W] = mask_slice
+                elif projection == 'DH':
+                    mask_slice = mask_win_6d[:, :, depth_idx, :, :, depth_idx].sum(dim=(2,3))                
+                    global_mask[d*win_D:(d+1)*win_D, h*win_H:(h+1)*win_H, w*win_W + depth_idx] = mask_slice
+                
                 idx += 1
 
-    mask_2d = global_mask[depth_idx].cpu().numpy()
+    if projection == 'HW':
+        mask_2d = global_mask[depth_idx].cpu().numpy()
+    elif projection == 'DH':
+        mask_2d = global_mask[:, :, depth_idx].cpu().numpy()
 
-    lat_step = 180.0 / H
-    lon_step = 360.0 / W
-    lat = np.linspace(-90 + lat_step/2, 90 - lat_step/2, H)
-    lon = np.linspace(-180 + lon_step/2, 180 - lon_step/2, W)
-    lon_grid, lat_grid = np.meshgrid(lon, lat)
+    if projection == 'HW':
+        lat_step = 180.0 / H
+        lon_step = 360.0 / W
+        lat = np.linspace(-90 + lat_step/2, 90 - lat_step/2, H)
+        lon = np.linspace(-180 + lon_step/2, 180 - lon_step/2, W)
+        lon_grid, lat_grid = np.meshgrid(lon, lat)
+    elif projection == 'DH':
+        lat_step = 8.0 / mask_2d.shape[0]
+        lon_step = 180.0 / mask_2d.shape[1]
+        lat = np.linspace(-4 + lat_step/2, 4 - lat_step/2, H)
+        lon = np.linspace(-90 + lon_step/2, 90 - lon_step/2, W)
+        lon_grid, lat_grid = np.meshgrid(lon, lat)
+
 
     fig = plt.figure(figsize=(10,5))
     ax = plt.axes(projection=ccrs.PlateCarree())
@@ -1555,10 +1572,8 @@ if __name__ == "__main__":
 
     print(f"x_flat after basicLayer of depth 6 with last patch merging, befor_ds: ({output_by_phase[0].shape}), after_ds: ({output_by_phase[1].shape}), time: {e-s}")
     
-    #------------------------ Encoder -----------------------------
-
-    factor10, window_size = 2, (2, 4, 4)
-    # factor10, window_size = 10, (2, 6, 6)
+    # factor10, window_size = 2, (2, 4, 4)
+    factor10, window_size = 10, (2, 4, 8) # (2, 6, 12)
 
     H, W, D = int(180/10*factor10), int(360/10*factor10), 8
     print("H, W, D", H, W, D)
@@ -1572,8 +1587,11 @@ if __name__ == "__main__":
 
     # Flatten input for block input
     B, C, D, H, W = x_in.shape
+
     x_flat = x_in.permute(0,2,3,4,1).contiguous().reshape(B, D*H*W, C).contiguous()
     
+    #------------------------ Encoder -----------------------------    
+    print("-------------- Encoder ------------")
 
     # # mask = AttentionMask3D(input_resolution=(4, 9, 18), window_size=(2, 3, 3), shift_size=(1, 1, 1))
     # # print("input_resolution=(4, 9, 18), window_size=(2, 3, 3), shift_size=(1, 1, 1)", mask.attn_mask.shape)
@@ -1587,29 +1605,33 @@ if __name__ == "__main__":
                 norm_layer=nn.LayerNorm, ape=True,
                 use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0]).to(device)
 
-    s = time.time()
-    output_by_layer = encoder(x_flat)
-    e = time.time()    
+    # s = time.time()
+    # output_by_layer = encoder(x_flat)
+    # e = time.time()    
 
-    print(f"==================== output after encoder. time: {e-s}")
-    for idx, out in enumerate(output_by_layer):
-        print(f"basicLayer: {idx}, before ds: {out[0].shape}, after_ds: {out[1].shape}")
-    print()
+    # print(f"==================== output after encoder. time: {e-s}")
+    # for idx, out in enumerate(output_by_layer):
+    #     print(f"basicLayer: {idx}, before ds: {out[0].shape}, after_ds: {out[1].shape}")
+    # print()
     
-    #----------------------- Decoder -----------------------------------
+    
+    #----------------------- Decoder ----------------------------------
+    print("-------------- Encoder ------------")
+    
     decoder = Decoder(input_resolution = (D, H, W), embed_dim=C, depths=[4, 8, 4], num_heads=[4, 8, 16],    #--------- num_heads to revise for deployment.
             window_size=window_size, mlp_ratio=4., qkv_bias=True,     #---------- window_size=(2, 5, 5) for deployment
             drop_rate=0., attn_drop_rate=0., drop_path_rate=0.0,
             norm_layer=nn.LayerNorm, ape=True,
             use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0]).to(device)
         
-    s = time.time()
-    x = decoder(output_by_layer)
-    e = time.time()
+    # s = time.time()
+    # x = decoder(output_by_layer)
+    # e = time.time()
 
-    print(f"==================== output after decoder. time: {e-s}")
+    # print(f"==================== output after decoder. time: {e-s}")
     
     #--------------------- Encoder_Decoder ------------------------------
+    print("-------------- Encoder-Decoder ------------")
     
     codec = Encoder_Decoder(input_resolution = (D, H, W), embed_dim=C, depths=[4, 8, 4], num_heads=[4, 8, 16],    #--------- num_heads to revise for deployment.
             window_size=window_size, mlp_ratio=4., qkv_bias=True,     #---------- window_size=(2, 5, 5) for deployment
@@ -1617,13 +1639,13 @@ if __name__ == "__main__":
             norm_layer=nn.LayerNorm, ape=True,
             use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0]).to(device)
 
-    print(f"Encoder_Decoder. x_flat: {x_flat.shape}")
+    # print(f"Encoder_Decoder. x_flat: {x_flat.shape}")
 
-    s = time.time()
-    x = codec(x_flat)
-    e = time.time()
+    # s = time.time()
+    # x = codec(x_flat)
+    # e = time.time()
     
-    print(f"==================== output after encoder_decoder. x: {x.shape} time: {e-s}")
+    # print(f"==================== output after encoder_decoder. x: {x.shape} time: {e-s}")
         
     #-----------------------------------------------------------------
 
@@ -1649,7 +1671,10 @@ if __name__ == "__main__":
     # show_on_map(data)    
     
     print("----------------------------------- printing ... ----------------------------------")
+    
     encoder = codec.decoder
+    projection = 'DH'
+    
     nLayers = len(encoder.layers)
     for layer_idx in range(nLayers):
         nBlocks = len(encoder.layers[layer_idx].blocks)
@@ -1658,4 +1683,4 @@ if __name__ == "__main__":
             attn_mask = block.attn_mask.attn_mask
             u_res = block.unpadded_resolution
             title = f"L {layer_idx}/{nLayers}, B {block_idx}/{nBlocks}, UR {u_res}"
-            show_global_attn_mask_map(attn_mask, block.window_size, block.input_resolution, depth_idx=0, title=title)
+            show_global_attn_mask_map(attn_mask, block.window_size, block.input_resolution, depth_idx=0, title=title, projection=projection)
