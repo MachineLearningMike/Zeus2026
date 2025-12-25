@@ -864,7 +864,7 @@ projects["Zeus_Swin_25Dec25_2"] = {
         'increasing' : True,
         'type_pos_bias' : 'lonBand', # 'sphere', 'None'
         'pair_bias_dim' : 5,
-        'depth_list' : [6, 8, 2],
+        'depth_list' : [4, 8, 4],   # [6, 8, 4] leads to OOP on A100
         'head_list' : [4, 8, 16],
     },
     
