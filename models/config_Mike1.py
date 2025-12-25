@@ -944,7 +944,7 @@ projects["Zeus_Swin_25Dec26"] = {
         'patch_kernel' : 4,
         'patch_stride' : 4,
         'swin_dim' : 192,           # 480 is the right value, if we have enough GPU memory. Reduce this to fit onto GPU memory.
-        'window_size' : (2, 6, 12),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
+        'window_size' : (2, 4, 8),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
         'num_swin_block' : 30,
         'nLevels' : 8,
         'increasing' : True,
