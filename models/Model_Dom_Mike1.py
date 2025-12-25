@@ -52,19 +52,19 @@ class Model_Dom():
         
         self.scaler = GradScaler()
         
-        try:
-            if not self.pm.doubleZeus:
-                self.model = Zeus(self.pm, device=self.device).to(self.device)
-                num_params = sum(p.numel() for p in self.model.parameters())
-                logging.info("Zeus model {} created with a total of ========= {:,} ========= parameters".format(self.md_id, num_params))
-                # if self.nDevices > 1:
-                #     self.slave_models = self.create_slave_models(self.devices)
-            else:
-                pass
+        # try:
+        if not self.pm.doubleZeus:
+            self.model = Zeus(self.pm, device=self.device).to(self.device)
+            num_params = sum(p.numel() for p in self.model.parameters())
+            logging.info("Zeus model {} created with a total of ========= {:,} ========= parameters".format(self.md_id, num_params))
+            # if self.nDevices > 1:
+            #     self.slave_models = self.create_slave_models(self.devices)
+        else:
+            pass
 
-        except Exception as e:
-            logging.info("Creating model...." + str(e))
-            sys.exit(0)
+        # except Exception as e:
+        #     logging.info("Creating model...." + str(e))
+        #     sys.exit(0)
 
         if self.trainable:
             self.optimizer = self._select_optimizer()
