@@ -1004,8 +1004,52 @@ projects["Zeus_Swin_25Dec26_6x6"] = {
     "model_4": {},
 }
 
+projects["Zeus_Swin_25Dec26_6x6_no_codec_skip"] = {
+    "management": {
+    "Zeus_Model_module" : "Zeus_Mike1",
+    "GPUWaitsData" : True,
+    "models_to_play": [0,],
+    "metrics" : "rmse", # "mae", "rmse"
+    'max_cascade_step' : 1,
+    },
+    
+    "data": {
+    "org_height": 721,
+    "batch_size": 1,
+    },
+    
+    "model_0": {
+        "lr": 1e-4,
+        "max_lr": 1e-4,
+        "overwrite_saved_lr": False,
+        "useLRLearner" : False,
+        "accum_steps" : 10,   
+        "skip_validation" : True,
+        #----------------------------------- SWIN ------------------------
+        # 'factor10' : 2 on Windows else 10.   3 works on 8GB, 10 will work on 80GB?
+        
+        'nHeads' : 4,
+        'patch_kernel' : 4,
+        'patch_stride' : 4,
+        'swin_dim' : 192,           # 480 is the right value, if we have enough GPU memory. Reduce this to fit onto GPU memory.
+        'window_size' : (2, 6, 6),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
+        'num_swin_block' : 30,
+        'nLevels' : 8,
+        'increasing' : True,
+        'type_pos_bias' : 'lonBand', # 'sphere', 'None'
+        'pair_bias_dim' : 5,
+        'depth_list' : [4, 8, 4],   # [6, 8, 4] leads to OOP on A100
+        'head_list' : [4, 8, 16],
+    },
+    
+    "model_1": {},
+    "model_2": {},
+    "model_3": {},
+    "model_4": {},
+}
+
 #-------------------------------- select proejct -----------------------
-project = "Zeus_Swin_25Dec26_6x6"   # "Zeus_Swin_25Dec25_2"
+project = "Zeus_Swin_25Dec26_6x6_no_codec_skip"   # "Zeus_Swin_25Dec25_2"
 config["bayesProject"] = project
 # updata 'management'
 config.update(projects[project]["management"])
