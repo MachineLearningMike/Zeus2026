@@ -1272,10 +1272,10 @@ class Encoder_Decoder(nn.Module):
         torch.nn.init.eye_(self.skip_learner.weight)
         
     def forward(self, x_flat):
-        x_skip = x_flat     # .clone() ------ no clone() because self.encoder doesn't modify its input arguments.
+        # x_skip = x_flat     # .clone() ------ no clone() because self.encoder doesn't modify its input arguments.
         x_by_layer = self.encoder(x_flat)
         x = self.decoder(x_by_layer)
-        x = x + self.skip_learner(x_skip)
+        # x = x + self.skip_learner(x_skip)
         return x
         
 import numpy as np
