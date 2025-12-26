@@ -434,12 +434,14 @@ class Model_Trainer():
                                 if self.pm.pair_not_single_snapshot:
                                     X1.to(device)
                                 Y.to(device)
-                                                            
+                                                     
+                                predicted_value_required = (len(Xs) > 0 or len(oldQ) > 0 and cascade_step < self.pm.max_cascade_step)       
                                 substep_result, _substep_loss, _substep_metrics = md.forward_backward_no_step(
                                         X0, X1, Y, cascade_step,
                                         self.loss, self.dataset.normalize_meteo, self.dataset.unnormalize_meteo, 
                                         batch_diff, era5_data_vars, trainable=trainable,
-                                        type_metrics = self.pm.metrics, predicted_value_required = (len(Xs) > 0 or len(oldQ) > 0),
+                                        type_metrics = self.pm.metrics, 
+                                        predicted_value_required = predicted_value_required,
                                         pressure_indices = self.dataset.pressure_indices,
                                         pressure_values = self.dataset.pressure_values,
                                     )
@@ -465,7 +467,7 @@ class Model_Trainer():
                             oldQ = newQ
                             
                         # assert cnt == int((self.pm.nStepsPerBatch + 1) * self.pm.nStepsPerBatch / 2)
-                        # print('++++++++++++++++++++++++++', cnt)
+                        # print('++++++++++++++++++++++++++', cnt, predicted_value_required)
                             
                         #------------------------------------------------ The set of steps finished.
                         md.store_step_loss_and_metrics(step_loss, step_metrics) # [substep_loss...], [substep_metrics...]
