@@ -1145,7 +1145,7 @@ class Zeus_Dataset(Dataset):
             if var.startswith("p_"):
                 pressure_indices.append(idx)
                 hecta = 100.0
-                pressure = int(var[2:]) * hecta
+                pressure = (int(var[2:]) * hecta - pressure_mean) / pressure_std
                 pressure_values.append(pressure)
         self.pressure_indices = torch.tensor(pressure_indices).to("cuda" if torch.cuda.is_available() else "cpu")
         self.pressure_values = torch.tensor(pressure_values).to("cuda" if torch.cuda.is_available() else "cpu")
