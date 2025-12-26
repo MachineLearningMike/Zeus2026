@@ -87,6 +87,7 @@ class WindowAttention(nn.Module):
         self.pretrained_window_size = pretrained_window_size
         self.num_heads = num_heads
 
+
         self.logit_scale = nn.Parameter(torch.log(10 * torch.ones((num_heads, 1, 1))), requires_grad=True)
 
         # mlp to generate continuous relative position bias

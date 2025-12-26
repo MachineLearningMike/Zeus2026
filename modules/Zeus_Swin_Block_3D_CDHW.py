@@ -216,8 +216,10 @@ class WindowAttention3D(nn.Module):
         self.window_size = window_size
         self.nWindows = None
 
-        # self.logit_scale = nn.Parameter(torch.log(10 * torch.ones((num_heads, 1, 1))), requires_grad=True)
-
+        self.logit_scale = nn.Parameter(torch.log(10 * torch.ones((num_heads, 1, 1))), requires_grad=True)
+        self.register_buffer("clamp_min", torch.log(torch.tensor(1e-6)))
+        self.register_buffer("clamp_max", torch.log(torch.tensor(100.0)))
+        
         self.qkv = nn.Linear(dim, dim*3, bias=False)   # qkv_bais==True leads to 'gradient not received'
         # self.qkv = nn.Linear(dim, dim*3)
         if qkv_bias:
@@ -247,8 +249,9 @@ class WindowAttention3D(nn.Module):
         # logit_scale = torch.clamp(self.logit_scale, max=torch.log(torch.tensor(1./0.01).to(self.logit_scale.device))).exp()
         # attn = attn * logit_scale # (B_ = B * nWin, num_heads, win_vol, win_vol) * (num_heads, 1, 1) = (nWin_ num_heads, win_vol, win_vol)
 
-        head_dim = q.shape[-1]
-        attn = (q @ k.transpose(-2, -1)) / (head_dim ** 0.5)
+        attn = (F.normalize(q, dim=-1) @ F.normalize(k, dim=-1).transpose(-2, -1))
+        logit_scale = torch.clamp(self.logit_scale, min=self.clamp_min, max=self.clamp_max).exp()   # self.logit_scale = log(10) initially.
+        attn = attn * logit_scale   # It's surprizing that clamp is backpropagated with gradient.
 
         if position_bias is not None:   # (nWindows, win_volume, win_volume, num_heads)
             position_bias = position_bias.permute(0,3,1,2).contiguous() # (nWindows, num_heads, win_volume, win_volume)
@@ -256,8 +259,7 @@ class WindowAttention3D(nn.Module):
                 self.nWindows = position_bias.shape[0]
             B = B_ // self.nWindows
             attn = attn.view(B, self.nWindows, self.num_heads, N, N)    # (B, nWindows, num_heads, win_volume, win_volume)
-            # position_bias = 16 * torch.sigmoid(position_bias)     # only used for sphere bias. make the code clean.
-            # print("attn + position_bias", attn.shape, position_bias.shape)
+            position_bias = 16 * torch.sigmoid(position_bias)
             attn = attn + position_bias         # propagate to B
             attn = attn.view(B_, self.num_heads, N, N)  # (B * nWin_ num_heads, win_vol, win_vol)
 
@@ -1617,7 +1619,7 @@ if __name__ == "__main__":
     print("====================================== Big Test ==============================================")
     
     # factor10, window_size = 2, (2, 4, 4)
-    factor10, window_size = 10, (2, 6, 6) # (2, 6, 12), (2, 4, 8)
+    factor10, window_size = 2, (2, 6, 6) # (2, 6, 12), (2, 4, 8)
     depths, nHeads = (4, 8, 4), (4, 8, 16)
     patch_size = 4
     H, W, D = int(int(720/patch_size)/10*factor10), int(int(1440/patch_size)/10*factor10), 8
