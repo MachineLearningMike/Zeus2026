@@ -1139,7 +1139,7 @@ projects["Zeus_25Dec26_6x6_skippable_learnable"] = {
     "model_4": {},
 }
 
-projects["Zeus_25Dec26_6x6_learn_skip"] = {
+projects["Zeus_25Dec26_6x6_learn_skip_2"] = {
     "management": {
     "Zeus_Model_module" : "Zeus_Mike1",
     "GPUWaitsData" : True,
@@ -1187,7 +1187,7 @@ projects["Zeus_25Dec26_6x6_learn_skip"] = {
 }
 
 #-------------------------------- select proejct -----------------------
-project = "Zeus_25Dec26_6x6_learn_skip"   # "Zeus_Swin_25Dec25_2"
+project = "Zeus_25Dec26_6x6_learn_skip_2"   # "Zeus_Swin_25Dec25_2"
 config["bayesProject"] = project
 # updata 'management'
 config.update(projects[project]["management"])
