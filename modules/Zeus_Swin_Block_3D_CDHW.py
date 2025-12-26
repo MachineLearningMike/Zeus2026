@@ -251,8 +251,8 @@ class WindowAttention3D(nn.Module):
         
         # cosine attention
         attn = (F.normalize(q, dim=-1) @ F.normalize(k, dim=-1).transpose(-2, -1))
-        # device = self.logit_scale.device
-        # logit_scale = torch.clamp(self.logit_scale, min=torch.log(torch.tensor(1e-6, device=device)), max=torch.log(torch.tensor(100., device=device))).exp()
+        device = self.logit_scale.device
+        logit_scale = torch.clamp(self.logit_scale, min=torch.log(torch.tensor(1e-6, device=device)), max=torch.log(torch.tensor(100., device=device))).exp()
         # attn = attn * logit_scale
 
         if position_bias is not None:   # (nWindows, win_volume, win_volume, num_heads)
