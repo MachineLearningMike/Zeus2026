@@ -951,6 +951,13 @@ class BasicLayer(nn.Module):
         self.use_checkpoint = use_checkpoint
         self.padding = padding
         self.in_encoder = in_encoder
+        
+        self.output_resolution = input_resolution
+        if resampler is not None:
+            if in_encoder:
+                self.output_resolution = (r//2 for r in input_resolution)
+            else:
+                self.output_resolution = (r*2 for r in input_resolution)
 
         # build blocks
         self.blocks = nn.ModuleList()
@@ -989,18 +996,18 @@ class BasicLayer(nn.Module):
             self.resampler = None
 
     def forward(self, x, ):
-        output_by_phase = []
+        layer_output = []
         blocks = self.blocks if self.in_encoder else reversed(self.blocks)
         for blk in blocks:
             if self.use_checkpoint:
                 x = checkpoint.checkpoint(blk, x)
             else:
                 x = blk(x)
-        output_by_phase.append(x)
+        layer_output.append(x)
         if self.resampler is not None:
             x = self.resampler(x)
-        output_by_phase.append(x)
-        return output_by_phase
+        layer_output.append(x)
+        return layer_output
 
     def extra_repr(self) -> str:
         return f"dim={self.dim}, input_resolution={self.input_resolution}, depth={self.depth}"
@@ -1027,13 +1034,14 @@ class Encoder(nn.Module):
                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.0,
                 norm_layer=nn.LayerNorm, ape=True,  
                 # absolute position eocoding is required in geo-shpere, because geo-cat and geo-dense is not enough.
-                use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0], pair_bias_dim=5, **kwargs):
+                use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0], pair_bias_dim=5, skippable=False, **kwargs):
         super().__init__()
 
         self.num_layers = len(depths)
         self.embed_dim = embed_dim
         self.ape = ape
         self.mlp_ratio = mlp_ratio
+        self.skippable = skippable
 
         num_patches = input_resolution[0] * input_resolution[1] * input_resolution[2]
 
@@ -1126,17 +1134,19 @@ class Encoder(nn.Module):
             x = x + self.absolute_pos_embed
         x = self.pos_drop(x)
 
-        output_by_layer = []
+        encoder_output = []
 
-        for layer in self.layers:
-            output_by_phase = layer(x)
-            output_by_layer.append(output_by_phase)
-            x = output_by_phase[1]
+        for idx, layer in enumerate(self.layers):
+            layer_output = layer(x)
+            x = layer_output[1]
 
-        # for idx, (enc_layer, (before_ds, after_ds)) in enumerate(zip(self.layers, output_by_layer)):
+            if self.skippable or (not self.skippable and idx == len(self.layers)-1):
+                encoder_output.append(layer_output)
+
+        # for idx, (enc_layer, (before_ds, after_ds)) in enumerate(zip(self.layers, encoder_output)):
         #     print(f"{idx}, enc_layer: {enc_layer.dim}, {enc_layer.input_resolution}, enc_before_ds: {before_ds.shape}, enc_after_ds: {after_ds.shape}")
 
-        return output_by_layer
+        return encoder_output
 
 
 class Decoder(nn.Module):
@@ -1145,7 +1155,7 @@ class Decoder(nn.Module):
                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.0,
                 norm_layer=nn.LayerNorm, ape=True,  
                 # absolute position eocoding is required in geo-shpere, because geo-cat and geo-dense is not enough.
-                use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0], pair_bias_dim=5, skip_learn=False, **kwargs):
+                use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0], pair_bias_dim=5, skip_learn=False, skippable=False, **kwargs):
         super().__init__()
 
         skip_learn = True   # no time to put it in the config
@@ -1155,6 +1165,7 @@ class Decoder(nn.Module):
         self.ape = ape
         self.mlp_ratio = mlp_ratio
         self.skip_learn = skip_learn
+        self.skippable = skippable
 
         # stochastic depth
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
@@ -1213,7 +1224,7 @@ class Decoder(nn.Module):
                                in_encoder=False)
             self.layers.append(layer)
             
-            if skip_learn:
+            if self.skippable and skip_learn:
                 skip_learner = nn.Linear(dim, dim, bias=False)
                 torch.nn.init.eye_(skip_learner.weight)
                 self.skip_learners.append(skip_learner)            
@@ -1242,20 +1253,26 @@ class Decoder(nn.Module):
         return {"cpb_mlp", "logit_scale", 'relative_position_bias_table'}
 
     def forward(self, enc_x_by_layer):        
-        dec_x_after_us = torch.zeros_like(enc_x_by_layer[-1][0])
 
-        if self.skip_learn:            
-            for idx, (dec_layer, (enc_x_before_ds, _), skip_learner) in enumerate(zip(reversed(self.layers), reversed(enc_x_by_layer), reversed(self.skip_learners))):
-                # print(f"{idx}, dec_layer: {dec_layer.dim}, {dec_layer.input_resolution}, enc_before_ds: {enc_x_before_ds.shape}")
-                input = dec_x_after_us + skip_learner(enc_x_before_ds) 
-                (_, dec_x_after_us) = dec_layer(input)
+        if self.skippable:
+            dec_x_after_us = torch.zeros_like(enc_x_by_layer[-1][0])
+            
+            if self.skip_learn:            
+                for idx, (dec_layer, (enc_x_before_ds, _), skip_learner) in enumerate(zip(reversed(self.layers), reversed(enc_x_by_layer), reversed(self.skip_learners))):
+                    # print(f"{idx}, dec_layer: {dec_layer.dim}, {dec_layer.input_resolution}, enc_before_ds: {enc_x_before_ds.shape}")
+                    input = dec_x_after_us + skip_learner(enc_x_before_ds) 
+                    (_, dec_x_after_us) = dec_layer(input)
+            else:
+                for idx, (dec_layer, (enc_x_before_ds, _)) in enumerate(zip(reversed(self.layers), reversed(enc_x_by_layer))):
+                    # print(f"{idx}, dec_layer: {dec_layer.dim}, {dec_layer.input_resolution}, enc_before_ds: {enc_x_before_ds.shape}")
+                    input = dec_x_after_us + enc_x_before_ds 
+                    (_, dec_x_after_us) = dec_layer(input)
+    
         else:
-            for idx, (dec_layer, (enc_x_before_ds, _)) in enumerate(zip(reversed(self.layers), reversed(enc_x_by_layer))):
-                # print(f"{idx}, dec_layer: {dec_layer.dim}, {dec_layer.input_resolution}, enc_before_ds: {enc_x_before_ds.shape}")
-                input = dec_x_after_us + enc_x_before_ds 
-                (_, dec_x_after_us) = dec_layer(input)
-
-
+            dec_x_after_us = enc_x_by_layer[-1][0]
+            for layer in reversed(self.layers):
+                (_, dec_x_after_us) = layer(dec_x_after_us)
+            
         return dec_x_after_us
 
 class Encoder_Decoder(nn.Module):
@@ -1264,7 +1281,7 @@ class Encoder_Decoder(nn.Module):
                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.0,
                 norm_layer=nn.LayerNorm, ape=True,  
                 # absolute position eocoding is required in geo-shpere, because geo-cat and geo-dense is not enough.
-                use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0], pair_bias_dim=5, **kwargs):
+                use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0], pair_bias_dim=5, skippable=False, **kwargs):
         super().__init__()
         
         self.encoder = Encoder(input_resolution = input_resolution, embed_dim=embed_dim, depths=depths, num_heads=num_heads,
@@ -1272,14 +1289,14 @@ class Encoder_Decoder(nn.Module):
                 drop_rate=drop_rate, attn_drop_rate=attn_drop_rate, drop_path_rate=drop_path_rate,
                 norm_layer=nn.LayerNorm, ape=True,  
                 # absolute position eocoding is required in geo-shpere, because geo-cat and geo-dense is not enough.
-                use_checkpoint=use_checkpoint, pretrained_window_sizes=pretrained_window_sizes, pair_bias_dim=pair_bias_dim, **kwargs)
+                use_checkpoint=use_checkpoint, pretrained_window_sizes=pretrained_window_sizes, pair_bias_dim=pair_bias_dim, skippable=skippable, **kwargs)
         
         self.decoder = Decoder(input_resolution = input_resolution, embed_dim=embed_dim, depths=depths, num_heads=num_heads,
                 window_size=window_size, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias,
                 drop_rate=drop_rate, attn_drop_rate=attn_drop_rate, drop_path_rate=drop_path_rate,
                 norm_layer=nn.LayerNorm, ape=True,  
                 # absolute position eocoding is required in geo-shpere, because geo-cat and geo-dense is not enough.
-                use_checkpoint=use_checkpoint, pretrained_window_sizes=pretrained_window_sizes, pair_bias_dim=pair_bias_dim, **kwargs)
+                use_checkpoint=use_checkpoint, pretrained_window_sizes=pretrained_window_sizes, pair_bias_dim=pair_bias_dim, skippable=skippable, **kwargs)
         
         # self.skip_learner = nn.Linear(embed_dim, embed_dim, bias=False)
         # torch.nn.init.eye_(self.skip_learner.weight)
@@ -1552,6 +1569,7 @@ if __name__ == "__main__":
     
     print(f"x_flat after blocks: ({x_flat.shape}), time after 30 blocks: {e-s}")
 
+    #------------------------------------------------------------------------------------------------------------------
     #------------------------ Basic layer -----------------------
     
     factor10 = 2  # 2, 3
@@ -1580,31 +1598,33 @@ if __name__ == "__main__":
     
     # Forward pass
     s = time.time()
-    output_by_phase = bLayer(x_flat)
+    layer_output = bLayer(x_flat)
     e = time.time()
 
-    print(f"x_flat after basicLayer of depth 6 with last patch merging, befor_ds: ({output_by_phase[0].shape}), after_ds: ({output_by_phase[1].shape}), time: {e-s}")
+    print(f"x_flat after basicLayer of depth 6 with last patch merging, befor_ds: ({layer_output[0].shape}), after_ds: ({layer_output[1].shape}), time: {e-s}")
+    
+    print("====================================== Big Test ==============================================")
     
     # factor10, window_size = 2, (2, 4, 4)
-    factor10, window_size = 10, (2, 4, 8) # (2, 6, 12)
-
-    H, W, D = int(180/10*factor10), int(360/10*factor10), 8
-    print("H, W, D", H, W, D)
+    factor10, window_size = 10, (2, 6, 6) # (2, 6, 12), (2, 4, 8)
+    depths, nHeads = (4, 8, 4), (4, 8, 16)
+    patch_size = 4
+    H, W, D = int(int(720/patch_size)/10*factor10), int(int(1440/patch_size)/10*factor10), 8
     C, num_heads = 8, 4
     pair_bias_dim = 5
-
     input_resolution=(D, H, W)
-    
+
+    skippable = True
+
     # Random input: (B, C, D, H, W)
     x_in = torch.randn(1, C, D, H, W).to(device).to(device)
-
     # Flatten input for block input
     B, C, D, H, W = x_in.shape
-
     x_flat = x_in.permute(0,2,3,4,1).contiguous().reshape(B, D*H*W, C).contiguous()
     
-    #------------------------ Encoder -----------------------------    
-    print("-------------- Encoder ------------")
+    print(f"f10 {factor10}, input_resolution {input_resolution}, win_size {window_size}, depths {depths}, nHeads {nHeads}, skippable {skippable}, x_flat {x_flat.shape}")
+      
+    print("\n-------------- Encoder ------------")
 
     # # mask = AttentionMask3D(input_resolution=(4, 9, 18), window_size=(2, 3, 3), shift_size=(1, 1, 1))
     # # print("input_resolution=(4, 9, 18), window_size=(2, 3, 3), shift_size=(1, 1, 1)", mask.attn_mask.shape)
@@ -1612,53 +1632,72 @@ if __name__ == "__main__":
     # print("input_resolution=(2, 9, 18), window_size=(2, 3, 3), shift_size=(1, 1, 1)", mask.attn_mask.shape)
 
     # encoder = Encoder(input_resolution = (D, H, W), embed_dim=192, depths=[4, 8, 4], num_heads=[4, 8, 16],
-    encoder = Encoder(input_resolution = (D, H, W), embed_dim=C, depths=[4, 8, 4], num_heads=[4, 8, 16],    #--------- num_heads to revise for deployment.
+    encoder = Encoder(input_resolution = (D, H, W), embed_dim=C, depths=depths, num_heads=nHeads,    #--------- num_heads to revise for deployment.
                 window_size=window_size, mlp_ratio=4., qkv_bias=True,     #---------- window_size=(2, 6, 6) for deployment
                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.0,
                 norm_layer=nn.LayerNorm, ape=True,
-                use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0]).to(device)
+                use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0], skippable=skippable).to(device)
 
-    # s = time.time()
-    # output_by_layer = encoder(x_flat)
-    # e = time.time()    
+    s = time.time()
+    encoder_output = encoder(x_flat)
+    e = time.time()    
 
-    # print(f"==================== output after encoder. time: {e-s}")
-    # for idx, out in enumerate(output_by_layer):
-    #     print(f"basicLayer: {idx}, before ds: {out[0].shape}, after_ds: {out[1].shape}")
-    # print()
+    print(f"-------------- output after encoder. time: {e-s}")
+    if skippable:
+        for idx, (layer, out) in enumerate(zip(encoder.layers, encoder_output)):
+            i_res = list(layer.input_resolution)
+            assert out[0].shape[1] == i_res[0] * i_res[1] * i_res[2]
+            o_res = list(layer.output_resolution)
+            assert out[1].shape[1] == o_res[0] * o_res[1] * o_res[2]
+            print(f"skippable, basicLayer: {idx}, before ds: {out[0].shape} / {i_res}; after_ds: {out[1].shape} / {o_res}")
+    else:
+        out = encoder_output[-1]
+        layer = encoder.layers[-1]
+        i_res = list(layer.input_resolution)
+        assert out[0].shape[1] == i_res[0] * i_res[1] * i_res[2]
+        o_res = list(layer.output_resolution)
+        assert out[1].shape[1] == o_res[0] * o_res[1] * o_res[2]
+        print(f"un-skippable, basicLayer: before ds: {out[0].shape} / {i_res}; after_ds: {out[1].shape} / {o_res}")
     
+
+    print("\n-------------- Decoder --------------")
     
-    #----------------------- Decoder ----------------------------------
-    print("-------------- Encoder ------------")
-    
-    decoder = Decoder(input_resolution = (D, H, W), embed_dim=C, depths=[4, 8, 4], num_heads=[4, 8, 16],    #--------- num_heads to revise for deployment.
+    decoder = Decoder(input_resolution = (D, H, W), embed_dim=C, depths=depths, num_heads=nHeads,    #--------- num_heads to revise for deployment.
             window_size=window_size, mlp_ratio=4., qkv_bias=True,     #---------- window_size=(2, 5, 5) for deployment
             drop_rate=0., attn_drop_rate=0., drop_path_rate=0.0,
             norm_layer=nn.LayerNorm, ape=True,
-            use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0]).to(device)
+            use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0], skippable=skippable).to(device)
         
-    # s = time.time()
-    # x = decoder(output_by_layer)
-    # e = time.time()
+    s = time.time()
+    x = decoder(encoder_output)
+    e = time.time()
 
-    # print(f"==================== output after decoder. time: {e-s}")
+    print(f"-------------- output after decoder. time: {e-s}")
     
-    #--------------------- Encoder_Decoder ------------------------------
-    print("-------------- Encoder-Decoder ------------")
+    o_res = decoder.layers[0].output_resolution
+    assert x.shape[1] ==  o_res[0] * o_res[1] * o_res[2]
+    print(f"output {x.shape}, <{o_res}")
     
-    codec = Encoder_Decoder(input_resolution = (D, H, W), embed_dim=C, depths=[4, 8, 4], num_heads=[4, 8, 16],    #--------- num_heads to revise for deployment.
+    for idx, layer in enumerate(decoder.layers):
+        i_res = list(layer.input_resolution)
+        o_res = list(layer.output_resolution)
+        print(f"input_resulition {i_res}; output_resolution {o_res}")
+
+    print("\n-------------- Encoder-Decoder --------------")
+    
+    codec = Encoder_Decoder(input_resolution = (D, H, W), embed_dim=C, depths=depths, num_heads=nHeads,    #--------- num_heads to revise for deployment.
             window_size=window_size, mlp_ratio=4., qkv_bias=True,     #---------- window_size=(2, 5, 5) for deployment
             drop_rate=0., attn_drop_rate=0., drop_path_rate=0.0,
             norm_layer=nn.LayerNorm, ape=True,
-            use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0]).to(device)
+            use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0], skippable=skippable).to(device)
 
-    # print(f"Encoder_Decoder. x_flat: {x_flat.shape}")
+    print(f"Encoder_Decoder. x_flat: {x_flat.shape}")
 
-    # s = time.time()
-    # x = codec(x_flat)
-    # e = time.time()
+    s = time.time()
+    x = codec(x_flat)
+    e = time.time()
     
-    # print(f"==================== output after encoder_decoder. x: {x.shape} time: {e-s}")
+    print(f"-------------- output after encoder_decoder. x: {x.shape} time: {e-s}")
         
     #-----------------------------------------------------------------
 
@@ -1686,14 +1725,14 @@ if __name__ == "__main__":
     print("----------------------------------- printing ... ----------------------------------")
     
     encoder = codec.decoder
-    projection = 'DH'
+    projection = 'HW'
     
-    nLayers = len(encoder.layers)
-    for layer_idx in range(nLayers):
-        nBlocks = len(encoder.layers[layer_idx].blocks)
-        for block_idx in range(nBlocks):
-            block = encoder.layers[layer_idx].blocks[block_idx]
-            attn_mask = block.attn_mask.attn_mask
-            u_res = block.unpadded_resolution
-            title = f"L {layer_idx}/{nLayers}, B {block_idx}/{nBlocks}, UR {u_res}"
-            show_global_attn_mask_map(attn_mask, block.window_size, block.input_resolution, depth_idx=0, title=title, projection=projection)
+    # nLayers = len(encoder.layers)
+    # for layer_idx in range(nLayers):
+    #     nBlocks = len(encoder.layers[layer_idx].blocks)
+    #     for block_idx in range(nBlocks):
+    #         block = encoder.layers[layer_idx].blocks[block_idx]
+    #         attn_mask = block.attn_mask.attn_mask
+    #         u_res = block.unpadded_resolution
+    #         title = f"L {layer_idx}/{nLayers}, B {block_idx}/{nBlocks}, UR {u_res}"
+    #         show_global_attn_mask_map(attn_mask, block.window_size, block.input_resolution, depth_idx=0, title=title, projection=projection)

@@ -1128,6 +1128,8 @@ projects["Zeus_25Dec26_6x6_with_skip_learn"] = {
         'pair_bias_dim' : 5,
         'depth_list' : [4, 8, 4],   # [6, 8, 4] leads to OOP on A100
         'head_list' : [4, 8, 16],
+        'skippable' : False,
+        # 'skip_learn' : True,
     },
     
     "model_1": {},

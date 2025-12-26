@@ -33,6 +33,7 @@ class Zeus(nn.Module):
         type_pos_bias = pm.type_pos_bias
         depth_list = pm.depth_list
         head_list = pm.head_list
+        skippable = pm.skippable
         
         pair_bias_dim = pm.pair_bias_dim
 
@@ -81,7 +82,7 @@ class Zeus(nn.Module):
                 window_size=window_size, mlp_ratio=4., qkv_bias=qkv_bias,
                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.0,
                 norm_layer=nn.LayerNorm, ape=True,
-                use_checkpoint=use_checkpoint, pretrained_window_sizes=[0, 0, 0, 0])
+                use_checkpoint=use_checkpoint, pretrained_window_sizes=[0, 0, 0, 0], skippable=skippable)
                 
         #--------------- Unpatch reconstructor        
         self.unpatch_reconstructor = UnpatchReconstructor(
