@@ -33,9 +33,9 @@ class Zeus(nn.Module):
         type_pos_bias = pm.type_pos_bias
         depth_list = pm.depth_list
         head_list = pm.head_list
+        qkv_bias = pm.qkv_bias
         skippable = pm.skippable
         skip_learnable = pm.skip_learnable
-        qkv_bias = pm.qkv_bias
         
         pair_bias_dim = pm.pair_bias_dim
         
@@ -45,7 +45,7 @@ class Zeus(nn.Module):
         print("Zeus model being created..............................................................")
         print(f"factor10 {factor10}, num_heads {num_heads}, patch_kernel {patch_kernel}, patch_stride {patch_stride}, swin_dim {swin_dim}")
         print(f"window_size {window_size}, num_encoder_decoder {num_encoder_decoder}, nLevels {nLevels}, increasing {increasing}, type_pos_bias {type_pos_bias}")
-        print(f"depth_list {depth_list}, head_list {head_list}")
+        print(f"depth_list {depth_list}, head_list {head_list}, qkv_bias {qkv_bias}, skippable {skippable}, skip_learnable {skip_learnable}")
         print(".......................................................................................")
 
         self.device = device
@@ -78,7 +78,6 @@ class Zeus(nn.Module):
         #---------------- Swin blocks ----------------------
         
         input_resolution = (self.patch_extractor.nTotalLevels, H//patch_stride, W//patch_stride)
-        qkv_bias = qkv_bias
         use_checkpoint = False
         self.encoder_decoder = Encoder_Decoder(
                 input_resolution = input_resolution, embed_dim=swin_dim, depths=depth_list, num_heads=head_list,    #--------- num_heads to revise for deployment.
