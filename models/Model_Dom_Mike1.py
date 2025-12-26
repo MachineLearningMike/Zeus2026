@@ -459,7 +459,7 @@ class Model_Dom():
             X0, X1, Y, cascade_step,
             fn_loss, fn_nornalize, fn_unnornalize, 
             batch_diff, era5_data_vars, trainable,
-            type_metrics, continued,
+            type_metrics, predicted_value_required,
             pressure_indices, pressure_values,
         ):
         
@@ -467,7 +467,7 @@ class Model_Dom():
             X0, X1, Y, cascade_step,
             fn_loss, fn_nornalize, fn_unnornalize, 
             batch_diff, era5_data_vars, trainable,
-            type_metrics, continued,
+            type_metrics, predicted_value_required,
             pressure_indices, pressure_values,
             self.scaler,
         )
