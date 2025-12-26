@@ -264,34 +264,54 @@ class WindowAttention3D(nn.Module):
         #     attn = attn + position_bias         # propagate to B
         #     attn = attn.view(B_, self.num_heads, N, N)  # (B * nWin_ num_heads, win_vol, win_vol)
 
+        # if position_bias is not None:
+        #     # Get dimensions
+        #     nW, N, _, nH = position_bias.shape
+        #     B = B_ // nW
+            
+        #     # Reshape attention tensor (creates view)
+        #     attn_reshaped = attn.view(B, nW, nH, N, N)
+            
+        #     # Process position bias without .contiguous()
+        #     # Option 1: Use as_strided for maximum control (advanced)
+        #     # Option 2: Simple movedim + scaling
+            
+        #     # Create properly strided view of position_bias
+        #     bias_view = position_bias.permute(0, 3, 1, 2)  # (nW, nH, N, N)
+        #     # Note: permute creates a view, NOT a copy!
+            
+        #     # Apply sigmoid scaling
+        #     scaled_bias = 16.0 * torch.sigmoid(bias_view)
+            
+        #     # Add to attention (in-place operation)
+        #     attn_reshaped.add_(scaled_bias)
+            
+        #     # Reshape back to original
+        #     attn = attn_reshaped.reshape(B_, nH, N, N)
+            
+        #     # Optional: Clean up if memory is tight
+        #     # if torch.cuda.is_available():
+        #     #     torch.cuda.empty_cache()
+
         if position_bias is not None:
-            # Get dimensions
             nW, N, _, nH = position_bias.shape
             B = B_ // nW
             
-            # Reshape attention tensor (creates view)
+            # Reshape attention
             attn_reshaped = attn.view(B, nW, nH, N, N)
             
-            # Process position bias without .contiguous()
-            # Option 1: Use as_strided for maximum control (advanced)
-            # Option 2: Simple movedim + scaling
-            
-            # Create properly strided view of position_bias
+            # Get transposed view
             bias_view = position_bias.permute(0, 3, 1, 2)  # (nW, nH, N, N)
-            # Note: permute creates a view, NOT a copy!
             
-            # Apply sigmoid scaling
-            scaled_bias = 16.0 * torch.sigmoid(bias_view)
+            # OUT-OF-PLACE computation: 16 * sigmoid(x)
+            # This preserves gradient computation
+            scaled_bias = 16.0 / (1.0 + torch.exp(-bias_view))
             
-            # Add to attention (in-place operation)
+            # Add to attention (in-place add is OK here)
             attn_reshaped.add_(scaled_bias)
             
-            # Reshape back to original
+            # Reshape back
             attn = attn_reshaped.reshape(B_, nH, N, N)
-            
-            # Optional: Clean up if memory is tight
-            # if torch.cuda.is_available():
-            #     torch.cuda.empty_cache()
 
 
         if mask is not None:
