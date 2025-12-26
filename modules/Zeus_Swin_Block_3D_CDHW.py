@@ -251,6 +251,7 @@ class WindowAttention3D(nn.Module):
         # device = self.logit_scale.device
         # logit_scale = torch.clamp(self.logit_scale, min=torch.log(torch.tensor(1e-6, device=device)), max=torch.log(torch.tensor(100., device=device))).exp()
         # attn = attn * logit_scale #--------------- This line causes OOM on 80GB GPUs, like A100 and H100.
+        # We have to content ourselves with the flexibility of embedded position_bias and softmax.
 
         if position_bias is not None:   # (nWindows, win_volume, win_volume, num_heads)
             position_bias = position_bias.permute(0,3,1,2).contiguous() # (nWindows, num_heads, win_volume, win_volume)
@@ -258,7 +259,10 @@ class WindowAttention3D(nn.Module):
                 self.nWindows = position_bias.shape[0]
             B = B_ // self.nWindows
             attn = attn.view(B, self.nWindows, self.num_heads, N, N)    # (B, nWindows, num_heads, win_volume, win_volume)
+            
             # position_bias = 16 * torch.sigmoid(position_bias)  #--------------- This line causes OOM on 80GB GPUs, like A100 and H100.
+            # position_bias is an embedded tensor, like lonBand, it can freely scale withouth this technique.
+            
             attn = attn + position_bias         # propagate to B
             attn = attn.view(B_, self.num_heads, N, N)  # (B * nWin_ num_heads, win_vol, win_vol)
 
