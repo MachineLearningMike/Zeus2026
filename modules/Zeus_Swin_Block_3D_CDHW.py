@@ -246,11 +246,11 @@ class WindowAttention3D(nn.Module):
         head_dim = q.shape[-1]
         attn = (q @ k.transpose(-2, -1)) / (head_dim ** 0.5)
         
-        # cosine attention ----------- This block is given up: attn = attn * logit_scale causes OOM in 80BG GPUs.
+        # cosine attention ----------- This block is given up: attn = attn * logit_scale causes OOM on 80BG GPUs.
         # attn = (F.normalize(q, dim=-1) @ F.normalize(k, dim=-1).transpose(-2, -1))
         # device = self.logit_scale.device
         # logit_scale = torch.clamp(self.logit_scale, min=torch.log(torch.tensor(1e-6, device=device)), max=torch.log(torch.tensor(100., device=device))).exp()
-        # attn = attn * logit_scale
+        # attn = attn * logit_scale #--------------- This line causes OOM on 80GB GPUs, like A100 and H100.
 
         if position_bias is not None:   # (nWindows, win_volume, win_volume, num_heads)
             position_bias = position_bias.permute(0,3,1,2).contiguous() # (nWindows, num_heads, win_volume, win_volume)
@@ -258,7 +258,7 @@ class WindowAttention3D(nn.Module):
                 self.nWindows = position_bias.shape[0]
             B = B_ // self.nWindows
             attn = attn.view(B, self.nWindows, self.num_heads, N, N)    # (B, nWindows, num_heads, win_volume, win_volume)
-            position_bias = 16 * torch.sigmoid(position_bias)     # only used for sphere bias. make the code clean.
+            position_bias = 16 * torch.sigmoid(position_bias)  #--------------- This line causes OOM on 80GB GPUs, like A100 and H100.
             attn = attn + position_bias         # propagate to B
             attn = attn.view(B_, self.num_heads, N, N)  # (B * nWin_ num_heads, win_vol, win_vol)
 
