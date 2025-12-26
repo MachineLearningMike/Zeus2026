@@ -152,7 +152,7 @@ if platform.system() == "Windows":
     config["data_limit"] = 12
     config["dim_to_layerFFN_dim"] = 4
     
-    config["factor10"] = 10  # 
+    config["factor10"] = 2  # 
     config['nStepsPerBatch'] = 1
     
     # shared_model_params['nHeads'] = 4

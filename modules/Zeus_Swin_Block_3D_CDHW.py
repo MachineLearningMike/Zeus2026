@@ -1258,16 +1258,13 @@ class Decoder(nn.Module):
             dec_x_after_us = torch.zeros_like(enc_x_by_layer[-1][0])
             
             if self.skip_learnable:            
-                for idx, (dec_layer, (enc_x_before_ds, _), skip_learner) in enumerate(zip(reversed(self.layers), reversed(enc_x_by_layer), reversed(self.skip_learners))):
-                    # print(f"{idx}, dec_layer: {dec_layer.dim}, {dec_layer.input_resolution}, enc_before_ds: {enc_x_before_ds.shape}")
+                for dec_layer, (enc_x_before_ds, _), skip_learner in zip(reversed(self.layers), reversed(enc_x_by_layer), reversed(self.skip_learners)):
                     input = dec_x_after_us + skip_learner(enc_x_before_ds) 
                     (_, dec_x_after_us) = dec_layer(input)
             else:
-                for idx, (dec_layer, (enc_x_before_ds, _)) in enumerate(zip(reversed(self.layers), reversed(enc_x_by_layer))):
-                    # print(f"{idx}, dec_layer: {dec_layer.dim}, {dec_layer.input_resolution}, enc_before_ds: {enc_x_before_ds.shape}")
+                for dec_layer, (enc_x_before_ds, _) in zip(reversed(self.layers), reversed(enc_x_by_layer)):
                     input = dec_x_after_us + enc_x_before_ds 
-                    (_, dec_x_after_us) = dec_layer(input)
-    
+                    (_, dec_x_after_us) = dec_layer(input)    
         else:
             dec_x_after_us = enc_x_by_layer[-1][0]
             for layer in reversed(self.layers):
@@ -1300,14 +1297,26 @@ class Encoder_Decoder(nn.Module):
                 use_checkpoint=use_checkpoint, pretrained_window_sizes=pretrained_window_sizes, pair_bias_dim=pair_bias_dim, 
                 skippable=skippable, skip_learnable=skip_learnable, **kwargs)
         
-        # self.skip_learner = nn.Linear(embed_dim, embed_dim, bias=False)
-        # torch.nn.init.eye_(self.skip_learner.weight)
+        self.skippable = skippable
+        self.skip_learnable = skip_learnable
+        
+        if skippable and skip_learnable:
+            self.skip_learner = nn.Linear(embed_dim, embed_dim, bias=False)
+            torch.nn.init.eye_(self.skip_learner.weight)
         
     def forward(self, x_flat):
-        # x_skip = x_flat     # .clone() ------ no clone() because self.encoder doesn't modify its input arguments.
-        x_by_layer = self.encoder(x_flat)
-        x = self.decoder(x_by_layer)
-        # x = x + self.skip_learner(x_skip)
+        if self.skippable:
+            x_skip = x_flat     # .clone() ------ no clone() because self.encoder doesn't modify its input arguments.
+
+        out_enc = self.encoder(x_flat)
+        x = self.decoder(out_enc)
+
+        if self.skippable:
+            if self.skip_learnable:
+                x = x + self.skip_learner(x_skip)
+            else:
+                x = x + x_skip
+
         return x
         
 import numpy as np
@@ -1618,7 +1627,7 @@ if __name__ == "__main__":
 
     skippable = True
     skip_learnable = True
-
+    
     # Random input: (B, C, D, H, W)
     x_in = torch.randn(1, C, D, H, W).to(device).to(device)
     # Flatten input for block input
