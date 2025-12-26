@@ -212,6 +212,12 @@ class Model_Dom():
     
         self.save_train_history()        
 
+        #------------------------- Test --------------------
+        checkpoint = torch.load(self.project_path / (name + '.pth'), map_location="cpu")
+        state_dict = checkpoint['model']
+        missing_keys, unexpected_keys = self.model.load_state_dict(state_dict, strict=False)
+        logging.info("Model loaded with saved state: \n_missing_keys: {}, \n_unexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
+
         return
         
     def save_train_history(self, name=None):
