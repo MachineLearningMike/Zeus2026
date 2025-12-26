@@ -1130,6 +1130,7 @@ projects["Zeus_25Dec26_6x6_skippable_learnable"] = {
         'head_list' : [4, 8, 16],
         'skippable' : True,
         'skip_learnable' : True,
+        'qkv_bias' : True,
     },
     
     "model_1": {},
