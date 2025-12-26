@@ -43,7 +43,7 @@ class Zeus(nn.Module):
         print("Zeus model being created..............................................................")
         print(f"factor10 {factor10}, num_heads {num_heads}, patch_kernel {patch_kernel}, patch_stride {patch_stride}, swin_dim {swin_dim}")
         print(f"window_size {window_size}, num_encoder_decoder {num_encoder_decoder}, nLevels {nLevels}, increasing {increasing}, type_pos_bias {type_pos_bias}")
-        print(f"depth_list {depth_list}, head_list {head_list}")
+        print(f"depth_list {depth_list}, head_list {head_list}, skippable {skippable}, skip_learnable {skip_learnable}")
         print(".......................................................................................")
 
         self.device = device
