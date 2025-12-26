@@ -177,8 +177,7 @@ class Model_Trainer():
             # md_focus_list = [md for md in mds_to_train if md.md_id == self.focus_md_id]
             # md_focus = md_focus_list[0] if len(md_focus_list) == 1 else mds_to_train[0]
             
-            with autocast(device_type='cuda', dtype=torch.bfloat16):    # time: 97 -> 82, memory: little
-                train_losses, train_metrics = self.run_epoch(mds_to_train, "train_set", trainable=True)   # (,), (C,)
+            train_losses, train_metrics = self.run_epoch(mds_to_train, "train_set", trainable=True)   # (,), (C,)
 
             [md.get_epoch_display_batch(loss_list, metric_list) for (md, loss_list, metric_list) in zip(mds_to_train, train_losses, train_metrics)]
             [logging.info("Finished train epoch {}, {}".format(md.epoch, (md.display))) for md in mds_to_train]
@@ -389,93 +388,94 @@ class Model_Trainer():
                 Xs = batch_of_ss_lists[0]   # batch_of_ss_lists undergoes changes. This code doesn't know the content of X
                 assert len(Xs) == self.pm.nStepsPerBatch + (2 if self.pm.pair_not_single_snapshot else 1)
                     
-                for md in mds:
-                    #------------------------ this algorithm is studied in zeus_train_6_hourly.py -----------
-                    
-                    # assert len(Xs) >= 2, "length of Xs is not enough 1"
-                    
-                    X0 = Xs[0]; Xs = Xs[1:]
-                    if self.pm.pair_not_single_snapshot:
-                        X1 = Xs[0]; Xs = Xs[1:]
-                    else:
-                        X1 = X0
-                                        
-                    oldQ = [(X0, X1)]
-
-                    # assert len(Xs) > 0, "length of Xs is not enough 2"
-                    
-                    #--------------------------------------------- starting a set of steps for md...
-
-                    step_loss = []; step_metrics = []; cnt = 0
-                    while len(Xs) > 0:  # loops at least once
-                        # State: 
-                        # len(Xs) > 0, len(oldQ) > 0, [x0.device == device and x1.device == device for (x0, x1) in oldQ]
-                        # 2 * len(oldQ) count of X is stored in oldQ in device, together with model parameters.
-                        # oldQ stores raw X's
+                for md in mds:            
+                    with autocast(device_type='cuda', dtype=torch.bfloat16):    # time: 97 -> 82, memory: little
+                        #------------------------ this algorithm is studied in zeus_train_6_hourly.py -----------
                         
-                        #----------------------------------------- starting a step for md...
-
-                        Y = Xs[0]; Xs = Xs[1:]
+                        # assert len(Xs) >= 2, "length of Xs is not enough 1"
                         
+                        X0 = Xs[0]; Xs = Xs[1:]
                         if self.pm.pair_not_single_snapshot:
-                            newQ = [(oldQ[0][1], Y)]  # assert len(newQ) > 0        # newQ[0] stores raw X's
+                            X1 = Xs[0]; Xs = Xs[1:]
                         else:
-                            newQ = [(Y, Y)]
+                            X1 = X0
+                                            
+                        oldQ = [(X0, X1)]
 
-                        while len(oldQ) > 0:     # loops at least once
+                        # assert len(Xs) > 0, "length of Xs is not enough 2"
+                        
+                        #--------------------------------------------- starting a set of steps for md...
+
+                        step_loss = []; step_metrics = []; cnt = 0
+                        while len(Xs) > 0:  # loops at least once
+                            # State: 
+                            # len(Xs) > 0, len(oldQ) > 0, [x0.device == device and x1.device == device for (x0, x1) in oldQ]
+                            # 2 * len(oldQ) count of X is stored in oldQ in device, together with model parameters.
+                            # oldQ stores raw X's
                             
-                            #-------------------------------------- starting a substep for md...
+                            #----------------------------------------- starting a step for md...
+
+                            Y = Xs[0]; Xs = Xs[1:]
                             
-                            X0, X1 = oldQ[0]; oldQ = oldQ[1:]    # assert X.device == device
-                            cascade_step = len(newQ)
-                            
-                            X0.to(device)
                             if self.pm.pair_not_single_snapshot:
-                                X1.to(device)
-                            Y.to(device)
-                                                        
-                            substep_result, _substep_loss, _substep_metrics = md.forward_backward_no_step(
-                                    X0, X1, Y, cascade_step,
-                                    self.loss, self.dataset.normalize_meteo, self.dataset.unnormalize_meteo, 
-                                    batch_diff, era5_data_vars, trainable=trainable,
-                                    type_metrics = self.pm.metrics, continued = (len(Xs) > 0 or len(oldQ) > 0),
-                                    pressure_indices = self.dataset.pressure_indices,
-                                    pressure_values = self.dataset.pressure_values,
-                                )
-                            cnt += 1
+                                newQ = [(oldQ[0][1], Y)]  # assert len(newQ) > 0        # newQ[0] stores raw X's
+                            else:
+                                newQ = [(Y, Y)]
 
-                            if len(newQ) < self.pm.max_cascade_step: 
-                                if self.pm.pair_not_single_snapshot:
-                                    newQ.append((X1, substep_result))                      # +1 X
-                                else:
-                                    newQ.append((substep_result, substep_result))
+                            while len(oldQ) > 0:     # loops at least once
                                 
-                            del X0
-                            if not self.pm.pair_not_single_snapshot:
-                                del X1      # The same object, but different reference.
-                                                        
-                            #--------------------------------------- The substep finished.
+                                #-------------------------------------- starting a substep for md...
+                                
+                                X0, X1 = oldQ[0]; oldQ = oldQ[1:]    # assert X.device == device
+                                cascade_step = len(newQ)
+                                
+                                X0.to(device)
+                                if self.pm.pair_not_single_snapshot:
+                                    X1.to(device)
+                                Y.to(device)
+                                                            
+                                substep_result, _substep_loss, _substep_metrics = md.forward_backward_no_step(
+                                        X0, X1, Y, cascade_step,
+                                        self.loss, self.dataset.normalize_meteo, self.dataset.unnormalize_meteo, 
+                                        batch_diff, era5_data_vars, trainable=trainable,
+                                        type_metrics = self.pm.metrics, continued = (len(Xs) > 0 or len(oldQ) > 0),
+                                        pressure_indices = self.dataset.pressure_indices,
+                                        pressure_values = self.dataset.pressure_values,
+                                    )
+                                cnt += 1
+
+                                if len(newQ) < self.pm.max_cascade_step: 
+                                    if self.pm.pair_not_single_snapshot:
+                                        newQ.append((X1, substep_result))                      # +1 X
+                                    else:
+                                        newQ.append((substep_result, substep_result))
+                                    
+                                del X0
+                                if not self.pm.pair_not_single_snapshot:
+                                    del X1      # The same object, but different reference.
+                                                            
+                                #--------------------------------------- The substep finished.
+                                
+                                step_loss.append(_substep_loss)          # [substep_loss...]
+                                step_metrics.append(_substep_metrics)    # [substep_metrics...]
+                                
+                            #------------------------------------------- The step finished.
+                            # state: len(oldQ) == 0, len(oldQ) > 0
+                            oldQ = newQ
                             
-                            step_loss.append(_substep_loss)          # [substep_loss...]
-                            step_metrics.append(_substep_metrics)    # [substep_metrics...]
+                        # assert cnt == int((self.pm.nStepsPerBatch + 1) * self.pm.nStepsPerBatch / 2)
+                        # print('++++++++++++++++++++++++++', cnt)
                             
-                        #------------------------------------------- The step finished.
-                        # state: len(oldQ) == 0, len(oldQ) > 0
-                        oldQ = newQ
+                        #------------------------------------------------ The set of steps finished.
+                        md.store_step_loss_and_metrics(step_loss, step_metrics) # [substep_loss...], [substep_metrics...]
                         
-                    # assert cnt == int((self.pm.nStepsPerBatch + 1) * self.pm.nStepsPerBatch / 2)
-                    # print('++++++++++++++++++++++++++', cnt)
-                        
-                    #------------------------------------------------ The set of steps finished.
-                    md.store_step_loss_and_metrics(step_loss, step_metrics) # [substep_loss...], [substep_metrics...]
-                    
-                    if trainable:
-                        check_gradient(md.model)
-                        if md.pm.useLRLearner:
-                            md.lr_controller.stepOptimizer(_substep_loss.item())
-                        else:
-                            md.scaler.step(md.optimizer)
-                            md.scaler.update()
+                        if trainable:
+                            check_gradient(md.model)
+                            if md.pm.useLRLearner:
+                                md.lr_controller.stepOptimizer(_substep_loss.item())
+                            else:
+                                md.scaler.step(md.optimizer)
+                                md.scaler.update()
             else:
                 pass
                     
