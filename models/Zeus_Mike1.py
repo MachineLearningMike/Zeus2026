@@ -140,26 +140,27 @@ class Zeus(nn.Module):
             scaler,
         ):   
         
-        pred = self(ss0, ss1, cascade_step)
-        loss_mask = torch.ones(pred.shape[0], dtype=torch.float32, device=pred.device)
+        pred_normal = self(ss0, ss1, cascade_step)
+        loss_mask = torch.ones(pred_normal.shape[0], dtype=torch.float32, device=pred_normal.device)
         loss_mask[pressure_indices] = 0.0
         
-        lossAndMetrics = fn_loss(ssY.meteo, pred, batch_diff, era5_data_vars, loss_mask=loss_mask)
+        lossAndMetrics = fn_loss(ssY.meteo, pred_normal, batch_diff, era5_data_vars, loss_mask=loss_mask)
         loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
 
         if trainable:
             scaler.scale(loss).backward(retain_graph=True)
 
-        pred = pred.detach()
-        pred[pressure_indices] = ssY.meteo[pressure_indices].to(pred.dtype)
+        pred_normal = pred_normal.detach()
+        pred_normal[pressure_indices] = ssY.meteo[pressure_indices].to(pred_normal.dtype)
 
         if continued:
-            result_ss = Snapshot(ssY.year, ssY.month, ssY.day, ssY.hour, meteo=pred.detach().to(ssY.meteo.device), meteo_unnormal=None, device=ssY.device)
+            result_ss = Snapshot(ssY.year, ssY.month, ssY.day, ssY.hour, meteo=pred_normal.to(ssY.meteo.device), meteo_unnormal=None, device=ssY.device)
         else:
             result_ss = None
             
-        pred_unnormal = pred
-        fn_unnornalize(pred, pred_unnormal)
+        #------------------------------ pred_normal is no longer user below -------------------
+        pred_unnormal = pred_normal
+        fn_unnornalize(pred_normal, pred_unnormal)
         
         if type_metrics == "rmse":
             lossAndMetrics = fn_loss(ssY.meteo_unnormal, pred_unnormal, batch_diff, era5_data_vars, loss_mask=loss_mask)
