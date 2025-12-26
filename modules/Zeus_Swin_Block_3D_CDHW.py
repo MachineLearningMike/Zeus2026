@@ -258,7 +258,7 @@ class WindowAttention3D(nn.Module):
                 self.nWindows = position_bias.shape[0]
             B = B_ // self.nWindows
             attn = attn.view(B, self.nWindows, self.num_heads, N, N)    # (B, nWindows, num_heads, win_volume, win_volume)
-            position_bias = 16 * torch.sigmoid(position_bias)  #--------------- This line causes OOM on 80GB GPUs, like A100 and H100.
+            # position_bias = 16 * torch.sigmoid(position_bias)  #--------------- This line causes OOM on 80GB GPUs, like A100 and H100.
             attn = attn + position_bias         # propagate to B
             attn = attn.view(B_, self.num_heads, N, N)  # (B * nWin_ num_heads, win_vol, win_vol)
 
