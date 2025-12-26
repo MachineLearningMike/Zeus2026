@@ -211,6 +211,12 @@ class Model_Dom():
         torch.save(checkpoint, self.project_path / (name + '.pth.bak'))   # Create a backup, as creating takes a long time and may fail by the cloud Spot service.
         # logging.info(f"Checkpoint '{name}' saved, including model, optimizer, scheduler, scaler, weighted_metric_old, and dataset state")
     
+        #------------------------- Test --------------------
+        checkpoint = torch.load(self.project_path / (name + '.pth'), map_location="cpu")
+        state_dict = checkpoint['model']
+        missing_keys, unexpected_keys = self.model.load_state_dict(state_dict, strict=False)
+        logging.info("Model loaded with saved state: \n_missing_keys: {}, \n_unexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
+    
         self.save_train_history()        
 
         return
