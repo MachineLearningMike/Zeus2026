@@ -1126,10 +1126,10 @@ projects["Zeus_25Dec26_6x6_skippable_learnable"] = {
         'increasing' : True,
         'type_pos_bias' : 'lonBand', # 'sphere', 'None'
         'pair_bias_dim' : 5,
-        'depth_list' : [4, 8, 4],   # [6, 8, 4] leads to OOP on A100
+        'depth_list' : [4, 8, 3],   # [6, 8, 4] leads to OOP on A100
         'head_list' : [4, 8, 16],
         'skippable' : True,
-        'skip_learnable' : False,
+        'skip_learnable' : True,
         'qkv_bias' : True,
     },
     
