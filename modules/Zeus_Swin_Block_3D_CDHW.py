@@ -216,7 +216,8 @@ class WindowAttention3D(nn.Module):
         self.window_size = window_size
         self.nWindows = None
 
-        self.logit_scale = nn.Parameter(torch.log(10 * torch.ones((num_heads, 1, 1))), requires_grad=True)
+        # I gave up this technique. Read forward()
+        # self.logit_scale = nn.Parameter(torch.log(10 * torch.ones((num_heads, 1, 1))), requires_grad=True)
 
         self.qkv = nn.Linear(dim, dim*3, bias=False)   # qkv_bais==True leads to 'gradient not received'
         if qkv_bias:
@@ -242,43 +243,14 @@ class WindowAttention3D(nn.Module):
         qkv = qkv.reshape(B_, N, 3, self.num_heads, C // self.num_heads).permute(2,0,3,1,4).contiguous()
         q, k, v = qkv[0], qkv[1], qkv[2]
 
-        # attn = (F.normalize(q, dim=-1) @ F.normalize(k, dim=-1).transpose(-2,-1))
-        # logit_scale = torch.clamp(self.logit_scale, max=torch.log(torch.tensor(1./0.01).to(self.logit_scale.device))).exp()
-        # attn = attn * logit_scale # (B_ = B * nWin, num_heads, win_vol, win_vol) * (num_heads, 1, 1) = (nWin_ num_heads, win_vol, win_vol)
-
-        # head_dim = q.shape[-1]
-        # attn = (q @ k.transpose(-2, -1)) / (head_dim ** 0.5)
+        head_dim = q.shape[-1]
+        attn = (q @ k.transpose(-2, -1)) / (head_dim ** 0.5)
         
-        # # cosine attention
+        # cosine attention ----------- This block is given up: attn = attn * logit_scale causes OOM in 80BG GPUs.
         # attn = (F.normalize(q, dim=-1) @ F.normalize(k, dim=-1).transpose(-2, -1))
         # device = self.logit_scale.device
         # logit_scale = torch.clamp(self.logit_scale, min=torch.log(torch.tensor(1e-6, device=device)), max=torch.log(torch.tensor(100., device=device))).exp()
         # attn = attn * logit_scale
-
-        # Compute norms (more efficient than F.normalize)
-        q_norm = torch.norm(q, dim=-1, keepdim=True).clamp(min=1e-8)  # (B, H, N, 1)
-        k_norm = torch.norm(k, dim=-1, keepdim=True).clamp(min=1e-8)  # (B, H, N, 1)
-
-        # Compute dot product
-        dot_product = q @ k.transpose(-2, -1)  # (B, H, N, N)
-
-        # Compute norm product
-        norm_product = q_norm @ k_norm.transpose(-2, -1)  # (B, H, N, N)
-
-        # Cosine similarity = dot / norm
-        attn = dot_product / norm_product
-
-        # Compute logit scale
-        device = self.logit_scale.device
-        logit_scale = torch.clamp(
-            self.logit_scale,
-            min=torch.log(torch.tensor(1e-6, device=device)),
-            max=torch.log(torch.tensor(100., device=device))
-        ).exp()  # (H, 1, 1)
-
-        # Apply scaling with proper broadcasting
-        attn = attn * logit_scale.view(1, -1, 1, 1)
-
 
         if position_bias is not None:   # (nWindows, win_volume, win_volume, num_heads)
             position_bias = position_bias.permute(0,3,1,2).contiguous() # (nWindows, num_heads, win_volume, win_volume)
