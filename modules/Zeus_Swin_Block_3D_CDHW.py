@@ -217,8 +217,8 @@ class WindowAttention3D(nn.Module):
         self.nWindows = None
 
         self.logit_scale = nn.Parameter(torch.log(10 * torch.ones((num_heads, 1, 1))), requires_grad=True)
-        self.register_buffer("clamp_min", torch.log(torch.tensor(1e-6)))
-        self.register_buffer("clamp_max", torch.log(torch.tensor(100.0)))
+        # self.register_buffer("clamp_min", torch.log(torch.tensor(1e-6)))
+        # self.register_buffer("clamp_max", torch.log(torch.tensor(100.0)))
         
         self.qkv = nn.Linear(dim, dim*3, bias=False)   # qkv_bais==True leads to 'gradient not received'
         # self.qkv = nn.Linear(dim, dim*3)
@@ -250,7 +250,8 @@ class WindowAttention3D(nn.Module):
         # attn = attn * logit_scale # (B_ = B * nWin, num_heads, win_vol, win_vol) * (num_heads, 1, 1) = (nWin_ num_heads, win_vol, win_vol)
 
         attn = (F.normalize(q, dim=-1) @ F.normalize(k, dim=-1).transpose(-2, -1))
-        logit_scale = torch.clamp(self.logit_scale, min=self.clamp_min, max=self.clamp_max).exp()   # self.logit_scale = log(10) initially.
+        # logit_scale = torch.clamp(self.logit_scale, min=self.clamp_min, max=self.clamp_max).exp()   # self.logit_scale = log(10) initially.
+        logit_scale = torch.clamp(self.logit_scale, min=torch.log(torch.tensor(1e-6, device=self.logit_scale.device)), max=torch.log(torch.tensor(100.0, device=self.logit_scale.device))).exp()   # self.logit_scale = log(10) initially.
         attn = attn * logit_scale   # It's surprizing that clamp is backpropagated with gradient.
 
         # if position_bias is not None:   # (nWindows, win_volume, win_volume, num_heads)
@@ -289,8 +290,8 @@ class WindowAttention3D(nn.Module):
             attn = attn_reshaped.reshape(B_, nH, N, N)
             
             # Optional: Clean up if memory is tight
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+            # if torch.cuda.is_available():
+            #     torch.cuda.empty_cache()
 
 
         if mask is not None:
