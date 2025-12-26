@@ -1129,7 +1129,7 @@ projects["Zeus_25Dec26_6x6_skippable_learnable"] = {
         'depth_list' : [4, 8, 4],   # [6, 8, 4] leads to OOP on A100
         'head_list' : [4, 8, 16],
         'skippable' : True,
-        # 'skip_learn' : True,
+        'skip_learnable' : True,
     },
     
     "model_1": {},

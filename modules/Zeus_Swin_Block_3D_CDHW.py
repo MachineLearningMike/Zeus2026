@@ -1034,7 +1034,7 @@ class Encoder(nn.Module):
                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.0,
                 norm_layer=nn.LayerNorm, ape=True,  
                 # absolute position eocoding is required in geo-shpere, because geo-cat and geo-dense is not enough.
-                use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0], pair_bias_dim=5, skippable=False, **kwargs):
+                use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0], pair_bias_dim=5, skippable=False, skip_learnable=False, **kwargs):
         super().__init__()
 
         self.num_layers = len(depths)
@@ -1155,16 +1155,16 @@ class Decoder(nn.Module):
                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.0,
                 norm_layer=nn.LayerNorm, ape=True,  
                 # absolute position eocoding is required in geo-shpere, because geo-cat and geo-dense is not enough.
-                use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0], pair_bias_dim=5, skip_learn=False, skippable=False, **kwargs):
+                use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0], pair_bias_dim=5, skippable=False, skip_learnable=False, **kwargs):
         super().__init__()
 
-        skip_learn = True   # no time to put it in the config
+        skip_learnable = True   # no time to put it in the config
 
         self.num_layers = len(depths)
         self.embed_dim = embed_dim
         self.ape = ape
         self.mlp_ratio = mlp_ratio
-        self.skip_learn = skip_learn
+        self.skip_learnable = skip_learnable
         self.skippable = skippable
 
         # stochastic depth
@@ -1172,7 +1172,7 @@ class Decoder(nn.Module):
 
         # build layers
         self.layers = nn.ModuleList()
-        if skip_learn:
+        if skip_learnable:
             self.skip_learners = nn.ModuleList()
         prev_resolution = (input_resolution[0] * 2, input_resolution[1] * 2, input_resolution[2] * 2)
         for i_layer in range(self.num_layers):
@@ -1224,7 +1224,7 @@ class Decoder(nn.Module):
                                in_encoder=False)
             self.layers.append(layer)
             
-            if self.skippable and skip_learn:
+            if self.skippable and skip_learnable:
                 skip_learner = nn.Linear(dim, dim, bias=False)
                 torch.nn.init.eye_(skip_learner.weight)
                 self.skip_learners.append(skip_learner)            
@@ -1257,7 +1257,7 @@ class Decoder(nn.Module):
         if self.skippable:
             dec_x_after_us = torch.zeros_like(enc_x_by_layer[-1][0])
             
-            if self.skip_learn:            
+            if self.skip_learnable:            
                 for idx, (dec_layer, (enc_x_before_ds, _), skip_learner) in enumerate(zip(reversed(self.layers), reversed(enc_x_by_layer), reversed(self.skip_learners))):
                     # print(f"{idx}, dec_layer: {dec_layer.dim}, {dec_layer.input_resolution}, enc_before_ds: {enc_x_before_ds.shape}")
                     input = dec_x_after_us + skip_learner(enc_x_before_ds) 
@@ -1281,7 +1281,7 @@ class Encoder_Decoder(nn.Module):
                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.0,
                 norm_layer=nn.LayerNorm, ape=True,  
                 # absolute position eocoding is required in geo-shpere, because geo-cat and geo-dense is not enough.
-                use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0], pair_bias_dim=5, skippable=False, **kwargs):
+                use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0], pair_bias_dim=5, skippable=False, skip_learnable=False, **kwargs):
         super().__init__()
         
         self.encoder = Encoder(input_resolution = input_resolution, embed_dim=embed_dim, depths=depths, num_heads=num_heads,
@@ -1289,14 +1289,16 @@ class Encoder_Decoder(nn.Module):
                 drop_rate=drop_rate, attn_drop_rate=attn_drop_rate, drop_path_rate=drop_path_rate,
                 norm_layer=nn.LayerNorm, ape=True,  
                 # absolute position eocoding is required in geo-shpere, because geo-cat and geo-dense is not enough.
-                use_checkpoint=use_checkpoint, pretrained_window_sizes=pretrained_window_sizes, pair_bias_dim=pair_bias_dim, skippable=skippable, **kwargs)
+                use_checkpoint=use_checkpoint, pretrained_window_sizes=pretrained_window_sizes, pair_bias_dim=pair_bias_dim, 
+                skippable=skippable, skip_learnable=skip_learnable, **kwargs)
         
         self.decoder = Decoder(input_resolution = input_resolution, embed_dim=embed_dim, depths=depths, num_heads=num_heads,
                 window_size=window_size, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias,
                 drop_rate=drop_rate, attn_drop_rate=attn_drop_rate, drop_path_rate=drop_path_rate,
                 norm_layer=nn.LayerNorm, ape=True,  
                 # absolute position eocoding is required in geo-shpere, because geo-cat and geo-dense is not enough.
-                use_checkpoint=use_checkpoint, pretrained_window_sizes=pretrained_window_sizes, pair_bias_dim=pair_bias_dim, skippable=skippable, **kwargs)
+                use_checkpoint=use_checkpoint, pretrained_window_sizes=pretrained_window_sizes, pair_bias_dim=pair_bias_dim, 
+                skippable=skippable, skip_learnable=skip_learnable, **kwargs)
         
         # self.skip_learner = nn.Linear(embed_dim, embed_dim, bias=False)
         # torch.nn.init.eye_(self.skip_learner.weight)
@@ -1615,6 +1617,7 @@ if __name__ == "__main__":
     input_resolution=(D, H, W)
 
     skippable = True
+    skip_learnable = True
 
     # Random input: (B, C, D, H, W)
     x_in = torch.randn(1, C, D, H, W).to(device).to(device)
@@ -1636,7 +1639,7 @@ if __name__ == "__main__":
                 window_size=window_size, mlp_ratio=4., qkv_bias=True,     #---------- window_size=(2, 6, 6) for deployment
                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.0,
                 norm_layer=nn.LayerNorm, ape=True,
-                use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0], skippable=skippable).to(device)
+                use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0], skippable=skippable, skip_learnable=skip_learnable).to(device)
 
     s = time.time()
     encoder_output = encoder(x_flat)
@@ -1666,7 +1669,7 @@ if __name__ == "__main__":
             window_size=window_size, mlp_ratio=4., qkv_bias=True,     #---------- window_size=(2, 5, 5) for deployment
             drop_rate=0., attn_drop_rate=0., drop_path_rate=0.0,
             norm_layer=nn.LayerNorm, ape=True,
-            use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0], skippable=skippable).to(device)
+            use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0], skippable=skippable, skip_learnable=skip_learnable).to(device)
         
     s = time.time()
     x = decoder(encoder_output)
@@ -1689,7 +1692,7 @@ if __name__ == "__main__":
             window_size=window_size, mlp_ratio=4., qkv_bias=True,     #---------- window_size=(2, 5, 5) for deployment
             drop_rate=0., attn_drop_rate=0., drop_path_rate=0.0,
             norm_layer=nn.LayerNorm, ape=True,
-            use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0], skippable=skippable).to(device)
+            use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0], skippable=skippable, skip_learnable=skip_learnable).to(device)
 
     print(f"Encoder_Decoder. x_flat: {x_flat.shape}")
 
