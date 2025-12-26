@@ -216,7 +216,7 @@ class WindowAttention3D(nn.Module):
         self.window_size = window_size
         self.nWindows = None
 
-        # self.logit_scale = nn.Parameter(torch.log(10 * torch.ones((num_heads, 1, 1))), requires_grad=True)
+        self.logit_scale = nn.Parameter(torch.log(10 * torch.ones((num_heads, 1, 1))), requires_grad=True)
 
         self.qkv = nn.Linear(dim, dim*3, bias=False)   # qkv_bais==True leads to 'gradient not received'
         if qkv_bias:
@@ -246,8 +246,14 @@ class WindowAttention3D(nn.Module):
         # logit_scale = torch.clamp(self.logit_scale, max=torch.log(torch.tensor(1./0.01).to(self.logit_scale.device))).exp()
         # attn = attn * logit_scale # (B_ = B * nWin, num_heads, win_vol, win_vol) * (num_heads, 1, 1) = (nWin_ num_heads, win_vol, win_vol)
 
-        head_dim = q.shape[-1]
-        attn = (q @ k.transpose(-2, -1)) / (head_dim ** 0.5)
+        # head_dim = q.shape[-1]
+        # attn = (q @ k.transpose(-2, -1)) / (head_dim ** 0.5)
+        
+        # cosine attention
+        attn = (F.normalize(q, dim=-1) @ F.normalize(k, dim=-1).transpose(-2, -1))
+        device = self.logit_scale.device
+        logit_scale = torch.clamp(self.logit_scale, min=torch.log(torch.tensor(1e-6, device=device)), max=torch.log(torch.tensor(100., device=device))).exp()
+        attn = attn * logit_scale
 
         if position_bias is not None:   # (nWindows, win_volume, win_volume, num_heads)
             position_bias = position_bias.permute(0,3,1,2).contiguous() # (nWindows, num_heads, win_volume, win_volume)
