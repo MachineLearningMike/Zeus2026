@@ -211,14 +211,15 @@ class Model_Dom():
         torch.save(checkpoint, self.project_path / (name + '.pth.bak'))   # Create a backup, as creating takes a long time and may fail by the cloud Spot service.
         # logging.info(f"Checkpoint '{name}' saved, including model, optimizer, scheduler, scaler, weighted_metric_old, and dataset state")
     
-        #------------------------- Test --------------------
-        checkpoint = torch.load(self.project_path / (name + '.pth'), map_location="cpu")
-        state_dict = checkpoint['model']
-        missing_keys, unexpected_keys = self.model.load_state_dict(state_dict, strict=False)
-        logging.info("Model loaded with saved state: \n_missing_keys: {}, \n_unexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
-    
         self.save_train_history()        
-
+    
+        # #------------------------- Test --------------------
+        # checkpoint = torch.load(self.project_path / (name + '.pth'), map_location="cpu")
+        # state_dict = checkpoint['model']
+        # missing_keys, unexpected_keys = self.model.load_state_dict(state_dict, strict=False)
+        # logging.info("Model loaded with saved state: \n_missing_keys: {}, \n_unexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
+    
+    
         return
         
     def save_train_history(self, name=None):
@@ -312,7 +313,7 @@ class Model_Dom():
                                         for k, v in self.optimizer.state[p].items():
                                             if torch.is_tensor(v):
                                                 self.optimizer.state[p][k] = v.to(p.device, non_blocking=True)
-                        logging.info("Optimizer loaded with saved state.")
+                            logging.info("Optimizer loaded with saved state.")
 
                         self.scheduler.load_state_dict(checkpoint['scheduler'])
                         logging.info("Scheduler loaded with saved state.")
@@ -468,6 +469,7 @@ class Model_Dom():
             batch_diff, era5_data_vars, trainable,
             type_metrics, continued,
             pressure_indices, pressure_values,
+            self.scaler,
         )
         
     def store_step_loss_and_metrics(self, step_loss, step_metrics): # [substep_loss...], [substep_metrics...]

@@ -137,6 +137,7 @@ class Zeus(nn.Module):
             batch_diff, era5_data_vars, trainable,
             type_metrics, continued,
             pressure_indices, pressure_values,
+            scaler,
         ):
         
         # with autocast(device_type=self.device_type, dtype=torch.bfloat16):
@@ -162,7 +163,7 @@ class Zeus(nn.Module):
         loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
 
         if trainable:
-            loss.backward(retain_graph=True)
+            scaler.scale(loss).backward(retain_graph=True)
                 # grads = [p.grad.detach().clone() for p in self.parameters()]
         
         if type_metrics == "rmse":

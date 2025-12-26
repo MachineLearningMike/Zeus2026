@@ -474,8 +474,8 @@ class Model_Trainer():
                         if md.pm.useLRLearner:
                             md.lr_controller.stepOptimizer(_substep_loss.item())
                         else:
-                            md.optimizer.step()
-                            # md.scaler.update()
+                            md.scaler.step(md.optimizer)
+                            md.scaler.update()
             else:
                 pass
                     
