@@ -253,15 +253,45 @@ class WindowAttention3D(nn.Module):
         logit_scale = torch.clamp(self.logit_scale, min=self.clamp_min, max=self.clamp_max).exp()   # self.logit_scale = log(10) initially.
         attn = attn * logit_scale   # It's surprizing that clamp is backpropagated with gradient.
 
-        if position_bias is not None:   # (nWindows, win_volume, win_volume, num_heads)
-            position_bias = position_bias.permute(0,3,1,2).contiguous() # (nWindows, num_heads, win_volume, win_volume)
-            if self.nWindows is None:
-                self.nWindows = position_bias.shape[0]
-            B = B_ // self.nWindows
-            attn = attn.view(B, self.nWindows, self.num_heads, N, N)    # (B, nWindows, num_heads, win_volume, win_volume)
-            position_bias = 16 * torch.sigmoid(position_bias)
-            attn = attn + position_bias         # propagate to B
-            attn = attn.view(B_, self.num_heads, N, N)  # (B * nWin_ num_heads, win_vol, win_vol)
+        # if position_bias is not None:   # (nWindows, win_volume, win_volume, num_heads)
+        #     position_bias = position_bias.permute(0,3,1,2).contiguous() # (nWindows, num_heads, win_volume, win_volume)
+        #     if self.nWindows is None:
+        #         self.nWindows = position_bias.shape[0]
+        #     B = B_ // self.nWindows
+        #     attn = attn.view(B, self.nWindows, self.num_heads, N, N)    # (B, nWindows, num_heads, win_volume, win_volume)
+        #     position_bias = 16 * torch.sigmoid(position_bias)
+        #     attn = attn + position_bias         # propagate to B
+        #     attn = attn.view(B_, self.num_heads, N, N)  # (B * nWin_ num_heads, win_vol, win_vol)
+
+        if position_bias is not None:
+            # Get dimensions
+            nW, N, _, nH = position_bias.shape
+            B = B_ // nW
+            
+            # Reshape attention tensor (creates view)
+            attn_reshaped = attn.view(B, nW, nH, N, N)
+            
+            # Process position bias without .contiguous()
+            # Option 1: Use as_strided for maximum control (advanced)
+            # Option 2: Simple movedim + scaling
+            
+            # Create properly strided view of position_bias
+            bias_view = position_bias.permute(0, 3, 1, 2)  # (nW, nH, N, N)
+            # Note: permute creates a view, NOT a copy!
+            
+            # Apply sigmoid scaling
+            scaled_bias = 16.0 * torch.sigmoid(bias_view)
+            
+            # Add to attention (in-place operation)
+            attn_reshaped.add_(scaled_bias)
+            
+            # Reshape back to original
+            attn = attn_reshaped.reshape(B_, nH, N, N)
+            
+            # Optional: Clean up if memory is tight
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
 
         if mask is not None:
             nW = mask.shape[0]
