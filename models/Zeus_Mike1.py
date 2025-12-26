@@ -138,36 +138,31 @@ class Zeus(nn.Module):
             type_metrics, continued,
             pressure_indices, pressure_values,
             scaler,
-        ):
-        
-        # with autocast(device_type=self.device_type, dtype=torch.bfloat16):
-        #     with torch.set_grad_enabled(trainable):         
+        ):   
         
         pred = self(ss0, ss1, cascade_step)
-        pred[pressure_indices] = ssY.meteo[pressure_indices].to(pred.dtype)
+        loss_mask = torch.ones(pred.shape[0], dtype=torch.float32, device=pred.device)
+        loss_mask[pressure_indices] = 0.0
+        
+        lossAndMetrics = fn_loss(ssY.meteo, pred, batch_diff, era5_data_vars, loss_mask=loss_mask)
+        loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
 
-        # pred = torch.index_select(pred, dim=0, index=target_indices)
+        if trainable:
+            scaler.scale(loss).backward(retain_graph=True)
+
+        pred = pred.detach()
+        pred[pressure_indices] = ssY.meteo[pressure_indices].to(pred.dtype)
 
         if continued:
             result_ss = Snapshot(ssY.year, ssY.month, ssY.day, ssY.hour, meteo=pred.detach().to(ssY.meteo.device), meteo_unnormal=None, device=ssY.device)
         else:
             result_ss = None
-
-        pred_unnormal = pred.clone()
+            
+        pred_unnormal = pred
         fn_unnornalize(pred, pred_unnormal)
-
-        # target_normal = ssY.meteo
-        # target_unnormal = ssY.meteo_unnormal
-        
-        lossAndMetrics = fn_loss(ssY.meteo, pred, batch_diff, era5_data_vars)
-        loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
-
-        if trainable:
-            scaler.scale(loss).backward(retain_graph=True)
-                # grads = [p.grad.detach().clone() for p in self.parameters()]
         
         if type_metrics == "rmse":
-            lossAndMetrics = fn_loss(ssY.meteo_unnormal, pred_unnormal, batch_diff, era5_data_vars)
+            lossAndMetrics = fn_loss(ssY.meteo_unnormal, pred_unnormal, batch_diff, era5_data_vars, loss_mask=loss_mask)
             unnormalized_metrics = lossAndMetrics[1] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
         elif type_metrics == "mae":
             unnormalized_metrics = torch.abs(ssY.meteo_unnormal - pred_unnormal).mean(dim=(1, 2))    # (C,)

@@ -245,7 +245,7 @@ class Model_Trainer():
         plt.show()
 
     # def loss(self, target, pred, batch_diff, era5_data_vars):
-    def loss(self, target, pred, batch_diff, era5_data_vars):
+    def loss(self, target, pred, batch_diff, era5_data_vars, loss_mask=None):
         # (B,FG,C,H,W), (B,FG,C,H,W), (B, C, H, W), (C,)
         # 32, cuda, False ; 32, cuda, True !!!, 32, cuda, False, 32, cuda, False
         device = pred.device
@@ -281,6 +281,7 @@ class Model_Trainer():
 
         # era5_data_vars = era5_data_vars.to(device)
         
+        if loss_mask is not None: rmse = rmse * loss_mask
         rmse = rmse * self.pm.loss_weights_cuda
         return (rmse.mean()) ** 2, rmse # (,), (C,)     32, cuda, True
     
