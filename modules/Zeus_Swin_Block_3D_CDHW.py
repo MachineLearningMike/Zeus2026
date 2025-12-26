@@ -253,7 +253,10 @@ class WindowAttention3D(nn.Module):
         attn = (F.normalize(q, dim=-1) @ F.normalize(k, dim=-1).transpose(-2, -1))
         device = self.logit_scale.device
         logit_scale = torch.clamp(self.logit_scale, min=torch.log(torch.tensor(1e-6, device=device)), max=torch.log(torch.tensor(100., device=device))).exp()
-        attn = attn * logit_scale
+        # attn = attn * logit_scale        
+        for h in range(self.num_heads):
+            scale = logit_scale[h, 0, 0]  # Scalar
+            attn[:, h] = attn[:, h] * scale
 
         if position_bias is not None:   # (nWindows, win_volume, win_volume, num_heads)
             position_bias = position_bias.permute(0,3,1,2).contiguous() # (nWindows, num_heads, win_volume, win_volume)
