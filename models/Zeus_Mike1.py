@@ -76,7 +76,7 @@ class Zeus(nn.Module):
         #---------------- Swin blocks ----------------------
         
         input_resolution = (self.patch_extractor.nTotalLevels, H//patch_stride, W//patch_stride)
-        qkv_bias = False    #------------------------- True makes attn.qkv.bias not receive a gradient !!!!!!!!!!!!!!!!
+        qkv_bias = True
         use_checkpoint = False
         self.encoder_decoder = Encoder_Decoder(
                 input_resolution = input_resolution, embed_dim=swin_dim, depths=depth_list, num_heads=head_list,    #--------- num_heads to revise for deployment.

@@ -218,7 +218,7 @@ class WindowAttention3D(nn.Module):
 
         # self.logit_scale = nn.Parameter(torch.log(10 * torch.ones((num_heads, 1, 1))), requires_grad=True)
 
-        self.qkv = nn.Linear(dim, dim*3, bias=qkv_bias)   # qkv_bais==True leads to 'gradient not received'
+        self.qkv = nn.Linear(dim, dim*3, bias=False)   # qkv_bais==True leads to 'gradient not received'
         # self.qkv = nn.Linear(dim, dim*3)
         if qkv_bias:
             self.q_bias = nn.Parameter(torch.zeros(dim), requires_grad=True)
