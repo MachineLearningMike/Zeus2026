@@ -42,7 +42,7 @@ def check_dir(path):
 def check_gradient(model):
     
     for name, param in model.named_parameters():
-        if param.requires_grad and param.grad is None:
+        if param.requires_grad is True and param.grad is None:
             print(f"Parameter '{name}' did NOT receive a gradient --------------------------------------------")
         else:
             pass
