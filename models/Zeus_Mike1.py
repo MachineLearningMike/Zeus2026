@@ -135,7 +135,7 @@ class Zeus(nn.Module):
             ss0, ss1, ssY, cascade_step,
             fn_loss, fn_nornalize, fn_unnornalize, 
             batch_diff, era5_data_vars, trainable,
-            type_metrics, continued,
+            type_metrics, predicted_value_required,
             pressure_indices, pressure_values,
             scaler,
         ):   
@@ -153,7 +153,7 @@ class Zeus(nn.Module):
         pred_normal = pred_normal.detach()
         pred_normal[pressure_indices] = ssY.meteo[pressure_indices].to(pred_normal.dtype)
 
-        if continued:
+        if predicted_value_required:
             result_ss = Snapshot(ssY.year, ssY.month, ssY.day, ssY.hour, meteo=pred_normal.to(ssY.meteo.device), meteo_unnormal=None, device=ssY.device)
         else:
             result_ss = None
