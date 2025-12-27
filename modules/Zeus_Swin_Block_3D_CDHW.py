@@ -1230,8 +1230,9 @@ class Decoder(nn.Module):
             self.layers.append(layer)
             
             if self.skippable and skip_learnable:
-                skip_learner = nn.Linear(dim, dim, bias=False)
+                skip_learner = nn.Linear(dim, dim, bias=True)
                 torch.nn.init.eye_(skip_learner.weight)
+                torch.nn.init.zeros_(skip_learner.bias)
                 self.skip_learners.append(skip_learner)            
             
             prev_resolution = resolution
