@@ -5,15 +5,15 @@ import torch.nn as nn
 # PatchMerging3D (from your code)
 # ----------------------------
 class PatchMerging3D(nn.Module):
-    def __init__(self, input_resolution, dim, norm_layer=nn.LayerNorm):
+    def __init__(self, i_reso, dim, norm_layer=nn.LayerNorm):
         super().__init__()
-        self.input_resolution = input_resolution
+        self.i_reso = i_reso
         self.dim = dim
         self.reduction = nn.Linear(8 * dim, 2 * dim, bias=False)
         self.norm = norm_layer(2 * dim)
 
     def forward(self, x):
-        D, H, W = self.input_resolution
+        D, H, W = self.i_reso
         B, L, C = x.shape
         assert L == D * H * W
         assert D % 2 == 0 and H % 2 == 0 and W % 2 == 0
@@ -42,14 +42,14 @@ class PatchUnmerging3D(nn.Module):
     r"""3D Patch Unmerging Layer (dual of PatchMerging3D)
 
     Args:
-        input_resolution (tuple[int]): (D, H, W)
+        i_reso (tuple[int]): (D, H, W)
         dim (int): Input channel dimension C
         norm_layer (nn.Module): Normalization layer
     """
 
-    def __init__(self, input_resolution, dim, norm_layer=nn.LayerNorm):
+    def __init__(self, i_reso, dim, norm_layer=nn.LayerNorm):
         super().__init__()
-        self.input_resolution = input_resolution
+        self.i_reso = i_reso
         self.dim = dim
         assert dim % 2 == 0, "dim must be even since C_out = C//2"
 
@@ -63,7 +63,7 @@ class PatchUnmerging3D(nn.Module):
         """
         x: (B, D*H*W, C)
         """
-        D, H, W = self.input_resolution
+        D, H, W = self.i_reso
         B, L, C = x.shape
 
         assert L == D * H * W, "input feature has wrong size"
@@ -111,7 +111,7 @@ class PatchUnmerging3D(nn.Module):
 
     def extra_repr(self) -> str:
         return (
-            f"input_resolution={self.input_resolution}, "
+            f"i_reso={self.i_reso}, "
             f"dim={self.dim}, out_dim={self.out_dim}"
         )
 

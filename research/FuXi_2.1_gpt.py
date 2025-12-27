@@ -46,16 +46,16 @@ class PatchEmbed(nn.Module):
 # -------------------------
 # Window utils
 # -------------------------
-def window_partition(x, window_size: int):
+def window_partition(x, sWin: int):
     B, H, W, C = x.shape
-    x = x.view(B, H // window_size, window_size, W // window_size, window_size, C)
+    x = x.view(B, H // sWin, sWin, W // sWin, sWin, C)
     x = x.permute(0, 1, 3, 2, 4, 5).contiguous()
-    windows = x.view(-1, window_size * window_size, C)
+    windows = x.view(-1, sWin * sWin, C)
     return windows
 
-def window_reverse(windows, window_size: int, H: int, W: int):
-    B = int(windows.shape[0] / (H // window_size * W // window_size))
-    x = windows.view(B, H // window_size, W // window_size, window_size, window_size, -1)
+def window_reverse(windows, sWin: int, H: int, W: int):
+    B = int(windows.shape[0] / (H // sWin * W // sWin))
+    x = windows.view(B, H // sWin, W // sWin, sWin, sWin, -1)
     x = x.permute(0, 1, 3, 2, 4, 5).contiguous()
     x = x.view(B, H, W, -1)
     return x
@@ -64,10 +64,10 @@ def window_reverse(windows, window_size: int, H: int, W: int):
 # Window Attention
 # -------------------------
 class WindowAttention(nn.Module):
-    def __init__(self, dim, window_size, num_heads=8, qkv_bias=True, attn_drop=0., proj_drop=0.):
+    def __init__(self, dim, sWin, num_heads=8, qkv_bias=True, attn_drop=0., proj_drop=0.):
         super().__init__()
         self.dim = dim
-        self.window_size = window_size if isinstance(window_size, tuple) else (window_size, window_size)
+        self.sWin = sWin if isinstance(sWin, tuple) else (sWin, sWin)
         self.num_heads = num_heads
         head_dim = dim // num_heads
         self.scale = head_dim ** -0.5
@@ -78,7 +78,7 @@ class WindowAttention(nn.Module):
         self.proj_drop = nn.Dropout(proj_drop)
 
         # relative position bias
-        Wh, Ww = self.window_size
+        Wh, Ww = self.sWin
         num_relative_positions = (2 * Wh - 1) * (2 * Ww - 1)
         self.relative_position_bias_table = nn.Parameter(torch.zeros(num_relative_positions, num_heads))
 
@@ -179,18 +179,18 @@ class FeedForward(nn.Module):
 # XiFuBlock
 # -------------------------
 class XiFuBlock(nn.Module):
-    def __init__(self, dim, input_resolution: Tuple[int,int], num_heads, window_size=7,
+    def __init__(self, dim, i_reso: Tuple[int,int], num_heads, sWin=7,
                  shift_size=0, mlp_ratio=4., drop=0., attn_drop=0., drop_path=0.,
                  use_moe=False, moe_params=None, layer_scale_init_value=1e-5):
         super().__init__()
         self.dim = dim
-        self.input_resolution = input_resolution
+        self.i_reso = i_reso
         self.num_heads = num_heads
-        self.window_size = window_size
+        self.sWin = sWin
         self.shift_size = shift_size
 
         self.norm1 = nn.LayerNorm(dim)
-        self.attn = WindowAttention(dim, window_size=window_size, num_heads=num_heads,
+        self.attn = WindowAttention(dim, sWin=sWin, num_heads=num_heads,
                                     attn_drop=attn_drop, proj_drop=drop)
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = nn.LayerNorm(dim)
@@ -203,7 +203,7 @@ class XiFuBlock(nn.Module):
             self.gamma1 = self.gamma2 = None
 
     def forward(self, x, attn_mask: Optional[torch.Tensor] = None):
-        H, W = self.input_resolution
+        H, W = self.i_reso
         B, L, C = x.shape
         shortcut = x
         x = self.norm1(x).view(B, H, W, C)
@@ -214,9 +214,9 @@ class XiFuBlock(nn.Module):
         else:
             shifted_x = x
 
-        x_windows = window_partition(shifted_x, self.window_size)
+        x_windows = window_partition(shifted_x, self.sWin)
         attn_windows = self.attn(x_windows, mask=attn_mask)
-        shifted_x = window_reverse(attn_windows, self.window_size, H, W)
+        shifted_x = window_reverse(attn_windows, self.sWin, H, W)
 
         if self.shift_size > 0:
             x = torch.roll(shifted_x, shifts=(self.shift_size, self.shift_size), dims=(1,2))
@@ -236,15 +236,15 @@ class XiFuBlock(nn.Module):
 # Patch Merging
 # -------------------------
 class PatchMerging(nn.Module):
-    def __init__(self, input_resolution: Tuple[int,int], dim):
+    def __init__(self, i_reso: Tuple[int,int], dim):
         super().__init__()
-        self.input_resolution = input_resolution
+        self.i_reso = i_reso
         self.dim = dim
         self.norm = nn.LayerNorm(4*dim)
         self.reduction = nn.Linear(4*dim, 2*dim, bias=False)
 
     def forward(self, x):
-        H, W = self.input_resolution
+        H, W = self.i_reso
         B, L, C = x.shape
         x = x.view(B, H, W, C)
         x0 = x[:, 0::2, 0::2, :]
@@ -263,7 +263,7 @@ class PatchMerging(nn.Module):
 class XiFu2(nn.Module):
     def __init__(self, img_size=(224,224), patch_size=4, in_chans=3,
                  embed_dim=96, depths=(2,2,6,2), num_heads=(3,6,12,24),
-                 window_size=7, mlp_ratio=4., drop_rate=0., attn_drop=0.,
+                 sWin=7, mlp_ratio=4., drop_rate=0., attn_drop=0.,
                  drop_path_rate=0.1, use_moe_stages=(), moe_params=None):
         super().__init__()
         if isinstance(img_size,int):
@@ -285,12 +285,12 @@ class XiFu2(nn.Module):
         for stage_idx, (depth, num_head, dim) in enumerate(zip(depths, num_heads, dims)):
             blocks = []
             for i in range(depth):
-                shift_size = 0 if (i%2==0) else window_size//2
+                shift_size = 0 if (i%2==0) else sWin//2
                 use_moe = stage_idx in use_moe_stages
                 blocks.append(XiFuBlock(dim=cur_dim,
-                                        input_resolution=cur_resolution,
+                                        i_reso=cur_resolution,
                                         num_heads=num_head,
-                                        window_size=window_size,
+                                        sWin=sWin,
                                         shift_size=shift_size,
                                         mlp_ratio=mlp_ratio,
                                         drop=drop_rate,
@@ -322,22 +322,22 @@ class XiFu2(nn.Module):
             else:
                 for blk in module:
                     if blk.shift_size>0:
-                        Hp = int(math.ceil(cur_H/blk.window_size)*blk.window_size)
-                        Wp = int(math.ceil(cur_W/blk.window_size)*blk.window_size)
+                        Hp = int(math.ceil(cur_H/blk.sWin)*blk.sWin)
+                        Wp = int(math.ceil(cur_W/blk.sWin)*blk.sWin)
                         img_mask = torch.zeros((1,Hp,Wp), device=x.device, dtype=torch.int32)
-                        h_slices = (slice(0,-blk.window_size),
-                                    slice(-blk.window_size,-blk.shift_size),
+                        h_slices = (slice(0,-blk.sWin),
+                                    slice(-blk.sWin,-blk.shift_size),
                                     slice(-blk.shift_size,None))
-                        w_slices = (slice(0,-blk.window_size),
-                                    slice(-blk.window_size,-blk.shift_size),
+                        w_slices = (slice(0,-blk.sWin),
+                                    slice(-blk.sWin,-blk.shift_size),
                                     slice(-blk.shift_size,None))
                         cnt = 0
                         for h in h_slices:
                             for w in w_slices:
                                 img_mask[:,h,w]=cnt
                                 cnt+=1
-                        mask_windows = window_partition(img_mask.unsqueeze(-1), blk.window_size)
-                        mask_windows = mask_windows.view(-1, blk.window_size*blk.window_size)
+                        mask_windows = window_partition(img_mask.unsqueeze(-1), blk.sWin)
+                        mask_windows = mask_windows.view(-1, blk.sWin*blk.sWin)
                         attn_mask = mask_windows.unsqueeze(1) != mask_windows.unsqueeze(2)
                         attn_mask = attn_mask.float() * -100.0
                     else:
@@ -360,7 +360,7 @@ def _test():
                   embed_dim=64,
                   depths=(2, 2, 6, 2),
                   num_heads=(2, 4, 8, 16),
-                  window_size=7,
+                  sWin=7,
                   use_moe_stages=(2,),  # enable MoE in stage 2
                   moe_params=dict(n_experts=4, hidden_dim=256))
     device = 'cuda' if torch.cuda.is_available() else 'cpu'

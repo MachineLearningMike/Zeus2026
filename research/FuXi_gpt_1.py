@@ -32,7 +32,7 @@ class FuXi2_MultiStep(nn.Module):
                  embed_dim=96,
                  depths=[2,2,6,2],
                  num_heads=[3,6,12,24],
-                 window_size=7,
+                 sWin=7,
                  mlp_ratio=4.,
                  num_steps=6,  # predict t+1,...,t+6
                  num_vars=5   # variables per grid (e.g., temp, wind, etc.)
@@ -51,9 +51,9 @@ class FuXi2_MultiStep(nn.Module):
         for i_layer in range(len(depths)):
             layer_blocks = nn.ModuleList()
             for j in range(depths[i_layer]):
-                shift = 0 if j%2==0 else window_size//2
+                shift = 0 if j%2==0 else sWin//2
                 layer_blocks.append(SwinTransformerBlock(dim, (H,W), num_heads[i_layer],
-                                                         window_size, shift, mlp_ratio=mlp_ratio))
+                                                         sWin, shift, mlp_ratio=mlp_ratio))
             self.layers.append(nn.ModuleDict({
                 "blocks": layer_blocks,
                 "downsample": PatchMerging((H,W), dim) if (i_layer<len(depths)-1) else None

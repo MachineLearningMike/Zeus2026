@@ -130,7 +130,7 @@ shared_model_params = {
     # "patch_kernel": 2,
     # "patch_stride": 2,
     # "swin_dim"  : 512,       # Check it.
-    # "window_size" : (2, 4, 4),      # blocks 1-10: 2 x 2, blocks 11-20: 4 x 4, blocks 21-30: 4 x 4 or 6 x 6
+    # "sWin" : (2, 4, 4),      # blocks 1-10: 2 x 2, blocks 11-20: 4 x 4, blocks 21-30: 4 x 4 or 6 x 6
     # "num_swin_block": 30,
     # "pair_bias_dim": 5,     # Careful, this changes code.
     # "nLevels": 6,
@@ -159,7 +159,7 @@ if platform.system() == "Windows":
     # shared_model_params['patch_kernel'] = 4
     # shared_model_params['patch_stride'] = 4
     # shared_model_params['swin_dim'] = 40
-    # shared_model_params['window_size'] = (2, 2, 2)
+    # shared_model_params['sWin'] = (2, 2, 2)
     # shared_model_params['num_swin_block'] = 30
     # shared_model_params['nLevels'] = 6
     # shared_model_params['increasing'] = True
@@ -191,7 +191,7 @@ else:
     # shared_model_params['patch_kernel'] = 4
     # shared_model_params['patch_stride'] = 4
     # shared_model_params['swin_dim'] = 200
-    # shared_model_params['window_size'] = (2, 2, 2)
+    # shared_model_params['sWin'] = (2, 2, 2)
     # shared_model_params['num_swin_block'] = 30
     # shared_model_params['nLevels'] = 6
     # shared_model_params['increasing'] = True
@@ -605,7 +605,7 @@ projects["Zeus_Swin_25Dec18_1"] = {
     'patch_kernel' : 4,
     'patch_stride' : 4,
     'swin_dim' : 200,           # 200
-    'window_size' : (2, 2, 2),
+    'sWin' : (2, 2, 2),
     'num_swin_block' : 30,
     'nLevels' : 6,
     'increasing' : True,
@@ -646,7 +646,7 @@ projects["Zeus_Swin_25Dec20_P4W2"] = {
     'patch_kernel' : 4,
     'patch_stride' : 4,
     'swin_dim' : 192,           # 480 is the right value, if we have enough GPU memory. Reduce this to fit onto GPU memory.
-    'window_size' : (2, 2, 2),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
+    'sWin' : (2, 2, 2),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
     'num_swin_block' : 30,
     'nLevels' : 6,
     'increasing' : True,
@@ -687,7 +687,7 @@ projects["Zeus_Swin_25Dec20_P6W2"] = {      #---------------- 192 dim B200: 107 
     'patch_kernel' : 6,
     'patch_stride' : 6,
     'swin_dim' : 256, #192: 107GB, 256: 140GB,           # 480 is the right value, if we have enough GPU memory. Reduce this to fit onto GPU memory.
-    'window_size' : (2, 2, 2),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
+    'sWin' : (2, 2, 2),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
     'num_swin_block' : 30,
     'nLevels' : 8,
     'increasing' : True,
@@ -728,7 +728,7 @@ projects["Zeus_Swin_25Dec20_P8W2"] = {
     'patch_kernel' : 8,
     'patch_stride' : 8,
     'swin_dim' : 192,           # 480 is the right value, if we have enough GPU memory. Reduce this to fit onto GPU memory.
-    'window_size' : (2, 2, 2),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
+    'sWin' : (2, 2, 2),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
     'num_swin_block' : 30,
     'nLevels' : 6,
     'increasing' : True,
@@ -770,7 +770,7 @@ projects["Zeus_Swin_25Dec22"] = {
     'patch_kernel' : 8,
     'patch_stride' : 8,
     'swin_dim' : 192,           # 480 is the right value, if we have enough GPU memory. Reduce this to fit onto GPU memory.
-    'window_size' : (2, 6, 12),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
+    'sWin' : (2, 6, 12),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
     'num_swin_block' : 30,
     'nLevels' : 8,
     'increasing' : True,
@@ -812,7 +812,7 @@ projects["Zeus_Swin_25Dec24"] = {
         'patch_kernel' : 4,
         'patch_stride' : 4,
         'swin_dim' : 192,           # 480 is the right value, if we have enough GPU memory. Reduce this to fit onto GPU memory.
-        'window_size' : (2, 6, 6),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
+        'sWin' : (2, 6, 6),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
         'num_swin_block' : 30,
         'nLevels' : 8,
         'increasing' : True,
@@ -856,7 +856,7 @@ projects["Zeus_Swin_25Dec25_2"] = {
         'patch_kernel' : 4,
         'patch_stride' : 4,
         'swin_dim' : 192,           # 480 is the right value, if we have enough GPU memory. Reduce this to fit onto GPU memory.
-        'window_size' : (2, 6, 6),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
+        'sWin' : (2, 6, 6),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
         'num_swin_block' : 30,
         'nLevels' : 8,
         'increasing' : True,
@@ -900,7 +900,7 @@ projects["Zeus_Swin_25Dec25_test"] = {
         'patch_kernel' : 4,
         'patch_stride' : 4,
         'swin_dim' : 192,           # 480 is the right value, if we have enough GPU memory. Reduce this to fit onto GPU memory.
-        'window_size' : (2, 6, 12),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
+        'sWin' : (2, 6, 12),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
         'num_swin_block' : 30,
         'nLevels' : 8,
         'increasing' : True,
@@ -944,7 +944,7 @@ projects["Zeus_Swin_25Dec26"] = {
         'patch_kernel' : 4,
         'patch_stride' : 4,
         'swin_dim' : 192,           # 480 is the right value, if we have enough GPU memory. Reduce this to fit onto GPU memory.
-        'window_size' : (2, 4, 8),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
+        'sWin' : (2, 4, 8),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
         'num_swin_block' : 30,
         'nLevels' : 8,
         'increasing' : True,
@@ -988,7 +988,7 @@ projects["Zeus_Swin_25Dec26_6x6"] = {
         'patch_kernel' : 4,
         'patch_stride' : 4,
         'swin_dim' : 192,           # 480 is the right value, if we have enough GPU memory. Reduce this to fit onto GPU memory.
-        'window_size' : (2, 6, 6),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
+        'sWin' : (2, 6, 6),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
         'num_swin_block' : 30,
         'nLevels' : 8,
         'increasing' : True,
@@ -1032,7 +1032,7 @@ projects["Zeus_Swin_25Dec26_6x6_no_codec_skip"] = {
         'patch_kernel' : 4,
         'patch_stride' : 4,
         'swin_dim' : 192,           # 480 is the right value, if we have enough GPU memory. Reduce this to fit onto GPU memory.
-        'window_size' : (2, 6, 6),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
+        'sWin' : (2, 6, 6),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
         'num_swin_block' : 30,
         'nLevels' : 8,
         'increasing' : True,
@@ -1076,7 +1076,7 @@ projects["Zeus_25Dec26_6x6_no_skip_learn"] = {
         'patch_kernel' : 4,
         'patch_stride' : 4,
         'swin_dim' : 192,           # 480 is the right value, if we have enough GPU memory. Reduce this to fit onto GPU memory.
-        'window_size' : (2, 6, 6),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
+        'sWin' : (2, 6, 6),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
         'num_swin_block' : 30,
         'nLevels' : 8,
         'increasing' : True,
@@ -1120,7 +1120,7 @@ projects["Zeus_25Dec26_6x6_skippable_learnable"] = {
         'patch_kernel' : 4,
         'patch_stride' : 4,
         'swin_dim' : 192,           # 480 is the right value, if we have enough GPU memory. Reduce this to fit onto GPU memory.
-        'window_size' : (2, 6, 6),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
+        'sWin' : (2, 6, 6),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
         'num_swin_block' : 30,
         'nLevels' : 8,
         'increasing' : True,
@@ -1167,7 +1167,7 @@ projects["Zeus_25Dec26_6x6_learn_skip_2"] = {
         'patch_kernel' : 4,
         'patch_stride' : 4,
         'swin_dim' : 192,           # 480 is the right value, if we have enough GPU memory. Reduce this to fit onto GPU memory.
-        'window_size' : (2, 6, 6),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
+        'sWin' : (2, 6, 6),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
         'num_swin_block' : 30,
         'nLevels' : 8,
         'increasing' : True,

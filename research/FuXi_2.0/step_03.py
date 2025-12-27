@@ -34,7 +34,7 @@ class FuXi2_Preprocessor(nn.Module):
 # 2️⃣ Swin Module
 # -----------------------
 class FuXi2_Swin(nn.Module):
-    def __init__(self, C_total, H_down, W_down, num_blocks=30, window_size=18):
+    def __init__(self, C_total, H_down, W_down, num_blocks=30, sWin=18):
         super().__init__()
         self.C_total = C_total
         self.H_down, self.W_down = H_down, W_down
@@ -48,9 +48,9 @@ class FuXi2_Swin(nn.Module):
         self.swin_blocks = nn.ModuleList([
             SwinTransformerBlock(
                 dim=C_total,
-                input_resolution=(H_down, W_down),
+                i_reso=(H_down, W_down),
                 num_heads=self.num_heads,
-                window_size=window_size
+                sWin=sWin
             ) for _ in range(num_blocks)
         ])
 
@@ -101,7 +101,7 @@ class FuXi2_Postprocess(nn.Module):
 class FuXi2(nn.Module):
     def __init__(self, B_m, C_m, C_g, H, W,
                  C_out, num_steps, patch_kernel=8, patch_stride=8,
-                 num_swin_blocks=30, window_size=18):
+                 num_swin_blocks=30, sWin=18):
         super().__init__()
 
         self.preprocessor = FuXi2_Preprocessor(B_m, C_m, C_g, H, W,
@@ -112,7 +112,7 @@ class FuXi2(nn.Module):
 
         self.swin = FuXi2_Swin(C_total, H_down, W_down,
                                num_blocks=num_swin_blocks,
-                               window_size=window_size)
+                               sWin=sWin)
 
         # replace the old OutputHead by the Postprocess
         self.postprocess = FuXi2_Postprocess(B_m, C_m, C_g, H, W,

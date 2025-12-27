@@ -29,12 +29,12 @@ class Mlp(nn.Module):
 # ---------------------------
 # Window partition / reverse (no padding)
 # ---------------------------
-def window_partition_3d(x, window_size):
+def window_partition_3d(x, sWin):
     # x: (B, C, D, H, W)
     B, C, D, H, W = x.shape
-    win_D, win_H, win_W = window_size
+    win_D, win_H, win_W = sWin
     assert D % win_D == 0 and H % win_H == 0 and W % win_W == 0, \
-        f"Input dims {(D,H,W)} must be multiples of window_size {window_size}"
+        f"Input dims {(D,H,W)} must be multiples of sWin {sWin}"
 
     nWd = D // win_D
     nWh = H // win_H
@@ -45,8 +45,8 @@ def window_partition_3d(x, window_size):
     windows = x.permute(0, 2, 4, 6, 1, 3, 5, 7).contiguous().view(-1, C, win_D, win_H, win_W)
     return windows, nWd, nWh, nWw
 
-def window_reverse_3d(windows, window_size, D, H, W):
-    win_D, win_H, win_W = window_size
+def window_reverse_3d(windows, sWin, D, H, W):
+    win_D, win_H, win_W = sWin
     nWd = D // win_D
     nWh = H // win_H
     nWw = W // win_W
@@ -73,15 +73,15 @@ from modules.zeus_dateset_geo_tempo import Geo_Tempo
 class PositionBiasLearner3D_Shpere(nn.Module):
     pair_bias_shared, shifted_pair_bias_shared = None, None
     
-    def __init__(self, input_resolution, window_size, num_heads, hidden_dim, shift_size, pair_bias_dim):
+    def __init__(self, i_reso, sWin, num_heads, hidden_dim, shift_size, pair_bias_dim):
         super().__init__()
-        self.input_resolution = input_resolution
-        self.window_size = window_size
-        self.window_volume = window_size[0]*window_size[1]*window_size[2]
+        self.i_reso = i_reso
+        self.sWin = sWin
+        self.vWin = sWin[0]*sWin[1]*sWin[2]
         self.num_heads = num_heads
         self.shift_size = shift_size  # shift applied when creating flat_pair
 
-        D, H, W = input_resolution
+        D, H, W = i_reso
         lat_step = 180.0 / H
         lon_step = 360.0 / W
         depth_step = 1.0
@@ -107,18 +107,18 @@ class PositionBiasLearner3D_Shpere(nn.Module):
         pair_bias, nWd, nWh, nWw = self.pair_position_partition(
             self.lat, self.lon, self.depth, shift_size=self.shift_size, pair_bias_dim=pair_bias_dim
         )
-        self.nWindows = nWd*nWh*nWw
+        self.nWin = nWd*nWh*nWw
         
         #---------------------------------------------------------------------------------------------------------------------
         # THIS structure avoids a pair_bias matrix shared between windows, and allows each window has its own pair_bias matrix.
         #
-        # pair_bias: (nWindows * window_volume * window_volume, pair_bias_dim)
-        # nWindows = D / window_size[0] * H / window_size[1] * W / window_size[2]
-        # pair.pair_bias.shape[0] = D / window_size[0] * H / window_size[1] * W / window_size[2] * window_volume * window_volume
-        # = D * H * W * window_volume
-        # = total_swin_volume * window_volume   ------------- window_volume decides the size of pair_bias
+        # pair_bias: (nWin * vWin * vWin, pair_bias_dim)
+        # nWin = D / sWin[0] * H / sWin[1] * W / sWin[2]
+        # pair.pair_bias.shape[0] = D / sWin[0] * H / sWin[1] * W / sWin[2] * vWin * vWin
+        # = D * H * W * vWin
+        # = total_swin_volume * vWin   ------------- vWin decides the size of pair_bias
         #
-        # nWindows = total_swin_volume / wondow_volume
+        # nWin = total_swin_volume / wondow_volume
         #---------------------------------------------------------------------------------------------------------------------
         
         self.shifted = any(s != 0 for s in shift_size)
@@ -160,11 +160,11 @@ class PositionBiasLearner3D_Shpere(nn.Module):
 
         windows, nWd, nWh, nWw = window_partition_3d(
             shifted_depth_lat_lon,        # (B, C, D, H, W)
-            self.window_size
+            self.sWin
         )
         
         N = windows.shape[0]
-        P = self.window_volume
+        P = self.vWin
         flat = windows.view(N,3,P).permute(0,2,1).contiguous()
 
         A = flat.unsqueeze(2)
@@ -202,19 +202,19 @@ class PositionBiasLearner3D_Shpere(nn.Module):
         h = self.act1(self.fc1(flat_pair))
         h = self.act2(self.fc2(h))
         h = self.fc3(h)
-        return h.view(self.nWindows, self.window_volume, self.window_volume, self.num_heads) * self.scale
+        return h.view(self.nWin, self.vWin, self.vWin, self.num_heads) * self.scale
 
 # ---------------------------
 # WindowAttention3D
 # ---------------------------
 class WindowAttention3D(nn.Module):
-    def __init__(self, dim, input_resolution, window_size, num_heads, qkv_bias=True, attn_drop=0., proj_drop=0.):
+    def __init__(self, dim, i_reso, sWin, num_heads, qkv_bias=True, attn_drop=0., proj_drop=0.):
         super().__init__()
         self.dim = dim
         self.num_heads = num_heads
-        self.input_resolution = input_resolution
-        self.window_size = window_size
-        self.nWindows = None
+        self.i_reso = i_reso
+        self.sWin = sWin
+        self.nWin = None
 
         # I gave up this technique. Read forward()
         # self.logit_scale = nn.Parameter(torch.log(10 * torch.ones((num_heads, 1, 1))), requires_grad=True)
@@ -234,7 +234,7 @@ class WindowAttention3D(nn.Module):
 
     #------------------------------------------------ One-shot attention 
     def forward(self, x, position_bias, mask=None):
-        B_, N, C = x.shape  # B * nWindows, win_volume, C
+        B_, N, C = x.shape  # B * nWin, win_volume, C
 
         qkv_bias = None
         if self.q_bias is not None:
@@ -253,12 +253,12 @@ class WindowAttention3D(nn.Module):
         # attn = attn * logit_scale #--------------- This line causes OOM on 80GB GPUs, like A100 and H100.
         # We have to content ourselves with the flexibility of embedded position_bias and softmax.
 
-        if position_bias is not None:   # (nWindows, win_volume, win_volume, num_heads)
-            position_bias = position_bias.permute(0,3,1,2).contiguous() # (nWindows, num_heads, win_volume, win_volume)
-            if self.nWindows is None:
-                self.nWindows = position_bias.shape[0]
-            B = B_ // self.nWindows
-            attn = attn.view(B, self.nWindows, self.num_heads, N, N)    # (B, nWindows, num_heads, win_volume, win_volume)
+        if position_bias is not None:   # (nWin, win_volume, win_volume, num_heads)
+            position_bias = position_bias.permute(0,3,1,2).contiguous() # (nWin, num_heads, win_volume, win_volume)
+            if self.nWin is None:
+                self.nWin = position_bias.shape[0]
+            B = B_ // self.nWin
+            attn = attn.view(B, self.nWin, self.num_heads, N, N)    # (B, nWin, num_heads, win_volume, win_volume)
             
             # position_bias = 16 * torch.sigmoid(position_bias)  #--------------- This line causes OOM on 80GB GPUs, like A100 and H100.
             # position_bias is an embedded tensor, like lonBand, it can freely scale withouth this technique.
@@ -293,7 +293,7 @@ class WindowAttention3D(nn.Module):
 
     # #------------------------------------------------ Multi-shot attention
     # def forward(self, x, position_bias, mask=None):
-    #     B_, N, C = x.shape  # B * nWindows, win_volume, C
+    #     B_, N, C = x.shape  # B * nWin, win_volume, C
         
     #     qkv_bias = None
     #     if self.q_bias is not None:
@@ -310,12 +310,12 @@ class WindowAttention3D(nn.Module):
     #     logit_scale = torch.clamp(self.logit_scale, max=torch.log(torch.tensor(1./0.01).to(self.logit_scale.device))).exp()
         
     #     # Prepare position bias
-    #     position_bias = position_bias.permute(0, 3, 1, 2).contiguous()  # (nWindows, num_heads, win_volume, win_volume)
+    #     position_bias = position_bias.permute(0, 3, 1, 2).contiguous()  # (nWin, num_heads, win_volume, win_volume)
     #     position_bias = 16 * torch.sigmoid(position_bias)
         
-    #     if self.nWindows is None:
-    #         self.nWindows = position_bias.shape[0]
-    #     B = B_ // self.nWindows
+    #     if self.nWin is None:
+    #         self.nWin = position_bias.shape[0]
+    #     B = B_ // self.nWin
         
     #     # Initialize output
     #     output = torch.zeros(B_, self.num_heads, N, C // self.num_heads, dtype=x.dtype, device=x.device)
@@ -338,12 +338,12 @@ class WindowAttention3D(nn.Module):
             
     #         # Reshape attention for position bias addition
     #         # attn_chunk shape: (B_, num_heads, chunk_length, N)
-    #         attn_chunk = attn_chunk.view(B, self.nWindows, self.num_heads, chunk_length, N)
+    #         attn_chunk = attn_chunk.view(B, self.nWin, self.num_heads, chunk_length, N)
             
     #         # Add position bias
-    #         # position_bias shape: (nWindows, num_heads, N, N)
+    #         # position_bias shape: (nWin, num_heads, N, N)
     #         # We need to extract the right slice for the chunk
-    #         position_bias_chunk = position_bias[:, :, start_idx:end_idx, :]  # (nWindows, num_heads, chunk_length, N)
+    #         position_bias_chunk = position_bias[:, :, start_idx:end_idx, :]  # (nWin, num_heads, chunk_length, N)
     #         attn_chunk = attn_chunk + position_bias_chunk.unsqueeze(0)
             
     #         # Reshape back
@@ -382,27 +382,27 @@ class AttentionMask3D(nn.Module):     # original, mine
     #------------------------------------------------------------------------------------------------------------------------
     attn_mask_shared = {}  # key: shift_size tuple, value: mask tensor
 
-    def __init__(self, input_resolution, window_size, shift_size, padding=()):
+    def __init__(self, i_reso, sWin, shift_size, padding=()):
         super().__init__()
-        self.input_resolution = input_resolution
-        self.window_size = window_size
+        self.i_reso = i_reso
+        self.sWin = sWin
         assert all(s >= 0 for s in shift_size)
         self.shift_size = shift_size  # tuple (shift_D, shift_H, shift_W)
 
         # Convert to hashable key for sharing
         padding = () if padding is None else padding
-        key = (*input_resolution, *window_size, *shift_size, *padding)
+        key = (*i_reso, *sWin, *shift_size, *padding)
         if key not in AttentionMask3D.attn_mask_shared:
             # Compute mask once
-            attn_mask = self.compute_mask(input_resolution, window_size, shift_size, padding)
+            attn_mask = self.compute_mask(i_reso, sWin, shift_size, padding)
             AttentionMask3D.attn_mask_shared[key] = attn_mask
 
         # Register buffer for this instance
         self.register_buffer("attn_mask", AttentionMask3D.attn_mask_shared[key], persistent=False)
 
     @staticmethod
-    def compute_mask(input_resolution, window_size, shift_size, padding):
-        D, H, W = input_resolution
+    def compute_mask(i_reso, sWin, shift_size, padding):
+        D, H, W = i_reso
         if all(s == 0 for s in shift_size) and padding == ():
             return None
 
@@ -411,14 +411,14 @@ class AttentionMask3D(nn.Module):     # original, mine
         #   shifted_x = torch.roll(x, shifts=-1, dims=0)    # tensor([1, 2, 3, 4, 5, 0])
         #
         #   When this mask is created, org_x = [0, 1, 2, 3, 4, 5] is already shifted negatively forming shifted_z = [1, 2, 3, 4, 5, 0],
-        #   assuming window_size == 2 and shift_size == 1.
+        #   assuming sWin == 2 and shift_size == 1.
         #   So, the window-wide attention mask should be (0,0; 0,0), (0,0; 0,0), (0, -inf; -inf,0) for windows, respectively.
         #
         #   NOTE: A negative shift or positive shift, there is no imparity like which side of indices are respected more.
         #-------------------------------------------------------------------------------------------------------------------------
         def get_slices(s_size, w_size, pad):
             if s_size != 0 and pad == 0:  # shift only, it's a standard Swin mask.
-                slices = (slice(0, -w_size),            # L = total - w_size        # (0, 1, 2, 3)              window_size[0] == 2
+                slices = (slice(0, -w_size),            # L = total - w_size        # (0, 1, 2, 3)              sWin[0] == 2
                             slice(-w_size, -s_size),    # L = w_size - s_size       # (4)                       shift_size[0] == 1
                             slice(-s_size, None))       # L = s_size                # (5)
                                                                                     # (t, t, t, t, t1, t2)            after filling in with type_id
@@ -450,7 +450,7 @@ class AttentionMask3D(nn.Module):     # original, mine
         idx = 0
         pad = [p for (i, p) in padding if i == idx]
         pad = 0 if len(pad) <= 0 else pad[0]
-        w_size = window_size[idx]
+        w_size = sWin[idx]
         s_size = shift_size[idx]
         assert pad < w_size
         
@@ -460,7 +460,7 @@ class AttentionMask3D(nn.Module):     # original, mine
         idx = 1
         pad = [p for (i, p) in padding if i == idx]
         pad = 0 if len(pad) <= 0 else pad[0]
-        w_size = window_size[idx]
+        w_size = sWin[idx]
         s_size = shift_size[idx]
         assert pad < w_size
         
@@ -470,7 +470,7 @@ class AttentionMask3D(nn.Module):     # original, mine
         idx = 2
         pad = [p for (i, p) in padding if i == idx]
         pad = 0 if len(pad) <= 0 else pad[0]
-        w_size = window_size[idx]
+        w_size = sWin[idx]
         s_size = shift_size[idx]
         assert pad < w_size
 
@@ -510,8 +510,8 @@ class AttentionMask3D(nn.Module):     # original, mine
                     region_id += 1
 
         # Partition windows
-        windows, nWd, nWh, nWw = window_partition_3d(img_mask, window_size)
-        mask_windows = windows.view(-1, window_size[0]*window_size[1]*window_size[2])
+        windows, nWd, nWh, nWw = window_partition_3d(img_mask, sWin)
+        mask_windows = windows.view(-1, sWin[0]*sWin[1]*sWin[2])
         attn_mask = mask_windows.unsqueeze(1) - mask_windows.unsqueeze(2)
         attn_mask = attn_mask.masked_fill(attn_mask != 0, float(-100.0)).masked_fill(attn_mask == 0, float(0.0))
         return attn_mask
@@ -524,7 +524,7 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
     #------------------------------------------------------------------------------------------------------------------------
     # consistent attn_mask: ([roll negative, attend, roll positive], assert all(s >= 0 for s in shift_size), AttentionMask3D)
     #------------------------------------------------------------------------------------------------------------------------
-    def __init__(self, dim, input_resolution, num_heads, window_size, shift_size, pair_bias_dim,
+    def __init__(self, dim, i_reso, num_heads, sWin, shift_size, pair_bias_dim,
                  mlp_ratio=4., qkv_bias=True, drop=0., attn_drop=0., drop_path=0.,
                  act_layer=nn.GELU, norm_layer=nn.LayerNorm, type_pos_bias='lonBand', padding=(), is_padding_block=False, in_encoder=True):
         super().__init__()
@@ -533,22 +533,23 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
         assert dim % num_heads == 0, f"dim {dim} is not divisible with num_heads {num_heads}"
 
         self.dim = dim
-        self.input_resolution = input_resolution
-        self.input_vol = input_resolution[0] * input_resolution[1] * input_resolution[2]
+        self.i_reso = i_reso
+        self.input_vol = i_reso[0] * i_reso[1] * i_reso[2]
         self.num_heads = num_heads
-        self.window_size = window_size
-        self.window_volume = window_size[0] * window_size[1] * window_size[2]
+        self.sWin = sWin
+        self.vWin = sWin[0] * sWin[1] * sWin[2]
+        self.nWin = (i_reso[0] // sWin[0]) * (i_reso[1] // sWin[2]) * (i_reso[2] // sWin[2])
         assert all(s >= 0 for s in shift_size)      # We accept non-nagative shift only. The sign is managed by this module.
         self.shift_size = shift_size
 
-        # !!!!!  This block is generated by GPT, leading to a crazy behavior when resolution <= window_size
+        # !!!!!  This block is generated by GPT, leading to a crazy behavior when resolution <= sWin
         # for i in range(3):
-        #     if self.input_resolution[i] <= self.window_size[i]:
+        #     if self.i_reso[i] <= self.sWin[i]:
         #         self.shift_size = tuple([0,0,0])
-        #         self.window_size = tuple(self.input_resolution)
+        #         self.sWin = tuple(self.i_reso)
 
         self.norm1 = norm_layer(dim)
-        self.attn = WindowAttention3D(dim, input_resolution, window_size, num_heads, qkv_bias, attn_drop, drop)
+        self.attn = WindowAttention3D(dim, i_reso, sWin, num_heads, qkv_bias, attn_drop, drop)
         self.drop_path = DropPath(drop_path) if drop_path>0. else nn.Identity()
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim*mlp_ratio)
@@ -557,22 +558,22 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
         self.type_pos_bias = type_pos_bias
         
         if type_pos_bias == 'shpere':
-            self.positionBiasLearner = PositionBiasLearner3D_Shpere(input_resolution, window_size, num_heads, shift_size=shift_size, pair_bias_dim=pair_bias_dim, hidden_dim=pair_bias_dim * 4)
+            self.positionBiasLearner = PositionBiasLearner3D_Shpere(i_reso, sWin, num_heads, shift_size=shift_size, pair_bias_dim=pair_bias_dim, hidden_dim=pair_bias_dim * 4)
         elif type_pos_bias == 'lonBand':
-            D, H, W = input_resolution
-            wd, wh, ww = window_size
+            D, H, W = i_reso
+            wd, wh, ww = sWin
             # (n_windows on a lon band of windows, win_vol, win_vol, num_heads)
             self.learnable_pair_types = nn.Parameter(torch.empty(int(D/wd) * int(H/wh), wd*wd, wh*wh, (2*ww-1), num_heads), requires_grad=True)
             nn.init.trunc_normal_(self.learnable_pair_types, std=0.02)
             
-        self.attn_mask = AttentionMask3D(input_resolution, window_size, shift_size, padding=padding)
+        self.attn_mask = AttentionMask3D(i_reso, sWin, shift_size, padding=padding)
 
         pads = []
         for dim in range(3):
             pad = [p for (i, p) in padding if i == dim]
             pad = 0 if len(pad) <= 0 else pad[0]
             pads.append(pad)
-        self.unpadded_resolution = [input_resolution[dim] - pads[dim] for dim in range(3)]  # resolutions for D, H and W each
+        self.unpadded_resolution = [i_reso[dim] - pads[dim] for dim in range(3)]  # resolutions for D, H and W each
         self.unpadded_vol = self.unpadded_resolution[0] * self.unpadded_resolution[1] * self.unpadded_resolution[2]
 
         self.padding = padding
@@ -592,14 +593,18 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
             
         self.is_padding_block = is_padding_block
         self.in_encoder = in_encoder
+        
+        # nChunks = 20
+        # nChunks = self.find_min_divisor_above(self.nWin, nChunks)
+        # self.nWin_chunks = self.create_gpu_chunks(self.nWin, nChunks, device='cuda')
 
     def build_pair_type_matrix_sphere(self):
         """
         Build pair_type_matrix covering full sphere by repeating along longitude.
         Returns: pair_type_matrix of shape (total_windows, N, N, num_heads)
         """
-        wd, wh, ww = self.window_size
-        D, H, W = self.input_resolution
+        wd, wh, ww = self.sWin
+        D, H, W = self.i_reso
         device = self.learnable_pair_types.device
         G, _, _, _, num_heads = self.learnable_pair_types.shape
         N = wd * wh * ww
@@ -637,6 +642,44 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
         pair_type_matrix = pair_type_matrix.view(G * (W // ww), N, N, num_heads)
         return pair_type_matrix
 
+    def find_min_divisor_above(self, n, nChunks):
+        if n <= 0 or nChunks <= 0:
+            return None
+        
+        # Check if nChunks itself divides n
+        if n % nChunks == 0:
+            return nChunks
+        
+        # Search upwards from nChunks
+        for m in range(nChunks, n + 1):
+            if n % m == 0:
+                return m
+        
+        return None  # No divisor found (shouldn't happen since n divides n)
+
+    def create_gpu_chunks(self, total_size, n_chunks, device='cuda'):
+        # Create indices on GPU
+        indices = torch.arange(total_size, device=device)
+        
+        # Calculate chunk boundaries
+        chunk_size = total_size // n_chunks
+        remainder = total_size % n_chunks
+        
+        chunks = []
+        start = 0
+        
+        for i in range(n_chunks):
+            current_chunk_size = chunk_size + (1 if i < remainder else 0)
+            end = start + current_chunk_size
+            
+            # Get slice of indices tensor (creates view, no copy)
+            chunk_indices = indices[start:end]
+            
+            chunks.append((start, end, chunk_indices))
+            start = end
+        
+        return chunks
+
     #---------------------------------------- One-shot FFN
     def forward(self, x):
         if self.in_encoder and self.is_padding_block and self.padding_config is not None:     # padding takes place.
@@ -647,7 +690,7 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
             x = F.pad(x, self.padding_config, mode='constant')  # zeros
             x = x.view(B, -1, dim)
         
-        D, H, W = self.input_resolution
+        D, H, W = self.i_reso
         B, L, C = x.shape
         assert L == D*H*W, f"Input feature has wrong size {L}, expected {D*H*W}"
 
@@ -670,22 +713,29 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
             shifted_x = x
 
         # partition windows
-        x_windows, nWd, nWh, nWw = window_partition_3d(shifted_x, self.window_size)
-        x_windows = x_windows.view(-1, C, self.window_volume).permute(0,2,1).contiguous()
+        x_windows, nWd, nWh, nWw = window_partition_3d(shifted_x, self.sWin)
+        x_windows = x_windows.view(-1, C, self.vWin).permute(0,2,1).contiguous()
 
         # posision bias
         
         if self.type_pos_bias == 'sphere':
-            position_bias = self.positionBiasLearner()      # (nWindows, win_volume, win_volume, num_heads)
+            position_bias = self.positionBiasLearner()      # (nWin, win_volume, win_volume, num_heads)
         elif self.type_pos_bias == 'lonBand':
             position_bias = self.build_pair_type_matrix_sphere()
 
-        # attention
+        # attn_windows: (nWin, vWin, dim), x_windows: (nWin, vWin, dim), posision_bias: (nWin, vWin, vWin, nHeads), mask: None or (nWin, vWin, vWin)
         attn_windows = self.attn(x_windows, position_bias, mask=self.attn_mask.attn_mask)
+        
+        # results = []
+        # for start, end, chunk_indices in self.nWin_chunks:
+        #     x_windows_chunk, position_bias_chunk, mask_chunk = x_windows[chunk_indices], position_bias[chunk_indices], None if self.attn_mask.attn_mask is None else self.attn_mask.attn_mask[chunk_indices]
+        #     attn_windows_chunk = self.attn(x_windows_chunk, position_bias_chunk, mask_chunk)
+        #     results.append(attn_windows_chunk)
+        # attn_windows = torch.cat(results, dim=0)        
 
         # reverse windows
-        attn_windows = attn_windows.permute(0,2,1).contiguous().view(-1, C, *self.window_size)
-        x = window_reverse_3d(attn_windows, self.window_size, D, H, W)
+        attn_windows = attn_windows.permute(0,2,1).contiguous().view(-1, C, *self.sWin)
+        x = window_reverse_3d(attn_windows, self.sWin, D, H, W)
 
         #------------------------- torch.roll ----------------------------------------
         #   x = torch.tensor([2, 3, 1])
@@ -704,7 +754,7 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
         x = x + self.drop_path(self.norm2(self.mlp(x)))
         
         if not self.in_encoder and self.is_padding_block and self.padding_config is not None:     # padding takes place.
-            [D, H, W] = self.input_resolution
+            [D, H, W] = self.i_reso
             B, L, dim = x.shape
             x = x.view(B, D, H, W, dim)
             padding_config = [-c for c in self.padding_config]
@@ -715,12 +765,12 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
     
     def flops(self):
         flops = 0
-        D, H, W = self.input_resolution
+        D, H, W = self.i_reso
         # norm1
         flops += self.dim * D * H * W
         # W-MSA/SW-MSA
-        nW = D * H * W / self.window_volume
-        flops += nW * self.attn.flops(self.window_volume)
+        nW = D * H * W / self.vWin
+        flops += nW * self.attn.flops(self.vWin)
         # mlp
         flops += 2 * D * H * W * self.dim * self.dim * self.mlp_ratio
         # norm2
@@ -730,7 +780,7 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
     # #--------------------------------------- Multi-shot FFN
     # def forward(self, x):
     #     """Modified forward with chunked MLP - minimal changes"""
-    #     D, H, W = self.input_resolution
+    #     D, H, W = self.i_reso
     #     B, L, C = x.shape
     #     assert L == D*H*W, f"Input feature has wrong size {L}, expected {D*H*W}"
 
@@ -743,14 +793,14 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
     #     else:
     #         shifted_x = x
 
-    #     x_windows, nWd, nWh, nWw = window_partition_3d(shifted_x, self.window_size)
-    #     x_windows = x_windows.view(-1, C, self.window_volume).permute(0,2,1).contiguous()
+    #     x_windows, nWd, nWh, nWw = window_partition_3d(shifted_x, self.sWin)
+    #     x_windows = x_windows.view(-1, C, self.vWin).permute(0,2,1).contiguous()
 
     #     position_bias = self.positionBiasLearner()
     #     attn_windows = self.attn(x_windows, position_bias, mask=self.attn_mask.attn_mask)
 
-    #     attn_windows = attn_windows.permute(0,2,1).contiguous().view(-1, C, *self.window_size)
-    #     x = window_reverse_3d(attn_windows, self.window_size, D, H, W)
+    #     attn_windows = attn_windows.permute(0,2,1).contiguous().view(-1, C, *self.sWin)
+    #     x = window_reverse_3d(attn_windows, self.sWin, D, H, W)
 
     #     if any(s != 0 for s in self.shift_size):
     #         x = torch.roll(x, shifts=[s for s in self.shift_size], dims=(2,3,4))
@@ -788,14 +838,14 @@ class PatchMerging3D(nn.Module):
     r""" 3D Patch Merging Layer.
 
     Args:
-        input_resolution (tuple[int]): (D, H, W)
+        i_reso (tuple[int]): (D, H, W)
         dim (int): Number of input channels.
         norm_layer (nn.Module): Normalization layer.
     """
 
-    def __init__(self, input_resolution, dim, norm_layer=nn.LayerNorm):
+    def __init__(self, i_reso, dim, norm_layer=nn.LayerNorm):
         super().__init__()
-        self.input_resolution = input_resolution
+        self.i_reso = i_reso
         self.dim = dim
 
         # 8C -> 2C reducing capability, not -> 8**0.5 * C, because I don't wantt to preserve physics.
@@ -806,7 +856,7 @@ class PatchMerging3D(nn.Module):
         """
         x: (B, D*H*W, C)
         """
-        D, H, W = self.input_resolution
+        D, H, W = self.i_reso
         B, L, C = x.shape
 
         assert L == D * H * W, "input feature has wrong size"
@@ -836,10 +886,10 @@ class PatchMerging3D(nn.Module):
         return x
 
     def extra_repr(self) -> str:
-        return f"input_resolution={self.input_resolution}, dim={self.dim}"
+        return f"i_reso={self.i_reso}, dim={self.dim}"
 
     def flops(self):
-        D, H, W = self.input_resolution
+        D, H, W = self.i_reso
         flops = (D // 2) * (H // 2) * (W // 2) * 4 * self.dim * 2 * self.dim
         flops += D * H * W * self.dim // 2
         return flops
@@ -849,14 +899,14 @@ class PatchUnmerging3D(nn.Module):
     r"""3D Patch Unmerging Layer (dual of PatchMerging3D)
 
     Args:
-        input_resolution (tuple[int]): (D, H, W)
+        i_reso (tuple[int]): (D, H, W)
         dim (int): Input channel dimension C
         norm_layer (nn.Module): Normalization layer
     """
 
-    def __init__(self, input_resolution, dim, norm_layer=nn.LayerNorm):
+    def __init__(self, i_reso, dim, norm_layer=nn.LayerNorm):
         super().__init__()
-        self.input_resolution = input_resolution
+        self.i_reso = i_reso
         self.dim = dim
         assert dim % 2 == 0, "dim must be even since C_out = C//2"
 
@@ -870,7 +920,7 @@ class PatchUnmerging3D(nn.Module):
         """
         x: (B, D*H*W, C)
         """
-        D, H, W = self.input_resolution
+        D, H, W = self.i_reso
         B, L, C = x.shape
 
         assert L == D * H * W, "input feature has wrong size"
@@ -918,7 +968,7 @@ class PatchUnmerging3D(nn.Module):
 
     def extra_repr(self) -> str:
         return (
-            f"input_resolution={self.input_resolution}, "
+            f"i_reso={self.i_reso}, "
             f"dim={self.dim}, out_dim={self.out_dim}"
         )
 
@@ -929,10 +979,10 @@ class BasicLayer(nn.Module):
 
     Args:
         dim (int): Number of input channels.
-        input_resolution (tuple[int]): Input resolution.
+        i_reso (tuple[int]): Input resolution.
         depth (int): Number of blocks.
         num_heads (int): Number of attention heads.
-        window_size (int): Local window size.
+        sWin (int): Local window size.
         mlp_ratio (float): Ratio of mlp hidden dim to embedding dim.
         qkv_bias (bool, optional): If True, add a learnable bias to query, key, value. Default: True
         drop (float, optional): Dropout rate. Default: 0.0
@@ -941,42 +991,42 @@ class BasicLayer(nn.Module):
         norm_layer (nn.Module, optional): Normalization layer. Default: nn.LayerNorm
         resampler (nn.Module | None, optional): Downsample layer at the end of the layer. Default: None
         use_checkpoint (bool): Whether to use checkpointing to save memory. Default: False.
-        pretrained_window_size (int): Local window size in pre-training.
+        pretrained_sWin (int): Local window size in pre-training.
     """
 
-    def __init__(self, dim, input_resolution, depth, num_heads, window_size, pair_bias_dim,
+    def __init__(self, dim, i_reso, depth, num_heads, sWin, pair_bias_dim,
                  mlp_ratio=4., qkv_bias=True, drop=0., attn_drop=0.,
                  drop_path=0., norm_layer=nn.LayerNorm, resampler=PatchMerging3D, use_checkpoint=False,
-                 pretrained_window_size=0, type_pos_bias='lonBand', padding=(), in_encoder=True):
+                 pretrained_sWin=0, type_pos_bias='lonBand', padding=(), in_encoder=True):
 
         super().__init__()
         self.dim = dim
-        self.input_resolution = input_resolution
+        self.i_reso = i_reso
         self.depth = depth
         self.use_checkpoint = use_checkpoint
         self.padding = padding
         self.in_encoder = in_encoder
         
-        self.output_resolution = input_resolution
+        self.o_reso = i_reso
         if resampler is not None:
             if in_encoder:
-                self.output_resolution = (r//2 for r in input_resolution)
+                self.o_reso = (r//2 for r in i_reso)
             else:
-                self.output_resolution = (r*2 for r in input_resolution)
+                self.o_reso = (r*2 for r in i_reso)
 
         # build blocks
         self.blocks = nn.ModuleList()
         for i in range(depth):
-            # This shift_size doesn't mask attention if total_size <= window_size. It doesn't divide them into attention regions.
+            # This shift_size doesn't mask attention if total_size <= sWin. It doesn't divide them into attention regions.
             shift_size=(0,0,0) if (i % 2 == 0) else \
             (
-                window_size[0] // 2 if input_resolution[0] > window_size[0] else 0,
-                window_size[1] // 2 if input_resolution[1] > window_size[1] else 0, 
-                window_size[2] // 2 if input_resolution[2] > window_size[2] else 0,
+                sWin[0] // 2 if i_reso[0] > sWin[0] else 0,
+                sWin[1] // 2 if i_reso[1] > sWin[1] else 0, 
+                sWin[2] // 2 if i_reso[2] > sWin[2] else 0,
             )
         
-            block = Zeus_SwinTransformerBlock3D(dim=dim, input_resolution=input_resolution,
-                                num_heads=num_heads, window_size=window_size,
+            block = Zeus_SwinTransformerBlock3D(dim=dim, i_reso=i_reso,
+                                num_heads=num_heads, sWin=sWin,
                                 # odd windows_sizes are allowed here.
                                 shift_size=shift_size,
                                 pair_bias_dim = pair_bias_dim,
@@ -985,7 +1035,7 @@ class BasicLayer(nn.Module):
                                 drop=drop, attn_drop=attn_drop,
                                 drop_path=drop_path[i] if isinstance(drop_path, list) else drop_path,
                                 norm_layer=norm_layer,
-                                #  pretrained_window_size=pretrained_window_size,
+                                #  pretrained_sWin=pretrained_sWin,
                                 type_pos_bias = type_pos_bias, padding=padding,
                                 is_padding_block=(i==0),
                                 in_encoder = in_encoder,
@@ -994,7 +1044,7 @@ class BasicLayer(nn.Module):
 
         # patch merging layer
         if resampler is not None:
-            incoming_resolution = input_resolution if in_encoder else self.blocks[0].unpadded_resolution
+            incoming_resolution = i_reso if in_encoder else self.blocks[0].unpadded_resolution
             
             self.resampler = resampler(incoming_resolution, dim=dim, norm_layer=norm_layer)
         else:
@@ -1015,7 +1065,7 @@ class BasicLayer(nn.Module):
         return layer_output
 
     def extra_repr(self) -> str:
-        return f"dim={self.dim}, input_resolution={self.input_resolution}, depth={self.depth}"
+        return f"dim={self.dim}, i_reso={self.i_reso}, depth={self.depth}"
 
     def flops(self):
         flops = 0
@@ -1034,12 +1084,12 @@ class BasicLayer(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, input_resolution = (8, 180, 360), embed_dim=192, depths=[4, 10, 2], num_heads=[4, 8, 16],
-                window_size=(2, 6, 12), mlp_ratio=4., qkv_bias=True,
+    def __init__(self, i_reso = (8, 180, 360), embed_dim=192, depths=[4, 10, 2], num_heads=[4, 8, 16],
+                sWin=(2, 6, 12), mlp_ratio=4., qkv_bias=True,
                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.0,
                 norm_layer=nn.LayerNorm, ape=True,  
                 # absolute position eocoding is required in geo-shpere, because geo-cat and geo-dense is not enough.
-                use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0], pair_bias_dim=5, skippable=False, skip_learnable=False, **kwargs):
+                use_checkpoint=False, pretrained_sWins=[0, 0, 0, 0], pair_bias_dim=5, skippable=False, skip_learnable=False, **kwargs):
         super().__init__()
 
         self.num_layers = len(depths)
@@ -1048,7 +1098,7 @@ class Encoder(nn.Module):
         self.mlp_ratio = mlp_ratio
         self.skippable = skippable
 
-        num_patches = input_resolution[0] * input_resolution[1] * input_resolution[2]
+        num_patches = i_reso[0] * i_reso[1] * i_reso[2]
 
         # absolute position embedding
         if self.ape:
@@ -1062,13 +1112,13 @@ class Encoder(nn.Module):
 
         # build layers
         self.layers = nn.ModuleList()
-        prev_resolution = (input_resolution[0] * 2, input_resolution[1] * 2, input_resolution[2] * 2)
+        prev_resolution = (i_reso[0] * 2, i_reso[1] * 2, i_reso[2] * 2)
         for i_layer in range(self.num_layers):
 
-            #--------------------- Define input_resolution -----------------
+            #--------------------- Define i_reso -----------------
             # 1) There is no general mothod to find compact input resolution that is both a multiple of window size and an even number.
             # A even number resolution is required if the BasicLayer has PatchMerghing3D
-            # 2) If input_resolution[dim] % (2 ** i_layer) > 0, x.shape and input_resolution mismatches in forward passes.
+            # 2) If i_reso[dim] % (2 ** i_layer) > 0, x.shape and i_reso mismatches in forward passes.
 
             for dim in range(3):
                 assert prev_resolution[dim] % 2 == 0, f"Input resolution will mismatch with incoming x.shape in BasicLayer {i_layer}"
@@ -1082,9 +1132,9 @@ class Encoder(nn.Module):
             padding = []
             for i in range(3):
                 # Ensure resolution is a multiple of window size
-                pad = 0 if resolution[i] % window_size[i] == 0 else window_size[i] - resolution[i] % window_size[i]
+                pad = 0 if resolution[i] % sWin[i] == 0 else sWin[i] - resolution[i] % sWin[i]
                 if pad != 0:
-                    print(f"!!!!!!!!!! Encoder layer {i_layer}: input resolution[{i}] {resolution[i]} is increased by {pad} to be a multiple of window size {window_size[i]}")
+                    print(f"!!!!!!!!!! Encoder layer {i_layer}: input resolution[{i}] {resolution[i]} is increased by {pad} to be a multiple of window size {sWin[i]}")
                     resolution[i] += pad
                     padding.append((i, pad))
             padding = tuple(padding) if len(padding) >= 0 else ()
@@ -1095,10 +1145,10 @@ class Encoder(nn.Module):
                     assert resolution[i] % 2 == 0, f"Encoder: BasicLayer {i_layer} has an odd input resolution {resolution} while having PatchMerging."
             
             layer = BasicLayer(dim=int(embed_dim * 2 ** i_layer),
-                               input_resolution=resolution,
+                               i_reso=resolution,
                                depth=depths[i_layer],
                                num_heads=num_heads[i_layer],
-                               window_size=window_size,
+                               sWin=sWin,
                                mlp_ratio=self.mlp_ratio,
                                qkv_bias=qkv_bias,
                                drop=drop_rate, attn_drop=attn_drop_rate,
@@ -1106,7 +1156,7 @@ class Encoder(nn.Module):
                                norm_layer=norm_layer,
                                resampler=donwsample,
                                use_checkpoint=use_checkpoint,
-                               pretrained_window_size=pretrained_window_sizes[i_layer],
+                               pretrained_sWin=pretrained_sWins[i_layer],
                                pair_bias_dim = pair_bias_dim, padding=padding,
                                in_encoder=True)
             
@@ -1149,18 +1199,18 @@ class Encoder(nn.Module):
                 encoder_output.append(layer_output)
 
         # for idx, (enc_layer, (before_ds, after_ds)) in enumerate(zip(self.layers, encoder_output)):
-        #     print(f"{idx}, enc_layer: {enc_layer.dim}, {enc_layer.input_resolution}, enc_before_ds: {before_ds.shape}, enc_after_ds: {after_ds.shape}")
+        #     print(f"{idx}, enc_layer: {enc_layer.dim}, {enc_layer.i_reso}, enc_before_ds: {before_ds.shape}, enc_after_ds: {after_ds.shape}")
 
         return encoder_output
 
 
 class Decoder(nn.Module):
-    def __init__(self, input_resolution = (8, 180, 360), embed_dim=192, depths=[4, 10, 2], num_heads=[4, 8, 16],
-                window_size=(2, 6, 12), mlp_ratio=4., qkv_bias=True,
+    def __init__(self, i_reso = (8, 180, 360), embed_dim=192, depths=[4, 10, 2], num_heads=[4, 8, 16],
+                sWin=(2, 6, 12), mlp_ratio=4., qkv_bias=True,
                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.0,
                 norm_layer=nn.LayerNorm, ape=True,  
                 # absolute position eocoding is required in geo-shpere, because geo-cat and geo-dense is not enough.
-                use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0], pair_bias_dim=5, skippable=False, skip_learnable=False, **kwargs):
+                use_checkpoint=False, pretrained_sWins=[0, 0, 0, 0], pair_bias_dim=5, skippable=False, skip_learnable=False, **kwargs):
         super().__init__()
 
         skip_learnable = True   # no time to put it in the config
@@ -1179,13 +1229,13 @@ class Decoder(nn.Module):
         self.layers = nn.ModuleList()
         if skip_learnable:
             self.skip_learners = nn.ModuleList()
-        prev_resolution = (input_resolution[0] * 2, input_resolution[1] * 2, input_resolution[2] * 2)
+        prev_resolution = (i_reso[0] * 2, i_reso[1] * 2, i_reso[2] * 2)
         for i_layer in range(self.num_layers):
 
-            #--------------------- Define input_resolution -----------------
+            #--------------------- Define i_reso -----------------
             # 1) There is no general mothod to find compact input resolution that is both a multiple of window size and an even number.
             # A even number resolution is required if the BasicLayer has PatchMerghing3D
-            # 2) If input_resolution[dim] % (2 ** i_layer) > 0, x.shape and input_resolution mismatches in forward passes.
+            # 2) If i_reso[dim] % (2 ** i_layer) > 0, x.shape and i_reso mismatches in forward passes.
 
             for dim in range(3):
                 assert prev_resolution[dim] % 2 == 0, f"Input resolution will mismatch with incoming x.shape in BasicLayer {i_layer}"
@@ -1200,9 +1250,9 @@ class Decoder(nn.Module):
             padding = []
             for i in range(3):
                 # Ensure resolution is a multiple of window size
-                pad = 0 if resolution[i] % window_size[i] == 0 else window_size[i] - resolution[i] % window_size[i]
+                pad = 0 if resolution[i] % sWin[i] == 0 else sWin[i] - resolution[i] % sWin[i]
                 if pad != 0:
-                    print(f"!!!!!!!!!! Decoder layer {i_layer}: input resolution[{i}] {resolution[i]} is increased by {pad} to be a multiple of window size {window_size[i]}")
+                    print(f"!!!!!!!!!! Decoder layer {i_layer}: input resolution[{i}] {resolution[i]} is increased by {pad} to be a multiple of window size {sWin[i]}")
                     resolution[i] += pad
                     padding.append((i, pad))
             padding = tuple(padding) if len(padding) >= 0 else ()
@@ -1213,10 +1263,10 @@ class Decoder(nn.Module):
                     assert resolution[i] % 2 == 0, f"Decoder: BasicLayer {i_layer} has an odd input resolution {resolution} while having PatchMerging."
             
             layer = BasicLayer(dim=dim,
-                               input_resolution=resolution,
+                               i_reso=resolution,
                                depth=depths[i_layer],
                                num_heads=num_heads[i_layer],
-                               window_size=window_size,
+                               sWin=sWin,
                                mlp_ratio=self.mlp_ratio,
                                qkv_bias=qkv_bias,
                                drop=drop_rate, attn_drop=attn_drop_rate,
@@ -1224,7 +1274,7 @@ class Decoder(nn.Module):
                                norm_layer=norm_layer,
                                resampler=PatchUnmerging3D if i_layer > 0 else None, # (i_layer < self.num_layers - 1) else None,
                                use_checkpoint=use_checkpoint,
-                               pretrained_window_size=pretrained_window_sizes[i_layer],
+                               pretrained_sWin=pretrained_sWins[i_layer],
                                pair_bias_dim = pair_bias_dim, padding=padding,
                                in_encoder=False)
             self.layers.append(layer)
@@ -1265,12 +1315,12 @@ class Decoder(nn.Module):
             
             if self.skip_learnable:            
                 for idx, (dec_layer, (enc_x_before_ds, _), skip_learner) in enumerate(zip(reversed(self.layers), reversed(enc_x_by_layer), reversed(self.skip_learners))):
-                    # print(f"{idx}, dec_layer: {dec_layer.dim}, {dec_layer.input_resolution}, enc_before_ds: {enc_x_before_ds.shape}")
+                    # print(f"{idx}, dec_layer: {dec_layer.dim}, {dec_layer.i_reso}, enc_before_ds: {enc_x_before_ds.shape}")
                     input = dec_x_after_us + skip_learner(enc_x_before_ds) 
                     (_, dec_x_after_us) = dec_layer(input)
             else:
                 for idx, (dec_layer, (enc_x_before_ds, _)) in enumerate(zip(reversed(self.layers), reversed(enc_x_by_layer))):
-                    # print(f"{idx}, dec_layer: {dec_layer.dim}, {dec_layer.input_resolution}, enc_before_ds: {enc_x_before_ds.shape}")
+                    # print(f"{idx}, dec_layer: {dec_layer.dim}, {dec_layer.i_reso}, enc_before_ds: {enc_x_before_ds.shape}")
                     input = dec_x_after_us + enc_x_before_ds 
                     (_, dec_x_after_us) = dec_layer(input)
     
@@ -1282,28 +1332,28 @@ class Decoder(nn.Module):
         return dec_x_after_us
 
 class Encoder_Decoder(nn.Module):
-    def __init__(self, input_resolution = (8, 180, 360), embed_dim=192, depths=[4, 10, 2], num_heads=[4, 8, 16],
-                window_size=(2, 6, 12), mlp_ratio=4., qkv_bias=True,
+    def __init__(self, i_reso = (8, 180, 360), embed_dim=192, depths=[4, 10, 2], num_heads=[4, 8, 16],
+                sWin=(2, 6, 12), mlp_ratio=4., qkv_bias=True,
                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.0,
                 norm_layer=nn.LayerNorm, ape=True,  
                 # absolute position eocoding is required in geo-shpere, because geo-cat and geo-dense is not enough.
-                use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0], pair_bias_dim=5, skippable=False, skip_learnable=False, **kwargs):
+                use_checkpoint=False, pretrained_sWins=[0, 0, 0, 0], pair_bias_dim=5, skippable=False, skip_learnable=False, **kwargs):
         super().__init__()
         
-        self.encoder = Encoder(input_resolution = input_resolution, embed_dim=embed_dim, depths=depths, num_heads=num_heads,
-                window_size=window_size, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias,
+        self.encoder = Encoder(i_reso = i_reso, embed_dim=embed_dim, depths=depths, num_heads=num_heads,
+                sWin=sWin, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias,
                 drop_rate=drop_rate, attn_drop_rate=attn_drop_rate, drop_path_rate=drop_path_rate,
                 norm_layer=nn.LayerNorm, ape=True,  
                 # absolute position eocoding is required in geo-shpere, because geo-cat and geo-dense is not enough.
-                use_checkpoint=use_checkpoint, pretrained_window_sizes=pretrained_window_sizes, pair_bias_dim=pair_bias_dim, 
+                use_checkpoint=use_checkpoint, pretrained_sWins=pretrained_sWins, pair_bias_dim=pair_bias_dim, 
                 skippable=skippable, skip_learnable=skip_learnable, **kwargs)
         
-        self.decoder = Decoder(input_resolution = input_resolution, embed_dim=embed_dim, depths=depths, num_heads=num_heads,
-                window_size=window_size, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias,
+        self.decoder = Decoder(i_reso = i_reso, embed_dim=embed_dim, depths=depths, num_heads=num_heads,
+                sWin=sWin, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias,
                 drop_rate=drop_rate, attn_drop_rate=attn_drop_rate, drop_path_rate=drop_path_rate,
                 norm_layer=nn.LayerNorm, ape=True,  
                 # absolute position eocoding is required in geo-shpere, because geo-cat and geo-dense is not enough.
-                use_checkpoint=use_checkpoint, pretrained_window_sizes=pretrained_window_sizes, pair_bias_dim=pair_bias_dim, 
+                use_checkpoint=use_checkpoint, pretrained_sWins=pretrained_sWins, pair_bias_dim=pair_bias_dim, 
                 skippable=skippable, skip_learnable=skip_learnable, **kwargs)
         
         # self.skip_learner = nn.Linear(embed_dim, embed_dim, bias=False)
@@ -1363,17 +1413,17 @@ def show_on_map(data):  # np.array
     plt.show()
 
 
-def show_global_attn_mask(attn_mask, window_size, input_resolution, depth_idx=0):
+def show_global_attn_mask(attn_mask, sWin, i_reso, depth_idx=0):
     if attn_mask is None:
         print("No attention mask (no shift).")
         return
 
-    D, H, W = input_resolution
-    win_D, win_H, win_W = window_size
+    D, H, W = i_reso
+    win_D, win_H, win_W = sWin
     nWd = D // win_D
     nWh = H // win_H
     nWw = W // win_W
-    window_volume = win_D * win_H * win_W
+    vWin = win_D * win_H * win_W
 
     # Initialize global mask
     global_mask = torch.zeros((D, H, W), device=attn_mask.device)
@@ -1382,7 +1432,7 @@ def show_global_attn_mask(attn_mask, window_size, input_resolution, depth_idx=0)
     for d in range(nWd):
         for h in range(nWh):
             for w in range(nWw):
-                mask_win = attn_mask[idx]  # (window_volume, window_volume)
+                mask_win = attn_mask[idx]  # (vWin, vWin)
                 mask_win_6d = mask_win.view(win_D, win_H, win_W, win_D, win_H, win_W)
                 # Take attention of queries at depth_idx slice
                 mask_slice = mask_win_6d[depth_idx, :, :, depth_idx, :, :].sum(dim=(2,3))
@@ -1403,17 +1453,17 @@ def show_global_attn_mask(attn_mask, window_size, input_resolution, depth_idx=0)
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 
-def show_global_attn_mask_map(attn_mask, window_size, input_resolution, depth_idx=0, title="", projection='HW'):
+def show_global_attn_mask_map(attn_mask, sWin, i_reso, depth_idx=0, title="", projection='HW'):
     if attn_mask is None:
         print("No attention mask (no shift).")
         return
 
-    D, H, W = input_resolution
-    win_D, win_H, win_W = window_size
+    D, H, W = i_reso
+    win_D, win_H, win_W = sWin
     nWd = D // win_D
     nWh = H // win_H
     nWw = W // win_W
-    window_volume = win_D * win_H * win_W
+    vWin = win_D * win_H * win_W
 
     global_mask = torch.zeros((D, H, W), device=attn_mask.device)
 
@@ -1421,7 +1471,7 @@ def show_global_attn_mask_map(attn_mask, window_size, input_resolution, depth_id
     for d in range(nWd):
         for h in range(nWh):
             for w in range(nWw):
-                mask_win = attn_mask[idx]  # (window_volume, window_volume)
+                mask_win = attn_mask[idx]  # (vWin, vWin)
                 mask_win_6d = mask_win.view(win_D, win_H, win_W, win_D, win_H, win_W)
                 
                 if projection == 'HW':
@@ -1459,7 +1509,7 @@ def show_global_attn_mask_map(attn_mask, window_size, input_resolution, depth_id
     ax.add_feature(cfeature.BORDERS, linewidth=0.5)
     ax.add_feature(cfeature.COASTLINE, linewidth=0.5)
     plt.colorbar(c, ax=ax, orientation='vertical', label='Attention Mask')
-    plt.title(f"Maks: depth {depth_idx}, R {input_resolution}, WS {window_size}, " + title, fontsize=9)
+    plt.title(f"Maks: depth {depth_idx}, R {i_reso}, WS {sWin}, " + title, fontsize=9)
     plt.show()
 
 import numpy as np
@@ -1474,15 +1524,15 @@ def show_global_position_bias(PBLearner, pair_dim_idx=2, depth_idx=0):
     (e.g., great-circle distance) at a specified depth slice.
     """
     device = next(PBLearner.parameters()).device
-    D, H, W = PBLearner.input_resolution
-    win_D, win_H, win_W = PBLearner.window_size
+    D, H, W = PBLearner.i_reso
+    win_D, win_H, win_W = PBLearner.sWin
     nWd, nWh, nWw = D // win_D, H // win_H, W // win_W
-    window_volume = win_D * win_H * win_W
+    vWin = win_D * win_H * win_W
     pair_bias_dim = PBLearner.fc1.in_features  # original input dim
 
     # Select the correct shared tensor
     pair_bias_ref = PBLearner.pair_bias
-    # Reshape flat pair_bias to (nWindows, win_D, win_H, win_W, win_D, win_H, win_W, pair_bias_dim)
+    # Reshape flat pair_bias to (nWin, win_D, win_H, win_W, win_D, win_H, win_W, pair_bias_dim)
     pair_bias_grid = pair_bias_ref.reshape(
         nWd * nWh * nWw,
         win_D, win_H, win_W,
@@ -1532,10 +1582,10 @@ if __name__ == "__main__":
     H, W, D = int(180/10*factor10), int(360/10*factor10), 8
     print("H, W, D", H, W, D)
     C, num_heads = 16, 4
-    window_size = (2, int(10/10*factor10), int(10/10*factor10))  # (win_D, win_H, win_W)
+    sWin = (2, int(10/10*factor10), int(10/10*factor10))  # (win_D, win_H, win_W)
     pair_bias_dim = 5
 
-    input_resolution=(D, H, W)
+    i_reso=(D, H, W)
     
     #---------------- block --------------------
 
@@ -1543,10 +1593,10 @@ if __name__ == "__main__":
     blocks3D = [
         Zeus_SwinTransformerBlock3D(
             dim=C,
-            input_resolution=input_resolution,
+            i_reso=i_reso,
             num_heads=num_heads,
-            window_size=window_size,
-            shift_size=(0,0,0) if idx % 2 == 0 else (window_size[0]//2, window_size[1]//2, window_size[2]//2),
+            sWin=sWin,
+            shift_size=(0,0,0) if idx % 2 == 0 else (sWin[0]//2, sWin[1]//2, sWin[2]//2),
             pair_bias_dim = pair_bias_dim,
             mlp_ratio=4.,
             qkv_bias=True,
@@ -1584,10 +1634,10 @@ if __name__ == "__main__":
     H, W, D = int(180/10*factor10), int(360/10*factor10), 8
     print("H, W, D", H, W, D)
     C, num_heads = 16, 4
-    window_size = (2, int(10/10*factor10), int(10/10*factor10))  # (win_D, win_H, win_W)
+    sWin = (2, int(10/10*factor10), int(10/10*factor10))  # (win_D, win_H, win_W)
     pair_bias_dim = 5
 
-    input_resolution=(D, H, W)
+    i_reso=(D, H, W)
     
     # Random input: (B, C, D, H, W)
     x_in = torch.randn(1, C, D, H, W).to(device).to(device)
@@ -1599,10 +1649,10 @@ if __name__ == "__main__":
     
     depth = 6
     merging = False          
-    bLayer = BasicLayer(dim=C, input_resolution=input_resolution, depth=depth, num_heads=num_heads, window_size=window_size, pair_bias_dim=pair_bias_dim,
+    bLayer = BasicLayer(dim=C, i_reso=i_reso, depth=depth, num_heads=num_heads, sWin=sWin, pair_bias_dim=pair_bias_dim,
                  mlp_ratio=4., qkv_bias=True, drop=0., attn_drop=0.,
                  drop_path=0., norm_layer=nn.LayerNorm, resampler=PatchMerging3D if merging else PatchMerging3D, use_checkpoint=False,
-                 pretrained_window_size=0, type_pos_bias='lonBand').to(device)
+                 pretrained_sWin=0, type_pos_bias='lonBand').to(device)
     
     # Forward pass
     s = time.time()
@@ -1613,14 +1663,14 @@ if __name__ == "__main__":
     
     print("====================================== Big Test ==============================================")
     
-    # factor10, window_size = 2, (2, 4, 4)
-    factor10, window_size = 10, (2, 6, 6) # (2, 6, 12), (2, 4, 8)
+    # factor10, sWin = 2, (2, 4, 4)
+    factor10, sWin = 10, (2, 6, 6) # (2, 6, 12), (2, 4, 8)
     depths, nHeads = (4, 8, 4), (4, 8, 16)
     patch_size = 4
     H, W, D = int(int(720/patch_size)/10*factor10), int(int(1440/patch_size)/10*factor10), 8
     C, num_heads = 8, 4
     pair_bias_dim = 5
-    input_resolution=(D, H, W)
+    i_reso=(D, H, W)
 
     skippable = True
     skip_learnable = True
@@ -1631,21 +1681,21 @@ if __name__ == "__main__":
     B, C, D, H, W = x_in.shape
     x_flat = x_in.permute(0,2,3,4,1).contiguous().reshape(B, D*H*W, C).contiguous()
     
-    print(f"f10 {factor10}, input_resolution {input_resolution}, win_size {window_size}, depths {depths}, nHeads {nHeads}, skippable {skippable}, x_flat {x_flat.shape}")
+    print(f"f10 {factor10}, i_reso {i_reso}, win_size {sWin}, depths {depths}, nHeads {nHeads}, skippable {skippable}, x_flat {x_flat.shape}")
       
     print("\n-------------- Encoder ------------")
 
-    # # mask = AttentionMask3D(input_resolution=(4, 9, 18), window_size=(2, 3, 3), shift_size=(1, 1, 1))
-    # # print("input_resolution=(4, 9, 18), window_size=(2, 3, 3), shift_size=(1, 1, 1)", mask.attn_mask.shape)
-    # mask = AttentionMask3D(input_resolution=(2, 9, 18), window_size=(2, 3, 3), shift_size=(0, 1, 1))    # shift == 0 if D == window_size[0]
-    # print("input_resolution=(2, 9, 18), window_size=(2, 3, 3), shift_size=(1, 1, 1)", mask.attn_mask.shape)
+    # # mask = AttentionMask3D(i_reso=(4, 9, 18), sWin=(2, 3, 3), shift_size=(1, 1, 1))
+    # # print("i_reso=(4, 9, 18), sWin=(2, 3, 3), shift_size=(1, 1, 1)", mask.attn_mask.shape)
+    # mask = AttentionMask3D(i_reso=(2, 9, 18), sWin=(2, 3, 3), shift_size=(0, 1, 1))    # shift == 0 if D == sWin[0]
+    # print("i_reso=(2, 9, 18), sWin=(2, 3, 3), shift_size=(1, 1, 1)", mask.attn_mask.shape)
 
-    # encoder = Encoder(input_resolution = (D, H, W), embed_dim=192, depths=[4, 8, 4], num_heads=[4, 8, 16],
-    encoder = Encoder(input_resolution = (D, H, W), embed_dim=C, depths=depths, num_heads=nHeads,    #--------- num_heads to revise for deployment.
-                window_size=window_size, mlp_ratio=4., qkv_bias=True,     #---------- window_size=(2, 6, 6) for deployment
+    # encoder = Encoder(i_reso = (D, H, W), embed_dim=192, depths=[4, 8, 4], num_heads=[4, 8, 16],
+    encoder = Encoder(i_reso = (D, H, W), embed_dim=C, depths=depths, num_heads=nHeads,    #--------- num_heads to revise for deployment.
+                sWin=sWin, mlp_ratio=4., qkv_bias=True,     #---------- sWin=(2, 6, 6) for deployment
                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.0,
                 norm_layer=nn.LayerNorm, ape=True,
-                use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0], skippable=skippable, skip_learnable=skip_learnable).to(device)
+                use_checkpoint=False, pretrained_sWins=[0, 0, 0, 0], skippable=skippable, skip_learnable=skip_learnable).to(device)
 
     s = time.time()
     encoder_output = encoder(x_flat)
@@ -1654,28 +1704,28 @@ if __name__ == "__main__":
     print(f"-------------- output after encoder. time: {e-s}")
     if skippable:
         for idx, (layer, out) in enumerate(zip(encoder.layers, encoder_output)):
-            i_res = list(layer.input_resolution)
+            i_res = list(layer.i_reso)
             assert out[0].shape[1] == i_res[0] * i_res[1] * i_res[2]
-            o_res = list(layer.output_resolution)
+            o_res = list(layer.o_reso)
             assert out[1].shape[1] == o_res[0] * o_res[1] * o_res[2]
             print(f"skippable, basicLayer: {idx}, before ds: {out[0].shape} / {i_res}; after_ds: {out[1].shape} / {o_res}")
     else:
         out = encoder_output[-1]
         layer = encoder.layers[-1]
-        i_res = list(layer.input_resolution)
+        i_res = list(layer.i_reso)
         assert out[0].shape[1] == i_res[0] * i_res[1] * i_res[2]
-        o_res = list(layer.output_resolution)
+        o_res = list(layer.o_reso)
         assert out[1].shape[1] == o_res[0] * o_res[1] * o_res[2]
         print(f"un-skippable, basicLayer: before ds: {out[0].shape} / {i_res}; after_ds: {out[1].shape} / {o_res}")
     
 
     print("\n-------------- Decoder --------------")
     
-    decoder = Decoder(input_resolution = (D, H, W), embed_dim=C, depths=depths, num_heads=nHeads,    #--------- num_heads to revise for deployment.
-            window_size=window_size, mlp_ratio=4., qkv_bias=True,     #---------- window_size=(2, 5, 5) for deployment
+    decoder = Decoder(i_reso = (D, H, W), embed_dim=C, depths=depths, num_heads=nHeads,    #--------- num_heads to revise for deployment.
+            sWin=sWin, mlp_ratio=4., qkv_bias=True,     #---------- sWin=(2, 5, 5) for deployment
             drop_rate=0., attn_drop_rate=0., drop_path_rate=0.0,
             norm_layer=nn.LayerNorm, ape=True,
-            use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0], skippable=skippable, skip_learnable=skip_learnable).to(device)
+            use_checkpoint=False, pretrained_sWins=[0, 0, 0, 0], skippable=skippable, skip_learnable=skip_learnable).to(device)
         
     s = time.time()
     x = decoder(encoder_output)
@@ -1683,22 +1733,22 @@ if __name__ == "__main__":
 
     print(f"-------------- output after decoder. time: {e-s}")
     
-    o_res = decoder.layers[0].output_resolution
+    o_res = decoder.layers[0].o_reso
     assert x.shape[1] ==  o_res[0] * o_res[1] * o_res[2]
     print(f"output {x.shape}, <{o_res}")
     
     for idx, layer in enumerate(decoder.layers):
-        i_res = list(layer.input_resolution)
-        o_res = list(layer.output_resolution)
-        print(f"input_resulition {i_res}; output_resolution {o_res}")
+        i_res = list(layer.i_reso)
+        o_res = list(layer.o_reso)
+        print(f"input_resulition {i_res}; o_reso {o_res}")
 
     print("\n-------------- Encoder-Decoder --------------")
     
-    codec = Encoder_Decoder(input_resolution = (D, H, W), embed_dim=C, depths=depths, num_heads=nHeads,    #--------- num_heads to revise for deployment.
-            window_size=window_size, mlp_ratio=4., qkv_bias=True,     #---------- window_size=(2, 5, 5) for deployment
+    codec = Encoder_Decoder(i_reso = (D, H, W), embed_dim=C, depths=depths, num_heads=nHeads,    #--------- num_heads to revise for deployment.
+            sWin=sWin, mlp_ratio=4., qkv_bias=True,     #---------- sWin=(2, 5, 5) for deployment
             drop_rate=0., attn_drop_rate=0., drop_path_rate=0.0,
             norm_layer=nn.LayerNorm, ape=True,
-            use_checkpoint=False, pretrained_window_sizes=[0, 0, 0, 0], skippable=skippable, skip_learnable=skip_learnable).to(device)
+            use_checkpoint=False, pretrained_sWins=[0, 0, 0, 0], skippable=skippable, skip_learnable=skip_learnable).to(device)
 
     print(f"Encoder_Decoder. x_flat: {x_flat.shape}")
 
@@ -1716,12 +1766,12 @@ if __name__ == "__main__":
     assert x_out.shape == x_in.shape
 
     shift_size = (0,0,0)
-    PBLearner = PositionBiasLearner3D_Shpere(input_resolution=(D, H, W), window_size=window_size,shift_size=shift_size, num_heads=num_heads, pair_bias_dim=pair_bias_dim, hidden_dim=pair_bias_dim*2)
-    pair_bias = PBLearner.pair_bias # (nWindows * window_volume * window_volume, 4)
+    PBLearner = PositionBiasLearner3D_Shpere(i_reso=(D, H, W), sWin=sWin,shift_size=shift_size, num_heads=num_heads, pair_bias_dim=pair_bias_dim, hidden_dim=pair_bias_dim*2)
+    pair_bias = PBLearner.pair_bias # (nWin * vWin * vWin, 4)
     
-    pair_bias = pair_bias.view(PBLearner.nWindows, PBLearner.window_volume, PBLearner.window_volume, pair_bias_dim) # (nWindows, indow_volume, window_volume, 4)
+    pair_bias = pair_bias.view(PBLearner.nWin, PBLearner.vWin, PBLearner.vWin, pair_bias_dim) # (nWin, indow_volume, vWin, 4)
     pair_bias = pair_bias[:, 0, :, :]
-    pair_bias = pair_bias.view(D//window_size[0], H//window_size[1], W//window_size[2], window_size[0], window_size[1], window_size[2],  pair_bias_dim)
+    pair_bias = pair_bias.view(D//sWin[0], H//sWin[1], W//sWin[2], sWin[0], sWin[1], sWin[2],  pair_bias_dim)
     pair_bias = pair_bias.permute(0, 3, 1, 4, 2, 5, 6).contiguous()
     pair_bias = pair_bias.view(D, H, W, pair_bias_dim)[0] # (H, W, 4).
     data = pair_bias[:, :, 2].numpy()    # cos_lat1, cos_lat2, great_circle, delta_depth
@@ -1744,4 +1794,4 @@ if __name__ == "__main__":
     #         attn_mask = block.attn_mask.attn_mask
     #         u_res = block.unpadded_resolution
     #         title = f"L {layer_idx}/{nLayers}, B {block_idx}/{nBlocks}, UR {u_res}"
-    #         show_global_attn_mask_map(attn_mask, block.window_size, block.input_resolution, depth_idx=0, title=title, projection=projection)
+    #         show_global_attn_mask_map(attn_mask, block.sWin, block.i_reso, depth_idx=0, title=title, projection=projection)

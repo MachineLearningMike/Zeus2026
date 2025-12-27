@@ -26,7 +26,7 @@ class Zeus(nn.Module):
         patch_kernel = pm.patch_kernel
         patch_stride = pm.patch_stride
         swin_dim = pm.swin_dim
-        window_size = pm.window_size
+        sWin = pm.sWin
         num_encoder_decoder = pm.num_swin_block
         nLevels = pm.nLevels
         increasing = pm.increasing
@@ -44,7 +44,7 @@ class Zeus(nn.Module):
     
         print("Zeus model being created..............................................................")
         print(f"factor10 {factor10}, num_heads {num_heads}, patch_kernel {patch_kernel}, patch_stride {patch_stride}, swin_dim {swin_dim}")
-        print(f"window_size {window_size}, num_encoder_decoder {num_encoder_decoder}, nLevels {nLevels}, increasing {increasing}, type_pos_bias {type_pos_bias}")
+        print(f"sWin {sWin}, num_encoder_decoder {num_encoder_decoder}, nLevels {nLevels}, increasing {increasing}, type_pos_bias {type_pos_bias}")
         print(f"depth_list {depth_list}, head_list {head_list}, qkv_bias {qkv_bias}, skippable {skippable}, skip_learnable {skip_learnable}")
         print(".......................................................................................")
 
@@ -77,14 +77,14 @@ class Zeus(nn.Module):
         
         #---------------- Swin blocks ----------------------
         
-        input_resolution = (self.patch_extractor.nTotalLevels, H//patch_stride, W//patch_stride)
+        i_reso = (self.patch_extractor.nTotalLevels, H//patch_stride, W//patch_stride)
         use_checkpoint = False
         self.encoder_decoder = Encoder_Decoder(
-                input_resolution = input_resolution, embed_dim=swin_dim, depths=depth_list, num_heads=head_list,    #--------- num_heads to revise for deployment.
-                window_size=window_size, mlp_ratio=4., qkv_bias=qkv_bias,
+                i_reso = i_reso, embed_dim=swin_dim, depths=depth_list, num_heads=head_list,    #--------- num_heads to revise for deployment.
+                sWin=sWin, mlp_ratio=4., qkv_bias=qkv_bias,
                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0.0,
                 norm_layer=nn.LayerNorm, ape=True,
-                use_checkpoint=use_checkpoint, pretrained_window_sizes=[0, 0, 0, 0], skippable=skippable, skip_learnable=skip_learnable)
+                use_checkpoint=use_checkpoint, pretrained_sWins=[0, 0, 0, 0], skippable=skippable, skip_learnable=skip_learnable)
                 
         #--------------- Unpatch reconstructor        
         self.unpatch_reconstructor = UnpatchReconstructor(

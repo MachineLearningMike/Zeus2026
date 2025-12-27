@@ -35,11 +35,11 @@ class FuXi2_Preprocessor(nn.Module):
 
 
 class FuXi2_Swin(nn.Module):
-    def __init__(self, C_total, H_down, W_down, num_blocks=30, window_size=18):
+    def __init__(self, C_total, H_down, W_down, num_blocks=30, sWin=18):
         super().__init__()
         self.C_total = C_total
         self.H_down, self.W_down = H_down, W_down
-        self.window_size = window_size
+        self.sWin = sWin
 
         # pick num_heads that divides C_total
         for nh in reversed(range(1, 9)):
@@ -51,9 +51,9 @@ class FuXi2_Swin(nn.Module):
         self.swin_blocks = nn.ModuleList([
             SwinTransformerBlock(
                 dim=C_total,
-                input_resolution=(H_down, W_down),
+                i_reso=(H_down, W_down),
                 num_heads=self.num_heads,
-                window_size=window_size
+                sWin=sWin
             ) for _ in range(num_blocks)
         ])
 
