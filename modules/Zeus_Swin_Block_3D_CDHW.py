@@ -1356,14 +1356,24 @@ class Encoder_Decoder(nn.Module):
                 use_checkpoint=use_checkpoint, pretrained_sWins=pretrained_sWins, pair_bias_dim=pair_bias_dim, 
                 skippable=skippable, skip_learnable=skip_learnable, **kwargs)
         
-        # self.skip_learner = nn.Linear(embed_dim, embed_dim, bias=False)
-        # torch.nn.init.eye_(self.skip_learner.weight)
+        if skippable and skip_learnable:
+            self.skip_learner = nn.Linear(embed_dim, embed_dim, bias=True)
+            torch.nn.init.eye_(self.skip_learner.weight)
+            torch.nn.init.zeros_(self.skip_learner.bias)
+        self.skippable = skippable
+        self.skip_learnable = skip_learnable
+        
         
     def forward(self, x_flat):
-        # x_skip = x_flat     # .clone() ------ no clone() because self.encoder doesn't modify its input arguments.
+        if self.skippable:
+            x_skip = x_flat     # .clone() ------ no clone() because self.encoder doesn't modify its input arguments.
         x_by_layer = self.encoder(x_flat)
         x = self.decoder(x_by_layer)
-        # x = x + self.skip_learner(x_skip)
+        if self.skippable:
+            if self.skip_learnable:
+                x = x + self.skip_learner(x_skip)
+            else:
+                x = x + x_skip
         return x
         
 import numpy as np
