@@ -185,7 +185,7 @@ else:
         config["management_path"] = "/home/mike/zeus_management"
 
     config["factor10"] = 10  # 
-    config['nStepsPerBatch'] = 4        # 2 on A100, 4 on B200
+    config['nStepsPerBatch'] = 2        # 2 on A100, 4 on B200
     
     # shared_model_params['nHeads'] = 2
     # shared_model_params['patch_kernel'] = 4
@@ -1397,7 +1397,7 @@ Saved projects:
                                 ======== to 1.23 !!! 1915 x 4   explosion!!!
 "Zeus_25Dec28_1" on A100 (80GB)
     step (x2),  loss,       best_loss,  lr (started with)
-    0           8.0                     1e-4
+    0           8.0                     1e-4        A100
     50          1.0                     1e-4
     100         0.43                    1e-4
     150         0.298                   3.2e-5
@@ -1417,7 +1417,11 @@ Saved projects:
     850         0.181       0.157       1e-6
     900         0.205       0.157       1e-6
     950         0.176       0.157       1e-6
-    1000        0.183       0.157       1e-6
+    1000        0.183       0.157       1e-6            B200
+    1050        0.176       0.157       1e-6
+    1100        0.203       0.157       1e-6
+    1150        =           =           =               =
+    
     
                                 
 """
