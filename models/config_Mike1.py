@@ -185,7 +185,7 @@ else:
         config["management_path"] = "/home/mike/zeus_management"
 
     config["factor10"] = 10  # 
-    config['nStepsPerBatch'] = 2        # 2 on A100, 4 on B200
+    config['nStepsPerBatch'] = 4        # 2 on A100, 4 on B200
     
     # shared_model_params['nHeads'] = 2
     # shared_model_params['patch_kernel'] = 4
@@ -1431,8 +1431,12 @@ Saved projects:
     2350                    0.136       5e-6            =
     2450        0.136       0.128       1e-5            =       0.9475$/h, 4 steps per 8s -> 5.26e-4 $ per step, or 1900 steps per $
     2500                    0.114       =               =       8.15s
-    2650                    0.108       =               =
-    
+    2650                    0.108       5e-6            A100
+    2750                    0.106       =               =       0.5800$/h, 2 steps per 5.47s -> 4.406$ per step, or 2270 steps per $
+    2850        0.422       0.105       =               =
+    2900                    0.095       =               =
+    3200                    =           2.5e-6          =
+    3400                    =           1e-6            =       safe lr, bedtiem
     
     
                                 
