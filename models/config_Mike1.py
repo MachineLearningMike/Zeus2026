@@ -185,7 +185,7 @@ else:
         config["management_path"] = "/home/mike/zeus_management"
 
     config["factor10"] = 10  # 
-    config['nStepsPerBatch'] = 4
+    config['nStepsPerBatch'] = 2
     
     # shared_model_params['nHeads'] = 2
     # shared_model_params['patch_kernel'] = 4
