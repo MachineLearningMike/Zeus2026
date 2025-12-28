@@ -194,7 +194,7 @@ class Model_Dom():
         return "best_loss_model_" + str(self.md_id)
     
     def save_best_loss_model(self, loss):
-        if loss < 0.3 and loss < self.best_loss:    # 0.3: hard-coded.
+        if loss < 0.4 and loss < self.best_loss:    # 0.4: hard-coded.
             self.best_loss = loss
             name = self.get_best_loss_file_name()
             logging.info("saving best-loss model...model: {}, loss: {:.3f}, path: {}".format(self.md_id, loss, name))

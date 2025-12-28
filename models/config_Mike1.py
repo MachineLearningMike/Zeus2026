@@ -1395,7 +1395,11 @@ Saved projects:
                                 to 0.16   1200 x 4 steps,       1e-5
                                 to 0.10   1850 x 4              1e-6
                                 ======== to 1.23 !!! 1915 x 4
-                                
+"Zeus_25Dec28_1"
+    step (x2), loss, lr
+    0       8.0     1e-4
+    50      1.0     1e-4
+    100     0.43    1e-4
                                 
                                 
 """
