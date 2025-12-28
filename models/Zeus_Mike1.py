@@ -37,6 +37,10 @@ class Zeus(nn.Module):
         skippable = pm.skippable
         skip_learnable = pm.skip_learnable
         
+        nStepsPerBatch = pm.nStepsPerBatch
+        choose_best_loss_model = pm.choose_best_loss_model
+        
+        
         pair_bias_dim = pm.pair_bias_dim
         
 
@@ -46,6 +50,7 @@ class Zeus(nn.Module):
         print(f"factor10 {factor10}, num_heads {num_heads}, patch_kernel {patch_kernel}, patch_stride {patch_stride}, swin_dim {swin_dim}")
         print(f"sWin {sWin}, num_encoder_decoder {num_encoder_decoder}, nLevels {nLevels}, increasing {increasing}, type_pos_bias {type_pos_bias}")
         print(f"depth_list {depth_list}, head_list {head_list}, qkv_bias {qkv_bias}, skippable {skippable}, skip_learnable {skip_learnable}")
+        print(f"nStepsPerBatch {nStepsPerBatch}, choose_best_loss_model {choose_best_loss_model}")
         print(".......................................................................................")
 
         self.device = device
