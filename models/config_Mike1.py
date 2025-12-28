@@ -185,7 +185,7 @@ else:
         config["management_path"] = "/home/mike/zeus_management"
 
     config["factor10"] = 10  # 
-    config['nStepsPerBatch'] = 2        # 2 on A100, 4 on B200
+    config['nStepsPerBatch'] = 4        # 2 on A100, 4 on B200
     
     # shared_model_params['nHeads'] = 2
     # shared_model_params['patch_kernel'] = 4
@@ -1421,6 +1421,10 @@ Saved projects:
     1050        0.176       0.157       1e-6
     1100        0.203       0.157       1e-6
     1150        =           =           =               =
+    1200        =           0.155       =               A100
+    
+    1550        0.174       0.151       =               A100
+            
     
     
                                 
