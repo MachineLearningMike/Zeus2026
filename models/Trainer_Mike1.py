@@ -489,6 +489,11 @@ class Model_Trainer():
             start1 = time.time()
             
             step += 1
+
+            # This is to save the model in case it suddenly deviates to diverge.
+            if trainable is True:
+                [md.save_best_loss_model(loss) for md, loss in [(md, md.step_loss) for md in mds]]
+            
             if trainable is True and step % self.pm.steps_to_save == 0:
                 [(md.pack_losses_metrics(), md.save_state()) for md in mds]
                 self.save_state()

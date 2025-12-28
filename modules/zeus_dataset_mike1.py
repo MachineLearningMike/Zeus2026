@@ -605,14 +605,14 @@ class Zeus_Dataset(Dataset):
                 shutil.move(tmp_path, self.mean_meteo_onestop_checkpoint_path)
 
         # Final save
-        path = str(self.mean_meteo_onestop_checkpoint_path)
-        self.save_checkpoint(path, {
+        tmp_path = str(self.mean_meteo_onestop_checkpoint_path) + ".tmp"
+        self.save_checkpoint(tmp_path, {
             "mean_dict": mean_dict,
             "step": step,
             "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
             "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
         })
-        shutil.move(path, self.mean_meteo_onestop_checkpoint_path)
+        shutil.move(tmp_path, self.mean_meteo_onestop_checkpoint_path)
 
         return mean, step
 
@@ -699,14 +699,14 @@ class Zeus_Dataset(Dataset):
                 shutil.move(tmp_path, self.mean_meteo_checkpoint_path)
 
         # Final save
-        path = str(self.mean_meteo_checkpoint_path)
-        self.save_checkpoint(path, {
+        tmp_path = str(self.mean_meteo_checkpoint_path) + ".tmp"
+        self.save_checkpoint(tmp_path, {
             "mean_dict": mean_dict,
             "step": step,
             "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
             "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
         })
-        shutil.move(path, self.mean_meteo_checkpoint_path)
+        shutil.move(tmp_path, self.mean_meteo_checkpoint_path)
 
         return mean, step
 
@@ -799,14 +799,14 @@ class Zeus_Dataset(Dataset):
                 shutil.move(tmp_path, self.var_mean_meteo_checkpoint_path)
 
         # Final save
-        path = str(self.var_mean_meteo_checkpoint_path)
-        self.save_checkpoint(path, {
+        tmp_path = str(self.var_mean_meteo_checkpoint_path) + ".tmp"
+        self.save_checkpoint(tmp_path, {
             "var_mean_dict": var_mean_dict,
             "step": step,
             "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
             "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
         })
-        shutil.move(path, self.var_mean_meteo_checkpoint_path)
+        shutil.move(tmp_path, self.var_mean_meteo_checkpoint_path)
 
         std = np.sqrt(var_mean)
         return std, step
@@ -890,14 +890,14 @@ class Zeus_Dataset(Dataset):
                 shutil.move(tmp_path, self.mean_tempo_checkpoint_path)
 
         # Final save
-        path = str(self.mean_tempo_checkpoint_path)
-        self.save_checkpoint(path, {
+        tmp_path = str(self.mean_tempo_checkpoint_path) + ".tmp"
+        self.save_checkpoint(tmp_path, {
             "mean": mean,
             "step": step,
             "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
             "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
         })
-        shutil.move(path, self.mean_tempo_checkpoint_path)
+        shutil.move(tmp_path, self.mean_tempo_checkpoint_path)
 
         return mean, step
 
@@ -982,14 +982,14 @@ class Zeus_Dataset(Dataset):
                 shutil.move(tmp_path, self.var_mean_tempo_checkpoint_path)
 
         # Final save
-        path = str(self.var_mean_tempo_checkpoint_path)
-        self.save_checkpoint(path, {
+        tmp_path = str(self.var_mean_tempo_checkpoint_path) + ".tmp"
+        self.save_checkpoint(tmp_path, {
             "var_mean": var_mean,
             "step": step,
             "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
             "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
         })
-        shutil.move(path, self.var_mean_tempo_checkpoint_path)
+        shutil.move(tmp_path, self.var_mean_tempo_checkpoint_path)
 
         std = np.sqrt(var_mean)
         return std, step

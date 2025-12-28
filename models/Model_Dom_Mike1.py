@@ -6,6 +6,7 @@ from einops import rearrange
 from pathlib import Path
 import logging
 import sys
+import shutil
 from importlib import import_module
 
 
@@ -84,6 +85,8 @@ class Model_Dom():
         self.total_losses = []
         self.epoch_losses, self.epoch_metrics = [], []
         self.pbar_description = None
+        self.step_loss = None
+        self.best_loss = 1e9
     
     
     def _select_optimizer(self):
@@ -186,6 +189,16 @@ class Model_Dom():
             best_metric = 1e9
             
         return keep_going, best_metric
+    
+    def get_best_loss_file_name(self):
+        return "best_loss_model_" + str(self.md_id)
+    
+    def save_best_loss_model(self, loss):
+        if loss < self.best_loss:
+            self.best_loss = loss
+            name = self.get_best_loss_file_name()
+            logging.info("saving best-loss model...model: {}, loss: {:.3f}, path: {}".format(self.md_id, loss, name))
+            self.save_state(name=name, model_only=True)
        
     def save_state(self, name=None, train_finished=False, model_only=False):
     #-------------- My version
@@ -205,11 +218,12 @@ class Model_Dom():
                 'train_finished' : train_finished,
                 'packed_losses_metrics': self.packed_losses_metrics,
                 'learning_rate': self.learning_rate,
+                'best_loss' : self.best_loss,
             })
         utils.check_dir(self.project_path)
-        torch.save(checkpoint, self.project_path / (name + '.pth'))
-        torch.save(checkpoint, self.project_path / (name + '.pth.bak'))   # Create a backup, as creating takes a long time and may fail by the cloud Spot service.
-        # logging.info(f"Checkpoint '{name}' saved, including model, optimizer, scheduler, scaler, weighted_metric_old, and dataset state")
+        temp_path = self.project_path / (name + '.pth.tmp')
+        torch.save(checkpoint, temp_path)
+        shutil.move(temp_path, self.project_path / (name + '.pth'))
     
         self.save_train_history()        
     
@@ -240,6 +254,8 @@ class Model_Dom():
         return total_losses
     
     def try_load_state(self, name=None):    # Pairs with save_state
+        choose_best_loss_model=self.pm.choose_best_loss_model
+        
         if name is None: name = "train_state_" + str(self.md_id) #+ self.get_train_id_string()
         
         file_not_found = False; train_finished = False; file_loaded = False
@@ -255,13 +271,7 @@ class Model_Dom():
             logging.info("Checkpoint loaded from the .pth file")
         except Exception as e:
             logging.info(str(e))
-            try:
-                checkpoint_path = self.project_path / (name + '.pth.bak')     # Maybe the previous save.
-                checkpoint = torch.load(checkpoint_path, map_location="cpu")
-                logging.info("Checkpoint loaded from the .pth.bak file")
-            except Exception as e:
-                logging.info(str(e))
-                file_not_found = True
+            file_not_found = True
 
         if not file_not_found:
             if checkpoint.get('train_finished', None) is not None:
@@ -278,9 +288,22 @@ class Model_Dom():
         if not file_not_found and (not train_finished or not self.trainable):
             try:
                 # Load model parameters
-                epoch = checkpoint['epoch']
-                
-                state_dict = checkpoint['model']
+
+                if choose_best_loss_model:
+                    try:
+                        name = self.get_best_loss_file_name()
+                        checkpoint_path = self.project_path / (name + '.pth')
+                        checkpoint_special = torch.load(checkpoint_path, map_location="cpu")
+                        logging.info("Checkpoint loaded from the best_loss_model file")
+                    except Exception as e:
+                        logging.info(str(e))
+                        sys.exit(0)
+                    state_dict = checkpoint_special['model']
+                    logging.info("!!! Best-loss model chosen.")
+                else:
+                    state_dict = checkpoint['model']
+                    logging.info("!!! Latest model chosen.")
+
                 strict = True
                 
                 if self.pm.doubleZeus:
@@ -302,8 +325,10 @@ class Model_Dom():
                 packed_losses_metrics = None
                 if self.trainable:
                     
-                    try:                                               
-                        if self.optimizer is not None and "optimizer" in checkpoint:
+                    try:
+                        epoch = checkpoint['epoch']                       
+                        
+                        if not choose_best_loss_model and self.optimizer is not None and "optimizer" in checkpoint:
                             self.optimizer.load_state_dict(checkpoint["optimizer"])
 
                             # Move optimizer state tensors to the same device as their parameters
@@ -314,6 +339,8 @@ class Model_Dom():
                                             if torch.is_tensor(v):
                                                 self.optimizer.state[p][k] = v.to(p.device, non_blocking=True)
                             logging.info("Optimizer loaded with saved state.")
+                        else:
+                            logging.info("!!! Optimizer NOT loaded with saved state.")
 
                         self.scheduler.load_state_dict(checkpoint['scheduler'])
                         logging.info("Scheduler loaded with saved state.")
@@ -327,16 +354,21 @@ class Model_Dom():
 
                         if checkpoint.get('packed_losses_metrics', None) is not None:
                             packed_losses_metrics = checkpoint['packed_losses_metrics']
-                            logging.info("packed_losses_metrics loaded")
+                            logging.info(f"packed_losses_metrics loaded")
                             
                         if self.pm.overwrite_saved_lr:
                             self.learning_rate = self.pm.lr
                         elif checkpoint.get('learning_rate', None) is not None:
-                            self.learning_rate = checkpoint['learning_rate']                            
+                            self.learning_rate = checkpoint['learning_rate']
+                            logging.info(f"learning_rate loaded {self.learning_rate}")
                         if self.learning_rate is None:
                             self.learning_rate = self.get_learning_rate()
                         else:
                             self.set_learning_rate(self.learning_rate)
+
+                        if checkpoint.get('best_loss', None) is not None:
+                            self.best_loss = checkpoint['best_loss']
+                            logging.info(f"best_loss loaded {self.best_loss}")
 
                     except Exception as e:
                         logging.info(str(e))
@@ -481,5 +513,6 @@ class Model_Dom():
         # metrics = list(np.array(step_metrics).mean(axis=0))
         self.epoch_metrics.append(metrics)
 
+        self.step_loss = loss
         self.get_pbar_description_step(loss, metrics)
     

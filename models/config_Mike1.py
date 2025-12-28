@@ -15,7 +15,7 @@ config = {
 
     # training
     "seed" : 523,
-    "steps_to_save" : 50,
+    "steps_to_save" : 10,
     "log_step": 10,    
         
     # Scheduler
@@ -1280,15 +1280,127 @@ projects["Zeus_25Dec27_6x6_learn_skip_1"] = {
     "model_4": {},
 }
 
+projects["Zeus_25Dec27_6x6_learn_skip_2"] = {
+    "management": {
+    "Zeus_Model_module" : "Zeus_Mike1",
+    "GPUWaitsData" : True,
+    "models_to_play": [0,],
+    "metrics" : "rmse", # "mae", "rmse"
+    'max_cascade_step' : 1,
+    },
+    
+    "data": {
+    "org_height": 721,
+    "batch_size": 1,
+    },
+    
+    "model_0": {
+        "lr": 1e-4,
+        "max_lr": 1e-4,
+        "overwrite_saved_lr": False,
+        "useLRLearner" : False,
+        "accum_steps" : 10,   
+        "skip_validation" : True,
+        #----------------------------------- SWIN ------------------------
+        # 'factor10' : 2 on Windows else 10.   3 works on 8GB, 10 will work on 80GB?
+        
+        'nHeads' : 4,
+        'patch_kernel' : 4,
+        'patch_stride' : 4,
+        'swin_dim' : 192,           # 480 is the right value, if we have enough GPU memory. Reduce this to fit onto GPU memory.
+        'sWin' : (2, 6, 6),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
+        'num_swin_block' : 30,
+        'nLevels' : 8,
+        'increasing' : True,
+        'type_pos_bias' : 'lonBand', # 'sphere', 'None'
+        'pair_bias_dim' : 5,
+        'depth_list' : [4, 8, 4],   # [6, 8, 4] leads to OOP on A100
+        'head_list' : [4, 8, 16],
+        'skippable' : True,
+        'skip_learnable' : True,
+        'qkv_bias' : True,
+        
+        'choose_best_loss_model' : True,
+    },
+    
+    "model_1": {},
+    "model_2": {},
+    "model_3": {},
+    "model_4": {},
+}
+
+projects["Zeus_25Dec28_1"] = {
+    "management": {
+    "Zeus_Model_module" : "Zeus_Mike1",
+    "GPUWaitsData" : True,
+    "models_to_play": [0,],
+    "metrics" : "rmse", # "mae", "rmse"
+    'max_cascade_step' : 1,
+    },
+    
+    "data": {
+    "org_height": 721,
+    "batch_size": 1,
+    },
+    
+    "model_0": {
+        "lr": 1e-4,
+        "max_lr": 1e-4,
+        "overwrite_saved_lr": False,
+        "useLRLearner" : False,
+        "accum_steps" : 10,   
+        "skip_validation" : True,
+        #----------------------------------- SWIN ------------------------
+        # 'factor10' : 2 on Windows else 10.   3 works on 8GB, 10 will work on 80GB?
+        
+        'nHeads' : 4,
+        'patch_kernel' : 4,
+        'patch_stride' : 4,
+        'swin_dim' : 192,           # 480 is the right value, if we have enough GPU memory. Reduce this to fit onto GPU memory.
+        'sWin' : (2, 6, 6),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
+        'num_swin_block' : 30,
+        'nLevels' : 8,
+        'increasing' : True,
+        'type_pos_bias' : 'lonBand', # 'sphere', 'None'
+        'pair_bias_dim' : 5,
+        'depth_list' : [4, 8, 4],   # [6, 8, 4] leads to OOP on A100
+        'head_list' : [4, 8, 16],
+        'skippable' : True,
+        'skip_learnable' : True,
+        'qkv_bias' : True,
+        
+        'choose_best_loss_model' : False,   # default: False
+    },
+    
+    "model_1": {},
+    "model_2": {},
+    "model_3": {},
+    "model_4": {},
+}
+
 #-------------------------------- select proejct -----------------------
 
 """
 Saved projects:
 "Zeus_25Dec26_6x6_learn_skip_2" : speedy convergence to 0.3 then back 2.3 then VERY slow convengence.
-"Zeus_25Dec26_6x6_learn_skip_3" : lr = 1e-4 initially, lr = 1e-5 since loss < 0.4. goes below 0.17
+"Zeus_25Dec26_6x6_learn_skip_3" : w/o codec skip, w/ decoder skip, lr = 1e-4 initially, lr = 1e-5 since loss < 0.4. goes below 0.17
+"Zeus_25Dec27_6x6_learn_skip_1" : w/ codec skip, w/ decoder skip, loss drops quickly from 10 
+                                to 4.4 for 20 x 4 steps,        1e-4 
+                                to 1.09 for 50 x 4 steps,
+                                to 0.405 for 100 x 4 steps,     1e-5
+                                to 0.340 for 150 x 4 steps,     1e-5
+                                to 0.3   for 200 x 4 steps,     1-e5
+                                to 0.28   for 250 x 4 steps,     1e-6
+                                to 0.27   350   5e-6
+                                to 0.16   1200 x 4 steps,       1e-5
+                                to 0.10   1850 x 4              1e-6
+                                ======== to 1.23 !!! 1915 x 4
+                                
+                                
+                                
 """
 
-project = "Zeus_25Dec27_6x6_learn_skip_1"   # "Zeus_Swin_25Dec25_2"
+project = "Zeus_25Dec28_1"   # "Zeus_Swin_25Dec25_2"
 config["bayesProject"] = project
 # updata 'management'
 config.update(projects[project]["management"])
