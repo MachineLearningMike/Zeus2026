@@ -197,7 +197,7 @@ class Model_Dom():
         if loss < 0.4 and loss < self.best_loss:    # 0.4: hard-coded.
             self.best_loss = loss
             name = self.get_best_loss_file_name()
-            logging.info("saving best-loss model...model: {}, loss: {:.3f}, accum_iterations {}".format(self.md_id, loss, self.accum_iterations))
+            logging.info("saving best-loss model... md {}, loss {:.3f}, iter {}".format(self.md_id, loss, self.accum_iterations))
             self.save_state(name=name, model_only=True)
        
     def save_state(self, name=None, train_finished=False, model_only=False):
@@ -300,7 +300,7 @@ class Model_Dom():
                         logging.info(str(e))
                         sys.exit(0)
                     state_dict = checkpoint_special['model']
-                    logging.info("!!! Best-loss model chosen.")
+                    logging.info("!!!!!!!!!!!!!! Best-loss model chosen. Turn-off thie switch.")
                 else:
                     state_dict = checkpoint['model']
                     logging.info("!!! Latest model chosen.")
