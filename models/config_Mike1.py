@@ -1369,7 +1369,7 @@ projects["Zeus_25Dec28_1"] = {
         'skip_learnable' : True,
         'qkv_bias' : True,
         
-        'choose_best_loss_model' : False,   # default: False
+        'choose_best_loss_model' : True,   # default: False
     },
     
     "model_1": {},
@@ -1437,6 +1437,7 @@ Saved projects:
     2900                    0.095       =               =
     3200                    =           2.5e-6          =
     3400                    =           1e-6            =       safe lr, bedtiem
+    -4630       0.208       0.088       2.5e-7          B200
     
     
                                 
