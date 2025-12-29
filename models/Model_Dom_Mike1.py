@@ -196,31 +196,31 @@ class Model_Dom():
     def save_best_loss_model(self, loss):
         if loss < 0.4 and loss < self.best_loss:    # 0.4: hard-coded.
             self.best_loss = loss
-            name = self.get_best_loss_file_name()
             logging.info("saving best-loss model... md {}, loss {:.3f}, iter {}".format(self.md_id, loss, self.accum_iterations))
-            self.save_state(name=name, model_only=True)
+            self.save_state(best_loss=True)
        
-    def save_state(self, name=None, train_finished=False, model_only=False):
+    def save_state(self, name=None, train_finished=False, best_loss=False):
     #-------------- My version
         assert self.trainable, "Non-trainable train object cannot be saved."
+        
         if name is None: name = "train_state_" + str(self.md_id)  # + '-' + self.get_train_id_string()
+        if best_loss:
+            name = self.get_best_loss_file_name()
+        
         checkpoint = {
             'model': self.model.state_dict(),
-        }
-        if not model_only:
-            checkpoint.update({
-                'optimizer': self.optimizer.state_dict(),
-                'scheduler': self.scheduler.state_dict(),
-                'scaler':   self.scaler.state_dict(),
-                'epoch': self.epoch,
-                'weighted_metric_old': self.weighted_metric_old,
-                'epochs_since_improvement': self.epochs_since_improvement,
-                'train_finished' : train_finished,
-                'packed_losses_metrics': self.packed_losses_metrics,
-                'learning_rate': self.learning_rate,
-                'best_loss' : self.best_loss,
-                'accum_iterations' : self.accum_iterations,
-            })
+            'optimizer': self.optimizer.state_dict(),
+            'scheduler': self.scheduler.state_dict(),
+            'scaler':   self.scaler.state_dict(),
+            'epoch': self.epoch,
+            'weighted_metric_old': self.weighted_metric_old,
+            'epochs_since_improvement': self.epochs_since_improvement,
+            'train_finished' : train_finished,
+            'packed_losses_metrics': self.packed_losses_metrics,
+            'learning_rate': self.learning_rate,
+            'best_loss' : self.best_loss,
+            'accum_iterations' : self.accum_iterations,
+            }
         utils.check_dir(self.project_path)
         temp_path = self.project_path / (name + '.pth.tmp')
         torch.save(checkpoint, temp_path)
@@ -258,6 +258,8 @@ class Model_Dom():
         choose_best_loss_model=self.pm.choose_best_loss_model
         
         if name is None: name = "train_state_" + str(self.md_id) #+ self.get_train_id_string()
+        if choose_best_loss_model:
+            name = self.get_best_loss_file_name()
         
         file_not_found = False; train_finished = False; file_loaded = False
 
