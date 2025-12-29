@@ -266,6 +266,7 @@ class Model_Dom():
             logging.info("!!! Latest model chosen as usual.")
         else:
             assert name == "train_state_" + str(self.md_id), name
+            logging.info("!!! Latest model chosen as usual.")
         
         file_not_found = False; train_finished = False; file_loaded = False
 
