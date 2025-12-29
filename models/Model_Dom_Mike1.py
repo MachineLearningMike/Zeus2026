@@ -359,8 +359,8 @@ class Model_Dom():
                     
                 #------------------- optimizer -------------------------
                 
-                if self.optimizer is not None and "optimizer_state_dict" in checkpoint:
-                    self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+                if self.optimizer is not None and "optimizer" in checkpoint:
+                    self.optimizer.load_state_dict(checkpoint["optimizer"])
                     
                     correct_step, num_fixed = self.fix_mixed_step_values()
 
