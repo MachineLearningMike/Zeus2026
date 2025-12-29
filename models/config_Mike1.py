@@ -1379,6 +1379,7 @@ projects["Zeus_25Dec28_1"] = {
         'qkv_bias' : True,
         
         'choose_best_loss_model' : False,
+        'lossXtargets' : 5.0,
     },
     
     "model_1": {},
@@ -1492,15 +1493,10 @@ Saved projects:
     31860                   =           1e-4            =
     32288                   =           1.6e-4          =
     32660                   =           2e-4            =
-    
-    
-    
-    
-    
-    
-    
-    
-    
+    33000                   0.047       =               A100
+    32126                   =           1e-4            =
+    33470                   =           2e-4            =
+        
                                 
 """
 
