@@ -1369,7 +1369,7 @@ projects["Zeus_25Dec28_1"] = {
         'skip_learnable' : True,
         'qkv_bias' : True,
         
-        'choose_best_loss_model' : True,
+        'choose_best_loss_model' : False,
     },
     
     "model_1": {},
@@ -1478,7 +1478,11 @@ Saved projects:
     31003                   0.052       5e-5            B200   
     31087                   0.050       =               =
     31332                   =           1e-4            =
-    31692                   =           5e-4            =
+    31692                   =           5e-4            =       !!! over
+    31760                   =           1e-5            =
+    31860                   =           1e-4            =
+    32288                   =           1.6e-4          =
+    
     
     
     
