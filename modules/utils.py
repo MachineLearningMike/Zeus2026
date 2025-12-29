@@ -47,3 +47,21 @@ def check_gradient(model):
         else:
             pass
             # print(f"Parameter '{name}' received gradient, shape: {param.grad.shape}, device: {param.grad.device}")
+
+def get_gpu_names():
+    gpu_names = []
+
+    if torch.cuda.is_available():
+        for i in range(torch.cuda.device_count()):
+            gpu_name = torch.cuda.get_device_name(i)
+            print(f"GPU {i}: {gpu_name}")
+            
+            if "A100" in gpu_name:
+                print("  -> This is an A100")
+                gpu_names.append('A100')
+                
+            elif "B200" in gpu_name:
+                print("  -> This is a B200")
+                gpu_names.append('B200')
+
+            # Note: B200 identification string may vary when released

@@ -185,7 +185,7 @@ else:
         config["management_path"] = "/home/mike/zeus_management"
 
     config["factor10"] = 10  # 
-    config['nStepsPerBatch'] = 4        # 2 on A100, 4 on B200
+    config['nStepsPerBatch'] = 2        # 2 on A100, 4 on B200
     
     # shared_model_params['nHeads'] = 2
     # shared_model_params['patch_kernel'] = 4
@@ -1437,7 +1437,7 @@ Saved projects:
     2900                    0.095       =               =
     3200                    =           2.5e-6          =
     3400                    =           1e-6            =       safe lr, bedtiem
-    -4630       0.208       0.088       2.5e-7          B200
+    -4630       0.208       0.088       2.5e-7          B200    choose_best_loss_model
     
     
                                 
