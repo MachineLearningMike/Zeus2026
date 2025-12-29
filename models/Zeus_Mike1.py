@@ -18,6 +18,7 @@ from modules.zeus_dataset_Snapshot import Snapshot
 class Zeus(nn.Module):
     def __init__(self, pm, device='cpu'):
         super().__init__()
+        self.pm = pm
 
         self.factor10 = pm.factor10
 
@@ -148,7 +149,7 @@ class Zeus(nn.Module):
         pred_normal = self(ss0, ss1, cascade_step)
         loss_mask = torch.ones(pred_normal.shape[0], dtype=torch.float32, device=pred_normal.device)
         loss_mask[pressure_indices] = 0.0
-        loss_mask[-len(pm.targetVariables):] = 2.0  # Weigh twice   -------------------------
+        loss_mask[-len(self.pm.targetVariables):] = 2.0  # Weigh twice   -------------------------
         
         lossAndMetrics = fn_loss(ssY.meteo, pred_normal, batch_diff, era5_data_vars, loss_mask=loss_mask)
         loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
