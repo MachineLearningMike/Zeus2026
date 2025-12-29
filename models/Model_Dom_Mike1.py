@@ -226,7 +226,7 @@ class Model_Dom():
         
         checkpoint = {
             # 'model' : self.model,
-            'model': get_complete_state_dict(self.model),
+            'model': self.model.state_dict(), # get_complete_state_dict(self.model),
             'learning_rate': self.learning_rate,
             'optimizer': self.optimizer.state_dict(),
             'scheduler': self.scheduler.state_dict(),
@@ -511,66 +511,54 @@ class Model_Dom():
                         print(f"    mean value: {module.bias.mean().item():.6f}")
     
     def fix_mixed_step_values(self):
-        """Fix mixed step values in Adam optimizer"""
+        """Fix step values without bloating checkpoint size"""
         
         if not isinstance(self.optimizer, (torch.optim.Adam, torch.optim.AdamW)):
             return
         
-        logging.info("Fixing mixed step values in Adam optimizer...")
+        logging.info("Fixing mixed step values efficiently...")
         
-        # Collect all step values
+        # Find most common step as integer
         step_values = []
-        step_tensors = []
-        
         for group in self.optimizer.param_groups:
             for param in group['params']:
                 if param in self.optimizer.state and 'step' in self.optimizer.state[param]:
-                    step_val = self.optimizer.state[param]['step']
-                    step_values.append(step_val.item() if hasattr(step_val, 'item') else step_val)
-                    step_tensors.append((param, step_val))
+                    step = self.optimizer.state[param]['step']
+                    # Convert to Python int
+                    if hasattr(step, 'item'):
+                        step_values.append(int(step.item()))
+                    elif isinstance(step, torch.Tensor):
+                        step_values.append(int(step.item()))
+                    else:
+                        step_values.append(int(step))
         
         if not step_values:
-            logging.warning("No step values found in optimizer")
             return
         
-        # Find the most common step value (mode)
         from collections import Counter
-        step_counter = Counter(step_values)
-        most_common_step, most_common_count = step_counter.most_common(1)[0]
+        most_common_step = Counter(step_values).most_common(1)[0][0]
         
-        total_params = len(step_values)
-        percentage = 100.0 * most_common_count / total_params
-        
-        logging.info(f"Step value distribution: {dict(step_counter)}")
-        logging.info(f"Most common step: {most_common_step} ({most_common_count}/{total_params}, {percentage:.1f}%)")
-        
-        # Fix parameters with wrong step values
+        # Fix as integers
         fixed_count = 0
-        for param, step_val in step_tensors:
-            current_step = step_val.item() if hasattr(step_val, 'item') else step_val
-            
-            if current_step != most_common_step:
-                logging.warning(f"  Fixing parameter step: {current_step} -> {most_common_step}")
-                self.optimizer.state[param]['step'] = torch.tensor(most_common_step, device=param.device)
-                fixed_count += 1
-        
-        if fixed_count > 0:
-            logging.info(f"Fixed {fixed_count} parameters with wrong step values")
-        
-        # Verify fix
-        step_values_after = []
         for group in self.optimizer.param_groups:
             for param in group['params']:
                 if param in self.optimizer.state and 'step' in self.optimizer.state[param]:
-                    step_val = self.optimizer.state[param]['step']
-                    step_values_after.append(step_val.item() if hasattr(step_val, 'item') else step_val)
+                    step = self.optimizer.state[param]['step']
+                    
+                    # Get current step as int
+                    if hasattr(step, 'item'):
+                        current_step = int(step.item())
+                    elif isinstance(step, torch.Tensor):
+                        current_step = int(step.item())
+                    else:
+                        current_step = int(step)
+                    
+                    if current_step != most_common_step:
+                        # Store as Python integer (saves space!)
+                        self.optimizer.state[param]['step'] = int(most_common_step)
+                        fixed_count += 1
         
-        unique_steps_after = set(step_values_after)
-        if len(unique_steps_after) == 1:
-            logging.info(f"All parameters now at step: {list(unique_steps_after)[0]}")
-        else:
-            logging.error(f" Still have mixed steps after fix: {unique_steps_after}")
-        
+        logging.info(f"Fixed {fixed_count} step values to {most_common_step} (as integers)")
         return most_common_step, fixed_count
     
     
