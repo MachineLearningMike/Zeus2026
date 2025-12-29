@@ -1,4 +1,5 @@
 import torch
+from torch import nn
 import numpy as np
 import json, tzlocal
 from torch.amp import GradScaler
@@ -210,12 +211,26 @@ class Model_Dom():
         else:
             assert name == "train_state_" + str(self.md_id)
         
+        def get_complete_state_dict(model):
+            """Get state dict including ALL buffers, not just registered ones"""
+            state_dict = model.state_dict()
+            
+            # Also manually add any missing buffers
+            for name, module in model.named_modules():
+                for buffer_name, buffer in module.named_buffers():
+                    full_name = name + ('.' if name else '') + buffer_name
+                    if full_name not in state_dict:
+                        state_dict[full_name] = buffer
+            
+            return state_dict
+        
         checkpoint = {
-            'model': self.model.state_dict(),
+            # 'model' : self.model,
+            'model_state_dict': get_complete_state_dict(self.model),
             'learning_rate': self.learning_rate,
-            'optimizer': self.optimizer.state_dict(),
-            'scheduler': self.scheduler.state_dict(),
-            'scaler':   self.scaler.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'scheduler_state_dict': self.scheduler.state_dict(),
+            'scaler_state_dict':   self.scaler.state_dict(),
             'epoch': self.epoch,
             'weighted_metric_old': self.weighted_metric_old,
             'epochs_since_improvement': self.epochs_since_improvement,
@@ -268,10 +283,12 @@ class Model_Dom():
         try:
             checkpoint_path = self.project_path / (name + '.pth')
             checkpoint = torch.load(checkpoint_path, map_location="cpu")
+            self.debug_scheduler_optimizer_alignment(checkpoint)
             logging.info("Checkpoint loaded from the .pth file")
         except Exception as e:
             logging.info(str(e))
             file_not_found = True
+
 
         if not file_not_found:
             train_finished = checkpoint['train_finished']
@@ -282,8 +299,10 @@ class Model_Dom():
         
         if not file_not_found and (not train_finished or not self.trainable):
             try:
+                #------------------- model -------------------------
+                
                 # Load model parameters whetherr trainable or not.
-                state_dict = checkpoint['model']
+                state_dict = checkpoint['model_state_dict']
                 
                 if self.device != torch.device('cpu'):
                     # Move ALL model tensors to correct device
@@ -293,19 +312,57 @@ class Model_Dom():
                 missing_keys, unexpected_keys = self.model.load_state_dict(state_dict, strict=False)
                 logging.info("Model loaded with saved state: \n_missing_keys: {}, \n_unexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
 
+                # Check if model has normalization layers
+                norm_layers = []
+                for name, module in self.model.named_modules():
+                    if isinstance(module, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d,
+                                        nn.InstanceNorm1d, nn.InstanceNorm2d, nn.InstanceNorm3d,
+                                        nn.LayerNorm, nn.GroupNorm)):
+                        norm_layers.append(name)
+                        
+                logging.info(f"Model has {len(norm_layers)} normalization layers: {norm_layers[:5]}...")
+
+                self.debug_normalization_issue()
+
+                # Check running stats for a sample layer
+                if norm_layers:
+                    sample_layer = norm_layers[0]
+                    for name, module in self.model.named_modules():
+                        if name == sample_layer:
+                            if hasattr(module, 'running_mean'):
+                                logging.info(f"{name} running_mean mean: {module.running_mean.mean().item():.6f}")
+                            if hasattr(module, 'running_var'):
+                                logging.info(f"{name} running_var mean: {module.running_var.mean().item():.6f}")
+                            break
+
+
+                # Check what normalization stats are saved
+                saved_keys = list(checkpoint['model_state_dict'].keys())
+                norm_stats_keys = [k for k in saved_keys if 'running_mean' in k or 'running_var' in k or 'num_batches_tracked' in k]
+                logging.info(f"Found {len(norm_stats_keys)} normalization stat keys in checkpoint")
+                if norm_stats_keys:
+                    logging.info(f"Sample: {norm_stats_keys[:5]}")
+
+                #---------------------------------------------------------------------------------------
                 packed_losses_metrics = None
                 
                 if self.trainable:
 
                     epoch = checkpoint['epoch']
                     
+                    #------------------- learning_rate -------------------------
+                    
                     if self.learning_rate is None:
                         self.learning_rate = self.get_learning_rate()
                     else:
                         self.set_learning_rate(self.learning_rate)
+                        
+                    #------------------- optimizer -------------------------
                     
-                    if self.optimizer is not None and "optimizer" in checkpoint:
-                        self.optimizer.load_state_dict(checkpoint["optimizer"])
+                    if self.optimizer is not None and "optimizer_state_dict" in checkpoint:
+                        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+                        
+                        correct_step, num_fixed = self.fix_mixed_step_values()
 
                         # Move optimizer state tensors to the same device as their parameters
                         for group in self.optimizer.param_groups:
@@ -315,14 +372,41 @@ class Model_Dom():
                                         if torch.is_tensor(v):
                                             self.optimizer.state[p][k] = v.to(p.device, non_blocking=True)
                         logging.info("Optimizer loaded with saved state.")
+                        
+                        self.debug_optimizer_state()
+                        
+                        self.debug_optimizer_parameter_references(checkpoint)
+                        
+                        self.debug_optimizer_state_existence_fixed()
+                    
                     else:
                         logging.info("!!! Optimizer NOT loaded with saved state.")
 
-                    self.scheduler.load_state_dict(checkpoint['scheduler'])
+                    #------------------- scheduler -------------------------
+                    
+                    self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
                     logging.info("Scheduler loaded with saved state.")
                     
-                    self.scaler.load_state_dict(checkpoint['scaler'])
+                    logging.info(f"Scheduler type: {type(self.scheduler).__name__}")
+
+                    # Check specific scheduler attributes
+                    if hasattr(self.scheduler, '_step_count'):
+                        logging.info(f"Scheduler _step_count: {self.scheduler._step_count}")
+                    if hasattr(self.scheduler, 'last_epoch'):
+                        logging.info(f"Scheduler last_epoch: {self.scheduler.last_epoch}")
+                    if hasattr(self.scheduler, 'get_last_lr'):
+                        logging.info(f"Scheduler last_lr: {self.scheduler.get_last_lr()}")
+
+                    # Check against saved
+                    if 'scheduler' in checkpoint:
+                        saved_scheduler = checkpoint['scheduler']
+                        logging.info(f"Saved scheduler keys: {list(saved_scheduler.keys())}")
+                    
+                    #------------------- scaler -------------------------
+                    
+                    self.scaler.load_state_dict(checkpoint['scaler_state_dict'])
                     logging.info("Scaler loaded with saved state")
+
 
                     self.weighted_metric_old = checkpoint['weighted_metric_old']
                     self.epochs_since_improvement = checkpoint['epochs_since_improvement']
@@ -352,7 +436,7 @@ class Model_Dom():
                 logging.info(f"Checkpoint '{name}' loaded to {self.device}, including model, optimizer, scheduler, scaler, weighted_metric_old, and datase state")
                 file_loaded = True
             except Exception as e:
-                logging.info(str(e))
+                logging.info("++++++++++++++++++++++++++++++ " + str(e))
                 file_loaded = False
         
         if file_not_found:
@@ -381,6 +465,389 @@ class Model_Dom():
         self.epoch, self.packed_losses_metrics = epoch, packed_losses_metrics        
         
         return self.epoch, self.packed_losses_metrics
+    
+    
+    def debug_normalization_issue(self):
+        """Debug the normalization statistics issue"""
+        
+        print("\n" + "="*60)
+        print("NORMALIZATION LAYER DEBUG")
+        print("="*60)
+        
+        # List all normalization layers
+        norm_layers = []
+        for name, module in self.model.named_modules():
+            if 'norm' in name.lower():
+                norm_layers.append((name, type(module).__name__))
+        
+        print(f"Found {len(norm_layers)} layers with 'norm' in name")
+        
+        # Check first few
+        for name, module_type in norm_layers[:10]:
+            print(f"\n{name} ({module_type}):")
+            
+            module = None
+            for m_name, m in self.model.named_modules():
+                if m_name == name:
+                    module = m
+                    break
+            
+            if module is not None:
+                # Check for BatchNorm attributes
+                if hasattr(module, 'running_mean'):
+                    print(f"  running_mean: shape={module.running_mean.shape}")
+                    print(f"    mean value: {module.running_mean.mean().item():.6f}")
+                else:
+                    print(f"  No running_mean attribute")
+                
+                if hasattr(module, 'running_var'):
+                    print(f"  running_var: shape={module.running_var.shape}")
+                    print(f"    mean value: {module.running_var.mean().item():.6f}")
+                else:
+                    print(f"  No running_var attribute")
+                
+                if hasattr(module, 'weight'):
+                    print(f"  weight: shape={module.weight.shape}")
+                    print(f"    mean value: {module.weight.mean().item():.6f}")
+                
+                if hasattr(module, 'bias'):
+                    print(f"  bias: shape={module.bias.shape if module.bias is not None else 'None'}")
+                    if module.bias is not None:
+                        print(f"    mean value: {module.bias.mean().item():.6f}")
+    
+    def fix_mixed_step_values(self):
+        """Fix mixed step values in Adam optimizer"""
+        
+        if not isinstance(self.optimizer, (torch.optim.Adam, torch.optim.AdamW)):
+            return
+        
+        logging.info("Fixing mixed step values in Adam optimizer...")
+        
+        # Collect all step values
+        step_values = []
+        step_tensors = []
+        
+        for group in self.optimizer.param_groups:
+            for param in group['params']:
+                if param in self.optimizer.state and 'step' in self.optimizer.state[param]:
+                    step_val = self.optimizer.state[param]['step']
+                    step_values.append(step_val.item() if hasattr(step_val, 'item') else step_val)
+                    step_tensors.append((param, step_val))
+        
+        if not step_values:
+            logging.warning("No step values found in optimizer")
+            return
+        
+        # Find the most common step value (mode)
+        from collections import Counter
+        step_counter = Counter(step_values)
+        most_common_step, most_common_count = step_counter.most_common(1)[0]
+        
+        total_params = len(step_values)
+        percentage = 100.0 * most_common_count / total_params
+        
+        logging.info(f"Step value distribution: {dict(step_counter)}")
+        logging.info(f"Most common step: {most_common_step} ({most_common_count}/{total_params}, {percentage:.1f}%)")
+        
+        # Fix parameters with wrong step values
+        fixed_count = 0
+        for param, step_val in step_tensors:
+            current_step = step_val.item() if hasattr(step_val, 'item') else step_val
+            
+            if current_step != most_common_step:
+                logging.warning(f"  Fixing parameter step: {current_step} -> {most_common_step}")
+                self.optimizer.state[param]['step'] = torch.tensor(most_common_step, device=param.device)
+                fixed_count += 1
+        
+        if fixed_count > 0:
+            logging.info(f"Fixed {fixed_count} parameters with wrong step values")
+        
+        # Verify fix
+        step_values_after = []
+        for group in self.optimizer.param_groups:
+            for param in group['params']:
+                if param in self.optimizer.state and 'step' in self.optimizer.state[param]:
+                    step_val = self.optimizer.state[param]['step']
+                    step_values_after.append(step_val.item() if hasattr(step_val, 'item') else step_val)
+        
+        unique_steps_after = set(step_values_after)
+        if len(unique_steps_after) == 1:
+            logging.info(f"All parameters now at step: {list(unique_steps_after)[0]}")
+        else:
+            logging.error(f" Still have mixed steps after fix: {unique_steps_after}")
+        
+        return most_common_step, fixed_count
+    
+    
+    def debug_optimizer_state_existence_fixed(self):
+        """Check if optimizer state actually exists for parameters"""
+        
+        logging.info("=" * 60)
+        logging.info("OPTIMIZER STATE EXISTENCE DEBUG V2")
+        logging.info("=" * 60)
+        
+        total_params = 0
+        params_with_state = 0
+        state_keys_summary = {}
+        
+        # Check each parameter group
+        for group_idx, group in enumerate(self.optimizer.param_groups):
+            params_in_group = len(group['params'])
+            logging.info(f"Group {group_idx}: {params_in_group} params, lr={group['lr']:.6f}")
+            total_params += params_in_group
+            
+            # Check first few parameters in this group
+            for param_idx, param in enumerate(group['params'][:3]):  # Check first 3 only
+                if param in self.optimizer.state:
+                    params_with_state += 1
+                    state = self.optimizer.state[param]
+                    
+                    # Update key counts
+                    for key in state.keys():
+                        state_keys_summary[key] = state_keys_summary.get(key, 0) + 1
+                    
+                    # Log details for first parameter
+                    if param_idx == 0:
+                        logging.info(f"  First param state keys: {list(state.keys())}")
+                        for key, value in state.items():
+                            if torch.is_tensor(value):
+                                logging.info(f"    {key}: shape={value.shape}, "
+                                            f"mean={value.mean().item():.6f}, "
+                                            f"norm={value.norm().item():.6f}")
+                            elif isinstance(value, (int, float)):
+                                logging.info(f"    {key}: {value}")
+        
+        # Check remaining parameters (skip detailed logging)
+        for group in self.optimizer.param_groups:
+            for param in group['params'][3:]:  # Skip first 3 we already checked
+                if param in self.optimizer.state:
+                    params_with_state += 1
+                    state = self.optimizer.state[param]
+                    for key in state.keys():
+                        state_keys_summary[key] = state_keys_summary.get(key, 0) + 1
+        
+        logging.info(f"\nSummary: {params_with_state}/{total_params} parameters have optimizer state")
+        
+        if state_keys_summary:
+            logging.info("State keys distribution:")
+            for key, count in sorted(state_keys_summary.items()):
+                percentage = 100.0 * count / total_params
+                logging.info(f"  {key}: {count} params ({percentage:.1f}%)")
+        
+        # Special check for Adam - FIXED VERSION
+        if isinstance(self.optimizer, (torch.optim.Adam, torch.optim.AdamW)):
+            if 'step' in state_keys_summary:
+                # Collect all step VALUES (not tensors)
+                step_values = []
+                for group in self.optimizer.param_groups:
+                    for param in group['params']:
+                        if param in self.optimizer.state and 'step' in self.optimizer.state[param]:
+                            step_val = self.optimizer.state[param]['step']
+                            # Convert tensor to scalar
+                            if hasattr(step_val, 'item'):
+                                step_values.append(step_val.item())
+                            else:
+                                step_values.append(step_val)
+                
+                if step_values:
+                    # Check if all values are the same
+                    unique_values = set(step_values)
+                    if len(unique_values) == 1:
+                        step_val = next(iter(unique_values))
+                        logging.info(f"OK - All parameters at step {step_val}")
+                        
+                        # Estimate expected step
+                        if hasattr(self, 'train_loader') and self.train_loader is not None:
+                            batches_per_epoch = len(self.train_loader)
+                            if hasattr(self, 'epoch'):
+                                expected_step = self.epoch * batches_per_epoch
+                                logging.info(f"  Based on epoch {self.epoch}, expected step ~{expected_step}")
+                    else:
+                        logging.warning(f"WARNING - Mixed step VALUES: {unique_values}")
+                        logging.warning(f"  Found {len(unique_values)} different step values")
+                        
+                        # Show distribution
+                        from collections import Counter
+                        step_counts = Counter(step_values)
+                        for step_val, count in sorted(step_counts.items()):
+                            percentage = 100.0 * count / len(step_values)
+                            logging.warning(f"    Step {step_val}: {count} params ({percentage:.1f}%)")
+            else:
+                logging.error("ERROR - ADAM OPTIMIZER HAS NO 'step' COUNTERS!")
+                logging.error("  Bias correction will be wrong!")
+        
+        return params_with_state, state_keys_summary
+    
+
+    def debug_optimizer_parameter_references(self, checkpoint):
+        """Check if optimizer points to same parameters as model"""
+        
+        logging.info("=" * 60)
+        logging.info("OPTIMIZER PARAMETER REFERENCE DEBUG")
+        logging.info("=" * 60)
+        
+        # 1. Get model parameter IDs
+        model_param_ids = {id(p): name for name, p in self.model.named_parameters()}
+        logging.info(f"Model has {len(model_param_ids)} parameters")
+        
+        # 2. Get optimizer parameter IDs
+        optimizer_param_ids = set()
+        for group in self.optimizer.param_groups:
+            for p in group['params']:
+                optimizer_param_ids.add(id(p))
+        
+        logging.info(f"Optimizer references {len(optimizer_param_ids)} parameters")
+        
+        # 3. Check overlap
+        common = optimizer_param_ids.intersection(model_param_ids)
+        missing_in_optimizer = set(model_param_ids.keys()) - optimizer_param_ids
+        extra_in_optimizer = optimizer_param_ids - set(model_param_ids.keys())
+        
+        logging.info(f"Common parameters: {len(common)}")
+        logging.info(f"Parameters in model but NOT in optimizer: {len(missing_in_optimizer)}")
+        logging.info(f"Parameters in optimizer but NOT in model: {len(extra_in_optimizer)}")
+        
+        if len(missing_in_optimizer) > 0:
+            logging.error(" OPTIMIZER DOESN'T REFERENCE ALL MODEL PARAMETERS!")
+            # Show first few missing
+            for pid in list(missing_in_optimizer)[:3]:
+                name = model_param_ids[pid]
+                logging.error(f"  Missing: {name}")
+        
+        # 4. Check if optimizer state matches parameters
+        if missing_in_optimizer == 0:
+            # Check if state exists for parameters
+            params_with_state = 0
+            for group in self.optimizer.param_groups:
+                for p in group['params']:
+                    if p in self.optimizer.state:
+                        params_with_state += 1
+            
+            logging.info(f"Parameters with optimizer state: {params_with_state}/{len(common)}")
+            
+            if params_with_state == 0:
+                logging.warning(" NO optimizer state exists yet!")
+                logging.warning("  State will be created on first optimizer.step()")
+                logging.warning("  Loaded checkpoint state will be IGNORED!")
+        
+        # 5. Check saved checkpoint
+        if 'optimizer' in checkpoint:
+            saved_state = checkpoint['optimizer'].get('state', {})
+            logging.info(f"Saved checkpoint has state for {len(saved_state)} parameters")
+            
+            # Do saved parameter IDs match current?
+            if saved_state:
+                # Saved state keys are parameter IDs (ints)
+                saved_param_ids = set(saved_state.keys())
+                current_param_ids = set(id(p) for p in self.model.parameters())
+                
+                # They won't match because IDs change on reload
+                # But we can check count
+                if len(saved_state) != len(self.model.parameters()):
+                    logging.warning(f"Parameter count mismatch: saved={len(saved_state)}, current={len(self.model.parameters())}")
+
+
+    def debug_optimizer_state(self):
+        """Log optimizer state details"""
+        
+        if not self.trainable or self.optimizer is None:
+            return
+        
+        optimizer_type = type(self.optimizer).__name__
+        logging.info(f"Optimizer type: {optimizer_type}")
+        
+        # Check momentum buffers
+        total_params = 0
+        params_with_state = 0
+        momentum_sum = 0
+        
+        for i, group in enumerate(self.optimizer.param_groups):
+            logging.info(f"  Group {i}: lr={group['lr']}, params={len(group['params'])}")
+            
+            for p in group['params']:
+                total_params += 1
+                if p in self.optimizer.state:
+                    params_with_state += 1
+                    state = self.optimizer.state[p]
+                    
+                    # Check what's in state
+                    for key, value in state.items():
+                        if torch.is_tensor(value):
+                            # Log first few values
+                            if key in ['momentum_buffer', 'exp_avg', 'exp_avg_sq']:
+                                flat_val = value.flatten()
+                                if len(flat_val) > 0:
+                                    momentum_sum += flat_val[:3].abs().mean().item()
+        
+        logging.info(f"  Parameters with state: {params_with_state}/{total_params}")
+        logging.info(f"  Momentum magnitude indicator: {momentum_sum}")
+        
+        # Compare with saved checkpoint
+        if hasattr(self, '_last_checkpoint'):
+            saved_optimizer = self._last_checkpoint.get('optimizer', {})
+            if 'state' in saved_optimizer:
+                saved_states = len(saved_optimizer['state'])
+                logging.info(f"  Saved had {saved_states} parameter states")
+
+    def debug_scheduler_optimizer_alignment(self, checkpoint):
+        """Check if scheduler and optimizer are aligned"""
+        
+        logging.info("=" * 60)
+        logging.info("SCHEDULER-OPTIMIZER ALIGNMENT DEBUG")
+        logging.info("=" * 60)
+        
+        # 1. Get optimizer step
+        optimizer_step = None
+        for group in self.optimizer.param_groups:
+            for p in group['params']:
+                if p in self.optimizer.state and 'step' in self.optimizer.state[p]:
+                    optimizer_step = self.optimizer.state[p]['step']
+                    break
+            if optimizer_step is not None:
+                break
+        
+        # 2. Get scheduler step/epoch
+        scheduler_info = {}
+        
+        # Common scheduler attributes
+        scheduler_attrs = ['_step_count', 'last_epoch', 'T_cur', 't_epoch', 'step_count']
+        for attr in scheduler_attrs:
+            if hasattr(self.scheduler, attr):
+                scheduler_info[attr] = getattr(self.scheduler, attr)
+        
+        # 3. Check saved scheduler state
+        saved_scheduler = checkpoint.get('scheduler', {})
+        saved_step_count = saved_scheduler.get('_step_count', None)
+        saved_last_epoch = saved_scheduler.get('last_epoch', None)
+        
+        # 4. Log everything
+        logging.info(f"Optimizer step: {optimizer_step}")
+        logging.info(f"Scheduler state: {scheduler_info}")
+        logging.info(f"Saved scheduler: _step_count={saved_step_count}, last_epoch={saved_last_epoch}")
+        
+        # 5. Check consistency
+        if optimizer_step is not None and '_step_count' in scheduler_info:
+            if scheduler_info['_step_count'] != optimizer_step:
+                logging.error(f"❌ MISMATCH: scheduler._step_count={scheduler_info['_step_count']}, "
+                            f"optimizer.step={optimizer_step}")
+                
+                # This is likely your problem!
+                # The scheduler and optimizer are out of sync
+                logging.error("  Scheduler and optimizer step counters are out of sync!")
+                logging.error("  This causes wrong learning rate calculations!")
+                
+                # Calculate what it should be
+                if saved_step_count is not None:
+                    logging.info(f"  Saved scheduler had _step_count={saved_step_count}")
+                    logging.info(f"  Difference: {scheduler_info['_step_count'] - saved_step_count}")
+        
+        # 6. Check learning rate
+        current_lr = self.optimizer.param_groups[0]['lr']
+        saved_lr = checkpoint.get('learning_rate', None)
+        logging.info(f"Learning rate: current={current_lr}, saved={saved_lr}")
+        
+        if saved_lr is not None and abs(current_lr - saved_lr) > 1e-6:
+            logging.warning(f"⚠️ Learning rate changed: {saved_lr} -> {current_lr}")
 
 
     def get_epoch_display_batch(self, loss_batch, metrics_batch):       
