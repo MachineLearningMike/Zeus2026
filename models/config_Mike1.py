@@ -1439,6 +1439,7 @@ Saved projects:
     3400                    =           1e-6            =       safe lr, bedtiem
     -4630       0.208       0.088       2.5e-7          B200    choose_best_loss_model
     -2427       0.103       0.088       1e-7            A200    not choose_best_loss_model
+    -2276       0.108       0.088       5e-7            A200
     
     
                                 

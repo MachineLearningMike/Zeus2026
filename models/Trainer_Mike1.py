@@ -169,9 +169,7 @@ class Model_Trainer():
         
             if len(mds_to_train) <= 0: break            
             ran_epochs = True
-             
-            for md in mds_to_train: md.epoch += 1
-            
+                         
             [logging.info("--------- Starting train epoch {} @ model {} ----------".format(md.epoch, md.md_id)) for md in mds_to_train]
             
             # md_focus_list = [md for md in mds_to_train if md.md_id == self.focus_md_id]
@@ -207,7 +205,8 @@ class Model_Trainer():
                 if len(mds_to_validate) == 1:
                     best_metric_yet = best_metrics[0]
                     if self.bayes is not None:  self.bayes.on_epoch_end()
-            
+                    
+            for md in mds_to_train: md.epoch += 1
             if len(mds_to_keep_going) == 0: break
 
         return - best_metric_yet

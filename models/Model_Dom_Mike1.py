@@ -390,17 +390,18 @@ class Model_Dom():
         
         if file_not_found:               
             # Start a new training, creating the file.
-            epoch = 0; packed_losses_metrics = None    # This is the moment where an existing train will be overriden !!!    
+            epoch = 1; packed_losses_metrics = None    # This is the moment where an existing train will be overriden !!!    
         elif train_finished and self.trainable:
             # Keep the finished train intact.
             logging.info("You tried to start/continue a finished training. Aborting... No! specially")
             # sys.exit()
         elif not file_loaded:
             # Start a new training, creating the file.
-            epoch = 0; packed_losses_metrics = None    # This is the moment where an existing train will be overriden !!!    
+            epoch = 1; packed_losses_metrics = None    # This is the moment where an existing train will be overriden !!!    
         else: # file found, train not finished, file loaded
             # Continue the loaded train.
-            epoch = epoch; packed_losses_metrics = packed_losses_metrics
+            epoch = epoch   # This is actually the previous epoch 
+            packed_losses_metrics = packed_losses_metrics
                         
         self.total_losses = self.load_history()
         logging.info("train history loaded. length: {}".format(len(self.total_losses)))
