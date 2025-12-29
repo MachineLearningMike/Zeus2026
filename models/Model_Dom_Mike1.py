@@ -212,6 +212,7 @@ class Model_Dom():
         
         checkpoint = {
             'model': self.model.state_dict(),
+            'learning_rate': self.learning_rate,
             'optimizer': self.optimizer.state_dict(),
             'scheduler': self.scheduler.state_dict(),
             'scaler':   self.scaler.state_dict(),
@@ -220,7 +221,6 @@ class Model_Dom():
             'epochs_since_improvement': self.epochs_since_improvement,
             'train_finished' : train_finished,
             'packed_losses_metrics': self.packed_losses_metrics,
-            'learning_rate': self.learning_rate,
             'best_loss' : self.best_loss,
             'accum_iterations' : self.accum_iterations,
             }
@@ -283,7 +283,13 @@ class Model_Dom():
         if not file_not_found and (not train_finished or not self.trainable):
             try:
                 # Load model parameters whetherr trainable or not.
-                state_dict = checkpoint['model']                
+                state_dict = checkpoint['model']
+                
+                if self.device != torch.device('cpu'):
+                    # Move ALL model tensors to correct device
+                    state_dict = {k: v.to(self.device) if torch.is_tensor(v) else v 
+                                for k, v in state_dict.items()}
+                
                 missing_keys, unexpected_keys = self.model.load_state_dict(state_dict, strict=False)
                 logging.info("Model loaded with saved state: \n_missing_keys: {}, \n_unexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
 
@@ -291,7 +297,12 @@ class Model_Dom():
                 
                 if self.trainable:
 
-                    epoch = checkpoint['epoch']                       
+                    epoch = checkpoint['epoch']
+                    
+                    if self.learning_rate is None:
+                        self.learning_rate = self.get_learning_rate()
+                    else:
+                        self.set_learning_rate(self.learning_rate)
                     
                     if self.optimizer is not None and "optimizer" in checkpoint:
                         self.optimizer.load_state_dict(checkpoint["optimizer"])
@@ -325,11 +336,6 @@ class Model_Dom():
                     else:
                         self.learning_rate = checkpoint['learning_rate']
                         logging.info(f"learning_rate loaded {self.learning_rate}")
-
-                    if self.learning_rate is None:
-                        self.learning_rate = self.get_learning_rate()
-                    else:
-                        self.set_learning_rate(self.learning_rate)
 
                     self.best_loss = checkpoint['best_loss']
                     logging.info(f"best_loss loaded {self.best_loss}")
