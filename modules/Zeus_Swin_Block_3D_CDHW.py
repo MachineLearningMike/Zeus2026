@@ -1673,8 +1673,8 @@ if __name__ == "__main__":
     
     print("====================================== Big Test ==============================================")
     
-    # factor10, sWin = 2, (2, 4, 4)
-    factor10, sWin = 10, (2, 6, 6) # (2, 6, 12), (2, 4, 8)
+    factor10, sWin = 2, (2, 4, 4)
+    # factor10, sWin = 10, (2, 6, 6) # (2, 6, 12), (2, 4, 8)
     depths, nHeads = (4, 8, 4), (4, 8, 16)
     patch_size = 4
     H, W, D = int(int(720/patch_size)/10*factor10), int(int(1440/patch_size)/10*factor10), 8
@@ -1796,12 +1796,12 @@ if __name__ == "__main__":
     encoder = codec.decoder
     projection = 'HW'
     
-    # nLayers = len(encoder.layers)
-    # for layer_idx in range(nLayers):
-    #     nBlocks = len(encoder.layers[layer_idx].blocks)
-    #     for block_idx in range(nBlocks):
-    #         block = encoder.layers[layer_idx].blocks[block_idx]
-    #         attn_mask = block.attn_mask.attn_mask
-    #         u_res = block.unpadded_resolution
-    #         title = f"L {layer_idx}/{nLayers}, B {block_idx}/{nBlocks}, UR {u_res}"
-    #         show_global_attn_mask_map(attn_mask, block.sWin, block.i_reso, depth_idx=0, title=title, projection=projection)
+    nLayers = len(encoder.layers)
+    for layer_idx in range(nLayers):
+        nBlocks = len(encoder.layers[layer_idx].blocks)
+        for block_idx in range(nBlocks):
+            block = encoder.layers[layer_idx].blocks[block_idx]
+            attn_mask = block.attn_mask.attn_mask
+            u_res = block.unpadded_resolution
+            title = f"L {layer_idx}/{nLayers}, B {block_idx}/{nBlocks}, UR {u_res}"
+            show_global_attn_mask_map(attn_mask, block.sWin, block.i_reso, depth_idx=0, title=title, projection=projection)
