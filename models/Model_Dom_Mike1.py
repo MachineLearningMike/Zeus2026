@@ -87,7 +87,7 @@ class Model_Dom():
         self.pbar_description = None
         self.step_loss = None
         self.best_loss = 1e9
-        self.accum_iterations = 31000
+        self.accum_iterations = 0
     
     def _select_optimizer(self):
         # Choose optimizer type, default to Adam
