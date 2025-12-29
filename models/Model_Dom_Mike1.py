@@ -87,7 +87,7 @@ class Model_Dom():
         self.pbar_description = None
         self.step_loss = None
         self.best_loss = 1e9
-    
+        self.accum_iterations = 31000
     
     def _select_optimizer(self):
         # Choose optimizer type, default to Adam
@@ -219,6 +219,7 @@ class Model_Dom():
                 'packed_losses_metrics': self.packed_losses_metrics,
                 'learning_rate': self.learning_rate,
                 'best_loss' : self.best_loss,
+                'accum_iterations' : self.accum_iterations,
             })
         utils.check_dir(self.project_path)
         temp_path = self.project_path / (name + '.pth.tmp')
@@ -369,6 +370,9 @@ class Model_Dom():
                         if checkpoint.get('best_loss', None) is not None:
                             self.best_loss = checkpoint['best_loss']
                             logging.info(f"best_loss loaded {self.best_loss}")
+                        if checkpoint.get('accum_iterations', None) is not None:
+                            self.accum_iterations = checkpoint['accum_iterations']
+                            logging.ingo(f"accum_iterations loaded {self.accum_iterations}")
 
                     except Exception as e:
                         logging.info(str(e))
@@ -394,7 +398,7 @@ class Model_Dom():
         elif train_finished and self.trainable:
             # Keep the finished train intact.
             logging.info("You tried to start/continue a finished training. Aborting... No! specially")
-            # sys.exit()
+            sys.exit()
         elif not file_loaded:
             # Start a new training, creating the file.
             epoch = 1; packed_losses_metrics = None    # This is the moment where an existing train will be overriden !!!    
@@ -482,7 +486,7 @@ class Model_Dom():
     def get_pbar_description_step(self, step_loss, step_metrics):   # (,), (C,)
         strC = ", ".join(f"{x:.3g}" for x in step_metrics[-len(self.pm.targetVariables):])
         # self.pbar_description = "md {} loss {:.3f}, {} ({})".format(self.md_id, step_loss, self.pm.metrics, strC)
-        self.pbar_description = "loss {:.3g}, {} ({})".format(step_loss, self.pm.metrics, strC)
+        self.pbar_description = "loss {:.3g}, {} ({}), acc {}".format(step_loss, self.pm.metrics, strC, self.accum_iterations)
         
     def stepOptimizer(self, loss_item):
         performed_step, lr, grad_norm = self.lr_controller.stepOptimizer(loss_item)
