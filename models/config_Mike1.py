@@ -1350,6 +1350,7 @@ projects["Zeus_25Dec28_1"] = {
     "data": {
     "org_height": 721,
     "batch_size": 1,
+    'lossXtargets' : 2.0,
     },
     
     "model_0": {
@@ -1379,7 +1380,6 @@ projects["Zeus_25Dec28_1"] = {
         'qkv_bias' : True,
         
         'choose_best_loss_model' : True,
-        'lossXtargets' : 1.0,
     },
     
     "model_1": {},
@@ -1512,4 +1512,3 @@ for id in range(5):
     config[key].update(projects[project][key])
 
 print("bayesProject:", config["bayesProject"])
-print(config['model_0'])

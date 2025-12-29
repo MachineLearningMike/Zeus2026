@@ -1157,7 +1157,7 @@ class Zeus_Dataset(Dataset):
             if var.startswith("p_"):
                 loss_weights.append(0.)
             elif var in ["t2m", "tp", "u100m","v100m", "d2m", "sp"]:
-                loss_weights.append(2.)
+                loss_weights.append(self.pm.lossXtargets)
             else:
                 loss_weights.append(1.)
         

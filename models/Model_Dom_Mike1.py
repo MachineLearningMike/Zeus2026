@@ -43,7 +43,7 @@ class Model_Dom():
         self.device = device
         self.pm = pm
         self.dataset = dataset
-        print_data_attrs(self.pm)
+        # print_data_attrs(self.pm)
                 
         self.project_path = project_path
         check_dir(self.project_path)

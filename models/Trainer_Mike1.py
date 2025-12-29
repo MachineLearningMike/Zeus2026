@@ -39,10 +39,6 @@ kr.init_key_listener()
 
 from AdaptiveLRLearner import AdaptiveLRLearner
 
-def print_data_attrs(obj):
-    for name, value in vars(obj).items():
-        print(f"{name}: {value}")
-
 class Model_Trainer():
     def __init__(self, pm, dataset_path, management_path, project_path, bayes=None, trainable=True):
         self.pm = pm

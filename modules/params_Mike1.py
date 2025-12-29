@@ -76,6 +76,7 @@ class Params:
         self.snapshot_pair_on_cuda = config['snapshot_pair_on_cuda']
         self.pair_not_single_snapshot = config['pair_not_single_snapshot']
         self.group_normalize = config['group_normalize']
+        self.lossXtargets = config['lossXtargets']
             
         #============================ model, individual ========================================================================
 
