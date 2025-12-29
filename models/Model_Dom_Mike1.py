@@ -322,7 +322,7 @@ class Model_Dom():
                     
             logging.info(f"Model has {len(norm_layers)} normalization layers: {norm_layers[:5]}...")
 
-            self.debug_normalization_issue()
+            # self.debug_normalization_issue()
 
             # Check running stats for a sample layer
             if norm_layers:
@@ -334,7 +334,6 @@ class Model_Dom():
                         if hasattr(module, 'running_var'):
                             logging.info(f"{name} running_var mean: {module.running_var.mean().item():.6f}")
                         break
-
 
             # Check what normalization stats are saved
             saved_keys = list(checkpoint['model'].keys())
