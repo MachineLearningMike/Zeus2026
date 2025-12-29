@@ -487,19 +487,19 @@ class Model_Trainer():
             pbar.set_description("{}, wait/cycle {:.0f}/{:.0f} u {:.0f} lr {:1.1e} tb {}"
                 .format(md_focus.pbar_description, (end-start) * 1000, (end1-start1) * 1000, ((end1-start1) * 1000 - (end-start) * 1000) / self.train_bombs, md_focus.get_learning_rate(), self.train_bombs))
             start1 = time.time()
-            
-            step += 1
 
             # This is to save the model in case it suddenly deviates to diverge.
             if trainable is True:
                 [md.save_best_loss_model(loss) for md, loss in [(md, md.step_loss) for md in mds]]
             
-            if trainable is True and step % self.pm.steps_to_save == 0:
+            if trainable is True and step > 0 and step % self.pm.steps_to_save == 0:
                 [(md.pack_losses_metrics(), md.save_state()) for md in mds]
                 self.save_state()
             self.clean_gpu_every(1, step)
             self.respond_to_cursor()
             start = time.time()
+        
+            step += 1
         
         [md.get_pbar_description_epoch() for md in mds]
         md_focus = self.get_md_focus(mds)
