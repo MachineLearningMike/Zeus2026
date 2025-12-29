@@ -63,5 +63,7 @@ def get_gpu_names():
             elif "B200" in gpu_name:
                 print("  -> This is a B200")
                 gpu_names.append('B200')
+                
+    return gpu_names
 
             # Note: B200 identification string may vary when released
