@@ -322,7 +322,7 @@ class Model_Dom():
                     try:
                         epoch = checkpoint['epoch']                       
                         
-                        if not choose_best_loss_model and self.optimizer is not None and "optimizer" in checkpoint:
+                        if self.optimizer is not None and "optimizer" in checkpoint:
                             self.optimizer.load_state_dict(checkpoint["optimizer"])
 
                             # Move optimizer state tensors to the same device as their parameters
