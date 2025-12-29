@@ -98,6 +98,7 @@ class Zeus_Dataset(Dataset):
         
         self.pressure_indices = None
         self.pressure_values = None
+        self.taken = None
 
         
         # self.shard_dataset = ERA5ZarrShards(
@@ -1649,14 +1650,19 @@ class Zeus_Dataset(Dataset):
         
     def pack_state(self):
         """Pack the current x_set state for checkpointing."""
+        # We assume the take_batch thread has already taken some frrom self.x_set that that's not processed yet.
+        if self.taken is not None:
+            x_set = self.taken + self.x_set      # return back to self.x_set   
+        else:
+            x_set = self.x_set
         return {
-            "x_set": [dt.isoformat() for dt in self.x_set],  # full datetime
+            "x_set": [dt.isoformat() for dt in x_set],  # full datetime
             "_fetched_batches": self._fetched_batches,
             "total_batches": self.total_batches,
         }
 
     def unpack_state(self, data):
-        """Restore x_set state from checkpoint data."""
+        """Restore x_set state from checkpoint data."""    
         self.x_set = [datetime.fromisoformat(s) for s in data["x_set"]][:self.data_limit]
         self._fetched_batches = 0
         # Recompute total_batches in case batch_size changed
@@ -1739,6 +1745,7 @@ class Zeus_Dataset(Dataset):
         if len(self.x_set) <= 0: return None
 
         taken = self.x_set[:self.pm.batch_size]
+        self.taken = taken
         self.x_set = self.x_set[self.pm.batch_size:]
         # assert len(taken) > 0
 
