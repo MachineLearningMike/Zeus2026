@@ -226,11 +226,11 @@ class Model_Dom():
         
         checkpoint = {
             # 'model' : self.model,
-            'model_state_dict': get_complete_state_dict(self.model),
+            'model': get_complete_state_dict(self.model),
             'learning_rate': self.learning_rate,
-            'optimizer_state_dict': self.optimizer.state_dict(),
-            'scheduler_state_dict': self.scheduler.state_dict(),
-            'scaler_state_dict':   self.scaler.state_dict(),
+            'optimizer': self.optimizer.state_dict(),
+            'scheduler': self.scheduler.state_dict(),
+            'scaler':   self.scaler.state_dict(),
             'epoch': self.epoch,
             'weighted_metric_old': self.weighted_metric_old,
             'epochs_since_improvement': self.epochs_since_improvement,
@@ -302,7 +302,7 @@ class Model_Dom():
             #------------------- model -------------------------
                 
             # Load model parameters whetherr trainable or not.
-            state_dict = checkpoint['model_state_dict']
+            state_dict = checkpoint['model']
             
             if self.device != torch.device('cpu'):
                 # Move ALL model tensors to correct device
@@ -337,7 +337,7 @@ class Model_Dom():
 
 
             # Check what normalization stats are saved
-            saved_keys = list(checkpoint['model_state_dict'].keys())
+            saved_keys = list(checkpoint['model'].keys())
             norm_stats_keys = [k for k in saved_keys if 'running_mean' in k or 'running_var' in k or 'num_batches_tracked' in k]
             logging.info(f"Found {len(norm_stats_keys)} normalization stat keys in checkpoint")
             if norm_stats_keys:
@@ -384,7 +384,7 @@ class Model_Dom():
 
                 #------------------- scheduler -------------------------
                 
-                self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+                self.scheduler.load_state_dict(checkpoint['scheduler'])
                 logging.info("Scheduler loaded with saved state.")
                 
                 logging.info(f"Scheduler type: {type(self.scheduler).__name__}")
@@ -404,7 +404,7 @@ class Model_Dom():
                 
                 #------------------- scaler -------------------------
                 
-                self.scaler.load_state_dict(checkpoint['scaler_state_dict'])
+                self.scaler.load_state_dict(checkpoint['scaler'])
                 logging.info("Scaler loaded with saved state")
 
 
