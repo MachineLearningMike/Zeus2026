@@ -369,6 +369,9 @@ class Model_Dom():
 
                         if checkpoint.get('best_loss', None) is not None:
                             self.best_loss = checkpoint['best_loss']
+                            
+                            self.best_loss = 1e9        # start over!
+                            
                             logging.info(f"best_loss loaded {self.best_loss}")
                         if checkpoint.get('accum_iterations', None) is not None:
                             self.accum_iterations = checkpoint['accum_iterations']
