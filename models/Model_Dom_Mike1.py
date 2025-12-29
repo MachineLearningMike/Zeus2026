@@ -264,6 +264,8 @@ class Model_Dom():
         elif name is None:
             name = "train_state_" + str(self.md_id) #+ self.get_train_id_string()
             logging.info("!!! Latest model chosen as usual.")
+        else:
+            assert name == "train_state_" + str(self.md_id), name
         
         file_not_found = False; train_finished = False; file_loaded = False
 
