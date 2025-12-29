@@ -372,7 +372,7 @@ class Model_Dom():
                             logging.info(f"best_loss loaded {self.best_loss}")
                         if checkpoint.get('accum_iterations', None) is not None:
                             self.accum_iterations = checkpoint['accum_iterations']
-                            logging.ingo(f"accum_iterations loaded {self.accum_iterations}")
+                            logging.info(f"accum_iterations loaded {self.accum_iterations}")
 
                     except Exception as e:
                         logging.info(str(e))
