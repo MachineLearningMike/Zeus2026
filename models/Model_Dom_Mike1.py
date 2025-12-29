@@ -362,7 +362,7 @@ class Model_Dom():
                 if self.optimizer is not None and "optimizer" in checkpoint:
                     self.optimizer.load_state_dict(checkpoint["optimizer"])
                     
-                    correct_step, num_fixed = self.fix_mixed_step_values()
+                    correct_step, num_fixed = self.fix_mixed_step_values()  # to the most comon step value.
 
                     # Move optimizer state tensors to the same device as their parameters
                     for group in self.optimizer.param_groups:
@@ -373,11 +373,9 @@ class Model_Dom():
                                         self.optimizer.state[p][k] = v.to(p.device, non_blocking=True)
                     logging.info("Optimizer loaded with saved state.")
                     
-                    self.debug_optimizer_state()
-                    
-                    self.debug_optimizer_parameter_references(checkpoint)
-                    
-                    self.debug_optimizer_state_existence_fixed()
+                    # self.debug_optimizer_state()
+                    # self.debug_optimizer_parameter_references(checkpoint)
+                    # self.debug_optimizer_state_existence_fixed()
                 
                 else:
                     logging.info("!!! Optimizer NOT loaded with saved state.")
@@ -407,7 +405,8 @@ class Model_Dom():
                 self.scaler.load_state_dict(checkpoint['scaler'])
                 logging.info("Scaler loaded with saved state")
 
-
+                #------------------ miscellaneous -------------------
+                
                 self.weighted_metric_old = checkpoint['weighted_metric_old']
                 self.epochs_since_improvement = checkpoint['epochs_since_improvement']
                 logging.info("weighted_metric_old and epochs_since_improvement loaded with saved values")
@@ -828,7 +827,7 @@ class Model_Dom():
         # 5. Check consistency
         if optimizer_step is not None and '_step_count' in scheduler_info:
             if scheduler_info['_step_count'] != optimizer_step:
-                logging.error(f"❌ MISMATCH: scheduler._step_count={scheduler_info['_step_count']}, "
+                logging.error(f"MISMATCH: scheduler._step_count={scheduler_info['_step_count']}, "
                             f"optimizer.step={optimizer_step}")
                 
                 # This is likely your problem!
