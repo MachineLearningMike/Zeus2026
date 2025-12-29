@@ -298,146 +298,143 @@ class Model_Dom():
             sys.exit()
         
         if not file_not_found and (not train_finished or not self.trainable):
-            try:
-                #------------------- model -------------------------
-                
-                # Load model parameters whetherr trainable or not.
-                state_dict = checkpoint['model_state_dict']
-                
-                if self.device != torch.device('cpu'):
-                    # Move ALL model tensors to correct device
-                    state_dict = {k: v.to(self.device) if torch.is_tensor(v) else v 
-                                for k, v in state_dict.items()}
-                
-                missing_keys, unexpected_keys = self.model.load_state_dict(state_dict, strict=False)
-                logging.info("Model loaded with saved state: \n_missing_keys: {}, \n_unexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
 
-                # Check if model has normalization layers
-                norm_layers = []
+            #------------------- model -------------------------
+                
+            # Load model parameters whetherr trainable or not.
+            state_dict = checkpoint['model_state_dict']
+            
+            if self.device != torch.device('cpu'):
+                # Move ALL model tensors to correct device
+                state_dict = {k: v.to(self.device) if torch.is_tensor(v) else v 
+                            for k, v in state_dict.items()}
+            
+            missing_keys, unexpected_keys = self.model.load_state_dict(state_dict, strict=False)
+            logging.info("Model loaded with saved state: \n_missing_keys: {}, \n_unexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
+
+            # Check if model has normalization layers
+            norm_layers = []
+            for name, module in self.model.named_modules():
+                if isinstance(module, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d,
+                                    nn.InstanceNorm1d, nn.InstanceNorm2d, nn.InstanceNorm3d,
+                                    nn.LayerNorm, nn.GroupNorm)):
+                    norm_layers.append(name)
+                    
+            logging.info(f"Model has {len(norm_layers)} normalization layers: {norm_layers[:5]}...")
+
+            self.debug_normalization_issue()
+
+            # Check running stats for a sample layer
+            if norm_layers:
+                sample_layer = norm_layers[0]
                 for name, module in self.model.named_modules():
-                    if isinstance(module, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d,
-                                        nn.InstanceNorm1d, nn.InstanceNorm2d, nn.InstanceNorm3d,
-                                        nn.LayerNorm, nn.GroupNorm)):
-                        norm_layers.append(name)
-                        
-                logging.info(f"Model has {len(norm_layers)} normalization layers: {norm_layers[:5]}...")
-
-                self.debug_normalization_issue()
-
-                # Check running stats for a sample layer
-                if norm_layers:
-                    sample_layer = norm_layers[0]
-                    for name, module in self.model.named_modules():
-                        if name == sample_layer:
-                            if hasattr(module, 'running_mean'):
-                                logging.info(f"{name} running_mean mean: {module.running_mean.mean().item():.6f}")
-                            if hasattr(module, 'running_var'):
-                                logging.info(f"{name} running_var mean: {module.running_var.mean().item():.6f}")
-                            break
+                    if name == sample_layer:
+                        if hasattr(module, 'running_mean'):
+                            logging.info(f"{name} running_mean mean: {module.running_mean.mean().item():.6f}")
+                        if hasattr(module, 'running_var'):
+                            logging.info(f"{name} running_var mean: {module.running_var.mean().item():.6f}")
+                        break
 
 
-                # Check what normalization stats are saved
-                saved_keys = list(checkpoint['model_state_dict'].keys())
-                norm_stats_keys = [k for k in saved_keys if 'running_mean' in k or 'running_var' in k or 'num_batches_tracked' in k]
-                logging.info(f"Found {len(norm_stats_keys)} normalization stat keys in checkpoint")
-                if norm_stats_keys:
-                    logging.info(f"Sample: {norm_stats_keys[:5]}")
+            # Check what normalization stats are saved
+            saved_keys = list(checkpoint['model_state_dict'].keys())
+            norm_stats_keys = [k for k in saved_keys if 'running_mean' in k or 'running_var' in k or 'num_batches_tracked' in k]
+            logging.info(f"Found {len(norm_stats_keys)} normalization stat keys in checkpoint")
+            if norm_stats_keys:
+                logging.info(f"Sample: {norm_stats_keys[:5]}")
 
-                #---------------------------------------------------------------------------------------
-                packed_losses_metrics = None
+            #---------------------------------------------------------------------------------------
+            packed_losses_metrics = None
+            
+            if self.trainable:
+
+                epoch = checkpoint['epoch']
                 
-                if self.trainable:
-
-                    epoch = checkpoint['epoch']
+                #------------------- learning_rate -------------------------
+                
+                if self.learning_rate is None:
+                    self.learning_rate = self.get_learning_rate()
+                else:
+                    self.set_learning_rate(self.learning_rate)
                     
-                    #------------------- learning_rate -------------------------
+                #------------------- optimizer -------------------------
+                
+                if self.optimizer is not None and "optimizer_state_dict" in checkpoint:
+                    self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
                     
-                    if self.learning_rate is None:
-                        self.learning_rate = self.get_learning_rate()
-                    else:
-                        self.set_learning_rate(self.learning_rate)
-                        
-                    #------------------- optimizer -------------------------
+                    correct_step, num_fixed = self.fix_mixed_step_values()
+
+                    # Move optimizer state tensors to the same device as their parameters
+                    for group in self.optimizer.param_groups:
+                        for p in group["params"]:
+                            if p in self.optimizer.state:
+                                for k, v in self.optimizer.state[p].items():
+                                    if torch.is_tensor(v):
+                                        self.optimizer.state[p][k] = v.to(p.device, non_blocking=True)
+                    logging.info("Optimizer loaded with saved state.")
                     
-                    if self.optimizer is not None and "optimizer_state_dict" in checkpoint:
-                        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-                        
-                        correct_step, num_fixed = self.fix_mixed_step_values()
-
-                        # Move optimizer state tensors to the same device as their parameters
-                        for group in self.optimizer.param_groups:
-                            for p in group["params"]:
-                                if p in self.optimizer.state:
-                                    for k, v in self.optimizer.state[p].items():
-                                        if torch.is_tensor(v):
-                                            self.optimizer.state[p][k] = v.to(p.device, non_blocking=True)
-                        logging.info("Optimizer loaded with saved state.")
-                        
-                        self.debug_optimizer_state()
-                        
-                        self.debug_optimizer_parameter_references(checkpoint)
-                        
-                        self.debug_optimizer_state_existence_fixed()
+                    self.debug_optimizer_state()
                     
-                    else:
-                        logging.info("!!! Optimizer NOT loaded with saved state.")
-
-                    #------------------- scheduler -------------------------
+                    self.debug_optimizer_parameter_references(checkpoint)
                     
-                    self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
-                    logging.info("Scheduler loaded with saved state.")
+                    self.debug_optimizer_state_existence_fixed()
+                
+                else:
+                    logging.info("!!! Optimizer NOT loaded with saved state.")
+
+                #------------------- scheduler -------------------------
+                
+                self.scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+                logging.info("Scheduler loaded with saved state.")
+                
+                logging.info(f"Scheduler type: {type(self.scheduler).__name__}")
+
+                # Check specific scheduler attributes
+                if hasattr(self.scheduler, '_step_count'):
+                    logging.info(f"Scheduler _step_count: {self.scheduler._step_count}")
+                if hasattr(self.scheduler, 'last_epoch'):
+                    logging.info(f"Scheduler last_epoch: {self.scheduler.last_epoch}")
+                if hasattr(self.scheduler, 'get_last_lr'):
+                    logging.info(f"Scheduler last_lr: {self.scheduler.get_last_lr()}")
+
+                # Check against saved
+                if 'scheduler' in checkpoint:
+                    saved_scheduler = checkpoint['scheduler']
+                    logging.info(f"Saved scheduler keys: {list(saved_scheduler.keys())}")
+                
+                #------------------- scaler -------------------------
+                
+                self.scaler.load_state_dict(checkpoint['scaler_state_dict'])
+                logging.info("Scaler loaded with saved state")
+
+
+                self.weighted_metric_old = checkpoint['weighted_metric_old']
+                self.epochs_since_improvement = checkpoint['epochs_since_improvement']
+                logging.info("weighted_metric_old and epochs_since_improvement loaded with saved values")
+
+                packed_losses_metrics = checkpoint['packed_losses_metrics']
+                logging.info(f"packed_losses_metrics loaded")
                     
-                    logging.info(f"Scheduler type: {type(self.scheduler).__name__}")
+                if self.pm.overwrite_saved_lr:
+                    self.learning_rate = self.pm.lr
+                else:
+                    self.learning_rate = checkpoint['learning_rate']
+                    logging.info(f"learning_rate loaded {self.learning_rate}")
 
-                    # Check specific scheduler attributes
-                    if hasattr(self.scheduler, '_step_count'):
-                        logging.info(f"Scheduler _step_count: {self.scheduler._step_count}")
-                    if hasattr(self.scheduler, 'last_epoch'):
-                        logging.info(f"Scheduler last_epoch: {self.scheduler.last_epoch}")
-                    if hasattr(self.scheduler, 'get_last_lr'):
-                        logging.info(f"Scheduler last_lr: {self.scheduler.get_last_lr()}")
+                self.best_loss = checkpoint['best_loss']
+                logging.info(f"best_loss loaded {self.best_loss}")
 
-                    # Check against saved
-                    if 'scheduler' in checkpoint:
-                        saved_scheduler = checkpoint['scheduler']
-                        logging.info(f"Saved scheduler keys: {list(saved_scheduler.keys())}")
-                    
-                    #------------------- scaler -------------------------
-                    
-                    self.scaler.load_state_dict(checkpoint['scaler_state_dict'])
-                    logging.info("Scaler loaded with saved state")
+                self.accum_iterations = checkpoint['accum_iterations']
+                logging.info(f"accum_iterations loaded {self.accum_iterations}")
 
+            # print('----------- packed_losses_metrics loaded is ', packed_losses_metrics)
+            if packed_losses_metrics is not None:  # The previous session was terminated after a new step was finished and before an epoch is finished.
+                epoch = epoch
+            else:   # The previous session was terminated after an epoch was finished and before a new step was finished. 
+                epoch = epoch + 1
 
-                    self.weighted_metric_old = checkpoint['weighted_metric_old']
-                    self.epochs_since_improvement = checkpoint['epochs_since_improvement']
-                    logging.info("weighted_metric_old and epochs_since_improvement loaded with saved values")
-
-                    packed_losses_metrics = checkpoint['packed_losses_metrics']
-                    logging.info(f"packed_losses_metrics loaded")
-                        
-                    if self.pm.overwrite_saved_lr:
-                        self.learning_rate = self.pm.lr
-                    else:
-                        self.learning_rate = checkpoint['learning_rate']
-                        logging.info(f"learning_rate loaded {self.learning_rate}")
-
-                    self.best_loss = checkpoint['best_loss']
-                    logging.info(f"best_loss loaded {self.best_loss}")
-
-                    self.accum_iterations = checkpoint['accum_iterations']
-                    logging.info(f"accum_iterations loaded {self.accum_iterations}")
-
-                # print('----------- packed_losses_metrics loaded is ', packed_losses_metrics)
-                if packed_losses_metrics is not None:  # The previous session was terminated after a new step was finished and before an epoch is finished.
-                    epoch = epoch
-                else:   # The previous session was terminated after an epoch was finished and before a new step was finished. 
-                    epoch = epoch + 1
-
-                logging.info(f"Checkpoint '{name}' loaded to {self.device}, including model, optimizer, scheduler, scaler, weighted_metric_old, and datase state")
-                file_loaded = True
-            except Exception as e:
-                logging.info("++++++++++++++++++++++++++++++ " + str(e))
-                file_loaded = False
+            logging.info(f"Checkpoint '{name}' loaded to {self.device}, including model, optimizer, scheduler, scaler, weighted_metric_old, and datase state")
+            file_loaded = True
         
         if file_not_found:
             # Start a new training, creating the file.
