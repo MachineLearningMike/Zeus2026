@@ -357,7 +357,7 @@ class Model_Trainer():
         
         if not pbar.no_more_data():  pbar.prefetch(x_set_label)        # Fetch one batch asynchronously
 
-        step = 0
+        step = 1
         start = time.time()
         start1 = time.time()
         for batch in pbar:              # Wait for the asynchronous .prefetch
@@ -491,7 +491,7 @@ class Model_Trainer():
             if trainable is True:
                 [md.save_best_loss_model(loss) for md, loss in [(md, md.step_loss) for md in mds]]
             
-            if trainable is True and step > 0 and step % self.pm.steps_to_save == 0:
+            if trainable is True and step % self.pm.steps_to_save == 0:
                 [(md.pack_losses_metrics(), md.save_state()) for md in mds]
                 self.save_state()
             self.clean_gpu_every(1, step)
