@@ -705,14 +705,14 @@ class Model_Dom():
         logging.info(f"Parameters in optimizer but NOT in model: {len(extra_in_optimizer)}")
         
         if len(missing_in_optimizer) > 0:
-            logging.error(" OPTIMIZER DOESN'T REFERENCE ALL MODEL PARAMETERS!")
+            logging.error("OPTIMIZER DOESN'T REFERENCE ALL MODEL PARAMETERS!")
             # Show first few missing
             for pid in list(missing_in_optimizer)[:3]:
                 name = model_param_ids[pid]
                 logging.error(f"  Missing: {name}")
         
         # 4. Check if optimizer state matches parameters
-        if missing_in_optimizer == 0:
+        if len(missing_in_optimizer) == 0:
             # Check if state exists for parameters
             params_with_state = 0
             for group in self.optimizer.param_groups:
@@ -723,25 +723,28 @@ class Model_Dom():
             logging.info(f"Parameters with optimizer state: {params_with_state}/{len(common)}")
             
             if params_with_state == 0:
-                logging.warning(" NO optimizer state exists yet!")
+                logging.warning("NO optimizer state exists yet!")
                 logging.warning("  State will be created on first optimizer.step()")
                 logging.warning("  Loaded checkpoint state will be IGNORED!")
         
-        # 5. Check saved checkpoint
+        # 5. Check saved checkpoint - FIXED VERSION
         if 'optimizer' in checkpoint:
             saved_state = checkpoint['optimizer'].get('state', {})
             logging.info(f"Saved checkpoint has state for {len(saved_state)} parameters")
             
             # Do saved parameter IDs match current?
             if saved_state:
-                # Saved state keys are parameter IDs (ints)
-                saved_param_ids = set(saved_state.keys())
-                current_param_ids = set(id(p) for p in self.model.parameters())
+                # Convert model.parameters() generator to list
+                model_params_list = list(self.model.parameters())
                 
-                # They won't match because IDs change on reload
-                # But we can check count
-                if len(saved_state) != len(self.model.parameters()):
-                    logging.warning(f"Parameter count mismatch: saved={len(saved_state)}, current={len(self.model.parameters())}")
+                # Check count
+                if len(saved_state) != len(model_params_list):
+                    logging.warning(f"Parameter count mismatch: saved={len(saved_state)}, current={len(model_params_list)}")
+                
+                # Also check if optimizer has same number of params as model
+                optimizer_param_count = sum(len(g['params']) for g in self.optimizer.param_groups)
+                if optimizer_param_count != len(model_params_list):
+                    logging.warning(f"Optimizer-model count mismatch: optimizer={optimizer_param_count}, model={len(model_params_list)}")
 
 
     def debug_optimizer_state(self):
