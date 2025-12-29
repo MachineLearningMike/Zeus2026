@@ -1379,7 +1379,7 @@ projects["Zeus_25Dec28_1"] = {
         'skip_learnable' : True,
         'qkv_bias' : True,
         
-        'choose_best_loss_model' : True,
+        'choose_best_loss_model' : False,
     },
     
     "model_1": {},
