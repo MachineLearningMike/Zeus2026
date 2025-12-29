@@ -187,6 +187,15 @@ else:
     config["factor10"] = 10  # 
     config['nStepsPerBatch'] = 4        # 2 on A100, 4 on B200
     
+    from modules.utils import get_gpu_names
+    gpu_names = get_gpu_names()
+    if 'A100' in gpu_names:
+        config['nStepsPerBatch'] = 2
+        print(f"A100 found!!!, nStepsPerPatch {config['nStepsPerBatch']}")
+    elif 'B200' in gpu_names:
+        config['nStepsPerBatch'] = 4
+        print(f"B200 found!!!, nStepsPerPatch {config['nStepsPerBatch']}")
+    
     # shared_model_params['nHeads'] = 2
     # shared_model_params['patch_kernel'] = 4
     # shared_model_params['patch_stride'] = 4
@@ -1482,6 +1491,7 @@ Saved projects:
     31760                   =           1e-5            =
     31860                   =           1e-4            =
     32288                   =           1.6e-4          =
+    32660                   =           2e-4            =
     
     
     
