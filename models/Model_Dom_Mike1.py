@@ -260,6 +260,10 @@ class Model_Dom():
         if name is None: name = "train_state_" + str(self.md_id) #+ self.get_train_id_string()
         if choose_best_loss_model:
             name = self.get_best_loss_file_name()
+            logging.info("!!!!!!!!!!!!!!!!!! Latest model chosen.     Mind of the switch.")
+        elif name is None:
+            name = "train_state_" + str(self.md_id) #+ self.get_train_id_string()
+            logging.info("!!! Latest model chosen as usual.")
         
         file_not_found = False; train_finished = False; file_loaded = False
 
@@ -291,23 +295,7 @@ class Model_Dom():
         if not file_not_found and (not train_finished or not self.trainable):
             try:
                 # Load model parameters
-
-                if choose_best_loss_model:
-                    try:
-                        name = self.get_best_loss_file_name()
-                        checkpoint_path = self.project_path / (name + '.pth')
-                        checkpoint_special = torch.load(checkpoint_path, map_location="cpu")
-                        logging.info("Checkpoint loaded from the best_loss_model file")
-                    except Exception as e:
-                        logging.info(str(e))
-                        sys.exit(0)
-                    state_dict = checkpoint_special['model']
-                    logging.info("!!!!!!!!!!!!!! Best-loss model chosen. Turn-off thie switch.")
-                else:
-                    state_dict = checkpoint['model']
-                    logging.info("!!! Latest model chosen.")
-
-                strict = True
+                state_dict = checkpoint['model']
                 
                 if self.pm.doubleZeus:
                         
