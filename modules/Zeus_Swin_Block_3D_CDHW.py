@@ -525,7 +525,8 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
     #------------------------------------------------------------------------------------------------------------------------
     def __init__(self, dim, i_reso, num_heads, sWin, shift_size, pair_bias_dim,
                  mlp_ratio=4., qkv_bias=True, drop=0., attn_drop=0., drop_path=0.,
-                 act_layer=nn.GELU, norm_layer=nn.LayerNorm, type_pos_bias='lonBand', padding=None, is_padding_block=False, in_encoder=True):
+                 act_layer=nn.GELU, norm_layer=nn.LayerNorm, type_pos_bias='lonBand', padding=None, inherited_padding=None,
+                 is_padding_block=False, in_encoder=True):
         
         # is_padding_block == True : this block is either the entry of an encoding layer or the exit of a decoding layer.   Responsisble for padding / un-padding
         # padding is shared between all blocks in the layer.
@@ -568,8 +569,10 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
             # (n_windows on a lon band of windows, win_vol, win_vol, num_heads)
             self.learnable_pair_types = nn.Parameter(torch.empty(int(D/wd) * int(H/wh), wd*wd, wh*wh, (2*ww-1), num_heads), requires_grad=True)
             nn.init.trunc_normal_(self.learnable_pair_types, std=0.02)
-            
-        self.attn_mask = AttentionMask3D(i_reso, sWin, shift_size, padding=padding)     # All blocks in the layer have the same final mask
+                
+        mask_padding = [p + ip for (p, ip) in zip(padding if padding is not None else (0,0,0), inherited_padding if inherited_padding is not None else (0,0,0))]
+        mask_padding = None if sum(mask_padding) == 0 else mask_padding       
+        self.attn_mask = AttentionMask3D(i_reso, sWin, shift_size, padding=mask_padding)     # All blocks in the layer have the same final mask
             
         self.unpadded_resolution = i_reso    
         if padding is not None:
@@ -989,7 +992,7 @@ class BasicLayer(nn.Module):
     def __init__(self, dim, i_reso, depth, num_heads, sWin, pair_bias_dim,
                  mlp_ratio=4., qkv_bias=True, drop=0., attn_drop=0.,
                  drop_path=0., norm_layer=nn.LayerNorm, resampler=PatchMerging3D, use_checkpoint=False,
-                 pretrained_sWin=0, type_pos_bias='lonBand', padding=None, in_encoder=True):
+                 pretrained_sWin=0, type_pos_bias='lonBand', padding=None, inherited_padding=None, in_encoder=True):
 
         super().__init__()
         self.dim = dim
@@ -1028,7 +1031,7 @@ class BasicLayer(nn.Module):
                                 drop_path=drop_path[i] if isinstance(drop_path, list) else drop_path,
                                 norm_layer=norm_layer,
                                 #  pretrained_sWin=pretrained_sWin,
-                                type_pos_bias = type_pos_bias, padding=padding,
+                                type_pos_bias = type_pos_bias, padding=padding, inherited_padding=inherited_padding,
                                 is_padding_block=(i==0),
                                 in_encoder = in_encoder,
                                 )
@@ -1105,6 +1108,7 @@ class Encoder(nn.Module):
         # build layers
         self.layers = nn.ModuleList()
         prev_resolution = (i_reso[0] * 2, i_reso[1] * 2, i_reso[2] * 2)
+        inherited_padding = [0,0,0]
         
         for i_layer in range(self.num_layers):
 
@@ -1150,9 +1154,9 @@ class Encoder(nn.Module):
                                resampler=donwsample,
                                use_checkpoint=use_checkpoint,
                                pretrained_sWin=pretrained_sWins[i_layer],
-                               pair_bias_dim = pair_bias_dim, padding=padding,
+                               pair_bias_dim = pair_bias_dim, padding=padding, inherited_padding=inherited_padding,
                                in_encoder=True)
-            
+            inherited_padding = [p//2 for p in padding]
             self.layers.append(layer)            
             prev_resolution = resolution
 
@@ -1223,6 +1227,8 @@ class Decoder(nn.Module):
         if skip_learnable:
             self.skip_learners = nn.ModuleList()
         prev_resolution = (i_reso[0] * 2, i_reso[1] * 2, i_reso[2] * 2)
+        inherited_padding = [0,0,0]
+        
         for i_layer in range(self.num_layers):
 
             #--------------------- Define i_reso -----------------
@@ -1268,17 +1274,17 @@ class Decoder(nn.Module):
                                resampler=PatchUnmerging3D if i_layer > 0 else None, # (i_layer < self.num_layers - 1) else None,
                                use_checkpoint=use_checkpoint,
                                pretrained_sWin=pretrained_sWins[i_layer],
-                               pair_bias_dim = pair_bias_dim, padding=padding,
+                               pair_bias_dim = pair_bias_dim, padding=padding, inherited_padding=inherited_padding,
                                in_encoder=False)
+            inherited_padding = [p//2 for p in padding]
             self.layers.append(layer)
-            
+            prev_resolution = resolution
+
             if self.skippable and skip_learnable:
                 skip_learner = nn.Linear(dim, dim, bias=True)
                 torch.nn.init.eye_(skip_learner.weight)
                 torch.nn.init.zeros_(skip_learner.bias)
                 self.skip_learners.append(skip_learner)            
-            
-            prev_resolution = resolution
 
         self.apply(self._init_weights)
         for bly in self.layers:
@@ -1666,8 +1672,9 @@ if __name__ == "__main__":
     
     print("====================================== Big Test ==============================================")
     
-    # factor10, sWin = 2, (2, 4, 4)
-    factor10, sWin = 10, (2, 6, 6) # (2, 6, 12), (2, 4, 8)
+    factor10, sWin = 2, (2, 4, 4)
+    # factor10, sWin = 10, (2, 6, 6) # (2, 6, 12), (2, 4, 8)
+    
     depths, nHeads = (4, 8, 4), (4, 8, 16)
     patch_size = 4
     H, W, D = int(int(720/patch_size)/10*factor10), int(int(1440/patch_size)/10*factor10), 8
@@ -1796,5 +1803,5 @@ if __name__ == "__main__":
             block = encoder.layers[layer_idx].blocks[block_idx]
             attn_mask = block.attn_mask.attn_mask
             u_res = block.unpadded_resolution
-            title = f"L {layer_idx}/{nLayers}, B {block_idx}/{nBlocks}, UR {u_res}"
+            title = f"L {layer_idx}/{nLayers}, B {block_idx}/{nBlocks}, UnpaddedR {u_res}"
             show_global_attn_mask_map(attn_mask, block.sWin, block.i_reso, depth_idx=0, title=title, projection=projection)
