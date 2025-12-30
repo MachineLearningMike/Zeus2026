@@ -382,7 +382,7 @@ class Model_Trainer():
                 # for _ in  range(self.train_bombs):    # train_bomb cannot work because we destroy batch_of_ss_lists.
                     
                 Xs = batch_of_ss_lists[0]   # batch_of_ss_lists undergoes changes. This code doesn't know the content of X
-                assert len(Xs) == self.pm.nStepsPerBatch + (2 if self.pm.pair_not_single_snapshot else 1)
+                assert len(Xs) == self.pm.nStepsPerCycle + (2 if self.pm.pair_not_single_snapshot else 1)
                     
                 for md in mds:            
                     with autocast(device_type='cuda', dtype=torch.bfloat16):    # time: 97 -> 82, memory: little
@@ -461,7 +461,7 @@ class Model_Trainer():
                             # state: len(oldQ) == 0, len(oldQ) > 0
                             oldQ = newQ
                             
-                        # assert cnt == int((self.pm.nStepsPerBatch + 1) * self.pm.nStepsPerBatch / 2)
+                        # assert cnt == int((self.pm.nStepsPerCycle + 1) * self.pm.nStepsPerCycle / 2)
                         # print('++++++++++++++++++++++++++', cnt, predicted_value_required)
                             
                         #------------------------------------------------ The set of steps finished.
@@ -479,14 +479,18 @@ class Model_Trainer():
                     
             md_focus = self.get_md_focus(mds)
             end1 = time.time()
-            pbar.set_description("{}, wait/cycle {:.0f}/{:.0f} u {:.0f} S/$ {} lr {:1.1e} "
-                .format(md_focus.pbar_description, (end-start) * 1000, (end1-start1) * 1000, ((end1-start1) * 1000 - (end-start) * 1000) / self.train_bombs, int(self.pm.nStepsPerBatch * 3600/(end1-start1) / self.pm.dollarsPerHour), md_focus.get_learning_rate()))
+            data_wait = (end-start) * 1000
+            cycle = (end1-start1) * 1000
+            compute = (cycle - data_wait) / self.train_bombs
+            cyclesPerHour = 3600/(end1-start1)
+            stepsPerDollar = int(self.pm.nStepsPerCycle * cyclesPerHour / self.pm.dollarsPerHour)
+            pbar.set_description(f"{md_focus.pbar_description}, wait/cycle {data_wait:.0f}/{cycle:.0f} com {compute:.0f} S/D {stepsPerDollar} lr {md_focus.get_learning_rate():1.1e} ")
             start1 = time.time()
 
             # This is to save the model in case it suddenly deviates to diverge.
             if trainable is True:
                 [md.save_best_loss_model(loss) for md, loss in [(md, md.step_loss) for md in mds]]
-                for md in mds: md.accum_iterations += self.pm.nStepsPerBatch
+                for md in mds: md.accum_iterations += self.pm.nStepsPerCycle
             
             if trainable is True and step % self.pm.steps_to_save == 0:
                 [(md.pack_losses_metrics(), md.save_state()) for md in mds]

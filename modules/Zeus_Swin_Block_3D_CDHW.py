@@ -382,7 +382,7 @@ class AttentionMask3D(nn.Module):     # original, mine
     #------------------------------------------------------------------------------------------------------------------------
     attn_mask_shared = {}  # key: shift_size tuple, value: mask tensor
 
-    def __init__(self, i_reso, sWin, shift_size, padding=()):
+    def __init__(self, i_reso, sWin, shift_size, padding=None):
         super().__init__()
         self.i_reso = i_reso
         self.sWin = sWin
@@ -390,8 +390,8 @@ class AttentionMask3D(nn.Module):     # original, mine
         self.shift_size = shift_size  # tuple (shift_D, shift_H, shift_W)
 
         # Convert to hashable key for sharing
-        padding = () if padding is None else padding
-        key = (*i_reso, *sWin, *shift_size, *padding)
+        padding_key = () if padding is None else padding
+        key = (*i_reso, *sWin, *shift_size, *padding_key)
         if key not in AttentionMask3D.attn_mask_shared:
             # Compute mask once
             attn_mask = self.compute_mask(i_reso, sWin, shift_size, padding)
@@ -403,7 +403,7 @@ class AttentionMask3D(nn.Module):     # original, mine
     @staticmethod
     def compute_mask(i_reso, sWin, shift_size, padding):
         D, H, W = i_reso
-        if all(s == 0 for s in shift_size) and padding == ():
+        if all(s == 0 for s in shift_size) and padding is None:
             return None
 
         #------------------------- torch.roll ------------------------------------------------------------------------------------
@@ -417,6 +417,8 @@ class AttentionMask3D(nn.Module):     # original, mine
         #   NOTE: A negative shift or positive shift, there is no imparity like which side of indices are respected more.
         #-------------------------------------------------------------------------------------------------------------------------
         def get_slices(s_size, w_size, pad):
+            # ASSUMPTION: pad is attached leftward, or to lower indices.
+            
             if s_size != 0 and pad == 0:  # shift only, it's a standard Swin mask.
                 slices = (slice(0, -w_size),            # L = total - w_size        # (0, 1, 2, 3)              sWin[0] == 2
                             slice(-w_size, -s_size),    # L = w_size - s_size       # (4)                       shift_size[0] == 1
@@ -426,7 +428,7 @@ class AttentionMask3D(nn.Module):     # original, mine
                                                                                     # (0,0; 0,0), (0,0; 0,0), (0,-100; -100,0)    after masked_fill
                                                                                     # This means mask is palced on the higher-index side.
                                                                                     # This is consistent with negative shift, where the higher-index side has imigrants, like 0.
-            elif s_size == 0 and pad != 0:  # pad only
+            elif s_size == 0 and pad != 0:              # pad only
                 slices = (slice(0, pad),                # pad.    L = pad                   # Left pad columns are no-values.
                             slice(pad, None))           # main.   L = total - pad
 
@@ -448,8 +450,7 @@ class AttentionMask3D(nn.Module):     # original, mine
       
         #------------------------------------------ D ------------------------------------------------------------  
         idx = 0
-        pad = [p for (i, p) in padding if i == idx]
-        pad = 0 if len(pad) <= 0 else pad[0]
+        pad = padding[idx] if padding is not None else 0
         w_size = sWin[idx]
         s_size = shift_size[idx]
         assert pad < w_size
@@ -458,8 +459,7 @@ class AttentionMask3D(nn.Module):     # original, mine
 
         #------------------------------------------ H ------------------------------------------------------------  
         idx = 1
-        pad = [p for (i, p) in padding if i == idx]
-        pad = 0 if len(pad) <= 0 else pad[0]
+        pad = padding[idx] if padding is not None else 0
         w_size = sWin[idx]
         s_size = shift_size[idx]
         assert pad < w_size
@@ -468,8 +468,7 @@ class AttentionMask3D(nn.Module):     # original, mine
         
         #------------------------------------------ W ------------------------------------------------------------  
         idx = 2
-        pad = [p for (i, p) in padding if i == idx]
-        pad = 0 if len(pad) <= 0 else pad[0]
+        pad = padding[idx] if padding is not None else 0
         w_size = sWin[idx]
         s_size = shift_size[idx]
         assert pad < w_size
@@ -526,7 +525,11 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
     #------------------------------------------------------------------------------------------------------------------------
     def __init__(self, dim, i_reso, num_heads, sWin, shift_size, pair_bias_dim,
                  mlp_ratio=4., qkv_bias=True, drop=0., attn_drop=0., drop_path=0.,
-                 act_layer=nn.GELU, norm_layer=nn.LayerNorm, type_pos_bias='lonBand', padding=(), is_padding_block=False, in_encoder=True):
+                 act_layer=nn.GELU, norm_layer=nn.LayerNorm, type_pos_bias='lonBand', padding=None, is_padding_block=False, in_encoder=True):
+        
+        # is_padding_block == True : this block is either the entry of an encoding layer or the exit of a decoding layer.   Responsisble for padding / un-padding
+        # padding is shared between all blocks in the layer.
+        
         super().__init__()
         
         # assert all(s==0 for s in shift_size) or all(s!=0 for s in shift_size)
@@ -566,30 +569,16 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
             self.learnable_pair_types = nn.Parameter(torch.empty(int(D/wd) * int(H/wh), wd*wd, wh*wh, (2*ww-1), num_heads), requires_grad=True)
             nn.init.trunc_normal_(self.learnable_pair_types, std=0.02)
             
-        self.attn_mask = AttentionMask3D(i_reso, sWin, shift_size, padding=padding)
-
-        pads = []
-        for dim in range(3):
-            pad = [p for (i, p) in padding if i == dim]
-            pad = 0 if len(pad) <= 0 else pad[0]
-            pads.append(pad)
-        self.unpadded_resolution = [i_reso[dim] - pads[dim] for dim in range(3)]  # resolutions for D, H and W each
-        self.unpadded_vol = self.unpadded_resolution[0] * self.unpadded_resolution[1] * self.unpadded_resolution[2]
-
-        self.padding = padding
-        
-        self.padding_config = None
-        if padding != ():
-            pad_config = [0, 0]     # B of (B, D, H, W, dim)        
+        self.attn_mask = AttentionMask3D(i_reso, sWin, shift_size, padding=padding)     # All blocks in the layer have the same final mask
             
-            for idx in range(3):
-                pad = [p for (i, p) in padding if i == idx]
-                pad = 0 if len(pad) <= 0 else pad[0]
-                pad_config += [pad, 0]  # D, H, W, resectively according to idx
+        self.unpadded_resolution = i_reso    
+        if padding is not None:
+            self.unpadded_resolution = [i_reso[dim] - padding[dim] for dim in range(3)]  # resolutions for D, H and W each
+        self.unpadded_vol = self.unpadded_resolution[0] * self.unpadded_resolution[1] * self.unpadded_resolution[2]
                 
-            pad_config += [0, 0]    # dim of (B, D, H, W, dim)
-            pad_config = tuple(reversed(pad_config))
-            self.padding_config = pad_config
+        # (dim_left, dim_right, w_left, w_right, h_left, h_right, d_left, d_right, B_left, B_right)
+        self.padding_config = (0,0, padding[2],0, padding[1],0, padding[0],0, 0,0) if padding is not None else None 
+        self.pad_sum = 0 if padding is None else sum(self.padding_config)
             
         self.is_padding_block = is_padding_block
         self.in_encoder = in_encoder
@@ -682,12 +671,15 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
 
     #---------------------------------------- One-shot FFN
     def forward(self, x):
-        if self.in_encoder and self.is_padding_block and self.padding_config is not None:     # padding takes place.
+        
+        # Wrap the standard Swin Transformer Block forward with padding and de-padding
+        
+        if self.in_encoder and self.is_padding_block and self.pad_sum > 0:      # Pad as an entrry of a encoding BasicBlock
             [D, H, W] = self.unpadded_resolution
             
             B, L, dim = x.shape
             x = x.view(B, D, H, W, dim)
-            x = F.pad(x, self.padding_config, mode='constant')  # zeros
+            x = F.pad(x, self.padding_config, mode='constant')  # padding with zeros
             x = x.view(B, -1, dim)
         
         D, H, W = self.i_reso
@@ -753,11 +745,11 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
         x = shortcut + self.drop_path(self.norm1(x))
         x = x + self.drop_path(self.norm2(self.mlp(x)))
         
-        if not self.in_encoder and self.is_padding_block and self.padding_config is not None:     # padding takes place.
+        if not self.in_encoder and self.is_padding_block and self.pad_sum > 0:  # Un-Pad as a exit of a decoding BasicBlock
             [D, H, W] = self.i_reso
             B, L, dim = x.shape
             x = x.view(B, D, H, W, dim)
-            padding_config = [-c for c in self.padding_config]
+            padding_config = [-c for c in self.padding_config]  # de-padding
             x = F.pad(x, tuple(padding_config), mode='constant')  # zeros
             x = x.view(B, -1, dim)
         
@@ -997,7 +989,7 @@ class BasicLayer(nn.Module):
     def __init__(self, dim, i_reso, depth, num_heads, sWin, pair_bias_dim,
                  mlp_ratio=4., qkv_bias=True, drop=0., attn_drop=0.,
                  drop_path=0., norm_layer=nn.LayerNorm, resampler=PatchMerging3D, use_checkpoint=False,
-                 pretrained_sWin=0, type_pos_bias='lonBand', padding=(), in_encoder=True):
+                 pretrained_sWin=0, type_pos_bias='lonBand', padding=None, in_encoder=True):
 
         super().__init__()
         self.dim = dim
@@ -1113,6 +1105,7 @@ class Encoder(nn.Module):
         # build layers
         self.layers = nn.ModuleList()
         prev_resolution = (i_reso[0] * 2, i_reso[1] * 2, i_reso[2] * 2)
+        
         for i_layer in range(self.num_layers):
 
             #--------------------- Define i_reso -----------------
@@ -1133,11 +1126,11 @@ class Encoder(nn.Module):
             for i in range(3):
                 # Ensure resolution is a multiple of window size
                 pad = 0 if resolution[i] % sWin[i] == 0 else sWin[i] - resolution[i] % sWin[i]
+                if i_layer != self.num_layers - 1: assert pad % 2 == 0     # for patch-merging  # Keep it even in decoder
                 if pad != 0:
                     print(f"!!!!!!!!!! Encoder layer {i_layer}: input resolution[{i}] {resolution[i]} is increased by {pad} to be a multiple of window size {sWin[i]}")
-                    resolution[i] += pad
-                    padding.append((i, pad))
-            padding = tuple(padding) if len(padding) >= 0 else ()
+                resolution[i] += pad
+                padding.append(pad)
             
             donwsample = PatchMerging3D if (i_layer < self.num_layers - 1) else None
             if donwsample is not None:
@@ -1251,11 +1244,11 @@ class Decoder(nn.Module):
             for i in range(3):
                 # Ensure resolution is a multiple of window size
                 pad = 0 if resolution[i] % sWin[i] == 0 else sWin[i] - resolution[i] % sWin[i]
+                if i_layer != self.num_layers - 1: assert pad % 2 == 0     # for patch-merging  # Keep it even in decoder
                 if pad != 0:
                     print(f"!!!!!!!!!! Decoder layer {i_layer}: input resolution[{i}] {resolution[i]} is increased by {pad} to be a multiple of window size {sWin[i]}")
-                    resolution[i] += pad
-                    padding.append((i, pad))
-            padding = tuple(padding) if len(padding) >= 0 else ()
+                resolution[i] += pad
+                padding.append(pad)
             
             donwsample = PatchMerging3D if (i_layer < self.num_layers - 1) else None
             if donwsample is not None:
@@ -1339,7 +1332,7 @@ class Encoder_Decoder(nn.Module):
                 # absolute position eocoding is required in geo-shpere, because geo-cat and geo-dense is not enough.
                 use_checkpoint=False, pretrained_sWins=[0, 0, 0, 0], pair_bias_dim=5, skippable=False, skip_learnable=False, **kwargs):
         super().__init__()
-        
+
         self.encoder = Encoder(i_reso = i_reso, embed_dim=embed_dim, depths=depths, num_heads=num_heads,
                 sWin=sWin, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias,
                 drop_rate=drop_rate, attn_drop_rate=attn_drop_rate, drop_path_rate=drop_path_rate,
@@ -1588,93 +1581,93 @@ import time
 if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    factor10 = 2  # 2, 3
-    H, W, D = int(180/10*factor10), int(360/10*factor10), 8
-    print("H, W, D", H, W, D)
-    C, num_heads = 16, 4
-    sWin = (2, int(10/10*factor10), int(10/10*factor10))  # (win_D, win_H, win_W)
-    pair_bias_dim = 5
+    # factor10 = 2  # 2, 3
+    # H, W, D = int(180/10*factor10), int(360/10*factor10), 8
+    # print("H, W, D", H, W, D)
+    # C, num_heads = 16, 4
+    # sWin = (2, int(10/10*factor10), int(10/10*factor10))  # (win_D, win_H, win_W)
+    # pair_bias_dim = 5
 
-    i_reso=(D, H, W)
+    # i_reso=(D, H, W)
     
-    #---------------- block --------------------
+    # #---------------- block --------------------
 
-    # Initialize 3D Swin Transformer Blocks
-    blocks3D = [
-        Zeus_SwinTransformerBlock3D(
-            dim=C,
-            i_reso=i_reso,
-            num_heads=num_heads,
-            sWin=sWin,
-            shift_size=(0,0,0) if idx % 2 == 0 else (sWin[0]//2, sWin[1]//2, sWin[2]//2),
-            pair_bias_dim = pair_bias_dim,
-            mlp_ratio=4.,
-            qkv_bias=True,
-            drop=0.0,
-            attn_drop=0.0,
-            drop_path=0.0
-        ).to(device)
-        for idx in range(30)  # reduced number for testing
-    ]
+    # # Initialize 3D Swin Transformer Blocks
+    # blocks3D = [
+    #     Zeus_SwinTransformerBlock3D(
+    #         dim=C,
+    #         i_reso=i_reso,
+    #         num_heads=num_heads,
+    #         sWin=sWin,
+    #         shift_size=(0,0,0) if idx % 2 == 0 else (sWin[0]//2, sWin[1]//2, sWin[2]//2),
+    #         pair_bias_dim = pair_bias_dim,
+    #         mlp_ratio=4.,
+    #         qkv_bias=True,
+    #         drop=0.0,
+    #         attn_drop=0.0,
+    #         drop_path=0.0
+    #     ).to(device)
+    #     for idx in range(30)  # reduced number for testing
+    # ]
 
-    # Random input: (B, C, D, H, W)
-    x_in = torch.randn(1, C, D, H, W).to(device).to(device)
+    # # Random input: (B, C, D, H, W)
+    # x_in = torch.randn(1, C, D, H, W).to(device).to(device)
 
-    # Flatten input for block input
-    B, C, D, H, W = x_in.shape
-    x_flat = x_in.permute(0,2,3,4,1).contiguous().reshape(B, D*H*W, C).contiguous()
+    # # Flatten input for block input
+    # B, C, D, H, W = x_in.shape
+    # x_flat = x_in.permute(0,2,3,4,1).contiguous().reshape(B, D*H*W, C).contiguous()
     
-    print(f"x_flat: ({x_flat.shape})")
+    # print(f"x_flat: ({x_flat.shape})")
 
-    #------------------- blocks -------------------------
+    # #------------------- blocks -------------------------
 
-    x_flat_clone = x_flat.clone()
-    # Forward pass
-    s = time.time()
-    for b in blocks3D:
-        x_flat_clone = b(x_flat_clone)
-    e = time.time()
+    # x_flat_clone = x_flat.clone()
+    # # Forward pass
+    # s = time.time()
+    # for b in blocks3D:
+    #     x_flat_clone = b(x_flat_clone)
+    # e = time.time()
     
-    print(f"x_flat after blocks: ({x_flat.shape}), time after 30 blocks: {e-s}")
+    # print(f"x_flat after blocks: ({x_flat.shape}), time after 30 blocks: {e-s}")
 
-    #------------------------------------------------------------------------------------------------------------------
-    #------------------------ Basic layer -----------------------
+    # #------------------------------------------------------------------------------------------------------------------
+    # #------------------------ Basic layer -----------------------
     
-    factor10 = 2  # 2, 3
-    H, W, D = int(180/10*factor10), int(360/10*factor10), 8
-    print("H, W, D", H, W, D)
-    C, num_heads = 16, 4
-    sWin = (2, int(10/10*factor10), int(10/10*factor10))  # (win_D, win_H, win_W)
-    pair_bias_dim = 5
+    # factor10 = 2  # 2, 3
+    # H, W, D = int(180/10*factor10), int(360/10*factor10), 8
+    # print("H, W, D", H, W, D)
+    # C, num_heads = 16, 4
+    # sWin = (2, int(10/10*factor10), int(10/10*factor10))  # (win_D, win_H, win_W)
+    # pair_bias_dim = 5
 
-    i_reso=(D, H, W)
+    # i_reso=(D, H, W)
     
-    # Random input: (B, C, D, H, W)
-    x_in = torch.randn(1, C, D, H, W).to(device).to(device)
+    # # Random input: (B, C, D, H, W)
+    # x_in = torch.randn(1, C, D, H, W).to(device).to(device)
 
-    # Flatten input for block input
-    B, C, D, H, W = x_in.shape
-    x_flat = x_in.permute(0,2,3,4,1).contiguous().reshape(B, D*H*W, C).contiguous()
+    # # Flatten input for block input
+    # B, C, D, H, W = x_in.shape
+    # x_flat = x_in.permute(0,2,3,4,1).contiguous().reshape(B, D*H*W, C).contiguous()
     
     
-    depth = 6
-    merging = False          
-    bLayer = BasicLayer(dim=C, i_reso=i_reso, depth=depth, num_heads=num_heads, sWin=sWin, pair_bias_dim=pair_bias_dim,
-                 mlp_ratio=4., qkv_bias=True, drop=0., attn_drop=0.,
-                 drop_path=0., norm_layer=nn.LayerNorm, resampler=PatchMerging3D if merging else PatchMerging3D, use_checkpoint=False,
-                 pretrained_sWin=0, type_pos_bias='lonBand').to(device)
+    # depth = 6
+    # merging = False          
+    # bLayer = BasicLayer(dim=C, i_reso=i_reso, depth=depth, num_heads=num_heads, sWin=sWin, pair_bias_dim=pair_bias_dim,
+    #              mlp_ratio=4., qkv_bias=True, drop=0., attn_drop=0.,
+    #              drop_path=0., norm_layer=nn.LayerNorm, resampler=PatchMerging3D if merging else PatchMerging3D, use_checkpoint=False,
+    #              pretrained_sWin=0, type_pos_bias='lonBand').to(device)
     
-    # Forward pass
-    s = time.time()
-    layer_output = bLayer(x_flat)
-    e = time.time()
+    # # Forward pass
+    # s = time.time()
+    # layer_output = bLayer(x_flat)
+    # e = time.time()
 
-    print(f"x_flat after basicLayer of depth 6 with last patch merging, befor_ds: ({layer_output[0].shape}), after_ds: ({layer_output[1].shape}), time: {e-s}")
+    # print(f"x_flat after basicLayer of depth 6 with last patch merging, befor_ds: ({layer_output[0].shape}), after_ds: ({layer_output[1].shape}), time: {e-s}")
     
     print("====================================== Big Test ==============================================")
     
-    factor10, sWin = 2, (2, 4, 4)
-    # factor10, sWin = 10, (2, 6, 6) # (2, 6, 12), (2, 4, 8)
+    # factor10, sWin = 2, (2, 4, 4)
+    factor10, sWin = 10, (2, 6, 6) # (2, 6, 12), (2, 4, 8)
     depths, nHeads = (4, 8, 4), (4, 8, 16)
     patch_size = 4
     H, W, D = int(int(720/patch_size)/10*factor10), int(int(1440/patch_size)/10*factor10), 8
@@ -1707,26 +1700,26 @@ if __name__ == "__main__":
                 norm_layer=nn.LayerNorm, ape=True,
                 use_checkpoint=False, pretrained_sWins=[0, 0, 0, 0], skippable=skippable, skip_learnable=skip_learnable).to(device)
 
-    s = time.time()
-    encoder_output = encoder(x_flat)
-    e = time.time()    
+    # s = time.time()
+    # encoder_output = encoder(x_flat)
+    # e = time.time()    
 
-    print(f"-------------- output after encoder. time: {e-s}")
-    if skippable:
-        for idx, (layer, out) in enumerate(zip(encoder.layers, encoder_output)):
-            i_res = list(layer.i_reso)
-            assert out[0].shape[1] == i_res[0] * i_res[1] * i_res[2]
-            o_res = list(layer.o_reso)
-            assert out[1].shape[1] == o_res[0] * o_res[1] * o_res[2]
-            print(f"skippable, basicLayer: {idx}, before ds: {out[0].shape} / {i_res}; after_ds: {out[1].shape} / {o_res}")
-    else:
-        out = encoder_output[-1]
-        layer = encoder.layers[-1]
-        i_res = list(layer.i_reso)
-        assert out[0].shape[1] == i_res[0] * i_res[1] * i_res[2]
-        o_res = list(layer.o_reso)
-        assert out[1].shape[1] == o_res[0] * o_res[1] * o_res[2]
-        print(f"un-skippable, basicLayer: before ds: {out[0].shape} / {i_res}; after_ds: {out[1].shape} / {o_res}")
+    # print(f"-------------- output after encoder. time: {e-s}")
+    # if skippable:
+    #     for idx, (layer, out) in enumerate(zip(encoder.layers, encoder_output)):
+    #         i_res = list(layer.i_reso)
+    #         assert out[0].shape[1] == i_res[0] * i_res[1] * i_res[2]
+    #         o_res = list(layer.o_reso)
+    #         assert out[1].shape[1] == o_res[0] * o_res[1] * o_res[2]
+    #         print(f"skippable, basicLayer: {idx}, before ds: {out[0].shape} / {i_res}; after_ds: {out[1].shape} / {o_res}")
+    # else:
+    #     out = encoder_output[-1]
+    #     layer = encoder.layers[-1]
+    #     i_res = list(layer.i_reso)
+    #     assert out[0].shape[1] == i_res[0] * i_res[1] * i_res[2]
+    #     o_res = list(layer.o_reso)
+    #     assert out[1].shape[1] == o_res[0] * o_res[1] * o_res[2]
+    #     print(f"un-skippable, basicLayer: before ds: {out[0].shape} / {i_res}; after_ds: {out[1].shape} / {o_res}")
     
 
     print("\n-------------- Decoder --------------")
@@ -1737,20 +1730,20 @@ if __name__ == "__main__":
             norm_layer=nn.LayerNorm, ape=True,
             use_checkpoint=False, pretrained_sWins=[0, 0, 0, 0], skippable=skippable, skip_learnable=skip_learnable).to(device)
         
-    s = time.time()
-    x = decoder(encoder_output)
-    e = time.time()
+    # s = time.time()
+    # x = decoder(encoder_output)
+    # e = time.time()
 
-    print(f"-------------- output after decoder. time: {e-s}")
+    # print(f"-------------- output after decoder. time: {e-s}")
     
-    o_res = decoder.layers[0].o_reso
-    assert x.shape[1] ==  o_res[0] * o_res[1] * o_res[2]
-    print(f"output {x.shape}, <{o_res}")
+    # o_res = decoder.layers[0].o_reso
+    # assert x.shape[1] ==  o_res[0] * o_res[1] * o_res[2]
+    # print(f"output {x.shape}, <{o_res}")
     
-    for idx, layer in enumerate(decoder.layers):
-        i_res = list(layer.i_reso)
-        o_res = list(layer.o_reso)
-        print(f"input_resulition {i_res}; o_reso {o_res}")
+    # for idx, layer in enumerate(decoder.layers):
+    #     i_res = list(layer.i_reso)
+    #     o_res = list(layer.o_reso)
+    #     print(f"input_resulition {i_res}; o_reso {o_res}")
 
     print("\n-------------- Encoder-Decoder --------------")
     
@@ -1760,31 +1753,31 @@ if __name__ == "__main__":
             norm_layer=nn.LayerNorm, ape=True,
             use_checkpoint=False, pretrained_sWins=[0, 0, 0, 0], skippable=skippable, skip_learnable=skip_learnable).to(device)
 
-    print(f"Encoder_Decoder. x_flat: {x_flat.shape}")
+    # print(f"Encoder_Decoder. x_flat: {x_flat.shape}")
 
-    s = time.time()
-    x = codec(x_flat)
-    e = time.time()
+    # s = time.time()
+    # x = codec(x_flat)
+    # e = time.time()
     
-    print(f"-------------- output after encoder_decoder. x: {x.shape} time: {e-s}")
+    # print(f"-------------- output after encoder_decoder. x: {x.shape} time: {e-s}")
         
     #-----------------------------------------------------------------
 
-    # Reshape back to (B, C, D, H, W)
-    x_out = x_flat.view(B, D, H, W, C).permute(0,4,1,2,3).contiguous()
-    print(f"Output shape: {x_out.shape}, time: {(e-s):.3f} sec")
-    assert x_out.shape == x_in.shape
+    # # Reshape back to (B, C, D, H, W)
+    # x_out = x_flat.view(B, D, H, W, C).permute(0,4,1,2,3).contiguous()
+    # print(f"Output shape: {x_out.shape}, time: {(e-s):.3f} sec")
+    # assert x_out.shape == x_in.shape
 
-    shift_size = (0,0,0)
-    PBLearner = PositionBiasLearner3D_Shpere(i_reso=(D, H, W), sWin=sWin,shift_size=shift_size, num_heads=num_heads, pair_bias_dim=pair_bias_dim, hidden_dim=pair_bias_dim*2)
-    pair_bias = PBLearner.pair_bias # (nWin * vWin * vWin, 4)
+    # shift_size = (0,0,0)
+    # PBLearner = PositionBiasLearner3D_Shpere(i_reso=(D, H, W), sWin=sWin,shift_size=shift_size, num_heads=num_heads, pair_bias_dim=pair_bias_dim, hidden_dim=pair_bias_dim*2)
+    # pair_bias = PBLearner.pair_bias # (nWin * vWin * vWin, 4)
     
-    pair_bias = pair_bias.view(PBLearner.nWin, PBLearner.vWin, PBLearner.vWin, pair_bias_dim) # (nWin, indow_volume, vWin, 4)
-    pair_bias = pair_bias[:, 0, :, :]
-    pair_bias = pair_bias.view(D//sWin[0], H//sWin[1], W//sWin[2], sWin[0], sWin[1], sWin[2],  pair_bias_dim)
-    pair_bias = pair_bias.permute(0, 3, 1, 4, 2, 5, 6).contiguous()
-    pair_bias = pair_bias.view(D, H, W, pair_bias_dim)[0] # (H, W, 4).
-    data = pair_bias[:, :, 2].numpy()    # cos_lat1, cos_lat2, great_circle, delta_depth
+    # pair_bias = pair_bias.view(PBLearner.nWin, PBLearner.vWin, PBLearner.vWin, pair_bias_dim) # (nWin, indow_volume, vWin, 4)
+    # pair_bias = pair_bias[:, 0, :, :]
+    # pair_bias = pair_bias.view(D//sWin[0], H//sWin[1], W//sWin[2], sWin[0], sWin[1], sWin[2],  pair_bias_dim)
+    # pair_bias = pair_bias.permute(0, 3, 1, 4, 2, 5, 6).contiguous()
+    # pair_bias = pair_bias.view(D, H, W, pair_bias_dim)[0] # (H, W, 4).
+    # data = pair_bias[:, :, 2].numpy()    # cos_lat1, cos_lat2, great_circle, delta_depth
     
     # show_global_position_bias(PBLearner, pair_dim_idx=4, depth_idx=0)
     # pair_bias = torch.stack([cos_lat1 ** 2, cos_lat2 ** 2, great_circle, delta_depth, torch.abs(delta_depth)], dim=-1)
@@ -1793,7 +1786,7 @@ if __name__ == "__main__":
     
     print("----------------------------------- printing ... ----------------------------------")
     
-    encoder = codec.decoder
+    encoder = codec.encoder
     projection = 'HW'
     
     nLayers = len(encoder.layers)

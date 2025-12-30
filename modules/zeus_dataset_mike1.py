@@ -90,11 +90,11 @@ class Zeus_Dataset(Dataset):
         self.total_ds = None
         
         #-------------------------------------------------------------------------
-        self.normal_meteo_buffers = [None] * (self.pm.nStepsPerBatch + 2)
-        self.unnormal_meteo_buffers = [None] * (self.pm.nStepsPerBatch + 2)
+        self.normal_meteo_buffers = [None] * (self.pm.nStepsPerCycle + 2)
+        self.unnormal_meteo_buffers = [None] * (self.pm.nStepsPerCycle + 2)
         
-        self.normal_tempo_buffers = [None] * (self.pm.nStepsPerBatch + 2)
-        self.unnormal_tempo_buffers = [None] * (self.pm.nStepsPerBatch + 2)
+        self.normal_tempo_buffers = [None] * (self.pm.nStepsPerCycle + 2)
+        self.unnormal_tempo_buffers = [None] * (self.pm.nStepsPerCycle + 2)
         
         self.pressure_indices = None
         self.pressure_values = None
@@ -1760,7 +1760,7 @@ class Zeus_Dataset(Dataset):
             futures = [
                 self._disk_threadPool.submit(
                         self.load_snapshot, dt + timedelta(hours=self.pm.modulo*idx), self.pm.modulo, with_normalized, idx
-                    ) for idx in range(self.pm.nStepsPerBatch + (2 if self.pm.pair_not_single_snapshot else 1))
+                    ) for idx in range(self.pm.nStepsPerCycle + (2 if self.pm.pair_not_single_snapshot else 1))
                 ]
 
             snapshots = []
