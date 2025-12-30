@@ -749,6 +749,7 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
         x = x + self.drop_path(self.norm2(self.mlp(x)))
         
         if not self.in_encoder and self.is_padding_block and self.pad_sum > 0:  # Un-Pad as a exit of a decoding BasicBlock
+            # This is the exit block of a decoding BasicLayer. It's time to un-pad what the corresponding entry block of encoding BasicLayer paded. 
             [D, H, W] = self.i_reso
             B, L, dim = x.shape
             x = x.view(B, D, H, W, dim)
