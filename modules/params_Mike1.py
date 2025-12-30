@@ -34,6 +34,7 @@ class Params:
         self.models_to_play = config['models_to_play']
         
         self.train_hours_limit = config['train_hours_limit']
+        self.dollarsPerHour = config['dollarsPerHour']
 
         #============================ data, shared ===========================================================================
         self.variables = config['variables']

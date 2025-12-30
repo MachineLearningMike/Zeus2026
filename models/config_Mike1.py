@@ -167,6 +167,9 @@ if platform.system() == "Windows":
         
     config["use_PE"] = True
     
+    config['nStepsPerBatch'] = 1
+    config['dollarsPerHour'] = 0.1
+    
     config["epochs"] = 100
     config["steps_to_save"] = 2
     config["abundant_GPUs"] = False
@@ -191,10 +194,16 @@ else:
     gpu_names = get_gpu_names()
     if 'A100' in gpu_names:
         config['nStepsPerBatch'] = 2
+        config['dollarsPerHour'] = 0.58
         print(f"A100 found!!!, nStepsPerPatch {config['nStepsPerBatch']}")
     elif 'B200' in gpu_names:
         config['nStepsPerBatch'] = 4
+        config['dollarsPerHour'] = 0.9475
         print(f"B200 found!!!, nStepsPerPatch {config['nStepsPerBatch']}")
+    else:
+        config['nStepsPerBatch'] = 1
+        config['dollarsPerHour'] = 0.1
+
     
     # shared_model_params['nHeads'] = 2
     # shared_model_params['patch_kernel'] = 4

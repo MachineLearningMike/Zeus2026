@@ -479,8 +479,8 @@ class Model_Trainer():
                     
             md_focus = self.get_md_focus(mds)
             end1 = time.time()
-            pbar.set_description("{}, wait/cycle {:.0f}/{:.0f} u {:.0f} lr {:1.1e} "
-                .format(md_focus.pbar_description, (end-start) * 1000, (end1-start1) * 1000, ((end1-start1) * 1000 - (end-start) * 1000) / self.train_bombs, md_focus.get_learning_rate()))
+            pbar.set_description("{}, wait/cycle {:.0f}/{:.0f} u {:.0f} S/$ {} lr {:1.1e} "
+                .format(md_focus.pbar_description, (end-start) * 1000, (end1-start1) * 1000, ((end1-start1) * 1000 - (end-start) * 1000) / self.train_bombs, int(self.pm.nStepsPerBatch * 3600/(end1-start1) / self.pm.dollarsPerHour), md_focus.get_learning_rate()))
             start1 = time.time()
 
             # This is to save the model in case it suddenly deviates to diverge.
