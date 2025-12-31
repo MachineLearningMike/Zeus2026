@@ -247,10 +247,11 @@ class Model_Trainer():
         target = target.to(device)
 
         error = (pred - target)
-        if loss_mask is not None: error = error * loss_mask[:, None, None]  # loss_mask masks air pressure level dimensions
+        # if loss_mask is not None: error = error * loss_mask[:, None, None]  # loss_mask masks air pressure level dimensions
 
-        rmse = (error ** 2).mean(dim=(1,2)).sqrt()    # (C,)
-        loss = ((error * self.pm.loss_weights_cuda[:, None, None])**2).mean(dim=(0,1,2)).sqrt() # self.pm.loss_weights_cuda amplifies the target variables.
+        rmse = (error ** 2).mean(dim=(1,2)).sqrt() * (loss_mask if loss_mask is not None else 1.0)    # (C,)
+        # loss = ((error * self.pm.loss_weights_cuda[:, None, None])**2).mean(dim=(0,1,2)).sqrt() # self.pm.loss_weights_cuda amplifies the target variables.
+        loss = (rmse * self.pm.loss_weights_cuda).mean()
 
         # self._print_tensor_state(1, target)                 # 
         # self._print_tensor_state(2, pred)
