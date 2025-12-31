@@ -245,7 +245,13 @@ class Model_Trainer():
         # 32, cuda, False ; 32, cuda, True !!!, 32, cuda, False, 32, cuda, False
         device = pred.device
         target = target.to(device)
-        rmse = ((pred - target) ** 2).mean(dim=(1,2)).sqrt()    # (C,), 32, cuda, True !!!
+
+        error = (pred - target)
+        if loss_mask is not None: error = error * loss_mask[:, None, None]  # loss_mask masks air pressure level dimensions
+
+        rmse = (error ** 2).mean(dim=(1,2)).sqrt()    # (C,)
+        loss = ((error * self.pm.loss_weights_cuda[:, None, None])**2).mean(dim=(0,1,2)).sqrt() # self.pm.loss_weights_cuda amplifies the target variables.
+
         # self._print_tensor_state(1, target)                 # 
         # self._print_tensor_state(2, pred)
         # self._print_tensor_state(3, batch_diff)
@@ -276,8 +282,7 @@ class Model_Trainer():
 
         # era5_data_vars = era5_data_vars.to(device)
         
-        if loss_mask is not None: rmse = rmse * loss_mask
-        return ((rmse * self.pm.loss_weights_cuda).mean()) ** 2, rmse # (,), (C,)     32, cuda, True
+        return loss, rmse
     
     def clean_gpu_every(self, n_iter, step):
         if step % n_iter == 0:
