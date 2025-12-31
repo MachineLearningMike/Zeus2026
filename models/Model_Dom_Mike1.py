@@ -91,10 +91,7 @@ class Model_Dom():
         self.accum_iterations = 0
     
     def _select_optimizer(self):
-        # Choose optimizer type, default to Adam
         optimizer_name = getattr(self.pm, 'optimizer', 'adam').lower()
-        lr = getattr(self.pm, 'lr', 1e-6)
-        weight_decay = getattr(self.pm, 'weight_decay', 0.01)
 
         if optimizer_name == 'adamw':
             OptimizerClass = torch.optim.AdamW
@@ -102,19 +99,36 @@ class Model_Dom():
             OptimizerClass = torch.optim.SGD
         else:
             OptimizerClass = torch.optim.Adam
+            
+        # Safely get trainable parameters as a list
+        trainable_params = [p for p in self.model.parameters() if p.requires_grad]
 
-        # At the time of calling this, self.model.parameters() may be on CPU.
-        # This call let optmizer keep reference to the pararmeters.
-        # Later, if the model is moved to GPU, the optimizer's references points to Cuda tensors.
-        # If optimizer.step() happens after moving the model, the states will also be on Cuda 
-        # because optimizer's state is created lazily when calling optimizer.step() first.
-        optimizer = OptimizerClass(
-            filter(lambda p: p.requires_grad, self.model.parameters()),
-            lr=lr,
-            weight_decay=weight_decay
-        )
+        if not trainable_params:
+            raise ValueError("No trainable parameters found in the model.")
 
-        logging.info(f"Optimizer created: {optimizer_name.upper()} with lr={lr}, weight_decay={weight_decay}")
+        # Define defaults clearly
+        default_config = {
+            'lr': 1e-6,
+            'betas': (0.9, 0.999),
+            'eps': 1e-8,
+            'amsgrad': False
+        }
+
+        # Special default for weight_decay based on optimizer
+        if optimizer_name.lower() == 'adam':
+            default_config['weight_decay'] = 0.0
+        else:
+            default_config['weight_decay'] = 0.01
+
+        # Retrieve values from self.pm or use defaults
+        optimizer_config = {key: getattr(self.pm, key, default) for key, default in default_config.items()}
+
+        # Create the optimizer
+        optimizer = OptimizerClass(trainable_params, **optimizer_config)
+
+        lr = optimizer.param_groups[0]['lr']
+        wd = optimizer.param_groups[0]['weight_decay']
+        logging.info(f"Optimizer created: {optimizer_name.upper()} with lr={lr}, weight_decay={wd}")
 
         return optimizer
     
