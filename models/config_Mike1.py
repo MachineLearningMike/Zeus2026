@@ -107,19 +107,31 @@ shared_model_params = {
     "radius"  : 1000,   # in kilometers
     "transient_steps" : 6000,
 
-    "optimizer": "adam",    # "adamw" takes more momory for optimizer.
-    "lr" : 1e-5,    # ---> changed below
+    #================================ optimizer ==============================
+    
+    "optimizer": "adamw",    # "adam", "adamw" takes more memory for optimizer.
+
+    #----------- adam & adamw ------------
+    'lr' : 1e-5,
+    'betas' : (0.9, 0.999),
+    'eps' : 1e-8,
+    'weight_decay' : 0.01,
+    'amsgrad' : False, # False typically - uses max of past v_t instead of exponential average   
+       
+    #---------------------- scheduler -------------------------
+    "max_lr" : 1e-5,    # ----> changed below    
+    "pct_start" : 1.0,      #    
+    "total_steps" : 60000,
+    "anneal_strategy" : "linear",   # "cos"
+    "div_factor" : 1.0,    # Initial LR = max_lr / div_factor
+    "final_div_factor" : 1.0, # Final LR = initial_lr / final_div_factor
+
+    #------------------------------------------------------------
     "bottleneck_dropout" : 0.03,
     "skip_validation" : False,
     "epochs": 50,
     "overwrite_saved_lr": False,
-    "max_lr" : 1e-5,    # ----> changed below
-    "total_steps" : 60000,
-    "weight_decay": 0.0,    # disable weight_decay, in AdamW
-    "pct_start" : 1.0,      #
-    "anneal_strategy" : "linear",   # "cos"
-    "div_factor" : 1.0,    # Initial LR = max_lr / div_factor
-    "final_div_factor" : 1.0, # Final LR = initial_lr / final_div_factor
+
     "accum_steps" : 10,  # the smaller batch_size is, the larger accum_steps is.
     "use_autocast" : True,
     "epoch_patience" : 10,       # Mike!!!
@@ -1398,116 +1410,6 @@ projects["Zeus_25Dec28_1"] = {
 }
 
 #-------------------------------- select proejct -----------------------
-
-"""
-Saved projects:
-"Zeus_25Dec26_6x6_learn_skip_2" : speedy convergence to 0.3 then back 2.3 then VERY slow convengence.
-"Zeus_25Dec26_6x6_learn_skip_3" : w/o codec skip, w/ decoder skip, lr = 1e-4 initially, lr = 1e-5 since loss < 0.4. goes below 0.17
-"Zeus_25Dec27_6x6_learn_skip_1" : w/ codec skip, w/ decoder skip, loss drops quickly from 10 
-                                to 4.4 for 20 x 4 steps,        1e-4 
-                                to 1.09 for 50 x 4 steps,
-                                to 0.405 for 100 x 4 steps,     1e-5
-                                to 0.340 for 150 x 4 steps,     1e-5
-                                to 0.3   for 200 x 4 steps,     1-e5
-                                to 0.28   for 250 x 4 steps,     1e-6
-                                to 0.27   350   5e-6
-                                to 0.16   1200 x 4 steps,       1e-5
-                                to 0.10   1850 x 4              1e-6
-                                ======== to 1.23 !!! 1915 x 4   explosion!!!
-"Zeus_25Dec28_1" on A100 (80GB)
-    step (x2),  loss,       best_loss,  lr (started with)
-    0           8.0                     1e-4        A100
-    50          1.0                     1e-4
-    100         0.43                    1e-4
-    150         0.298                   3.2e-5
-    200         0.237                   3.2e-5
-    250         0.23                    3.2e-5
-    300         0.221       0.209       3.2e-5
-    350         0.216       0.190       1e-5
-    400         0.211       0.180       1e-5
-    450         0.207       0.180       1e-5
-    500         0.181       0.174       1e-5
-    550         0.200       0.174       3.2e-6
-    600         0.206       0.174       3.2e-6
-    650         0.2         0.168       3.2e-6
-    700         0.184       0.168       3.2e-6
-    750         0.181       0.160       1e-6
-    800         0.179       0.157       1e-6
-    850         0.181       0.157       1e-6
-    900         0.205       0.157       1e-6
-    950         0.176       0.157       1e-6
-    1000        0.183       0.157       1e-6            B200
-    1050        0.176       0.157       1e-6
-    1100        0.203       0.157       1e-6
-    1150        =           =           =               =
-    1200        =           0.155       =               A100
-    
-    1550        0.174       0.151       =               A100
-    1700        0.18        0.142       =               B200
-    1750        0.179       0.142       =               =      
-    2300                    0.141       =               =
-    2350                    0.138       =               =
-    2350                    0.136       5e-6            =
-    2450        0.136       0.128       1e-5            =       0.9475$/h, 4 steps per 8s -> 5.26e-4 $ per step, or 1900 steps per $
-    2500                    0.114       =               =       8.15s
-    2650                    0.108       5e-6            A100
-    2750                    0.106       =               =       0.5800$/h, 2 steps per 5.47s -> 4.406$ per step, or 2270 steps per $
-    2850        0.422       0.105       =               =
-    2900                    0.095       =               =
-    3200                    =           2.5e-6          =
-    3400                    =           1e-6            =       safe lr, bedtiem
-    -4630       0.208       0.088       2.5e-7          B200    choose_best_loss_model
-    -2427       0.103       0.088       1e-7            =       not choose_best_loss_model
-    -2276       0.108       0.088       5e-7            =
-    -1775       0.096       =           1e-6            =
-    -1523       0.095       =           5e-6            =
-    -1223       0.106       0.086       5e-6            =
-    -130/1221               0.086       1e-5            =
-    -143/1221               0.085       2e-5            =
-    -160/1221               0.083       =               =
-    -185/1221               =           4e-5            =
-    -245/1221               =           1e-4            =
-    -285/1221               =           6.3e-5          =
-    -325                    0.080
-    -332                    0.079
-    -336                    0.079
-    -337                    0.078
-    -353                    0.077
-    -354                    0.075
-    -359                    0.073
-    -361                    0.072
-    -467                    0.069
-    -476                    0.069
-    -485                    0.063
-    -17/620                 0.062
-    -72/620                 =           1e-4            =
-    -42                     =           5e-5            =
-    -70/470                 0.061       =               =
-    -83                     0.061
-    -93                     0.061
-    -101                    0.061
-    -106                    0.058
-    -134                    0.055
-    -150                    0.054
-    -166                    0.054
-    -195                    0.053
-    -209                    0.053
-    -319                    0.053
-    ----------------------------------------------------------
-    31003                   0.052       5e-5            B200   
-    31087                   0.050       =               =
-    31332                   =           1e-4            =
-    31692                   =           5e-4            =       !!! over
-    31760                   =           1e-5            =
-    31860                   =           1e-4            =
-    32288                   =           1.6e-4          =
-    32660                   =           2e-4            =
-    33000                   0.047       =               A100
-    32126                   =           1e-4            =
-    33470                   =           2e-4            =
-        
-                                
-"""
 
 project = "Zeus_25Dec28_1"   # "Zeus_Swin_25Dec25_2"
 config["bayesProject"] = project
