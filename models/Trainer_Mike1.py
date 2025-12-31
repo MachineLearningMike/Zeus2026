@@ -277,8 +277,7 @@ class Model_Trainer():
         # era5_data_vars = era5_data_vars.to(device)
         
         if loss_mask is not None: rmse = rmse * loss_mask
-        rmse = rmse * self.pm.loss_weights_cuda
-        return (rmse.mean()) ** 2, rmse # (,), (C,)     32, cuda, True
+        return ((rmse * self.pm.loss_weights_cuda).mean()) ** 2, rmse # (,), (C,)     32, cuda, True
     
     def clean_gpu_every(self, n_iter, step):
         if step % n_iter == 0:
