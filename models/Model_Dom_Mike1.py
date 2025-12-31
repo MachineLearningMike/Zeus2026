@@ -432,7 +432,7 @@ class Model_Dom():
                     self.learning_rate = checkpoint['learning_rate']
                     logging.info(f"learning_rate loaded {self.learning_rate}")
 
-                self.best_loss = checkpoint['best_loss']
+                self.best_loss = 1e9 # checkpoint['best_loss']
                 logging.info(f"best_loss loaded {self.best_loss}")
 
                 self.accum_iterations = checkpoint['accum_iterations']
