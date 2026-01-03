@@ -245,7 +245,7 @@ class Model_Dom():
         
         checkpoint = {
             # 'model' : self.model,
-            'model': get_complete_state_dict(self.model), # self.model.state_dict(), # get_complete_state_dict(self.model),
+            'model': self.model.state_dict(), #get_complete_state_dict(self.model), # self.model.state_dict(), # get_complete_state_dict(self.model),
             'learning_rate': self.learning_rate,
             'optimizer': self.optimizer.state_dict(),
             'scheduler': self.scheduler.state_dict(),
