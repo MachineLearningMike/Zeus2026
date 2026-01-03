@@ -934,7 +934,7 @@ class Model_Dom():
             fn_loss, fn_nornalize, fn_unnornalize, 
             batch_diff, era5_data_vars, trainable,
             type_metrics, predicted_value_required,
-            pressure_indices, pressure_values,
+            air_level_pressure_indices, air_level_pressure_values,
             scaler,
         ):
         
@@ -943,7 +943,7 @@ class Model_Dom():
             fn_loss, fn_nornalize, fn_unnornalize, 
             batch_diff, era5_data_vars, trainable,
             type_metrics, predicted_value_required,
-            pressure_indices, pressure_values,
+            air_level_pressure_indices, air_level_pressure_values,
             scaler,
         )
         

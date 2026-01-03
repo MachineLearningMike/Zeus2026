@@ -442,8 +442,8 @@ class Model_Trainer():
                                         batch_diff, era5_data_vars, trainable=trainable,
                                         type_metrics = self.pm.metrics, 
                                         predicted_value_required = predicted_value_required,
-                                        pressure_indices = self.dataset.pressure_indices,
-                                        pressure_values = self.dataset.pressure_values,
+                                        air_level_pressure_indices = self.dataset.air_level_pressure_indices,
+                                        air_level_pressure_values = self.dataset.air_level_pressure_values,
                                         scaler=md.scaler,
                                     )
                                 cnt += 1
