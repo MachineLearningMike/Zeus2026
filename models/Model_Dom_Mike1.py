@@ -301,7 +301,7 @@ class Model_Dom():
 
         try:
             checkpoint_path = self.project_path / (name + '.pth')
-            checkpoint = torch.load(checkpoint_path, map_location="cpu")
+            checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
             # self.debug_scheduler_optimizer_alignment(checkpoint)
             logging.info("Checkpoint loaded from the .pth file")
         except Exception as e:
