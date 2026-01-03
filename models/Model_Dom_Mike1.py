@@ -143,8 +143,8 @@ class Model_Dom():
         scheduler = AdaptiveLossStatLR(
             optimizer=optimizer,
             initial_lr=initial_lr,      # Optional, defaults to optimizer's lr
-            min_lr=1e-8,           # Minimum LR
-            max_lr=0.01,           # Maximum LR
+            min_lr=1e-10,           # Minimum LR
+            max_lr=0.1,           # Maximum LR
             window_size=30,        # Losses to track
             warmup_steps=50       # Steps before adaptive adjustments
         )
