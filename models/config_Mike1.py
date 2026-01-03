@@ -207,11 +207,11 @@ else:
     if 'A100' in gpu_names:
         config['nStepsPerCycle'] = 2
         config['dollarsPerHour'] = 0.58
-        print(f"A100 found!!!, nStepsPerPatch {config['nStepsPerCycle']}")
+        print(f"A100 found!!!, nStepsPerBatch {config['nStepsPerCycle']}")
     elif 'B200' in gpu_names:
         config['nStepsPerCycle'] = 4
         config['dollarsPerHour'] = 0.9475
-        print(f"B200 found!!!, nStepsPerPatch {config['nStepsPerCycle']}")
+        print(f"B200 found!!!, nStepsPerBatch {config['nStepsPerCycle']}")
     else:
         config['nStepsPerCycle'] = 1
         config['dollarsPerHour'] = 0.1
