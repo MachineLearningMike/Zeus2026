@@ -284,7 +284,7 @@ class Model_Dom():
         
         if choose_best_loss_model:
             name = self.get_best_loss_file_name()
-            logging.info("!!!!!!!!!!!!!!!!!! Latest model chosen.     Turn back off the switch.")
+            logging.info("!!!!!!!!!!!!!!!!!! Best loss model chosen.     Turn back off the switch.")
         elif name is None:
             name = "train_state_" + str(self.md_id) #+ self.get_train_id_string()
             logging.info("!!! Latest model chosen as usual.")
