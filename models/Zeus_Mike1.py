@@ -147,11 +147,11 @@ class Zeus(nn.Module):
         ):   
         
         pred_normal = self(ss0, ss1, cascade_step)
-        air_level_pressure_mask = torch.ones(pred_normal.shape[0], dtype=torch.float32, device=pred_normal.device)
-        air_level_pressure_mask[air_level_pressure_indices] = 0.0
-        # air_level_pressure_mask[-len(self.pm.targetVariables):] = self.pm.lossXtargets  # Weight amplifiled -------------------------
+        air_levels_mask = torch.ones(pred_normal.shape[0], dtype=torch.float32, device=pred_normal.device)
+        air_levels_mask[air_level_pressure_indices] = 0.0
+        # air_levels_mask[-len(self.pm.targetVariables):] = self.pm.lossXtargets  # Weight amplifiled -------------------------
         
-        lossAndMetrics = fn_loss(ssY.meteo, pred_normal, batch_diff, era5_data_vars, loss_mask=air_level_pressure_mask)
+        lossAndMetrics = fn_loss(ssY.meteo, pred_normal, batch_diff, era5_data_vars, vars_mask=air_levels_mask)
         normalized_loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics   #---- [0] picks loss
 
         if trainable:
@@ -170,7 +170,7 @@ class Zeus(nn.Module):
         fn_unnornalize(pred_normal, pred_unnormal)
         
         if type_metrics == "rmse":
-            lossAndMetrics = fn_loss(ssY.meteo_unnormal, pred_unnormal, batch_diff, era5_data_vars, loss_mask=air_level_pressure_mask)
+            lossAndMetrics = fn_loss(ssY.meteo_unnormal, pred_unnormal, batch_diff, era5_data_vars, vars_mask=air_levels_mask)
             unnormalized_metrics = lossAndMetrics[1] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics   #---- [1] picks rmse
         elif type_metrics == "mae":
             unnormalized_metrics = torch.abs(ssY.meteo_unnormal - pred_unnormal).mean(dim=(1, 2))    # (C,)

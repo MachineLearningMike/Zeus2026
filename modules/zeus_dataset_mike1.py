@@ -1153,18 +1153,18 @@ class Zeus_Dataset(Dataset):
         # self.air_level_pressure_values = torch.tensor(air_level_pressure_values).to("cuda" if torch.cuda.is_available() else "cpu")
             
         #--------------------------------- loss weights --------------------
-        loss_weights = []
+        loss_boost_for_target_vars = []
         for var in self.p_intercalated_vars:
             if var.startswith("p_"):
-                loss_weights.append(0.)
+                loss_boost_for_target_vars.append(0.)
             elif var in ["t2m", "tp", "u100m","v100m", "d2m", "sp"]:
-                loss_weights.append(self.pm.lossXtargets)
+                loss_boost_for_target_vars.append(self.pm.lossXtargets)
             else:
-                loss_weights.append(1.)
+                loss_boost_for_target_vars.append(1.)
         
-        self.pm.loss_weights_cpu = torch.tensor(loss_weights, dtype=torch.float32)
+        self.pm.loss_weights_cpu = torch.tensor(loss_boost_for_target_vars, dtype=torch.float32)
         if torch.cuda.is_available():
-            self.pm.loss_weights_cuda = torch.tensor(loss_weights, dtype=torch.float32).to("cuda")
+            self.pm.loss_boost_for_target_vars_cpu = torch.tensor(loss_boost_for_target_vars, dtype=torch.float32).to("cuda")
         
         #-------------------------------- meteo ----------------------
         mean_meteo = []

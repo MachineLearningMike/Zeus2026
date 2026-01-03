@@ -240,18 +240,18 @@ class Model_Trainer():
         plt.show()
 
     # def loss(self, target, pred, batch_diff, era5_data_vars):
-    def loss(self, target, pred, batch_diff, era5_data_vars, loss_mask=None):
+    def loss(self, target, pred, batch_diff, era5_data_vars, vars_mask=None):
         # (B,FG,C,H,W), (B,FG,C,H,W), (B, C, H, W), (C,)
         # 32, cuda, False ; 32, cuda, True !!!, 32, cuda, False, 32, cuda, False
         device = pred.device
         target = target.to(device)
 
         error = (pred - target)
-        # if loss_mask is not None: error = error * loss_mask[:, None, None]  # loss_mask masks air pressure level dimensions
+        # if vars_mask is not None: error = error * vars_mask[:, None, None]  # vars_mask masks air pressure level dimensions
 
-        rmse = (error ** 2).mean(dim=(1,2)).sqrt() * (loss_mask if loss_mask is not None else 1.0)    # (C,)
-        # loss = ((error * self.pm.loss_weights_cuda[:, None, None])**2).mean(dim=(0,1,2)).sqrt() # self.pm.loss_weights_cuda amplifies the target variables.
-        loss = (rmse * self.pm.loss_weights_cuda).mean()
+        rmse = (error ** 2).mean(dim=(1,2)).sqrt() * (vars_mask if vars_mask is not None else 1.0)    # (C,)
+        # loss = ((error * self.pm.loss_boost_for_target_vars_cpu[:, None, None])**2).mean(dim=(0,1,2)).sqrt() # self.pm.loss_boost_for_target_vars_cpu amplifies the target variables.
+        loss = (rmse * self.pm.loss_boost_for_target_vars_cpu).mean()
 
         # self._print_tensor_state(1, target)                 # 
         # self._print_tensor_state(2, pred)
