@@ -1107,7 +1107,7 @@ class Zeus_Dataset(Dataset):
                     mean_meteo_dict[var] = mean
                     std_meteo_dict[var] = var_mean **  0.5
 
-        #----------------- find pressure_mean and pressure_std
+        #----------------- find pressure_mean and pressure_std, from air levels and 'sp' and 'msl'
         # air pressure mean: [...] _ [sp.mean, msl'mean]
         hecta = 100
         pascals = [p * hecta for p in self.pm.hecta_pascals]
@@ -1121,7 +1121,7 @@ class Zeus_Dataset(Dataset):
         pascals.append(std_meteo_dict['msl']**2)
         pressure_std = np.array(pascals).mean().item()**0.5
             
-        #----------------- Extend self.pm.variales to self.p_intercalated_vars, by using pressure_mean and pressure_std
+        #----------------- create self.p_intercalated_vars, by using pressure_mean and pressure_std, which are from air levels and 'sp' and 'msl'
         p_intercalated_vars = []
         for idx, var in enumerate(self.pm.variables):
             if idx % num_vars_per_level == 0 and idx // num_vars_per_level < num_levels:
@@ -1142,15 +1142,15 @@ class Zeus_Dataset(Dataset):
         #------------------------- Create self.air_level_pressure_indices and self.air_level_pressure_values
         #------------------------ 'msl' and 'sp' are missing?
         air_level_pressure_indices = []
-        air_level_pressure_values = []
+        # air_level_pressure_values = []
         for idx, var in enumerate(self.p_intercalated_vars):
             if var.startswith("p_"):
                 air_level_pressure_indices.append(idx)
                 hecta = 100.0
                 pressure = (int(var[2:]) * hecta - pressure_mean) / pressure_std
-                air_level_pressure_values.append(pressure)
+                # air_level_pressure_values.append(pressure)
         self.air_level_pressure_indices = torch.tensor(air_level_pressure_indices).to("cuda" if torch.cuda.is_available() else "cpu")
-        self.air_level_pressure_values = torch.tensor(air_level_pressure_values).to("cuda" if torch.cuda.is_available() else "cpu")
+        # self.air_level_pressure_values = torch.tensor(air_level_pressure_values).to("cuda" if torch.cuda.is_available() else "cpu")
             
         #--------------------------------- loss weights --------------------
         loss_weights = []
