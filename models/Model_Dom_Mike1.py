@@ -924,21 +924,22 @@ class Model_Dom():
         performed_step, lr, grad_norm = self.lr_controller.stepOptimizer(loss_item)
         
 
-    def forward_backward_no_step(self,
+    def forward_backward_no_optimizer_step(self,
             X0, X1, Y, cascade_step,
             fn_loss, fn_nornalize, fn_unnornalize, 
             batch_diff, era5_data_vars, trainable,
             type_metrics, predicted_value_required,
             pressure_indices, pressure_values,
+            scaler,
         ):
         
-        return self.model.forward_backward_no_step(
+        return self.model.forward_backward_no_optimizer_step(
             X0, X1, Y, cascade_step,
             fn_loss, fn_nornalize, fn_unnornalize, 
             batch_diff, era5_data_vars, trainable,
             type_metrics, predicted_value_required,
             pressure_indices, pressure_values,
-            self.scaler,
+            scaler,
         )
         
     def store_step_loss_and_metrics(self, step_loss, step_metrics): # [substep_loss...], [substep_metrics...]
