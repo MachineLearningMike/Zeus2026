@@ -31,7 +31,7 @@ from modules_zeus.constants import ERA5_DATA_VARS
 #     # REWARD_IMPROVEMENT_MIN_DELTA,
 # )
 
-from AdaptiveLRLearner import AdaptiveLRLearner
+from Model_Dom_Mike1_Auto_LR import AdaptiveLossStatLR
 
 def print_data_attrs(obj):
     for name, value in vars(obj).items():
@@ -78,9 +78,6 @@ class Model_Dom():
             self.epochs_since_improvement = 0
             self.weighted_metric_old = torch.ones_like(self.load_era5_data_vars()) * 1e9
             self.learning_rate = None
-            
-        if self.trainable:
-            self.lr_controller = AdaptiveLRLearner(self.optimizer, accum_steps=self.pm.accum_steps, init_lr=self.get_learning_rate())
 
         # work variables            
         self.total_losses = []
@@ -133,34 +130,42 @@ class Model_Dom():
         return optimizer
     
     def _select_scheduler(self, optimizer):
-        # Check train_loader length for scheduler
-        steps_per_epoch = self.dataset.get_steps_per_epoch()
-
+        
         # Scheduler parameters with defaults, overridable by args
-        max_lr = getattr(self.pm, 'max_lr', optimizer.param_groups[0]['lr'] * 2)
-        pct_start = getattr(self.pm, 'pct_start', 0.3)
-        total_steps = self.pm.total_steps
-        anneal_strategy =  getattr(self.pm, 'anneal_strategy', 'linear')
-        div_factor = getattr(self.pm, 'div_factor', 25.0)
-        final_div_factor = getattr(self.pm, 'final_div_factor', 1e4)
+        # max_lr = getattr(self.pm, 'max_lr', optimizer.param_groups[0]['lr'] * 2)
+        # pct_start = getattr(self.pm, 'pct_start', 0.3)
+        # total_steps = self.pm.total_steps
+        # anneal_strategy =  getattr(self.pm, 'anneal_strategy', 'linear')
+        # div_factor = getattr(self.pm, 'div_factor', 25.0)
+        # final_div_factor = getattr(self.pm, 'final_div_factor', 1e4)
 
-        scheduler = torch.optim.lr_scheduler.OneCycleLR(    # Mike!!! This is a per-batch scheduler.
-            # A per-batch scheduler's time axis is on mini-batch, not on epochs.
-            # It only counts how many mini-batches it traverses, across epochs, and doesn't aware of epochs.
-            # steps_per_epoch and epochs are only used to get total_steps.
-            
-            # (initial_lr = max_lr / div_factor, for pct_start of the total_steps) -> max_lr -> (Final LR = initial_lr/final_div_factor, for the remaining steps)
-            optimizer,
-            max_lr=max_lr,
-            total_steps=total_steps,
-            pct_start=pct_start,
-            anneal_strategy=anneal_strategy,
-            div_factor=div_factor,
-            final_div_factor=final_div_factor,
-            # suppress_warnings=True,
+        initial_lr = 5e-5
+        scheduler = AdaptiveLossStatLR(
+            optimizer=optimizer,
+            initial_lr=initial_lr,      # Optional, defaults to optimizer's lr
+            min_lr=1e-8,           # Minimum LR
+            max_lr=0.01,           # Maximum LR
+            window_size=30,        # Losses to track
+            warmup_steps=50       # Steps before adaptive adjustments
         )
+        logging.info(f"Scheduler created: AdaptiveLossStatLR with initial_lr={initial_lr}")
 
-        logging.info(f"Scheduler created: OneCycleLR with max_lr={max_lr}, pct_start={pct_start}, total_steps={total_steps}, div_factor={div_factor}, final_div_factor={final_div_factor}")
+        # scheduler = torch.optim.lr_scheduler.OneCycleLR(    # Mike!!! This is a per-batch scheduler.
+        #     # A per-batch scheduler's time axis is on mini-batch, not on epochs.
+        #     # It only counts how many mini-batches it traverses, across epochs, and doesn't aware of epochs.
+        #     # steps_per_epoch and epochs are only used to get total_steps.
+            
+        #     # (initial_lr = max_lr / div_factor, for pct_start of the total_steps) -> max_lr -> (Final LR = initial_lr/final_div_factor, for the remaining steps)
+        #     optimizer,
+        #     max_lr=max_lr,
+        #     total_steps=total_steps,
+        #     pct_start=pct_start,
+        #     anneal_strategy=anneal_strategy,
+        #     div_factor=div_factor,
+        #     final_div_factor=final_div_factor,
+        #     # suppress_warnings=True,
+        # )
+        # logging.info(f"Scheduler created: OneCycleLR with max_lr={max_lr}, pct_start={pct_start}, total_steps={total_steps}, div_factor={div_factor}, final_div_factor={final_div_factor}")
 
         return scheduler
     
@@ -393,24 +398,24 @@ class Model_Dom():
                     logging.info("!!! Optimizer NOT loaded with saved state.")
 
                 #------------------- scheduler -------------------------
-                
+                # Check against saved
+                if 'scheduler' in checkpoint:
+                    saved_scheduler = checkpoint['scheduler']
+                    logging.info(f"Saved scheduler state keys: {list(saved_scheduler.keys())}")
+                    
                 self.scheduler.load_state_dict(checkpoint['scheduler'])
                 logging.info("Scheduler loaded with saved state.")
                 
                 logging.info(f"Scheduler type: {type(self.scheduler).__name__}")
 
-                # Check specific scheduler attributes
-                if hasattr(self.scheduler, '_step_count'):
-                    logging.info(f"Scheduler _step_count: {self.scheduler._step_count}")
-                if hasattr(self.scheduler, 'last_epoch'):
-                    logging.info(f"Scheduler last_epoch: {self.scheduler.last_epoch}")
-                if hasattr(self.scheduler, 'get_last_lr'):
-                    logging.info(f"Scheduler last_lr: {self.scheduler.get_last_lr()}")
+                # # Check specific scheduler attributes
+                # if hasattr(self.scheduler, '_step_count'):
+                #     logging.info(f"Scheduler _step_count: {self.scheduler._step_count}")
+                # if hasattr(self.scheduler, 'last_epoch'):
+                #     logging.info(f"Scheduler last_epoch: {self.scheduler.last_epoch}")
+                # if hasattr(self.scheduler, 'get_last_lr'):
+                #     logging.info(f"Scheduler last_lr: {self.scheduler.get_last_lr()}")
 
-                # Check against saved
-                if 'scheduler' in checkpoint:
-                    saved_scheduler = checkpoint['scheduler']
-                    logging.info(f"Saved scheduler keys: {list(saved_scheduler.keys())}")
                 
                 #------------------- scaler -------------------------
                 
@@ -924,21 +929,22 @@ class Model_Dom():
         performed_step, lr, grad_norm = self.lr_controller.stepOptimizer(loss_item)
         
 
-    def forward_backward_no_step(self,
+    def forward_backward_no_optimizer_step(self,
             X0, X1, Y, cascade_step,
             fn_loss, fn_nornalize, fn_unnornalize, 
             batch_diff, era5_data_vars, trainable,
             type_metrics, predicted_value_required,
             pressure_indices, pressure_values,
+            scaler,
         ):
         
-        return self.model.forward_backward_no_step(
+        return self.model.forward_backward_no_optimizer_step(
             X0, X1, Y, cascade_step,
             fn_loss, fn_nornalize, fn_unnornalize, 
             batch_diff, era5_data_vars, trainable,
             type_metrics, predicted_value_required,
             pressure_indices, pressure_values,
-            self.scaler,
+            scaler,
         )
         
     def store_step_loss_and_metrics(self, step_loss, step_metrics): # [substep_loss...], [substep_metrics...]

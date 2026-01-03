@@ -1401,6 +1401,7 @@ projects["Zeus_25Dec28_1"] = {
         'qkv_bias' : True,
         
         'choose_best_loss_model' : False,
+        'useLRLearner' : True,
     }, 
     
     "model_1": {},

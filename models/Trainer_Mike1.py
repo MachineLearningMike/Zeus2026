@@ -407,7 +407,7 @@ class Model_Trainer():
                         
                         #--------------------------------------------- starting a set of steps for md...
 
-                        step_loss = []; step_metrics = []; cnt = 0
+                        train_step_loss = []; train_step_metrics = []; cnt = 0
                         while len(Xs) > 0:  # loops at least once
                             # State: 
                             # len(Xs) > 0, len(oldQ) > 0, [x0.device == device and x1.device == device for (x0, x1) in oldQ]
@@ -436,7 +436,7 @@ class Model_Trainer():
                                 Y.to(device)
                                                      
                                 predicted_value_required = (len(Xs) > 0 or len(oldQ) > 0 and cascade_step < self.pm.max_cascade_step)       
-                                substep_result, _substep_loss, _substep_metrics = md.forward_backward_no_step(
+                                substep_result, substep_loss, substep_metrics = md.forward_backward_no_optimizer_step(
                                         X0, X1, Y, cascade_step,
                                         self.loss, self.dataset.normalize_meteo, self.dataset.unnormalize_meteo, 
                                         batch_diff, era5_data_vars, trainable=trainable,
@@ -444,6 +444,7 @@ class Model_Trainer():
                                         predicted_value_required = predicted_value_required,
                                         pressure_indices = self.dataset.pressure_indices,
                                         pressure_values = self.dataset.pressure_values,
+                                        scaler=md.scaler,
                                     )
                                 cnt += 1
 
@@ -459,8 +460,8 @@ class Model_Trainer():
                                                             
                                 #--------------------------------------- The substep finished.
                                 
-                                step_loss.append(_substep_loss)          # [substep_loss...]
-                                step_metrics.append(_substep_metrics)    # [substep_metrics...]
+                                train_step_loss.append(substep_loss)          # [substep_loss...]
+                                train_step_metrics.append(substep_metrics)    # [substep_metrics...]
                                 
                             #------------------------------------------- The step finished.
                             # state: len(oldQ) == 0, len(oldQ) > 0
@@ -470,15 +471,15 @@ class Model_Trainer():
                         # print('++++++++++++++++++++++++++', cnt, predicted_value_required)
                             
                         #------------------------------------------------ The set of steps finished.
-                        md.store_step_loss_and_metrics(step_loss, step_metrics) # [substep_loss...], [substep_metrics...]
+                        md.store_step_loss_and_metrics(train_step_loss, train_step_metrics) # [substep_loss...], [substep_metrics...]
                         
                         if trainable:
                             check_gradient(md.model)
+
                             if md.pm.useLRLearner:
-                                md.lr_controller.stepOptimizer(_substep_loss.item())
-                            else:
-                                md.scaler.step(md.optimizer)
-                                md.scaler.update()
+                                md.scheduler.step_loss(torch.stack(train_step_loss).mean().item())
+                            md.scaler.step(md.optimizer)
+                            md.scaler.update()
             else:
                 pass
                     

@@ -148,6 +148,7 @@ class AdaptiveLossStatLR(_LRScheduler):
         
         # Combine all factors
         adjustment = mean_factor * std_factor * patience_factor * improvement_factor
+        print(f"mean_factor {mean_factor}, std_factor {std_factor}, patience_factor {patience_factor}, improvement_factor {improvement_factor}")
         
         # Get current LR and apply adjustment
         current_lr = self.get_last_lr()[0]
