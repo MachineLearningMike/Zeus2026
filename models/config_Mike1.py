@@ -1378,7 +1378,6 @@ projects["Zeus_25Dec28_1"] = {
         "lr": 1e-4,
         "max_lr": 1e-4,
         "overwrite_saved_lr": False,
-        "useLRLearner" : False,
         "accum_steps" : 10,   
         "skip_validation" : True,
         #----------------------------------- SWIN ------------------------
