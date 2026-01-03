@@ -1351,6 +1351,7 @@ projects["Zeus_25Dec27_6x6_learn_skip_2"] = {
         'qkv_bias' : True,
         
         'choose_best_loss_model' : True,
+        'useLRLearner' : True,
     },
     
     "model_1": {},
@@ -1378,7 +1379,7 @@ projects["Zeus_25Dec28_1"] = {
         "lr": 1e-4,
         "max_lr": 1e-4,
         "overwrite_saved_lr": False,
-        "useLRLearner" : False,
+        "useLRLearner" : True,
         "accum_steps" : 10,   
         "skip_validation" : True,
         #----------------------------------- SWIN ------------------------
