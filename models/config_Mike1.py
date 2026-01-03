@@ -1371,7 +1371,7 @@ projects["Zeus_25Dec28_1"] = {
     "data": {
     "org_height": 721,
     "batch_size": 1,
-    'lossXtargets' : 3.0,
+    'lossXtargets' : 5.0,
     },
     
     "model_0": {
