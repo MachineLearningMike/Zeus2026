@@ -1061,7 +1061,7 @@ class BasicLayer(nn.Module):
         layer_output.append(x)
         return layer_output
     
-    def enhance_basic_layer_with_diversity(self, layer):
+    def ease_layer_with_parallel_blocks(self, layer):
         """
         Device-safe enhancement.
         """

@@ -62,8 +62,8 @@ class Model_Dom():
             # if self.nDevices > 1:
             #     self.slave_models = self.create_slave_models(self.devices)
             
-            if self.pm.enhance_bottlenecks:
-                self.model.enhance_model_bottlenecks(self.model, verbose=True)
+            if self.pm.relieve_bottlenecks:
+                self.model.ease_model_bottlenecks(self.model, verbose=True)
                 self.verify_enhancement(self.model)
             
         else:

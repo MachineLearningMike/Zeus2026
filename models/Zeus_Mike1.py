@@ -85,7 +85,7 @@ class Zeus(nn.Module):
         
         i_reso = (self.patch_extractor.nTotalLevels, H//patch_stride, W//patch_stride)
         
-        use_checkpoint = False #------------------------------- True for enhanced basiclayer on A100
+        use_checkpoint = self.pm.use_checkpoint #------------------------------- True for enhanced basiclayer on A100
         
         self.encoder_decoder = Encoder_Decoder(
                 i_reso = i_reso, embed_dim=swin_dim, depths=depth_list, num_heads=head_list,    #--------- num_heads to revise for deployment.
@@ -181,7 +181,7 @@ class Zeus(nn.Module):
                 
         return result_ss, normalized_loss.detach().to("cpu"), unnormalized_metrics.detach().to("cpu")
 
-    def enhance_model_bottlenecks(self, model, verbose=True):
+    def ease_model_bottlenecks(self, model, verbose=True):
         """
         Simple: Enhance bottleneck layers, return modified model.
         """
@@ -199,7 +199,7 @@ class Zeus(nn.Module):
                     if verbose:
                         print(f"  Enhancing bottleneck #{basiclayer_counter}: {name}")
                     
-                    module.enhance_basic_layer_with_diversity(module)
+                    module.ease_layer_with_parallel_blocks(module)
         
         if verbose:
             print(f"Enhanced bottleneck layers")
