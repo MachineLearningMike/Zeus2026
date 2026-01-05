@@ -491,7 +491,9 @@ class Model_Trainer():
             compute = (cycle - data_wait) / self.train_bombs
             cyclesPerHour = 3600/(end1-start1)
             stepsPerDollar = int(self.pm.nStepsPerCycle * cyclesPerHour / self.pm.dollarsPerHour)
-            pbar.set_description(f"{md_focus.pbar_description}, wait/cycle {data_wait:.0f}/{cycle:.0f} com {compute:.0f} S/D {stepsPerDollar} lr {md_focus.get_learning_rate():1.1e} ")
+            lr = md_focus.get_learning_rate()
+            gates = md_focus.get_abs_gates_mean()
+            pbar.set_description(f"{md_focus.pbar_description}, wait/cycle {data_wait:.0f}/{cycle:.0f} com {compute:.0f} S/D {stepsPerDollar} lr {lr:1.1e} gates {gates:.5f}")
             start1 = time.time()
 
             # This is to save the model in case it suddenly deviates to diverge.

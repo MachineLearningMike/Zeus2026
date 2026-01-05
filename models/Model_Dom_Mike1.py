@@ -344,7 +344,7 @@ class Model_Dom():
                         return True
                 return False
             
-            def get_absolute_gate_sum_pytorch(model):
+            def get_abs_gates_sum(model):
                 """
                 Returns the sum of absolute values of all parameters 
                 whose name contains 'gate'.
@@ -363,7 +363,7 @@ class Model_Dom():
                 print("Model class does not have gate parameters. exiting....")
                 
             if state_dict_has_gates(state_dict):
-                print(f"Model checkpoint has gates, with abs sum of {get_absolute_gate_sum_pytorch(self.model)}")
+                print(f"Model checkpoint has gates, with abs sum of {get_abs_gates_sum(self.model)}")
             else:
                 print("Model checkpoint does not have gates")
 
@@ -530,6 +530,21 @@ class Model_Dom():
         
         return self.epoch, self.packed_losses_metrics
 
+
+    def get_abs_gates_mean(self):
+        """
+        Returns the sum of absolute values of all parameters 
+        whose name contains 'gate'.
+        """
+        total = 0.0
+        cnt = 0        
+        for name, param in self.model.named_parameters():
+            if 'gate' in name.lower():  # Case-insensitive match
+                total += param.abs().sum().item()
+                cnt += 1
+        
+        return total / cnt
+    
     
     def debug_normalization_issue(self):
         """Debug the normalization statistics issue"""
