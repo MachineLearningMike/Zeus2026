@@ -403,11 +403,11 @@ class Model_Dom():
             #             break
 
             # Check what normalization stats are saved
-            saved_keys = list(checkpoint['model'].keys())
-            norm_stats_keys = [k for k in saved_keys if 'running_mean' in k or 'running_var' in k or 'num_batches_tracked' in k]
-            logging.info(f"Found {len(norm_stats_keys)} normalization stat keys in checkpoint")
-            if norm_stats_keys:
-                logging.info(f"Sample: {norm_stats_keys[:5]}")
+            # saved_keys = list(checkpoint['model'].keys())
+            # norm_stats_keys = [k for k in saved_keys if 'running_mean' in k or 'running_var' in k or 'num_batches_tracked' in k]
+            # logging.info(f"Found {len(norm_stats_keys)} normalization stat keys in checkpoint")
+            # if norm_stats_keys:
+            #     logging.info(f"Sample: {norm_stats_keys[:5]}")
 
             #---------------------------------------------------------------------------------------
             packed_losses_metrics = None

@@ -1077,27 +1077,36 @@ class BasicLayer(nn.Module):
         
         print(f"  Enhancing on: {device}")
         
-        # 1. Gates on correct device
+        # 1. Gates on correct device        
         layer.gates = nn.ParameterList([
-            nn.Parameter(torch.zeros(1, device=device)) for _ in layer.blocks
+            nn.Parameter(torch.normal(0.0, 0.01, size=(1,), device=device, requires_grad=True)) 
+            for _ in layer.blocks
         ])
+        
+        for i, gate in enumerate(layer.gates):
+            layer.register_parameter(f'gate_{i}', gate)
         
         # 2. Parallel blocks
         layer.parallel_blocks = nn.ModuleList()
         
-        for orig_block in layer.blocks:
+        for i, orig_block in enumerate(layer.blocks):
             # Deep copy
             parallel_block = copy.deepcopy(orig_block)
-            
-            # Ensure on correct device
             parallel_block = parallel_block.to(device)
             
-            # Re-initialize
-            for param in parallel_block.parameters():
+            # Re-initialize with DIFFERENT initialization than original
+            for name, param in parallel_block.named_parameters():
                 if param.dim() >= 2:
-                    nn.init.normal_(param, mean=0.0, std=0.01)
+                    # Use orthogonal initialization for better gradient flow
+                    if 'weight' in name:
+                        nn.init.orthogonal_(param)
+                    else:
+                        nn.init.normal_(param, mean=0.0, std=0.02)
                 elif param.dim() == 1:
-                    nn.init.zeros_(param)
+                    if 'bias' in name:
+                        nn.init.constant_(param, 0.1)  # Small positive bias
+                    else:
+                        nn.init.zeros_(param)
             
             layer.parallel_blocks.append(parallel_block)
                 
