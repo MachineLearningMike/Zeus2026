@@ -64,6 +64,9 @@ class Model_Dom():
             
             if self.pm.enhance_capability:
                 self.model.enhance_model_irreversible(self.model, layers_to_enhance_in_enc_dec=self.pm.layers_to_enhance_in_enc_dec, verbose=True)
+            num_params = sum(p.numel() for p in self.model.parameters())
+            logging.info("Zeus model {} enhanced to a total of ========= {:,} ========= parameters".format(self.md_id, num_params))
+            
             
         else:
             pass
