@@ -1100,42 +1100,36 @@ class BasicLayer(nn.Module):
                     nn.init.zeros_(param)
             
             layer.parallel_blocks.append(parallel_block)
-        
-        # # 3. Freeze original
-        # for param in layer.blocks.parameters():
-        #     param.requires_grad = False
-        
+                
         # 4. Forward
         original_forward = layer.forward
         
-        def diverse_enhanced_forward(sefl, x):
+        def diverse_enhanced_forward(self, x):
             if not hasattr(layer, 'gates'):
                 return original_forward(x)
             
             layer_output = []
             
-            # Process with diverse parallel blocks
-            for orig_block, parallel_block, gate in zip(
+            sources = list(zip(
                 layer.blocks,
                 layer.parallel_blocks,
                 layer.gates
-            ):
-                # with torch.no_grad():
-                orig_out = orig_block(x)  # Proven wisdom
-                
+            ))
+            
+            # Process with diverse parallel blocks
+            for orig_block, parallel_block, gate in sources if self.in_encoder else reversed(sources):
+                orig_out = orig_block(x)  # Proven wisdom                
                 parallel_out = parallel_block(x)  # Random explorer
-                
-                # Combine: proven + gate × random_explorer
-                x = orig_out + gate * parallel_out
-            
+                x = orig_out + gate * parallel_out    
+
             layer_output.append(x)      # x before, possible, resampling
-            
-            if hasattr(layer, 'resampler') and layer.resampler:
-                x = layer.resampler(x)
-            
-            layer_output.append(x)      # x after, possble, resampling
-            
+
+            if self.resampler is not None:
+                x = self.resampler(x)
+            layer_output.append(x)
+                
             return layer_output
+        
         
         import types
         layer.forward = types.MethodType(diverse_enhanced_forward, layer)
