@@ -1401,7 +1401,7 @@ projects["Zeus_25Dec28_1"] = {
         
         'choose_best_loss_model' : False,
         'useLRLearner' : False,
-        'relieve_bottlenecks' : False,
+        'relieve_bottlenecks' : True,      # Once True, forever True.
         'use_checkpoint' : False,
     }, 
     
