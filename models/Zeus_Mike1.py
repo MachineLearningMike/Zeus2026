@@ -84,7 +84,9 @@ class Zeus(nn.Module):
         #---------------- Swin blocks ----------------------
         
         i_reso = (self.patch_extractor.nTotalLevels, H//patch_stride, W//patch_stride)
-        use_checkpoint = False #------------------------------- True for enhanced basiclayer on A100
+        
+        use_checkpoint = True #------------------------------- True for enhanced basiclayer on A100
+        
         self.encoder_decoder = Encoder_Decoder(
                 i_reso = i_reso, embed_dim=swin_dim, depths=depth_list, num_heads=head_list,    #--------- num_heads to revise for deployment.
                 sWin=sWin, mlp_ratio=4., qkv_bias=qkv_bias,
