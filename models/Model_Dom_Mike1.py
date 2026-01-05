@@ -425,29 +425,29 @@ class Model_Dom():
                     
                 #------------------- optimizer -------------------------
                 
-                if self.optimizer is not None and "optimizer" in checkpoint:
-                    try:
-                        self.optimizer.load_state_dict(checkpoint["optimizer"])
+                # if self.optimizer is not None and "optimizer" in checkpoint:
+                #     try:
+                #         self.optimizer.load_state_dict(checkpoint["optimizer"])
                         
-                        correct_step, num_fixed = self.fix_mixed_step_values()  # to the most comon step value.
+                #         correct_step, num_fixed = self.fix_mixed_step_values()  # to the most comon step value.
 
-                        # Move optimizer state tensors to the same device as their parameters
-                        for group in self.optimizer.param_groups:
-                            for p in group["params"]:
-                                if p in self.optimizer.state:
-                                    for k, v in self.optimizer.state[p].items():
-                                        if torch.is_tensor(v):
-                                            self.optimizer.state[p][k] = v.to(p.device, non_blocking=True)
-                        logging.info("Optimizer loaded with saved state.")
-                    except:
-                        logging.info("Optimizer failed to load checkpoint, due to different parameter set.")
+                #         # Move optimizer state tensors to the same device as their parameters
+                #         for group in self.optimizer.param_groups:
+                #             for p in group["params"]:
+                #                 if p in self.optimizer.state:
+                #                     for k, v in self.optimizer.state[p].items():
+                #                         if torch.is_tensor(v):
+                #                             self.optimizer.state[p][k] = v.to(p.device, non_blocking=True)
+                #         logging.info("Optimizer loaded with saved state.")
+                #     except:
+                #         logging.info("Optimizer failed to load checkpoint, due to different parameter set.")
                     
-                    # self.debug_optimizer_state()
-                    # self.debug_optimizer_parameter_references(checkpoint)
-                    # self.debug_optimizer_state_existence_fixed()
+                #     # self.debug_optimizer_state()
+                #     # self.debug_optimizer_parameter_references(checkpoint)
+                #     # self.debug_optimizer_state_existence_fixed()
                 
-                else:
-                    logging.info("!!! Optimizer NOT loaded with saved state.")
+                # else:
+                #     logging.info("!!! Optimizer NOT loaded with saved state.")
 
                 #------------------- scheduler -------------------------
                     
