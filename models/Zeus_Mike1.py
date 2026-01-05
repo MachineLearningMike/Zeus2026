@@ -192,7 +192,7 @@ class Zeus(nn.Module):
         
         for name, module in model.named_modules():
             if module.__class__.__name__ == "BasicLayer":
-                basiclayer_counter += 1
+                print(f"  BasicLayer name: {name}, basiclayer_counter {basiclayer_counter}")
                 
                 # Enhance every 3rd BasicLayer (bottleneck)
                 if basiclayer_counter % 3 == 2:  # Indices 2, 5
@@ -201,8 +201,10 @@ class Zeus(nn.Module):
                     
                     module.ease_layer_with_parallel_blocks(module)
         
+                basiclayer_counter += 1
+        
         if verbose:
-            print(f"Enhanced bottleneck layers")
+            print(f"Enhanced bottleneck layers. 2 of {basiclayer_counter}")
         
         return model  # That's it!
 
