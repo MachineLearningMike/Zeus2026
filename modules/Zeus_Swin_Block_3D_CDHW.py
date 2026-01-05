@@ -993,7 +993,7 @@ class BasicLayer(nn.Module):
 
     def __init__(self, dim, i_reso, depth, num_heads, sWin, pair_bias_dim,
                  mlp_ratio=4., qkv_bias=True, drop=0., attn_drop=0.,
-                 drop_path=0., norm_layer=nn.LayerNorm, resampler=PatchMerging3D, use_checkpoint=False,
+                 drop_path=0., norm_layer=nn.LayerNorm, resampler=PatchMerging3D, use_checkpoint=True,  #------- use_checkpoint = True for enhanced BasicLayer
                  pretrained_sWin=0, type_pos_bias='lonBand', padding=None, inherited_padding=None, in_encoder=True):
 
         super().__init__()
