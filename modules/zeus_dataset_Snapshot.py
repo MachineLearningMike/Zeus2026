@@ -531,6 +531,9 @@ class Snapshot:
     
         if ss1 != ss2:    
             assert ss1.device == ss2.device
+            
+        # assert ss1.device == 'cpu'
+        # assert ss2.device == 'cpu'
 
         # --- Concatenate corresponding levels ---
         _, H, W = ss1.meteo.shape

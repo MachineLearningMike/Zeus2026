@@ -1736,6 +1736,7 @@ class Zeus_Dataset(Dataset):
                     self.normalize_meteo(self.unnormal_meteo_buffers[idx], self.normal_meteo_buffers[idx])
                     
             ss = Snapshot(dt.year, dt.month, dt.day, dt.hour, meteo=self.normal_meteo_buffers[idx], meteo_unnormal=self.unnormal_meteo_buffers[idx])
+            assert ss.device == 'cpu'
 
             self.normalize_tempo(ss.tempo, ss.tempo)
                                         

@@ -430,6 +430,7 @@ class Model_Trainer():
                                 X0, X1 = oldQ[0]; oldQ = oldQ[1:]    # assert X.device == device
                                 cascade_step = len(newQ)
                                 
+                                #-------------------- control snapshot device ----------
                                 X0.to(device)
                                 if self.pm.pair_not_single_snapshot:
                                     X1.to(device)
