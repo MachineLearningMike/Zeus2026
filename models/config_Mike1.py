@@ -1399,7 +1399,7 @@ projects["Zeus_25Dec28_1"] = {
         'skip_learnable' : True,
         'qkv_bias' : True,
         
-        'choose_best_loss_model' : False,
+        'choose_best_loss_model' : True,
         'useLRLearner' : False,
         'use_checkpoint' : False,
         'enhance_capability' : True,       # Once the model is enhanced, it's irreversible unless training again.

@@ -64,7 +64,6 @@ class Model_Dom():
             
             if self.pm.enhance_capability:
                 self.model.enhance_model_irreversible(self.model, layers_to_enhance_in_enc_dec=self.pm.layers_to_enhance_in_enc_dec, verbose=True)
-                self.verify_enhancement(self.model)
             
         else:
             pass
@@ -438,10 +437,6 @@ class Model_Dom():
                     logging.info("!!! Optimizer NOT loaded with saved state.")
 
                 #------------------- scheduler -------------------------
-                # Check against saved
-                if 'scheduler' in checkpoint:
-                    saved_scheduler = checkpoint['scheduler']
-                    logging.info(f"Saved scheduler state keys: {list(saved_scheduler.keys())}")
                     
                 self.scheduler.load_state_dict(checkpoint['scheduler'])
                 logging.info("Scheduler loaded with saved state.")
@@ -518,87 +513,7 @@ class Model_Dom():
         self.epoch, self.packed_losses_metrics = epoch, packed_losses_metrics        
         
         return self.epoch, self.packed_losses_metrics
-    
-    
-    def verify_enhancement(self, model):
-        """
-        Verify that enhancement was applied correctly.
-        """
-        print("\n" + "="*60)
-        print("VERIFYING ENHANCEMENT")
-        print("="*60)
-        
-        # 1. Check for gates
-        gate_params = [(n, p) for n, p in model.named_parameters() if 'gate' in n]
-        print(f"1. Gate parameters: {len(gate_params)} found")
-        
-        # 2. Check for parallel blocks
-        parallel_blocks_count = 0
-        for name, module in model.named_modules():
-            if 'parallel_blocks' in name:
-                parallel_blocks_count += 1
-        
-        print(f"2. Parallel block references: {parallel_blocks_count}")
-        
-        # 3. Check that original blocks are frozen
-        frozen_blocks = 0
-        total_blocks = 0
-        
-        for name, module in model.named_modules():
-            if module.__class__.__name__ == "BasicLayer":
-                if hasattr(module, 'blocks'):
-                    for block in module.blocks:
-                        total_blocks += 1
-                        if all(not p.requires_grad for p in block.parameters()):
-                            frozen_blocks += 1
-        
-        print(f"3. Frozen original blocks: {frozen_blocks}/{total_blocks}")
-        
-        # 4. Test forward pass
-        print("4. Testing forward pass...")
-        try:
-            # Create dummy input
-            B, C, D, H, W = 1, 96, 8, 45, 90  # Adjust based on your config
-            dummy_input = torch.randn(B, D*H*W, C).to(next(model.parameters()).device)
-            
-            with torch.no_grad():
-                output = model(dummy_input)
-            
-            print(f"   Forward pass successful")
-            print(f"   Output shape: {output.shape}")
-            
-            # Check if gates affect output
-            model.eval()
-            with torch.no_grad():
-                # Get output with current gates
-                out1 = model(dummy_input)
-                
-                # Zero all gates
-                gate_sum = 0
-                for name, param in model.named_parameters():
-                    if 'gate' in name:
-                        param.data.zero_()
-                        gate_sum += param.abs().sum().item()
-                
-                # Get output with zero gates
-                out2 = model(dummy_input)
-                
-                # Restore (not needed but clean)
-                model.load_state_dict(model.state_dict())
-            
-            diff = torch.abs(out1 - out2).max().item()
-            print(f"   Max output change when zeroing gates: {diff:.6f}")
-            
-            if diff < 1e-6 and gate_sum > 0:
-                print("   ⚠ Gates don't affect output (might be bug)")
-            else:
-                print("   ✓ Gates affect output correctly")
-        
-        except Exception as e:
-            print(f"Forward test failed: {e}")
-        
-        print("="*60)
-    
+
     
     def debug_normalization_issue(self):
         """Debug the normalization statistics issue"""
