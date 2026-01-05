@@ -61,6 +61,11 @@ class Model_Dom():
             logging.info("Zeus model {} created with a total of ========= {:,} ========= parameters".format(self.md_id, num_params))
             # if self.nDevices > 1:
             #     self.slave_models = self.create_slave_models(self.devices)
+            
+            if self.pm.enhance_bottlenecks:
+                self.model.enhance_model_bottlenecks(self.model, verbose=True)
+                self.verify_enhancement(self.model)
+            
         else:
             pass
 
@@ -96,6 +101,8 @@ class Model_Dom():
             OptimizerClass = torch.optim.SGD
         else:
             OptimizerClass = torch.optim.Adam
+            
+        print(f"Optimizer {optimizer_name} ")
             
         # Safely get trainable parameters as a list
         trainable_params = [p for p in self.model.parameters() if p.requires_grad]
@@ -322,6 +329,29 @@ class Model_Dom():
             # Load model parameters whetherr trainable or not.
             state_dict = checkpoint['model']
             
+            
+            def model_has_gates(model) -> bool:
+                for name, param in model.named_parameters():
+                    if 'gate' in name:
+                        return True
+                return False
+
+            def state_dict_has_gates(state_dict) -> bool:
+                for key in state_dict.keys():
+                    if 'gate' in key:
+                        return True
+                return False     
+            
+            if model_has_gates(self.model):
+                print("Model class supports enhancement (has gate parameters in architecture)")
+            else:
+                print("Model class does not have gate parameters. exiting....")
+                
+            if state_dict_has_gates(state_dict):
+                print("Model checkpoint has gates")
+            else:
+                print("Model checkpoint does not have gates")
+
             if self.device != torch.device('cpu'):
                 # Move ALL model tensors to correct device
                 state_dict = {k: v.to(self.device) if torch.is_tensor(v) else v 
@@ -329,29 +359,36 @@ class Model_Dom():
             
             missing_keys, unexpected_keys = self.model.load_state_dict(state_dict, strict=False)
             logging.info("Model loaded with saved state: \n_missing_keys: {}, \n_unexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
+            
+            if len(missing_keys) > 0:
+                print("------------------ missing keys --------------------")
+                print(missing_keys)
+            if len(unexpected_keys) > 0:
+                print("------------------ unexpected keys --------------------")
+                print(unexpected_keys)
 
-            # Check if model has normalization layers
-            norm_layers = []
-            for name, module in self.model.named_modules():
-                if isinstance(module, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d,
-                                    nn.InstanceNorm1d, nn.InstanceNorm2d, nn.InstanceNorm3d,
-                                    nn.LayerNorm, nn.GroupNorm)):
-                    norm_layers.append(name)
+            # # Check if model has normalization layers
+            # norm_layers = []
+            # for name, module in self.model.named_modules():
+            #     if isinstance(module, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d,
+            #                         nn.InstanceNorm1d, nn.InstanceNorm2d, nn.InstanceNorm3d,
+            #                         nn.LayerNorm, nn.GroupNorm)):
+            #         norm_layers.append(name)
                     
-            logging.info(f"Model has {len(norm_layers)} normalization layers: {norm_layers[:5]}...")
+            # logging.info(f"Model has {len(norm_layers)} normalization layers: {norm_layers[:5]}...")
 
             # self.debug_normalization_issue()
 
-            # Check running stats for a sample layer
-            if norm_layers:
-                sample_layer = norm_layers[0]
-                for name, module in self.model.named_modules():
-                    if name == sample_layer:
-                        if hasattr(module, 'running_mean'):
-                            logging.info(f"{name} running_mean mean: {module.running_mean.mean().item():.6f}")
-                        if hasattr(module, 'running_var'):
-                            logging.info(f"{name} running_var mean: {module.running_var.mean().item():.6f}")
-                        break
+            # # Check running stats for a sample layer
+            # if norm_layers:
+            #     sample_layer = norm_layers[0]
+            #     for name, module in self.model.named_modules():
+            #         if name == sample_layer:
+            #             if hasattr(module, 'running_mean'):
+            #                 logging.info(f"{name} running_mean mean: {module.running_mean.mean().item():.6f}")
+            #             if hasattr(module, 'running_var'):
+            #                 logging.info(f"{name} running_var mean: {module.running_var.mean().item():.6f}")
+            #             break
 
             # Check what normalization stats are saved
             saved_keys = list(checkpoint['model'].keys())
@@ -377,18 +414,21 @@ class Model_Dom():
                 #------------------- optimizer -------------------------
                 
                 if self.optimizer is not None and "optimizer" in checkpoint:
-                    self.optimizer.load_state_dict(checkpoint["optimizer"])
-                    
-                    correct_step, num_fixed = self.fix_mixed_step_values()  # to the most comon step value.
+                    try:
+                        self.optimizer.load_state_dict(checkpoint["optimizer"])
+                        
+                        correct_step, num_fixed = self.fix_mixed_step_values()  # to the most comon step value.
 
-                    # Move optimizer state tensors to the same device as their parameters
-                    for group in self.optimizer.param_groups:
-                        for p in group["params"]:
-                            if p in self.optimizer.state:
-                                for k, v in self.optimizer.state[p].items():
-                                    if torch.is_tensor(v):
-                                        self.optimizer.state[p][k] = v.to(p.device, non_blocking=True)
-                    logging.info("Optimizer loaded with saved state.")
+                        # Move optimizer state tensors to the same device as their parameters
+                        for group in self.optimizer.param_groups:
+                            for p in group["params"]:
+                                if p in self.optimizer.state:
+                                    for k, v in self.optimizer.state[p].items():
+                                        if torch.is_tensor(v):
+                                            self.optimizer.state[p][k] = v.to(p.device, non_blocking=True)
+                        logging.info("Optimizer loaded with saved state.")
+                    except:
+                        logging.info("Optimizer failed to load checkpoint, due to different parameter set.")
                     
                     # self.debug_optimizer_state()
                     # self.debug_optimizer_parameter_references(checkpoint)
@@ -478,6 +518,86 @@ class Model_Dom():
         self.epoch, self.packed_losses_metrics = epoch, packed_losses_metrics        
         
         return self.epoch, self.packed_losses_metrics
+    
+    
+    def verify_enhancement(self, model):
+        """
+        Verify that enhancement was applied correctly.
+        """
+        print("\n" + "="*60)
+        print("VERIFYING ENHANCEMENT")
+        print("="*60)
+        
+        # 1. Check for gates
+        gate_params = [(n, p) for n, p in model.named_parameters() if 'gate' in n]
+        print(f"1. Gate parameters: {len(gate_params)} found")
+        
+        # 2. Check for parallel blocks
+        parallel_blocks_count = 0
+        for name, module in model.named_modules():
+            if 'parallel_blocks' in name:
+                parallel_blocks_count += 1
+        
+        print(f"2. Parallel block references: {parallel_blocks_count}")
+        
+        # 3. Check that original blocks are frozen
+        frozen_blocks = 0
+        total_blocks = 0
+        
+        for name, module in model.named_modules():
+            if module.__class__.__name__ == "BasicLayer":
+                if hasattr(module, 'blocks'):
+                    for block in module.blocks:
+                        total_blocks += 1
+                        if all(not p.requires_grad for p in block.parameters()):
+                            frozen_blocks += 1
+        
+        print(f"3. Frozen original blocks: {frozen_blocks}/{total_blocks}")
+        
+        # 4. Test forward pass
+        print("4. Testing forward pass...")
+        try:
+            # Create dummy input
+            B, C, D, H, W = 1, 96, 8, 45, 90  # Adjust based on your config
+            dummy_input = torch.randn(B, D*H*W, C).to(next(model.parameters()).device)
+            
+            with torch.no_grad():
+                output = model(dummy_input)
+            
+            print(f"   Forward pass successful")
+            print(f"   Output shape: {output.shape}")
+            
+            # Check if gates affect output
+            model.eval()
+            with torch.no_grad():
+                # Get output with current gates
+                out1 = model(dummy_input)
+                
+                # Zero all gates
+                gate_sum = 0
+                for name, param in model.named_parameters():
+                    if 'gate' in name:
+                        param.data.zero_()
+                        gate_sum += param.abs().sum().item()
+                
+                # Get output with zero gates
+                out2 = model(dummy_input)
+                
+                # Restore (not needed but clean)
+                model.load_state_dict(model.state_dict())
+            
+            diff = torch.abs(out1 - out2).max().item()
+            print(f"   Max output change when zeroing gates: {diff:.6f}")
+            
+            if diff < 1e-6 and gate_sum > 0:
+                print("   ⚠ Gates don't affect output (might be bug)")
+            else:
+                print("   ✓ Gates affect output correctly")
+        
+        except Exception as e:
+            print(f"Forward test failed: {e}")
+        
+        print("="*60)
     
     
     def debug_normalization_issue(self):

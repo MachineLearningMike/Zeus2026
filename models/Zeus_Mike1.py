@@ -179,6 +179,32 @@ class Zeus(nn.Module):
                 
         return result_ss, normalized_loss.detach().to("cpu"), unnormalized_metrics.detach().to("cpu")
 
+    def enhance_model_bottlenecks(self, model, verbose=True):
+        """
+        Simple: Enhance bottleneck layers, return modified model.
+        """
+        if verbose:
+            print("Enhancing bottleneck layers...")
+        
+        basiclayer_counter = 0
+        
+        for name, module in model.named_modules():
+            if module.__class__.__name__ == "BasicLayer":
+                basiclayer_counter += 1
+                
+                # Enhance every 3rd BasicLayer (bottleneck)
+                if basiclayer_counter % 3 == 2:  # Indices 2, 5
+                    if verbose:
+                        print(f"  Enhancing bottleneck #{basiclayer_counter}: {name}")
+                    
+                    module.enhance_basic_layer_with_diversity(module)
+        
+        if verbose:
+            print(f"Enhanced bottleneck layers")
+        
+        return model  # That's it!
+
+
 # -----------------------
 # Demo
 # -----------------------

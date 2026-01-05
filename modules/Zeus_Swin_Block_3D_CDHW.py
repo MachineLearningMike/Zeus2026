@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 import numpy as np
+import copy
 
 # ---------------------------
 # MLP
@@ -1059,6 +1060,87 @@ class BasicLayer(nn.Module):
             x = self.resampler(x)
         layer_output.append(x)
         return layer_output
+    
+    def enhance_basic_layer_with_diversity(self, layer):
+        """
+        Device-safe enhancement.
+        """
+        if hasattr(layer, 'gates'):
+            return layer
+        
+        # Get current device
+        try:
+            device = next(layer.parameters()).device
+        except StopIteration:
+            # Layer has no parameters? Use CPU
+            device = torch.device('cpu')
+        
+        print(f"  Enhancing on: {device}")
+        
+        # 1. Gates on correct device
+        layer.gates = nn.ParameterList([
+            nn.Parameter(torch.zeros(1, device=device)) for _ in layer.blocks
+        ])
+        
+        # 2. Parallel blocks
+        layer.parallel_blocks = nn.ModuleList()
+        
+        for orig_block in layer.blocks:
+            # Deep copy
+            parallel_block = copy.deepcopy(orig_block)
+            
+            # Ensure on correct device
+            parallel_block = parallel_block.to(device)
+            
+            # Re-initialize
+            for param in parallel_block.parameters():
+                if param.dim() >= 2:
+                    nn.init.normal_(param, mean=0.0, std=0.01)
+                elif param.dim() == 1:
+                    nn.init.zeros_(param)
+            
+            layer.parallel_blocks.append(parallel_block)
+        
+        # # 3. Freeze original
+        # for param in layer.blocks.parameters():
+        #     param.requires_grad = False
+        
+        # 4. Forward
+        original_forward = layer.forward
+        
+        def diverse_enhanced_forward(sefl, x):
+            if not hasattr(layer, 'gates'):
+                return original_forward(x)
+            
+            layer_output = []
+            
+            # Process with diverse parallel blocks
+            for orig_block, parallel_block, gate in zip(
+                layer.blocks,
+                layer.parallel_blocks,
+                layer.gates
+            ):
+                # with torch.no_grad():
+                orig_out = orig_block(x)  # Proven wisdom
+                
+                parallel_out = parallel_block(x)  # Random explorer
+                
+                # Combine: proven + gate × random_explorer
+                x = orig_out + gate * parallel_out
+            
+            layer_output.append(x)      # x before, possible, resampling
+            
+            if hasattr(layer, 'resampler') and layer.resampler:
+                x = layer.resampler(x)
+            
+            layer_output.append(x)      # x after, possble, resampling
+            
+            return layer_output
+        
+        import types
+        layer.forward = types.MethodType(diverse_enhanced_forward, layer)
+        
+        return layer
 
     def extra_repr(self) -> str:
         return f"dim={self.dim}, i_reso={self.i_reso}, depth={self.depth}"

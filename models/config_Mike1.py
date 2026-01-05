@@ -1401,6 +1401,7 @@ projects["Zeus_25Dec28_1"] = {
         
         'choose_best_loss_model' : False,
         'useLRLearner' : False,
+        'enhance_bottlenecks' : True,
     }, 
     
     "model_1": {},
