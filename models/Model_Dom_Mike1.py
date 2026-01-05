@@ -339,7 +339,20 @@ class Model_Dom():
                 for key in state_dict.keys():
                     if 'gate' in key:
                         return True
-                return False     
+                return False
+            
+            def get_absolute_gate_sum_pytorch(model):
+                """
+                Returns the sum of absolute values of all parameters 
+                whose name contains 'gate'.
+                """
+                total = 0.0
+                
+                for name, param in model.named_parameters():
+                    if 'gate' in name.lower():  # Case-insensitive match
+                        total += param.abs().sum().item()
+                
+                return total
             
             if model_has_gates(self.model):
                 print("Model class supports enhancement (has gate parameters in architecture)")
@@ -347,7 +360,7 @@ class Model_Dom():
                 print("Model class does not have gate parameters. exiting....")
                 
             if state_dict_has_gates(state_dict):
-                print("Model checkpoint has gates")
+                print(f"Model checkpoint has gates, with abs sum of {get_absolute_gate_sum_pytorch(self.model)}")
             else:
                 print("Model checkpoint does not have gates")
 
