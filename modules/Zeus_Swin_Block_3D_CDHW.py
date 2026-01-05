@@ -1061,7 +1061,7 @@ class BasicLayer(nn.Module):
         layer_output.append(x)
         return layer_output
     
-    def ease_layer_with_parallel_blocks(self, layer):
+    def enhance_layer_irreversible(self, layer):
         """
         Device-safe enhancement.
         """

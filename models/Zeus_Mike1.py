@@ -148,7 +148,10 @@ class Zeus(nn.Module):
             scaler,
         ):   
         
-        pred_normal = self(ss0, ss1, cascade_step)
+        pred_normal = self(ss0, ss1, cascade_step)      # normal only
+        # So we need ss0 and/or ss1 more?
+        del ss0, ss1  # No, at least in this function.
+        
         air_levels_mask = torch.ones(pred_normal.shape[0], dtype=torch.float32, device=pred_normal.device)
         air_levels_mask[air_level_pressure_indices] = 0.0
         # air_levels_mask[-len(self.pm.targetVariables):] = self.pm.lossXtargets  # Weight amplifiled -------------------------
@@ -181,7 +184,7 @@ class Zeus(nn.Module):
                 
         return result_ss, normalized_loss.detach().to("cpu"), unnormalized_metrics.detach().to("cpu")
 
-    def ease_model_bottlenecks(self, model, verbose=True):
+    def enhance_model_irreversible(self, model, layers_to_enhance_in_enc_dec=[2], verbose=True):
         """
         Simple: Enhance bottleneck layers, return modified model.
         """
@@ -195,11 +198,14 @@ class Zeus(nn.Module):
                 print(f"  BasicLayer name: {name}, basiclayer_counter {basiclayer_counter}")
                 
                 # Enhance every 3rd BasicLayer (bottleneck)
-                if basiclayer_counter % 3 == 2:  # Indices 2, 5
+                # NOTE: this dirty code assumes:
+                # - both encoder and decoder have 3 basic layers, 
+                # - we want to ease symmetric layers.
+                if basiclayer_counter % 3 in layers_to_enhance_in_enc_dec:
                     if verbose:
                         print(f"  Enhancing bottleneck #{basiclayer_counter}: {name}")
                     
-                    module.ease_layer_with_parallel_blocks(module)
+                    module.enhance_layer_irreversible(module)
         
                 basiclayer_counter += 1
         
