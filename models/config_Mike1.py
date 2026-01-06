@@ -1442,15 +1442,15 @@ projects["Zeus_26Jan06_1"] = {
         'nHeads' : 4,
         'patch_kernel' : 4,
         'patch_stride' : 4,
-        'swin_dim' : 192, #96, # 192,           # 480 is the right value, if we have enough GPU memory. Reduce this to fit onto GPU memory.
+        'swin_dim' : 96, #96, # 192,           # 480 is the right value, if we have enough GPU memory. Reduce this to fit onto GPU memory.
         'sWin' : (2, 6, 6), # (2, 6, 6),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
         'num_swin_block' : 30,
         'nLevels' : 8,
         'increasing' : True,
         'type_pos_bias' : 'lonBand', # 'sphere', 'None'
         'pair_bias_dim' : 5,
-        'depth_list' : [16, 10], # [4, 8, 4],   # [6, 8, 4] leads to OOP on A100
-        'head_list' : [8, 16], # [4, 8, 16],
+        'depth_list' : [16], # [4, 8, 4],   # [6, 8, 4] leads to OOP on A100
+        'head_list' : [8], # [4, 8, 16],
         'skippable' : True,
         'skip_learnable' : True,
         'qkv_bias' : True,
