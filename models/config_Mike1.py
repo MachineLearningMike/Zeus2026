@@ -1450,7 +1450,7 @@ projects["Zeus_26Jan06_1"] = {
         'type_pos_bias' : 'lonBand', # 'sphere', 'None'
         'pair_bias_dim' : 5,
         'depth_list' : [10, 8], # [4, 8, 4],   # [6, 8, 4] leads to OOP on A100
-        'head_list' : [8, 16], # [4, 8, 16],
+        'head_list' : [4, 8], # [4, 8, 16],
         'skippable' : True,
         'skip_learnable' : True,
         'qkv_bias' : True,
