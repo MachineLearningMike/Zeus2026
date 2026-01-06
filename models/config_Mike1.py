@@ -1360,6 +1360,7 @@ projects["Zeus_25Dec27_6x6_learn_skip_2"] = {
 }
 
 projects["Zeus_25Dec28_1"] = {
+    # branch: skipped-gated-block-parallelism
     "management": {
     "Zeus_Model_module" : "Zeus_Mike1",
     "GPUWaitsData" : True,
@@ -1413,9 +1414,65 @@ projects["Zeus_25Dec28_1"] = {
     "model_4": {},
 }
 
+projects["Zeus_26Jan06_1"] = {
+    # branch: simple-u
+    "management": {
+    "Zeus_Model_module" : "Zeus_Mike1",
+    "GPUWaitsData" : True,
+    "models_to_play": [0,],
+    "metrics" : "rmse", # "mae", "rmse"
+    'max_cascade_step' : 1,
+    },
+    
+    "data": {
+    "org_height": 721,
+    "batch_size": 1,
+    'lossXtargets' : 5.0,
+    },
+    
+    "model_0": {
+        "lr": 1e-4,
+        "max_lr": 1e-4,
+        "overwrite_saved_lr": False,
+        "accum_steps" : 10,   
+        "skip_validation" : True,
+        #----------------------------------- SWIN ------------------------
+        # 'factor10' : 2 on Windows else 10.   3 works on 8GB, 10 will work on 80GB?
+        
+        'nHeads' : 4,
+        'patch_kernel' : 4,
+        'patch_stride' : 4,
+        'swin_dim' : 96, # 192,           # 480 is the right value, if we have enough GPU memory. Reduce this to fit onto GPU memory.
+        'sWin' : (2, 6, 6), # (2, 6, 6),  # Adjacency, locality of physical interactions require 2, preventing short-cut learning.
+        'num_swin_block' : 30,
+        'nLevels' : 8,
+        'increasing' : True,
+        'type_pos_bias' : 'lonBand', # 'sphere', 'None'
+        'pair_bias_dim' : 5,
+        'depth_list' : [16, 10], # [4, 8, 4],   # [6, 8, 4] leads to OOP on A100
+        'head_list' : [8, 16], # [4, 8, 16],
+        'skippable' : True,
+        'skip_learnable' : True,
+        'qkv_bias' : True,
+        
+        'choose_best_loss_model' : False,
+        'useLRLearner' : False,
+        'use_checkpoint' : False,
+        'enhance_capability' : False,       # Once the model is enhanced, it's irreversible unless training again.
+        # [2] can hopefully bearly fit into A100.
+        'layers_to_enhance_in_enc_dec' : [],  # Some of [0,1,2]. Once a layer is enhanced, it's irreversible unless training again. Next: 1
+    }, 
+    
+    "model_1": {},
+    "model_2": {},
+    "model_3": {},
+    "model_4": {},
+}
+
+
 #-------------------------------- select proejct -----------------------
 
-project = "Zeus_25Dec28_1"   # "Zeus_Swin_25Dec25_2"
+project = "Zeus_26Jan06_1"   # "Zeus_Swin_25Dec25_2"
 config["bayesProject"] = project
 # updata 'management'
 config.update(projects[project]["management"])
