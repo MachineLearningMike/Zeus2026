@@ -120,7 +120,7 @@ class Zeus(nn.Module):
         B, C, D, H, W = x.shape
         x_flat = x.permute(0,2,3,4,1).reshape(B, D*H*W, C)
 
-        x_flat = self.encoder_decoder(x_flat)
+        x_flat = self.encoder_decoder(x_flat)       # skip immediately and subsequently
 
         x_out = x_flat.view(B, D, H, W, C).permute(0,4,1,2,3).contiguous()
         x = x_out.squeeze(0)

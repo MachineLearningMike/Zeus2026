@@ -1413,9 +1413,9 @@ class Decoder(nn.Module):
                     (_, dec_x_after_us) = dec_layer(input)
     
         else:
-            dec_x_after_us = enc_x_by_layer[-1][0]
+            dec_x_after_us = enc_x_by_layer[-1][0]      # This is x-before-downsampling. Good, before had more infor than after-downsampling.
             for layer in reversed(self.layers):
-                (_, dec_x_after_us) = layer(dec_x_after_us)
+                (_, dec_x_after_us) = layer(dec_x_after_us) # use x-after-upsampling.
             
         return dec_x_after_us
 
