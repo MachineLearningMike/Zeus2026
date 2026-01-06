@@ -1077,6 +1077,8 @@ class BasicLayer(nn.Module):
         
         print(f"  Enhancing on: {device}")
         
+        #--------------------- Define the parallels ----------------------
+
         # 1. Gates on correct device        
         layer.gates = nn.ParameterList([
             nn.Parameter(torch.normal(0.0, 0.01, size=(1,), device=device, requires_grad=True)) 
@@ -1109,6 +1111,7 @@ class BasicLayer(nn.Module):
                         nn.init.zeros_(param)
             
             layer.parallel_blocks.append(parallel_block)
+        #----------------------------------------------------------------        
                 
         # 4. Forward
         original_forward = layer.forward

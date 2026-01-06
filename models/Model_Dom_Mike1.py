@@ -432,7 +432,7 @@ class Model_Dom():
                     try:
                         self.optimizer.load_state_dict(checkpoint["optimizer"])
                         
-                        correct_step, num_fixed = self.fix_mixed_step_values()  # to the most comon step value.
+                        # correct_step, num_fixed = self.fix_mixed_step_values()  # to the most comon step value.
 
                         # Move optimizer state tensors to the same device as their parameters
                         for group in self.optimizer.param_groups:
