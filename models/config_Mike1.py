@@ -205,7 +205,7 @@ else:
     from modules.utils import get_gpu_names
     gpu_names = get_gpu_names()
     if 'A100' in gpu_names:
-        config['nStepsPerCycle'] = 1
+        config['nStepsPerCycle'] = 2
         config['dollarsPerHour'] = 0.58
         print(f"A100 found!!! nStepsPerBatch {config['nStepsPerCycle']}")
     elif 'B200' in gpu_names:
