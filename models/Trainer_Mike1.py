@@ -254,10 +254,10 @@ class Model_Trainer():
         # loss = ((error * self.pm.loss_boost_for_target_vars_cpu[:, None, None])**2).mean(dim=(0,1,2)).sqrt() # self.pm.loss_boost_for_target_vars_cpu amplifies the target variables.
         loss = (rmse * self.pm.loss_boost_for_target_vars_cpu).mean()
         
-        pred = self.downsample_to_fraction(pred[-6:], 8)
-        target = self.downsample_to_fraction(target[-6:], 8)
-        # error = self.downsample_to_fraction(error[-6:], 8)        
-        rmse = (error ** 2).mean(dim=(1,2)).sqrt()
+        # pred = self.downsample_to_fraction(pred[-6:], 8)
+        # target = self.downsample_to_fraction(target[-6:], 8)
+        # # error = self.downsample_to_fraction(error[-6:], 8)        
+        # rmse = (error ** 2).mean(dim=(1,2)).sqrt()
 
         # self._print_tensor_state(1, target)                 # 
         # self._print_tensor_state(2, pred)
