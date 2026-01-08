@@ -247,12 +247,12 @@ class Model_Trainer():
         device = pred.device
         target = target.to(device)
 
-        error = (pred - target)
+        error = (pred - target)    # (C,)
         # if vars_mask is not None: error = error * vars_mask[:, None, None]  # vars_mask masks air pressure level dimensions
 
-        rmse = (error ** 2).mean(dim=(1,2)).sqrt() * (vars_mask if vars_mask is not None else 1.0)    # (C,)
+        rmse = (error ** 2).mean(dim=(1,2)).sqrt()
         # loss = ((error * self.pm.loss_boost_for_target_vars_cpu[:, None, None])**2).mean(dim=(0,1,2)).sqrt() # self.pm.loss_boost_for_target_vars_cpu amplifies the target variables.
-        loss = (rmse * self.pm.loss_boost_for_target_vars_cpu).mean()
+        loss = (rmse * (vars_mask if vars_mask is not None else 1.0) * self.pm.loss_boost_for_target_vars_cpu).mean()
         
         # pred = self.downsample_to_fraction(pred[-6:], 8)
         # target = self.downsample_to_fraction(target[-6:], 8)
