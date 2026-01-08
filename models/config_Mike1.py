@@ -1402,9 +1402,9 @@ projects["Zeus_25Dec28_1"] = {
         'choose_best_loss_model' : False,
         'useLRLearner' : False,
         'use_checkpoint' : False,
-        'enhance_capability' : True,       # Once the model is enhanced, it's irreversible unless training again.
+        'enhance_capability' : False,       # Once the model is enhanced, it's irreversible unless training again.
         # [2] can hopefully bearly fit into A100.
-        'layers_to_enhance_in_enc_dec' : [2],  # Some of [0,1,2]. Once a layer is enhanced, it's irreversible unless training again. Next: 1
+        'layers_to_enhance_in_enc_dec' : [],  # Some of [0,1,2]. Once a layer is enhanced, it's irreversible unless training again. Next: 1
     }, 
     
     "model_1": {},
