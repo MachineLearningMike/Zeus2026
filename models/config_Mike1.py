@@ -1472,7 +1472,7 @@ projects["Zeus_26Jan06_1"] = {
 
 #-------------------------------- select proejct -----------------------
 
-project = "Zeus_26Jan06_1"   # "Zeus_Swin_25Dec25_2"
+project = "Zeus_25Dec28_1" # "Zeus_26Jan06_1"   # "Zeus_Swin_25Dec25_2"
 config["bayesProject"] = project
 # updata 'management'
 config.update(projects[project]["management"])
