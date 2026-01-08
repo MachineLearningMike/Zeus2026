@@ -543,7 +543,7 @@ class Model_Dom():
                 total += param.abs().sum().item()
                 cnt += 1
         
-        return total / cnt
+        return total / (cnt + 1e-9)
     
     
     def debug_normalization_issue(self):
