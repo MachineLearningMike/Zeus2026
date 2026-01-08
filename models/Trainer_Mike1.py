@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 import numpy as np
 import json, tzlocal
 from torch.amp import autocast
@@ -241,7 +242,7 @@ class Model_Trainer():
 
     # def loss(self, target, pred, batch_diff, era5_data_vars):
     def loss(self, target, pred, batch_diff, era5_data_vars, vars_mask=None):
-        # (B,FG,C,H,W), (B,FG,C,H,W), (B, C, H, W), (C,)
+        # (C,H,W), (C,H,W), (C, H, W), (C,)
         # 32, cuda, False ; 32, cuda, True !!!, 32, cuda, False, 32, cuda, False
         device = pred.device
         target = target.to(device)
@@ -252,6 +253,11 @@ class Model_Trainer():
         rmse = (error ** 2).mean(dim=(1,2)).sqrt() * (vars_mask if vars_mask is not None else 1.0)    # (C,)
         # loss = ((error * self.pm.loss_boost_for_target_vars_cpu[:, None, None])**2).mean(dim=(0,1,2)).sqrt() # self.pm.loss_boost_for_target_vars_cpu amplifies the target variables.
         loss = (rmse * self.pm.loss_boost_for_target_vars_cpu).mean()
+        
+        pred = self.downsample_to_fraction(pred[-6:], 8)
+        target = self.downsample_to_fraction(target[-6:], 8)
+        # error = self.downsample_to_fraction(error[-6:], 8)        
+        rmse = (error ** 2).mean(dim=(1,2)).sqrt()
 
         # self._print_tensor_state(1, target)                 # 
         # self._print_tensor_state(2, pred)
@@ -284,6 +290,20 @@ class Model_Trainer():
         # era5_data_vars = era5_data_vars.to(device)
         
         return loss, rmse
+    
+    
+    def downsample_to_fraction(self, tensor, divisor=8):
+        """
+        Downsample tensor to (H//divisor, W//divisor)
+        """
+        C, H, W = tensor.shape
+        target_H, target_W = H // divisor, W // divisor
+        
+        return F.interpolate(tensor.unsqueeze(0),
+                            size=(target_H, target_W),
+                            mode='bilinear',
+                            align_corners=False).squeeze(0)
+    
     
     def clean_gpu_every(self, n_iter, step):
         if step % n_iter == 0:
