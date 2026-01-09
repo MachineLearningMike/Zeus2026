@@ -1061,7 +1061,7 @@ class BasicLayer(nn.Module):
         layer_output.append(x)
         return layer_output
     
-    def enhance_layer_irreversible(self, layer):
+    def enhance_layer_irreversible(self, layer, nEnhancementPairs=1):
         """
         Device-safe enhancement.
         """
@@ -1077,41 +1077,74 @@ class BasicLayer(nn.Module):
         
         print(f"  Enhancing on: {device}")
         
-        #--------------------- Define the parallels ----------------------
+        # #--------------------- Define the parallels ---------------------- 
+        # # This was not a success. The gates, zero initially, grew VERY slowly blocking the flow of gradient.
 
-        # 1. Gates on correct device        
-        layer.gates = nn.ParameterList([
-            nn.Parameter(torch.normal(0.0, 0.01, size=(1,), device=device, requires_grad=True)) 
-            for _ in layer.blocks
-        ])
+        # # 1. Gates on correct device        
+        # layer.gates = nn.ParameterList([
+        #     nn.Parameter(torch.normal(0.0, 0.01, size=(1,), device=device, requires_grad=True)) 
+        #     for _ in layer.blocks
+        # ])
         
-        for i, gate in enumerate(layer.gates):
-            layer.register_parameter(f'gate_{i}', gate)
+        # for i, gate in enumerate(layer.gates):
+        #     layer.register_parameter(f'gate_{i}', gate)
         
-        # 2. Parallel blocks
-        layer.parallel_blocks = nn.ModuleList()
+        # # 2. Parallel blocks
+        # layer.parallel_blocks = nn.ModuleList()
         
-        for i, orig_block in enumerate(layer.blocks):
-            # Deep copy
-            parallel_block = copy.deepcopy(orig_block)
-            parallel_block = parallel_block.to(device)
+        # for i, orig_block in enumerate(layer.blocks):
+        #     # Deep copy
+        #     parallel_block = copy.deepcopy(orig_block)
+        #     parallel_block = parallel_block.to(device)
             
-            # Re-initialize with DIFFERENT initialization than original
-            for name, param in parallel_block.named_parameters():
-                if param.dim() >= 2:
-                    # Use orthogonal initialization for better gradient flow
-                    if 'weight' in name:
-                        nn.init.orthogonal_(param)
-                    else:
-                        nn.init.normal_(param, mean=0.0, std=0.02)
-                elif param.dim() == 1:
-                    if 'bias' in name:
-                        nn.init.constant_(param, 0.1)  # Small positive bias
-                    else:
-                        nn.init.zeros_(param)
+        #     # Re-initialize with DIFFERENT initialization than original
+        #     for name, param in parallel_block.named_parameters():
+        #         if param.dim() >= 2:
+        #             # Use orthogonal initialization for better gradient flow
+        #             if 'weight' in name:
+        #                 nn.init.orthogonal_(param)
+        #             else:
+        #                 nn.init.normal_(param, mean=0.0, std=0.02)
+        #         elif param.dim() == 1:
+        #             if 'bias' in name:
+        #                 nn.init.constant_(param, 0.1)  # Small positive bias
+        #             else:
+        #                 nn.init.zeros_(param)
             
-            layer.parallel_blocks.append(parallel_block)
-        #----------------------------------------------------------------        
+        #     layer.parallel_blocks.append(parallel_block)
+        
+        #------------ A 2nd attempt -----------------------------
+        #----- insert 1 or 2 pairs of blocks in the sequence of 8 blocks.
+        
+        assert len(self.blocks) >= 6, f" len(self.blocks) == { len(self.blocks)}"
+        
+        def copy_and_zero(block):
+            new_block = copy.deepcopy(block)
+            
+            # FIXED: Modify new_block, not the original block!
+            with torch.no_grad():
+                nn.init.normal_(new_block.attn.proj.weight, mean=0.0, std=0.001)
+                nn.init.zeros_(new_block.attn.proj.bias)          #  new_block, not block
+                nn.init.normal_(new_block.mlp.fc2.weight, mean=0.0, std=0.001)  #  new_block
+                nn.init.zeros_(new_block.mlp.fc2.bias)            #  new_block
+            
+            return new_block  #  Return the modified block
+
+        # Clone blocks 2 and 3
+        enhancement_pairs = []
+        for p in range(nEnhancementPairs):
+            even_block = copy_and_zero(self.blocks[2])  # W-MSA block
+            odd_block = copy_and_zero(self.blocks[3])   # SW-MSA block
+            enhancement_pairs += [even_block, odd_block]
+
+        # CORRECTED: Insert after block 3 (between pair 1 and pair 2)
+        # Original: [0, 1, 2, 3, 4, 5, 6, 7]
+        # Insert after position 3 (after block 3)
+        new_blocks_list = list(self.blocks)  # Convert ModuleList to list
+        new_blocks_list = new_blocks_list[:4] + enhancement_pairs + new_blocks_list[4:]
+        self.blocks = nn.ModuleList(new_blocks_list)  # Convert back to ModuleList
+ 
+        #-----------------------------------------------------------------       
                 
         # 4. Forward
         original_forward = layer.forward

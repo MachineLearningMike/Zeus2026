@@ -316,192 +316,171 @@ class Model_Dom():
         except Exception as e:
             logging.info(str(e))
             file_not_found = True
+        print(f"file_not_found {file_not_found} {'!!!!!!!!!!!!!' if file_not_found else ''}")
 
         if not file_not_found:
             train_finished = checkpoint['train_finished']
+        print(f"train_finished {train_finished}")
         
         if file_not_found and not self.trainable:
             logging.info("Train checkpoint not found")
             sys.exit()
         
         if not file_not_found and (not train_finished or not self.trainable):
-
-            #------------------- model -------------------------
-                
-            # Load model parameters whetherr trainable or not.
-            state_dict = checkpoint['model']
+            logging.info("========================= loading existing checkpoint --------------")
             
-            
-            def model_has_gates(model) -> bool:
-                for name, param in model.named_parameters():
-                    if 'gate' in name:
-                        return True
-                return False
-
-            def state_dict_has_gates(state_dict) -> bool:
-                for key in state_dict.keys():
-                    if 'gate' in key:
-                        return True
-                return False
-            
-            def get_abs_gates_sum(model):
-                """
-                Returns the sum of absolute values of all parameters 
-                whose name contains 'gate'.
-                """
-                total = 0.0
-                
-                for name, param in model.named_parameters():
-                    if 'gate' in name.lower():  # Case-insensitive match
-                        total += param.abs().sum().item()
-                
-                return total
-            
-            if model_has_gates(self.model):
-                print("Model class supports enhancement (has gate parameters in architecture)")
-            else:
-                print("Model class does not have gate parameters. exiting....")
-                
-            if state_dict_has_gates(state_dict):
-                print(f"Model checkpoint has gates, with abs sum of {get_abs_gates_sum(self.model)}")
-            else:
-                print("Model checkpoint does not have gates")
-
-            if self.device != torch.device('cpu'):
-                # Move ALL model tensors to correct device
-                state_dict = {k: v.to(self.device) if torch.is_tensor(v) else v 
-                            for k, v in state_dict.items()}
-            
-            missing_keys, unexpected_keys = self.model.load_state_dict(state_dict, strict=False)
-            logging.info("Model loaded with saved state: \n_missing_keys: {}, \n_unexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
-            
-            if len(missing_keys) > 0:
-                print("------------------ missing keys --------------------")
-                print(missing_keys)
-            if len(unexpected_keys) > 0:
-                print("------------------ unexpected keys --------------------")
-                print(unexpected_keys)
-
-            # # Check if model has normalization layers
-            # norm_layers = []
-            # for name, module in self.model.named_modules():
-            #     if isinstance(module, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d,
-            #                         nn.InstanceNorm1d, nn.InstanceNorm2d, nn.InstanceNorm3d,
-            #                         nn.LayerNorm, nn.GroupNorm)):
-            #         norm_layers.append(name)
+            try:
+                #------------------- model -------------------------
                     
-            # logging.info(f"Model has {len(norm_layers)} normalization layers: {norm_layers[:5]}...")
-
-            # self.debug_normalization_issue()
-
-            # # Check running stats for a sample layer
-            # if norm_layers:
-            #     sample_layer = norm_layers[0]
-            #     for name, module in self.model.named_modules():
-            #         if name == sample_layer:
-            #             if hasattr(module, 'running_mean'):
-            #                 logging.info(f"{name} running_mean mean: {module.running_mean.mean().item():.6f}")
-            #             if hasattr(module, 'running_var'):
-            #                 logging.info(f"{name} running_var mean: {module.running_var.mean().item():.6f}")
-            #             break
-
-            # Check what normalization stats are saved
-            # saved_keys = list(checkpoint['model'].keys())
-            # norm_stats_keys = [k for k in saved_keys if 'running_mean' in k or 'running_var' in k or 'num_batches_tracked' in k]
-            # logging.info(f"Found {len(norm_stats_keys)} normalization stat keys in checkpoint")
-            # if norm_stats_keys:
-            #     logging.info(f"Sample: {norm_stats_keys[:5]}")
-
-            #---------------------------------------------------------------------------------------
-            packed_losses_metrics = None
-            
-            if self.trainable:
-
-                epoch = checkpoint['epoch']
+                # Load model parameters whetherr trainable or not.
+                old_state_dict = checkpoint['model']
                 
-                #------------------- learning_rate -------------------------
-                
-                if self.learning_rate is None:
-                    self.learning_rate = self.get_learning_rate()
+                if self.pm.enhance_capability:
+                    state_dict = self.enhance_state_dict(old_state_dict, layers_to_enhance=self.pm.layers_to_enhance_in_enc_dec, n_pairs_list=self.pm.nEnhancementPairs)
                 else:
-                    self.set_learning_rate(self.learning_rate)
-                    
-                #------------------- optimizer -------------------------
+                    state_dict = old_state_dict
+
+                if self.device != torch.device('cpu'):
+                    # Move ALL model tensors to correct device
+                    state_dict = {k: v.to(self.device) if torch.is_tensor(v) else v 
+                                for k, v in state_dict.items()}
                 
-                if self.optimizer is not None and "optimizer" in checkpoint:
-                    try:
-                        self.optimizer.load_state_dict(checkpoint["optimizer"])
+                missing_keys, unexpected_keys = self.model.load_state_dict(state_dict, strict=False)
+                logging.info("-------Model loaded with saved state: \n_missing_keys: {}, \n_unexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
+                
+                if len(missing_keys) > 0:
+                    print("------------------ missing keys --------------------")
+                    print(missing_keys)
+                if len(unexpected_keys) > 0:
+                    print("------------------ unexpected keys --------------------")
+                    print(unexpected_keys)
+
+                # # Check if model has normalization layers
+                # norm_layers = []
+                # for name, module in self.model.named_modules():
+                #     if isinstance(module, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d,
+                #                         nn.InstanceNorm1d, nn.InstanceNorm2d, nn.InstanceNorm3d,
+                #                         nn.LayerNorm, nn.GroupNorm)):
+                #         norm_layers.append(name)
                         
-                        # correct_step, num_fixed = self.fix_mixed_step_values()  # to the most comon step value.
+                # logging.info(f"Model has {len(norm_layers)} normalization layers: {norm_layers[:5]}...")
 
-                        # Move optimizer state tensors to the same device as their parameters
-                        for group in self.optimizer.param_groups:
-                            for p in group["params"]:
-                                if p in self.optimizer.state:
-                                    for k, v in self.optimizer.state[p].items():
-                                        if torch.is_tensor(v):
-                                            self.optimizer.state[p][k] = v.to(p.device, non_blocking=True)
-                        logging.info("Optimizer loaded with saved state.")
-                    except:
-                        logging.info("Optimizer failed to load checkpoint, due to different parameter set.")
+                # self.debug_normalization_issue()
+
+                # # Check running stats for a sample layer
+                # if norm_layers:
+                #     sample_layer = norm_layers[0]
+                #     for name, module in self.model.named_modules():
+                #         if name == sample_layer:
+                #             if hasattr(module, 'running_mean'):
+                #                 logging.info(f"{name} running_mean mean: {module.running_mean.mean().item():.6f}")
+                #             if hasattr(module, 'running_var'):
+                #                 logging.info(f"{name} running_var mean: {module.running_var.mean().item():.6f}")
+                #             break
+
+                # Check what normalization stats are saved
+                # saved_keys = list(checkpoint['model'].keys())
+                # norm_stats_keys = [k for k in saved_keys if 'running_mean' in k or 'running_var' in k or 'num_batches_tracked' in k]
+                # logging.info(f"Found {len(norm_stats_keys)} normalization stat keys in checkpoint")
+                # if norm_stats_keys:
+                #     logging.info(f"Sample: {norm_stats_keys[:5]}")
+
+                #---------------------------------------------------------------------------------------
+                packed_losses_metrics = None
+                
+                if self.trainable:
+
+                    epoch = checkpoint['epoch']
                     
-                    # self.debug_optimizer_state()
-                    # self.debug_optimizer_parameter_references(checkpoint)
-                    # self.debug_optimizer_state_existence_fixed()
-                
-                else:
-                    logging.info("!!! Optimizer NOT loaded with saved state.")
-
-                #------------------- scheduler -------------------------
+                    #------------------- learning_rate -------------------------
                     
-                self.scheduler.load_state_dict(checkpoint['scheduler'])
-                logging.info("Scheduler loaded with saved state.")
-                
-                logging.info(f"Scheduler type: {type(self.scheduler).__name__}")
-
-                # # Check specific scheduler attributes
-                # if hasattr(self.scheduler, '_step_count'):
-                #     logging.info(f"Scheduler _step_count: {self.scheduler._step_count}")
-                # if hasattr(self.scheduler, 'last_epoch'):
-                #     logging.info(f"Scheduler last_epoch: {self.scheduler.last_epoch}")
-                # if hasattr(self.scheduler, 'get_last_lr'):
-                #     logging.info(f"Scheduler last_lr: {self.scheduler.get_last_lr()}")
-
-                
-                #------------------- scaler -------------------------
-                
-                self.scaler.load_state_dict(checkpoint['scaler'])
-                logging.info("Scaler loaded with saved state")
-
-                #------------------ miscellaneous -------------------
-                
-                self.weighted_metric_old = checkpoint['weighted_metric_old']
-                self.epochs_since_improvement = checkpoint['epochs_since_improvement']
-                logging.info("weighted_metric_old and epochs_since_improvement loaded with saved values")
-
-                packed_losses_metrics = checkpoint['packed_losses_metrics']
-                logging.info(f"packed_losses_metrics loaded")
+                    if self.learning_rate is None:
+                        self.learning_rate = self.get_learning_rate()
+                    else:
+                        self.set_learning_rate(self.learning_rate)
+                        
+                    #------------------- optimizer -------------------------
                     
-                if self.pm.overwrite_saved_lr:
-                    self.learning_rate = self.pm.lr
-                else:
-                    self.learning_rate = checkpoint['learning_rate']
-                    logging.info(f"learning_rate loaded {self.learning_rate}")
+                    if self.optimizer is not None and "optimizer" in checkpoint:
+                        try:
+                            self.optimizer.load_state_dict(checkpoint["optimizer"])
+                            
+                            # correct_step, num_fixed = self.fix_mixed_step_values()  # to the most comon step value.
 
-                self.best_loss = checkpoint['best_loss']
-                logging.info(f"best_loss loaded {self.best_loss}")
+                            # Move optimizer state tensors to the same device as their parameters
+                            for group in self.optimizer.param_groups:
+                                for p in group["params"]:
+                                    if p in self.optimizer.state:
+                                        for k, v in self.optimizer.state[p].items():
+                                            if torch.is_tensor(v):
+                                                self.optimizer.state[p][k] = v.to(p.device, non_blocking=True)
+                            logging.info("Optimizer loaded with saved state.")
+                        except:
+                            logging.info("Optimizer failed to load checkpoint, due to different parameter set.")
+                        
+                        # self.debug_optimizer_state()
+                        # self.debug_optimizer_parameter_references(checkpoint)
+                        # self.debug_optimizer_state_existence_fixed()
+                    
+                    else:
+                        logging.info("!!! Optimizer NOT loaded with saved state.")
 
-                self.accum_iterations = checkpoint['accum_iterations']
-                logging.info(f"accum_iterations loaded {self.accum_iterations}")
+                    #------------------- scheduler -------------------------
+                        
+                    self.scheduler.load_state_dict(checkpoint['scheduler'])
+                    logging.info("Scheduler loaded with saved state.")
+                    
+                    logging.info(f"Scheduler type: {type(self.scheduler).__name__}")
 
-            # print('----------- packed_losses_metrics loaded is ', packed_losses_metrics)
-            if packed_losses_metrics is not None:  # The previous session was terminated after a new step was finished and before an epoch is finished.
-                epoch = epoch
-            else:   # The previous session was terminated after an epoch was finished and before a new step was finished. 
-                epoch = epoch + 1
+                    # # Check specific scheduler attributes
+                    # if hasattr(self.scheduler, '_step_count'):
+                    #     logging.info(f"Scheduler _step_count: {self.scheduler._step_count}")
+                    # if hasattr(self.scheduler, 'last_epoch'):
+                    #     logging.info(f"Scheduler last_epoch: {self.scheduler.last_epoch}")
+                    # if hasattr(self.scheduler, 'get_last_lr'):
+                    #     logging.info(f"Scheduler last_lr: {self.scheduler.get_last_lr()}")
 
-            logging.info(f"Checkpoint '{name}' loaded to {self.device}, including model, optimizer, scheduler, scaler, weighted_metric_old, and datase state")
-            file_loaded = True
+                    
+                    #------------------- scaler -------------------------
+                    
+                    self.scaler.load_state_dict(checkpoint['scaler'])
+                    logging.info("Scaler loaded with saved state")
+
+                    #------------------ miscellaneous -------------------
+                    
+                    self.weighted_metric_old = checkpoint['weighted_metric_old']
+                    self.epochs_since_improvement = checkpoint['epochs_since_improvement']
+                    logging.info("weighted_metric_old and epochs_since_improvement loaded with saved values")
+
+                    packed_losses_metrics = checkpoint['packed_losses_metrics']
+                    logging.info(f"packed_losses_metrics loaded")
+                        
+                    if self.pm.overwrite_saved_lr:
+                        self.learning_rate = self.pm.lr
+                    else:
+                        self.learning_rate = checkpoint['learning_rate']
+                        logging.info(f"learning_rate loaded {self.learning_rate}")
+
+                    self.best_loss = checkpoint['best_loss']
+                    logging.info(f"best_loss loaded {self.best_loss}")
+
+                    self.accum_iterations = checkpoint['accum_iterations']
+                    logging.info(f"accum_iterations loaded {self.accum_iterations}")
+
+                # print('----------- packed_losses_metrics loaded is ', packed_losses_metrics)
+                if packed_losses_metrics is not None:  # The previous session was terminated after a new step was finished and before an epoch is finished.
+                    epoch = epoch
+                else:   # The previous session was terminated after an epoch was finished and before a new step was finished. 
+                    epoch = epoch + 1
+
+                logging.info(f"Checkpoint '{name}' loaded to {self.device}, including model, optimizer, scheduler, scaler, weighted_metric_old, and datase state")
+                file_loaded = True
+            
+            except Exception as e:
+                logging.info(f"!!!!!!! failed to load the existing checkpoint. {e} Exiting...")
+                sys.exit(0)
+                
+            logging.info("========================= Done with existing checkpoint --------------")
         
         if file_not_found:
             # Start a new training, creating the file.
@@ -530,6 +509,128 @@ class Model_Dom():
         
         return self.epoch, self.packed_losses_metrics
 
+    def count_blocks_in_model(self, model, layer_indices=[1]):
+        """
+        Count blocks in model for specific layers
+        Hierarchy: model.encoder_decoder.encoder.layers[layer_idx].blocks
+        """
+        counts = {}
+        
+        for layer_idx in layer_indices:
+            # Count encoder blocks
+            encoder_blocks = len(model.encoder_decoder.encoder.layers[layer_idx].blocks)
+            
+            # Count decoder blocks
+            decoder_blocks = len(model.encoder_decoder.decoder.layers[layer_idx].blocks)
+            
+            if encoder_blocks != decoder_blocks:
+                print(f"⚠ Warning: Encoder layer {layer_idx} has {encoder_blocks} blocks,")
+                print(f"           but decoder has {decoder_blocks} blocks!")
+            
+            # Use encoder count (assuming symmetry)
+            counts[layer_idx] = encoder_blocks
+        
+        return counts
+    
+    def count_blocks_in_state_dict(self, state_dict, layer_indices=[1]):
+        """
+        Count blocks in state_dict for specific layers
+        """
+        import re
+        from collections import defaultdict
+        
+        layer_block_indices = defaultdict(set)
+        
+        for key in state_dict.keys():
+            # The pattern in state_dict might be:
+            # 'encoder_decoder.encoder.layers.1.blocks.0.' or similar
+            for layer_idx in layer_indices:
+                # Try both patterns
+                patterns = [
+                    f'.encoder.layers.{layer_idx}.blocks.',
+                    f'.decoder.layers.{layer_idx}.blocks.',
+                    f'encoder.layers.{layer_idx}.blocks.',  # No leading dot
+                    f'decoder.layers.{layer_idx}.blocks.',   # No leading dot
+                ]
+                
+                for pattern in patterns:
+                    if pattern in key:
+                        match = re.search(r'blocks\.(\d+)\.', key)
+                        if match:
+                            block_idx = int(match.group(1))
+                            layer_block_indices[layer_idx].add(block_idx)
+                        break  # Found the right layer
+        
+        # Convert to counts
+        counts = {}
+        for layer_idx, indices in layer_block_indices.items():
+            counts[layer_idx] = len(indices)
+        
+        return counts
+    
+    def enhance_state_dict(self, state_dict, layers_to_enhance=[1], n_pairs_list=[1]):
+        # 1. Get model's expected state_dict (has ALL keys, including new blocks)
+        new_state_dict = self.model.state_dict()  # ✅ Has blocks 0-9
+        
+        # 2. Check if expansion needed
+        model_counts = self.count_blocks_in_model(self.model, layers_to_enhance)
+        state_counts = self.count_blocks_in_state_dict(state_dict, layers_to_enhance)
+        
+        expansion_needed = False
+        for layer_idx in layers_to_enhance:
+            if model_counts.get(layer_idx, 0) > state_counts.get(layer_idx, 0):
+                expansion_needed = True
+                break
+        
+        if not expansion_needed:
+            print("No expansion needed")
+            # Just copy old params over model's initialized params
+            for key in state_dict:
+                if key in new_state_dict:
+                    new_state_dict[key] = state_dict[key].clone()
+            return new_state_dict
+        
+        print(f"Expanding: {state_counts} → {model_counts} !!!!!!!!!!!!!!!")
+        
+        # 3. Map old parameters
+        for old_name, old_param in state_dict.items():
+            mapped = False
+            
+            for idx, layer_id in enumerate(layers_to_enhance):
+                pattern = f'.layers.{layer_id}.blocks.'
+                
+                if pattern in old_name:
+                    import re
+                    match = re.search(r'blocks\.(\d+)\.', old_name)
+                    if match:
+                        old_idx = int(match.group(1))
+                        n_pairs = n_pairs_list[idx]
+                        
+                        # Calculate new index
+                        if old_idx < 4:
+                            new_idx = old_idx
+                        else:
+                            new_idx = old_idx + (2 * n_pairs)
+                        
+                        new_name = old_name.replace(
+                            f'blocks.{old_idx}.',
+                            f'blocks.{new_idx}.'
+                        )
+                        
+                        if new_name in new_state_dict:
+                            new_state_dict[new_name] = old_param.clone()
+                            mapped = True
+                            break
+            
+            # Non-block parameters or blocks not in enhanced layers
+            if not mapped and old_name in new_state_dict:
+                new_state_dict[old_name] = old_param.clone()
+        
+        # 4. New blocks (4,5) keep their initialization from model.state_dict()
+        # (which should be near-identity if you initialized them)
+        
+        return new_state_dict
+        
 
     def get_abs_gates_mean(self):
         """

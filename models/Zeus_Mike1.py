@@ -201,11 +201,12 @@ class Zeus(nn.Module):
                 # NOTE: this dirty code assumes:
                 # - both encoder and decoder have 3 basic layers, 
                 # - we want to ease symmetric layers.
+                
                 if basiclayer_counter % 3 in layers_to_enhance_in_enc_dec:
                     if verbose:
                         print(f"  Enhancing bottleneck #{basiclayer_counter}: {name}")
                     
-                    module.enhance_layer_irreversible(module)
+                    module.enhance_layer_irreversible(module, nEnhancementPairs=self.pm.nEnhancementPairs[layers_to_enhance_in_enc_dec.index(basiclayer_counter % 3)])
         
                 basiclayer_counter += 1
         
