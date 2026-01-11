@@ -1166,7 +1166,7 @@ class Zeus_Dataset(Dataset):
         
         self.pm.loss_weights_cpu = torch.tensor(loss_boost_for_target_vars, dtype=torch.float32)
         if torch.cuda.is_available():
-            self.pm.loss_boost_for_target_vars_cpu = torch.tensor(loss_boost_for_target_vars, dtype=torch.float32).to("cuda")
+            self.pm.vars_to_boost_loss_cuda = torch.tensor(loss_boost_for_target_vars, dtype=torch.float32).to("cuda")
         
         #-------------------------------- meteo ----------------------
         mean_meteo = []

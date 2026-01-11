@@ -253,7 +253,7 @@ class Model_Trainer():
         sum_weights = weights.sum() * W if area_weights is None else H * W
         rmse = torch.sqrt( (error_sqaured * weights).sum(dim=(1,2)) / sum_weights)  # (C,)
         rmse = rmse * (vars_mask if vars_mask is not None else 1.0)     # (C,)
-        loss = (rmse * self.pm.loss_boost_for_target_vars_cpu).mean()
+        loss = (rmse * self.pm.vars_to_boost_loss_cuda).mean()
 
         # self._print_tensor_state(1, target)                 # 
         # self._print_tensor_state(2, pred)
