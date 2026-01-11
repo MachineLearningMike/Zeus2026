@@ -821,7 +821,7 @@ class Zeus_Dataset(Dataset):
         """        
         cuda_available = torch.cuda.is_available()
         mean = None
-        Snapshot.set_original_settings()
+        Snapshot.set_original_settings(factor10=self.pm.factor10)
 
         # Load checkpoint if exists
         try:
@@ -912,7 +912,7 @@ class Zeus_Dataset(Dataset):
         """
         cuda_available = torch.cuda.is_available()
         var_mean = None
-        Snapshot.set_original_settings()
+        Snapshot.set_original_settings(factor10=self.pm.factor10)
 
         # Load checkpoint if exists
         try:
@@ -1205,7 +1205,8 @@ class Zeus_Dataset(Dataset):
             mean_tempo_ready_cuda = rearrange(mean_tempo, 'c -> c 1 1').to("cuda")
             std_tempo_ready_cuda = rearrange(std_tempo, 'c -> c 1 1').to("cuda")
 
-        area_weights_cuda = Snapshot.get_cosign_lat(self.pm.height).to("cuda")[None, :, None]   # for (C, H,)
+        Snapshot.set_original_settings(factor10=self.pm.factor10)
+        area_weights_cuda = Snapshot.get_cosign_lat().to("cuda")[None, :, None]   # for (C, H,)
 
         pack = (
             mean_meteo, std_meteo, mean_tempo, std_tempo, 

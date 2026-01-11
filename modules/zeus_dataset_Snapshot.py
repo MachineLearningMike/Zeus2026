@@ -241,8 +241,9 @@ class Snapshot:
         self._geo_dense = Snapshot._geo_dense
         self._geo_cat = Snapshot._geo_cat
 
-    def get_cosign_lat(size):
+    def get_cosign_lat():
         cos_lan = Geo_Tempo.cos_lat_sin_lon_tensor_era5()[0, :, 0]
+        size = Snapshot.get_export_size()[0]
         return cos_lan[-size:] if Geo_Tempo.respect_north else cos_lan[:size]
 
     def crop_tensor(tensor, size):
