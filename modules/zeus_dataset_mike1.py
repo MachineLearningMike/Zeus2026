@@ -1149,7 +1149,7 @@ class Zeus_Dataset(Dataset):
                 hecta = 100.0
                 pressure = (int(var[2:]) * hecta - pressure_mean) / pressure_std
                 # air_level_pressure_values.append(pressure)
-        self.air_level_pressure_indices = torch.tensor(air_level_pressure_indices).to("cuda" if torch.cuda.is_available() else "cpu")
+        self.air_level_pressure_indices = torch.tensor(air_level_pressure_indices) # .to("cuda" if torch.cuda.is_available() else "cpu")
         # self.air_level_pressure_values = torch.tensor(air_level_pressure_values).to("cuda" if torch.cuda.is_available() else "cpu")
             
         #--------------------------------- loss weights --------------------
@@ -1720,23 +1720,29 @@ class Zeus_Dataset(Dataset):
         
         if array is not None:
                     
-            if self.unnormal_meteo_buffers[idx] is not None:
-                cpu_tensor = torch.from_numpy(array).float().pin_memory()
-                self.unnormal_meteo_buffers[idx].copy_(cpu_tensor, non_blocking=True)
-            else:
-                self.unnormal_meteo_buffers[idx] = torch.from_numpy(array).float().pin_memory().to('cuda', non_blocking=True) # comeback cuda
+            # if self.unnormal_meteo_buffers[idx] is not None:
+            #     cpu_tensor = torch.from_numpy(array).float().pin_memory()
+            #     self.unnormal_meteo_buffers[idx].copy_(cpu_tensor, non_blocking=True)
+            # else:
+            #     self.unnormal_meteo_buffers[idx] = torch.from_numpy(array).float().pin_memory()
 
-            if with_normalized:
-                if self.normal_meteo_buffers[idx] is not None:
-                    # In-place normalization, reusing existing buffer
-                    self.normalize_meteo(self.unnormal_meteo_buffers[idx], self.normal_meteo_buffers[idx])
-                else:
-                    # Allocate once, then reuse for future calls
-                    self.normal_meteo_buffers[idx] = self.unnormal_meteo_buffers[idx].clone()
-                    self.normalize_meteo(self.unnormal_meteo_buffers[idx], self.normal_meteo_buffers[idx])
+            # if with_normalized:
+            #     if self.normal_meteo_buffers[idx] is not None:
+            #         # In-place normalization, reusing existing buffer
+            #         self.normalize_meteo(self.unnormal_meteo_buffers[idx], self.normal_meteo_buffers[idx])
+            #     else:
+            #         # Allocate once, then reuse for future calls
+            #         self.normal_meteo_buffers[idx] = self.unnormal_meteo_buffers[idx].clone().pin_memory()
+            #         self.normalize_meteo(self.unnormal_meteo_buffers[idx], self.normal_meteo_buffers[idx])
                     
-            ss = Snapshot(dt.year, dt.month, dt.day, dt.hour, meteo=self.normal_meteo_buffers[idx], meteo_unnormal=self.unnormal_meteo_buffers[idx])
-            assert ss.device == 'cpu'
+            # meteo_unnormal = self.unnormal_meteo_buffers[idx]
+            # meteo = self.normal_meteo_buffers[idx]
+            
+            meteo_unnormal = torch.from_numpy(array).float().pin_memory()
+            meteo = meteo_unnormal.clone()  # Make meteo the same object as meteo_unnormal.
+            self.normalize_meteo(meteo_unnormal, meteo) # Faster if the two arguments are the same objects.
+                                                    
+            ss = Snapshot(dt.year, dt.month, dt.day, dt.hour, meteo=meteo, meteo_unnormal=meteo_unnormal)
 
             self.normalize_tempo(ss.tempo, ss.tempo)
                                         

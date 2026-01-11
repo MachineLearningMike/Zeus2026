@@ -58,7 +58,7 @@ class Zeus(nn.Module):
     
         #---------------- Patch extractor -----------------
         
-        Snapshot.set_original_settings(factor10=factor10, increasing=increasing, packed_levels=nLevels - 1)  #------------- SETUP
+        Snapshot.set_original_settings(factor10=factor10, increasing=increasing, packed_levels=nLevels - 1, device=self.device)  # Setup that will be persistent.
         
         now = datetime.now(timezone.utc)
         ss1 = Snapshot(now.year, now.month, now.day, now.hour, meteo=None, meteo_unnormal=None)
@@ -69,7 +69,7 @@ class Zeus(nn.Module):
         else:
             ss2 = ss1
 
-        levels, surface = Snapshot.pack_pair_snapshots(ss1, ss2)
+        levels, surface = Snapshot.pack_pair_snapshots(ss1, ss2, device=device)
         
         self.patch_kernel=(patch_kernel,patch_kernel)
         self.patch_stride=(patch_stride,patch_stride)
@@ -109,7 +109,8 @@ class Zeus(nn.Module):
 
         #----------- patch/extract level features ------------
         # s = time.time()
-        levels, surface = Snapshot.pack_pair_snapshots(ss1, ss2)
+        device = next(self.patch_extractor.parameters()).device
+        levels, surface = Snapshot.pack_pair_snapshots(ss1, ss2, device=device)
         x = self.patch_extractor(levels, surface, cascade_step)
         # e = time.time()
         # print(f"x after patching: {x.shape}, time: {e-s}")
@@ -143,16 +144,14 @@ class Zeus(nn.Module):
             ss0, ss1, ssY, cascade_step,
             fn_loss, fn_nornalize, fn_unnornalize, 
             batch_diff, era5_data_vars, trainable,
-            type_metrics, predicted_value_required,
+            type_metrics, predicted_snapshot_required,
             air_level_pressure_indices, air_level_pressure_values,
             scaler,
         ):   
+
+        pred_normal = self(ss0, ss1, cascade_step)
         
-        pred_normal = self(ss0, ss1, cascade_step)      # normal only
-        # So we need ss0 and/or ss1 more?
-        del ss0, ss1  # No, at least in this function.
-        
-        air_levels_mask = torch.ones(pred_normal.shape[0], dtype=torch.float32, device=pred_normal.device)
+        air_levels_mask = torch.ones(pred_normal.shape[0], dtype=torch.float32, device='cpu')
         air_levels_mask[air_level_pressure_indices] = 0.0
         # air_levels_mask[-len(self.pm.targetVariables):] = self.pm.lossXtargets  # Weight amplifiled -------------------------
         
@@ -163,9 +162,9 @@ class Zeus(nn.Module):
             scaler.scale(normalized_loss).backward(retain_graph=True)
 
         pred_normal = pred_normal.detach()
-        pred_normal[air_level_pressure_indices] = ssY.meteo[air_level_pressure_indices].to(pred_normal.dtype)
+        pred_normal[air_level_pressure_indices] = ssY.meteo[air_level_pressure_indices].to(pred_normal.device).to(pred_normal.dtype)
 
-        if predicted_value_required:
+        if predicted_snapshot_required:
             result_ss = Snapshot(ssY.year, ssY.month, ssY.day, ssY.hour, meteo=pred_normal.to(ssY.meteo.device), meteo_unnormal=None, device=ssY.device)
         else:
             result_ss = None

@@ -1100,7 +1100,7 @@ class Model_Dom():
             X0, X1, Y, cascade_step,
             fn_loss, fn_nornalize, fn_unnornalize, 
             batch_diff, era5_data_vars, trainable,
-            type_metrics, predicted_value_required,
+            type_metrics, predicted_snapshot_required,
             air_level_pressure_indices, air_level_pressure_values,
             scaler,
         ):
@@ -1109,7 +1109,7 @@ class Model_Dom():
             X0, X1, Y, cascade_step,
             fn_loss, fn_nornalize, fn_unnornalize, 
             batch_diff, era5_data_vars, trainable,
-            type_metrics, predicted_value_required,
+            type_metrics, predicted_snapshot_required,
             air_level_pressure_indices, air_level_pressure_values,
             scaler,
         )

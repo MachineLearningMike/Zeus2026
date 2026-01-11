@@ -165,7 +165,7 @@ class Snapshot:
     _geo_dense = None   # on device
     _geo_cat = None
     
-    def set_original_settings(factor10=10, increasing=True, packed_levels=7):
+    def set_original_settings(factor10=10, increasing=True, packed_levels=7, device='cpu'):
         Snapshot.export_factor10 = factor10
         # temporary. can be added and changed any time
         Snapshot.meteo_dims = len(VARIABLE_NAME_LIST_UNCHANGEABLE) + len(HECTA_PASCAL_UNCHANGEABLE )
@@ -188,21 +188,18 @@ class Snapshot:
         dense_npy_paths = [config['orograph_npy_path']]
 
         #--------------------------------------------------------------------------------------------------------
-        _geo_dense = Snapshot.create_geo_dense_era5(dense_npy_paths)
+        _geo_dense = Snapshot.create_geo_dense_era5(dense_npy_paths).to(device)
         Snapshot._geo_dense = Snapshot.crop_tensor(_geo_dense, size=(Snapshot.full_export_h, Snapshot.full_export_w))
-        _geo_cat = Snapshot.create_geo_cat_era5(categorical_npy_paths)
+        _geo_cat = Snapshot.create_geo_cat_era5(categorical_npy_paths).to(device)
         Snapshot._geo_cat = Snapshot.crop_tensor(_geo_cat, size=(Snapshot.full_export_h, Snapshot.full_export_w))
             
-    def __init__(self, year, month, day, hour, meteo, meteo_unnormal, device='cpu'):
+    def __init__(self, year, month, day, hour, meteo, meteo_unnormal):
         assert year is not None and month is not None and day is not None and hour is not None
         self.year = year
         self.month = month
         self.day = day
         self.hour = hour
-        
-        self._device = None
-        self.device = device    # operation
-        
+                
         self._meteo, self._tempo, self._geo_dense, self._geo_cat = None, None, None, None
 
         #---------------------- temporary ----------------------
@@ -251,25 +248,16 @@ class Snapshot:
         
     def num_get_train_variables():
         return Snapshot.meteo_dims + Snapshot.tempo_dims + Snapshot.geo_dense_dims + Snapshot.geo_cat_dims
-        
-    #-------------------- device -----------------
-    def _get_device(self):
-        return self._device
-    def _set_device(self, device):
-        self._device = device
-    def to(self, device):
-        self._device = device
-    device = property(
-        fget = _get_device,
-        fset = _set_device,
-    )
-    
+            
     #------------------ meteo -----------------------
     def _get_meteo(self):
         return self._meteo
+    def _set_meteo(self, meteo):
+        self._meteo = meteo
     
     meteo_internal = property(
         fget = _get_meteo,
+        fset = _set_meteo,
     )
     
     def _get_meteo(self):
@@ -278,11 +266,14 @@ class Snapshot:
         if not Snapshot.is_export_size(meteo):
             meteo = Snapshot.resize_for_export(meteo)
         
-        # meteo = meteo.to(self.device) 
         return meteo
+    
+    def _set_meteo(self, meteo):
+        self.meteo_internal = meteo
 
     meteo = property(
         fget = _get_meteo,
+        fset = _set_meteo,
     )
     
     #------------------ meteo unnormalized --------------
@@ -292,7 +283,6 @@ class Snapshot:
         if Snapshot.export_factor10 != 10:
             _meteo_unnormal = Snapshot.resize_for_export(_meteo_unnormal)
     
-        # _meteo_unnormal = _meteo_unnormal.to(self.device)    
         return _meteo_unnormal
     
     meteo_unnormal = property(
@@ -313,7 +303,6 @@ class Snapshot:
         if not Snapshot.is_export_size(tempo):
             tempo = Snapshot.resize_for_export(tempo)
         
-        tempo = tempo.to(self.device)
         return tempo
 
     tempo = property(
@@ -333,7 +322,6 @@ class Snapshot:
         if not Snapshot.is_export_size(geo_dense):
             geo_dense = Snapshot.resize_for_export(geo_dense)
         
-        geo_dense = geo_dense.to(self.device)
         return geo_dense
 
     geo_dense = property(
@@ -360,7 +348,6 @@ class Snapshot:
         if not Snapshot.is_export_size(geo_cat):
             geo_cat = Snapshot.resize_for_export(geo_cat)
         
-        geo_cat = geo_cat.to(self.device)
         return geo_cat
 
     geo_cat = property(
@@ -492,7 +479,7 @@ class Snapshot:
 
     #----------------------- packinng --------------------
         
-    def pack_pair_snapshots(ss1, ss2):
+    def pack_pair_snapshots(ss1, ss2, device='cpu'):
         """
         Packs two snapshots by interleaving meteo, tempo, and geo features per level,
         for vertical levels and surface variables.
@@ -513,14 +500,13 @@ class Snapshot:
                 start = group[0]
                 end = group[-1] + 1
                 
-                level_slice = torch.concat([meteo[:, start:end, :, :].reshape(-1, H, W), tempo], dim=0)
+                level_slice = torch.concat([meteo[:, start:end, :, :].reshape(-1, H, W), tempo], dim=0).to(device)
                 delevels.append(level_slice)  # list of length levels, each (different s, H, W)
-
 
             # --- Surface variables ---
             meteo_surface = ss.meteo[Snapshot.air_level_dims*Snapshot.num_air_levels:, :, :].view(-1, H, W)  # (m_surf, H, W)
             tempo_surface = tempo                                                                     # (t, H, W)
-            surface = torch.concat([meteo_surface, tempo_surface], dim=0)
+            surface = torch.concat([meteo_surface, tempo_surface], dim=0).to(device)
 
             return delevels, surface
 
@@ -528,29 +514,24 @@ class Snapshot:
         lev1, surf1 = arrange_by_level(ss1)
         if ss1 != ss2:
             lev2, surf2 = arrange_by_level(ss2)
-    
-        if ss1 != ss2:    
-            assert ss1.device == ss2.device
-            
-        # assert ss1.device == 'cpu'
-        # assert ss2.device == 'cpu'
-
+                
         # --- Concatenate corresponding levels ---
         _, H, W = ss1.meteo.shape
 
         if ss1 != ss2:    
-            delevels_paired = [torch.cat([l1, l2, ss1.geo_dense], dim=0).to(ss1.device) for l1, l2 in zip(lev1, lev2)]  # list of (m+t+g)*2, H, W
-            surface_paired = torch.cat([surf1, surf2, ss1.geo_dense], dim=0).to(ss1.device)                             # (m_surf+t+g)*2, H, W
+            delevels_paired = [torch.cat([l1, l2, ss1.geo_dense], dim=0) for l1, l2 in zip(lev1, lev2)]  # list of (m+t+g)*2, H, W
+            surface_paired = torch.cat([surf1, surf2, ss1.geo_dense], dim=0)                             # (m_surf+t+g)*2, H, W
         else:
-            delevels_paired = [torch.cat([l1, ss1.geo_dense], dim=0).to(ss1.device) for l1 in lev1]  # list of (m+t+g)*2, H, W
-            surface_paired = torch.cat([surf1, ss1.geo_dense], dim=0).to(ss1.device)                             # (m_surf+t+g)*2, H, W
-        
-        assert not torch.isnan(surface_paired).any()
-        export_size = Snapshot.get_export_size()
-        nSnapshots = 2 if ss1 != ss2 else 1
-        for lvl, group in zip(delevels_paired, Snapshot.delevel_plan):
-            assert lvl.shape == ((Snapshot.air_level_dims * len(group) + Snapshot.tempo_dims) * nSnapshots + Snapshot.geo_dense_dims, export_size[0], export_size[1])
-        assert surface_paired.shape == ((Snapshot.meteo_dims - Snapshot.air_level_dims * Snapshot.num_air_levels + Snapshot.tempo_dims) * nSnapshots + Snapshot.geo_dense_dims, export_size[0], export_size[1])
+            delevels_paired = [torch.cat([l1, ss1.geo_dense], dim=0) for l1 in lev1]  # list of (m+t+g)*2, H, W
+            surface_paired = torch.cat([surf1, ss1.geo_dense], dim=0)                             # (m_surf+t+g)*2, H, W
+
+        #---------- asserts ------------        
+        # assert not torch.isnan(surface_paired).any()
+        # export_size = Snapshot.get_export_size()
+        # nSnapshots = 2 if ss1 != ss2 else 1
+        # for lvl, group in zip(delevels_paired, Snapshot.delevel_plan):
+        #     assert lvl.shape == ((Snapshot.air_level_dims * len(group) + Snapshot.tempo_dims) * nSnapshots + Snapshot.geo_dense_dims, export_size[0], export_size[1])
+        # assert surface_paired.shape == ((Snapshot.meteo_dims - Snapshot.air_level_dims * Snapshot.num_air_levels + Snapshot.tempo_dims) * nSnapshots + Snapshot.geo_dense_dims, export_size[0], export_size[1])
 
         return delevels_paired, surface_paired  # requires_grad == False
     
@@ -597,10 +578,6 @@ if __name__ == "__main__":
     Snapshot.export_factor10 = 2
     print("meteo, tempo, geo: ", snapshot_now.meteo.shape, snapshot_now.tempo.shape, snapshot_now.geo_dense.shape, snapshot_now.geo_cat.shape)    
     Snapshot.export_factor10 = 10
-    
-    # Snapshot.device = "cuda"
-    Snapshot.device = "cpu"
-    print("geo: ", snapshot_now.geo_dense.device) 
     
     print("class property: ", Snapshot.shared_geo_dense.shape)
 

@@ -245,6 +245,7 @@ class Model_Trainer():
         # 32, cuda, False ; 32, cuda, True !!!, 32, cuda, False, 32, cuda, False
         device = pred.device
         target = target.to(device)
+        vars_mask = vars_mask.to(device)
 
         error = (pred - target)
         # if vars_mask is not None: error = error * vars_mask[:, None, None]  # vars_mask masks air pressure level dimensions
@@ -384,7 +385,6 @@ class Model_Trainer():
                 # with context:
                 # with torch.set_grad_enabled(trainable):   # grad is managed by single_GPU_forward_loss_backward
 
-                device = self.devices[0]
                 # for _ in  range(self.train_bombs):    # train_bomb cannot work because we destroy batch_of_ss_lists.
                     
                 Xs = batch_of_ss_lists[0]   # batch_of_ss_lists undergoes changes. This code doesn't know the content of X
@@ -432,18 +432,18 @@ class Model_Trainer():
                                 cascade_step = len(newQ)
                                 
                                 #-------------------- control snapshot device ----------
-                                X0.to(device)
-                                if self.pm.pair_not_single_snapshot:
-                                    X1.to(device)
-                                Y.to(device)
+                                # X0.to(device)
+                                # if self.pm.pair_not_single_snapshot:
+                                #     X1.to(device)
+                                # Y.to(device)
                                                      
-                                predicted_value_required = (len(Xs) > 0 or len(oldQ) > 0 and cascade_step < self.pm.max_cascade_step)       
+                                predicted_snapshot_required = (len(Xs) > 0 or len(oldQ) > 0 and cascade_step < self.pm.max_cascade_step)       
                                 substep_result, substep_loss, substep_metrics = md.forward_backward_no_optimizer_step(
                                         X0, X1, Y, cascade_step,
                                         self.loss, self.dataset.normalize_meteo, self.dataset.unnormalize_meteo, 
                                         batch_diff, era5_data_vars, trainable=trainable,
                                         type_metrics = self.pm.metrics, 
-                                        predicted_value_required = predicted_value_required,
+                                        predicted_snapshot_required = predicted_snapshot_required,
                                         air_level_pressure_indices = self.dataset.air_level_pressure_indices,
                                         air_level_pressure_values = self.dataset.air_level_pressure_values,
                                         scaler=md.scaler,
@@ -470,7 +470,7 @@ class Model_Trainer():
                             oldQ = newQ
                             
                         # assert cnt == int((self.pm.nStepsPerCycle + 1) * self.pm.nStepsPerCycle / 2)
-                        # print('++++++++++++++++++++++++++', cnt, predicted_value_required)
+                        # print('++++++++++++++++++++++++++', cnt, predicted_snapshot_required)
                             
                         #------------------------------------------------ The set of steps finished.
                         md.store_step_loss_and_metrics(train_step_loss, train_step_metrics) # [substep_loss...], [substep_metrics...]
