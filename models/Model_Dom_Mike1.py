@@ -1102,7 +1102,7 @@ class Model_Dom():
             batch_diff, era5_data_vars, trainable,
             type_metrics, predicted_snapshot_required,
             air_level_pressure_indices, air_level_pressure_values,
-            scaler,
+            scaler, area_weights,
         ):
         
         return self.model.forward_backward_no_optimizer_step(
@@ -1111,7 +1111,7 @@ class Model_Dom():
             batch_diff, era5_data_vars, trainable,
             type_metrics, predicted_snapshot_required,
             air_level_pressure_indices, air_level_pressure_values,
-            scaler,
+            scaler, area_weights,
         )
         
     def store_step_loss_and_metrics(self, step_loss, step_metrics): # [substep_loss...], [substep_metrics...]

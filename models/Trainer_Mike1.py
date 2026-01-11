@@ -240,18 +240,17 @@ class Model_Trainer():
         plt.show()
 
     # def loss(self, target, pred, batch_diff, era5_data_vars):
-    def loss(self, target, pred, batch_diff, era5_data_vars, vars_mask=None):
+    def loss(self, target, pred, batch_diff, era5_data_vars, vars_mask=None, area_weights=None):
         # (C,H,W), (C,H,W), (C, H, W), (C,)
         # 32, cuda, False ; 32, cuda, True !!!, 32, cuda, False, 32, cuda, False
         device = pred.device
         target = target.to(device)
         vars_mask = vars_mask.to(device)
 
-        error = (pred - target)
+        error = (pred - target) * (area_weights if area_weights is not None else 1.0)
         # if vars_mask is not None: error = error * vars_mask[:, None, None]  # vars_mask masks air pressure level dimensions
         rmse = (error ** 2).mean(dim=(1,2)).sqrt() * (vars_mask if vars_mask is not None else 1.0)    # (C,)
         # loss = ((error * self.pm.loss_boost_for_target_vars_cpu[:, None, None])**2).mean(dim=(0,1,2)).sqrt() # self.pm.loss_boost_for_target_vars_cpu amplifies the target variables.
-
 
         loss = (rmse * self.pm.loss_boost_for_target_vars_cpu).mean()
 
@@ -446,7 +445,7 @@ class Model_Trainer():
                                         predicted_snapshot_required = predicted_snapshot_required,
                                         air_level_pressure_indices = self.dataset.air_level_pressure_indices,
                                         air_level_pressure_values = self.dataset.air_level_pressure_values,
-                                        scaler=md.scaler,
+                                        scaler=md.scaler, area_weights=self.dataset.area_weights_cuda,
                                     )
                                 cnt += 1
 

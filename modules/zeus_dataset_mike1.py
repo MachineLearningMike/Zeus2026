@@ -99,6 +99,8 @@ class Zeus_Dataset(Dataset):
         self.air_level_pressure_indices = None
         self.air_level_pressure_values = None
         self.taken = None
+        
+        self.area_weights_cuda = None
 
         
         # self.shard_dataset = ERA5ZarrShards(
@@ -126,7 +128,7 @@ class Zeus_Dataset(Dataset):
     def load_data(self):
         self.mean_meteo, self.std_meteo, self.mean_tempo, self.std_tempo, \
         self.mean_meteo_ready_cpu, self.std_meteo_ready_cpu, self.mean_meteo_ready_cuda, self.std_meteo_ready_cuda, \
-        self.mean_tempo_ready_cpu, self.std_tempo_ready_cpu, self.mean_tempo_ready_cuda, self.std_tempo_ready_cuda \
+        self.mean_tempo_ready_cpu, self.std_tempo_ready_cpu, self.mean_tempo_ready_cuda, self.std_tempo_ready_cuda, self.area_weights_cuda \
         = self.load_dataset_params()
         
         if self.pm.include_difficulty: 
@@ -1203,10 +1205,13 @@ class Zeus_Dataset(Dataset):
             mean_tempo_ready_cuda = rearrange(mean_tempo, 'c -> c 1 1').to("cuda")
             std_tempo_ready_cuda = rearrange(std_tempo, 'c -> c 1 1').to("cuda")
 
+        area_weights_cuda = Snapshot.get_cosign_lat(self.pm.height).to("cuda")[None, :, None]   # for (C, H,)
+
         pack = (
             mean_meteo, std_meteo, mean_tempo, std_tempo, 
             mean_meteo_ready_cpu, std_meteo_ready_cpu, mean_meteo_ready_cuda, std_meteo_ready_cuda,
             mean_tempo_ready_cpu, std_tempo_ready_cpu, mean_tempo_ready_cuda, std_tempo_ready_cuda,
+            area_weights_cuda,
         )
         
         return pack
