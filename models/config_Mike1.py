@@ -1403,8 +1403,8 @@ projects["Zeus_25Dec28_1"] = {
         'useLRLearner' : False,
         'use_checkpoint' : False,
         
-        'layers_to_enhance_in_enc_dec' : [0],
-        'nEnhancementPairs': [1],  # pairs
+        'layers_to_enhance_in_enc_dec' : [],
+        'nEnhancementPairs': [],  # pairs
     }, 
     
     "model_1": {},
