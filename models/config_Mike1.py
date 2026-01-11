@@ -1393,7 +1393,7 @@ projects["Zeus_25Dec28_1"] = {
         'increasing' : True,
         'type_pos_bias' : 'lonBand', # 'sphere', 'None'
         'pair_bias_dim' : 5,
-        'depth_list' : [4, 8, 4],   # [6, 8, 4] leads to OOP on A100
+        'depth_list' : [4, 12, 4],   # [6, 8, 4] leads to OOP on A100
         'head_list' : [4, 8, 16],
         'skippable' : True,
         'skip_learnable' : True,
@@ -1403,9 +1403,9 @@ projects["Zeus_25Dec28_1"] = {
         'useLRLearner' : False,
         'use_checkpoint' : False,
         
-        'enhance_capability' : True,  #!!!!!!!!!!!!!!!!!      # Once the model is enhanced, it's irreversible unless training again.
-        'layers_to_enhance_in_enc_dec' : [1], # !!!!!!!!!!!!!!!! # Some of [0,1,2]. Once a layer is enhanced, it's irreversible unless training again. Next: 1
-        'nEnhancementPairs': [1],  # pairs
+        'enhance_capability' : False,  #!!!!!!!!!!!!!!!!!      # Once the model is enhanced, it's irreversible unless training again.
+        'layers_to_enhance_in_enc_dec' : [], # !!!!!!!!!!!!!!!! # Some of [0,1,2]. Once a layer is enhanced, it's irreversible unless training again. Next: 1
+        'nEnhancementPairs': [],  # pairs
     }, 
     
     "model_1": {},
