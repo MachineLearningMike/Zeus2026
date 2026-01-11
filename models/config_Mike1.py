@@ -1403,9 +1403,8 @@ projects["Zeus_25Dec28_1"] = {
         'useLRLearner' : False,
         'use_checkpoint' : False,
         
-        'enhance_capability' : False,  #!!!!!!!!!!!!!!!!!      # Once the model is enhanced, it's irreversible unless training again.
-        'layers_to_enhance_in_enc_dec' : [], # !!!!!!!!!!!!!!!! # Some of [0,1,2]. Once a layer is enhanced, it's irreversible unless training again. Next: 1
-        'nEnhancementPairs': [],  # pairs
+        'layers_to_enhance_in_enc_dec' : [0],
+        'nEnhancementPairs': [1],  # pairs
     }, 
     
     "model_1": {},

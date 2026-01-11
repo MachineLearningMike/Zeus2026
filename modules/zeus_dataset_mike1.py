@@ -1724,7 +1724,7 @@ class Zeus_Dataset(Dataset):
                 cpu_tensor = torch.from_numpy(array).float().pin_memory()
                 self.unnormal_meteo_buffers[idx].copy_(cpu_tensor, non_blocking=True)
             else:
-                self.unnormal_meteo_buffers[idx] = torch.from_numpy(array).float().pin_memory().to('cuda', non_blocking=True)
+                self.unnormal_meteo_buffers[idx] = torch.from_numpy(array).float().pin_memory().to('cuda', non_blocking=True) # comeback cuda
 
             if with_normalized:
                 if self.normal_meteo_buffers[idx] is not None:
@@ -2091,11 +2091,16 @@ if __name__ == "__main__":
     #     verify_existing = True,
     # )
 
+    # Maybe on the vm
     # inclusive_left = datetime(2014, 12, 31, 23)
     # inclusive_right = datetime(2024, 12, 31, 23)
 
-    inclusive_left = datetime(2016, 1, 1, 5)
-    inclusive_right = datetime(2016, 12, 31, 23)
+    # New true data on the local
+    inclusive_left = datetime(2019, 12, 31, 23)
+    inclusive_right = datetime(2024, 12, 31, 23)
+
+    # inclusive_left = datetime(2016, 1, 1, 5)
+    # inclusive_right = datetime(2016, 12, 31, 23)
 
     mean_meteo, m = dataset.ensure_meteo_data_integrity_while_getting_mean(
         inclusive_left=inclusive_left,

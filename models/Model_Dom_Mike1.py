@@ -62,7 +62,7 @@ class Model_Dom():
             # if self.nDevices > 1:
             #     self.slave_models = self.create_slave_models(self.devices)
             
-            if self.pm.enhance_capability:
+            if len(self.pm.layers_to_enhance_in_enc_dec)> 0:
                 self.model.enhance_model_insert_codec_bloks(self.model, layers_to_enhance_in_enc_dec=self.pm.layers_to_enhance_in_enc_dec, verbose=True)
             num_params = sum(p.numel() for p in self.model.parameters())
             logging.info("Zeus model {} enhanced to a total of ========= {:,} ========= parameters".format(self.md_id, num_params))
@@ -335,7 +335,7 @@ class Model_Dom():
                 # Load model parameters whetherr trainable or not.
                 old_state_dict = checkpoint['model']
                 
-                if self.pm.enhance_capability:
+                if len(self.pm.layers_to_enhance_in_enc_dec)> 0:
                     state_dict = self.enhance_state_dict(old_state_dict, layers_to_enhance=self.pm.layers_to_enhance_in_enc_dec, n_pairs_list=self.pm.nEnhancementPairs)
                 else:
                     state_dict = old_state_dict
@@ -570,7 +570,7 @@ class Model_Dom():
     
     def enhance_state_dict(self, state_dict, layers_to_enhance=[1], n_pairs_list=[1]):
         # 1. Get model's expected state_dict (has ALL keys, including new blocks)
-        new_state_dict = self.model.state_dict()  # ✅ Has blocks 0-9
+        new_state_dict = self.model.state_dict()
         
         # 2. Check if expansion needed
         model_counts = self.count_blocks_in_model(self.model, layers_to_enhance)
@@ -607,7 +607,7 @@ class Model_Dom():
                         n_pairs = n_pairs_list[idx]
                         
                         # Calculate new index
-                        if old_idx < 4:
+                        if old_idx < 2:             # insert after the 1st pair of blocks.
                             new_idx = old_idx
                         else:
                             new_idx = old_idx + (2 * n_pairs)

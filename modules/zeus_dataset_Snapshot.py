@@ -222,8 +222,8 @@ class Snapshot:
             assert meteo.shape[2] >= exp_w
             _meteo_tensor = meteo
             
-        if _meteo_tensor.shape[1] > Snapshot.full_export_h or _meteo_tensor.shape[2] > Snapshot.full_export_w:
-            _meteo_tensor = Snapshot.crop_tensor(_meteo_tensor, full_size)
+
+        _meteo_tensor = Snapshot.crop_tensor(_meteo_tensor, full_size)
             
         self._meteo = _meteo_tensor
 

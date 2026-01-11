@@ -1116,32 +1116,31 @@ class BasicLayer(nn.Module):
         #------------ A 2nd attempt -----------------------------
         #----- insert 1 or 2 pairs of blocks in the sequence of 8 blocks.
         
-        assert len(self.blocks) >= 6, f" len(self.blocks) == { len(self.blocks)}"
+        assert len(self.blocks) >= 4, f" len(self.blocks) == { len(self.blocks)}"
         
         def copy_and_zero(block):
             new_block = copy.deepcopy(block)
             
             # FIXED: Modify new_block, not the original block!
+            std = 0.005
             with torch.no_grad():
-                nn.init.normal_(new_block.attn.proj.weight, mean=0.0, std=0.001)
+                nn.init.normal_(new_block.attn.proj.weight, mean=0.0, std=std)
                 nn.init.zeros_(new_block.attn.proj.bias)          #  new_block, not block
-                nn.init.normal_(new_block.mlp.fc2.weight, mean=0.0, std=0.001)  #  new_block
+                nn.init.normal_(new_block.mlp.fc2.weight, mean=0.0, std=std)  #  new_block
                 nn.init.zeros_(new_block.mlp.fc2.bias)            #  new_block
             
             return new_block  #  Return the modified block
 
-        # Clone blocks 2 and 3
+        # Clone blocks -2 and 2
         enhancement_pairs = []
         for p in range(nEnhancementPairs):
-            even_block = copy_and_zero(self.blocks[2])  # W-MSA block
-            odd_block = copy_and_zero(self.blocks[3])   # SW-MSA block
+            # -2 and 2 are existing and normal even and odd blocks, respectively.
+            even_block = copy_and_zero(self.blocks[-2])  # W-MSA block
+            odd_block = copy_and_zero(self.blocks[2])   # SW-MSA block
             enhancement_pairs += [even_block, odd_block]
 
-        # CORRECTED: Insert after block 3 (between pair 1 and pair 2)
-        # Original: [0, 1, 2, 3, 4, 5, 6, 7]
-        # Insert after position 3 (after block 3)
         new_blocks_list = list(self.blocks)  # Convert ModuleList to list
-        new_blocks_list = new_blocks_list[:4] + enhancement_pairs + new_blocks_list[4:]
+        new_blocks_list = new_blocks_list[:2] + enhancement_pairs + new_blocks_list[2:]
         self.blocks = nn.ModuleList(new_blocks_list)  # Convert back to ModuleList
  
         #-----------------------------------------------------------------       
