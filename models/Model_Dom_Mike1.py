@@ -63,7 +63,7 @@ class Model_Dom():
             #     self.slave_models = self.create_slave_models(self.devices)
             
             if self.pm.enhance_capability:
-                self.model.enhance_model_irreversible(self.model, layers_to_enhance_in_enc_dec=self.pm.layers_to_enhance_in_enc_dec, verbose=True)
+                self.model.enhance_model_insert_codec_bloks(self.model, layers_to_enhance_in_enc_dec=self.pm.layers_to_enhance_in_enc_dec, verbose=True)
             num_params = sum(p.numel() for p in self.model.parameters())
             logging.info("Zeus model {} enhanced to a total of ========= {:,} ========= parameters".format(self.md_id, num_params))
             

@@ -184,7 +184,7 @@ class Zeus(nn.Module):
                 
         return result_ss, normalized_loss.detach().to("cpu"), unnormalized_metrics.detach().to("cpu")
 
-    def enhance_model_irreversible(self, model, layers_to_enhance_in_enc_dec=[2], verbose=True):
+    def enhance_model_insert_codec_bloks(self, model, layers_to_enhance_in_enc_dec=[2], verbose=True):
         """
         Simple: Enhance bottleneck layers, return modified model.
         """
