@@ -247,11 +247,12 @@ class Model_Trainer():
         target = target.to(device)
         vars_mask = vars_mask.to(device)
 
-        error = (pred - target) * (area_weights if area_weights is not None else 1.0)
-        # if vars_mask is not None: error = error * vars_mask[:, None, None]  # vars_mask masks air pressure level dimensions
-        rmse = (error ** 2).mean(dim=(1,2)).sqrt() * (vars_mask if vars_mask is not None else 1.0)    # (C,)
-        # loss = ((error * self.pm.loss_boost_for_target_vars_cpu[:, None, None])**2).mean(dim=(0,1,2)).sqrt() # self.pm.loss_boost_for_target_vars_cpu amplifies the target variables.
-
+        C, H, W = target.shape
+        error_sqaured = (pred - target) ** 2    # (C, H, W)
+        weights = area_weights if area_weights is not None else 1.0     # (1, H, 1)
+        sum_weights = weights.sum() * W if area_weights is None else H * W
+        rmse = torch.sqrt( (error_sqaured * weights).sum(dim=(1,2)) / sum_weights)  # (C,)
+        rmse = rmse * (vars_mask if vars_mask is not None else 1.0)     # (C,)
         loss = (rmse * self.pm.loss_boost_for_target_vars_cpu).mean()
 
         # self._print_tensor_state(1, target)                 # 
