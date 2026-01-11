@@ -1206,7 +1206,7 @@ class Zeus_Dataset(Dataset):
             std_tempo_ready_cuda = rearrange(std_tempo, 'c -> c 1 1').to("cuda")
 
         Snapshot.set_original_settings(factor10=self.pm.factor10)
-        area_weights_cuda = Snapshot.get_cosign_lat().to("cuda")[None, :, None]   # for (C, H,)
+        area_weights_cuda = Snapshot.get_cosign_lat().to("cuda")[None, :, None]   # for (C, H, W)
 
         pack = (
             mean_meteo, std_meteo, mean_tempo, std_tempo, 
