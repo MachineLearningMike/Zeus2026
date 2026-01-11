@@ -1365,7 +1365,7 @@ projects["Zeus_25Dec28_1"] = {
     "GPUWaitsData" : True,
     "models_to_play": [0,],
     "metrics" : "rmse", # "mae", "rmse"
-    'max_cascade_step' : 1,
+    'max_cascade_step' : 2,
     },
     
     "data": {
