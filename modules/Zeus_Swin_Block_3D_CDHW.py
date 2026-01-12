@@ -1122,7 +1122,7 @@ class BasicLayer(nn.Module):
             new_block = copy.deepcopy(block)
             
             # FIXED: Modify new_block, not the original block!
-            std = 0.005
+            std = 0.001
             with torch.no_grad():
                 nn.init.normal_(new_block.attn.proj.weight, mean=0.0, std=std)
                 nn.init.zeros_(new_block.attn.proj.bias)          #  new_block, not block
