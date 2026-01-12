@@ -438,7 +438,8 @@ class Model_Trainer():
                                 #     X1.to(device)
                                 # Y.to(device)
                                                      
-                                predicted_snapshot_required = (len(Xs) > 0 or len(oldQ) > 0 and cascade_step < self.pm.max_cascade_step)       
+                                # predicted_snapshot_required = (len(Xs) > 0 or len(oldQ) > 0 and cascade_step < self.pm.max_cascade_step)
+                                predicted_snapshot_required = False
                                 substep_result, substep_loss, substep_metrics = md.forward_backward_no_optimizer_step(
                                         X0, X1, Y, cascade_step,
                                         self.loss, self.dataset.normalize_meteo, self.dataset.unnormalize_meteo, 
@@ -451,7 +452,8 @@ class Model_Trainer():
                                     )
                                 cnt += 1
 
-                                if len(newQ) < self.pm.max_cascade_step: 
+                                # if len(newQ) < self.pm.max_cascade_step:
+                                if substep_result is not None:
                                     if self.pm.pair_not_single_snapshot:
                                         newQ.append((X1, substep_result))                      # +1 X
                                     else:
