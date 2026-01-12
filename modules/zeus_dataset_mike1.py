@@ -135,7 +135,7 @@ class Zeus_Dataset(Dataset):
         if self.pm.include_difficulty: 
             self.difficulties = self.load_difficulties()
         
-        self.zeus_weights = self.load_era5_data_vars()
+        self.zeus_weights = None # self.load_era5_data_vars()
         
         self.train_hours, self.vali_hours, self.test_hours = self.split_data_hours_by_date_segents(
             self.pm.train_start_dt, self.pm.vali_start_dt, self.pm.test_start_dt, self.pm.test_end_dt_inclusive,
