@@ -243,18 +243,55 @@ class Model_Trainer():
     def loss(self, target, pred, batch_diff, zeus_weights, vars_mask=None, area_weights=None):
         # (C,H,W), (C,H,W), (C, H, W), (C,)
         # 32, cuda, False ; 32, cuda, True !!!, 32, cuda, False, 32, cuda, False
+        # device = pred.device
+        # target = target.to(device)
+        # vars_mask = vars_mask.to(device)
+
+        # C, H, W = target.shape
+        # error_sqaured = (pred - target) ** 2 * (area_weights if area_weights is not None else 1.0)   # (C, H, W)
+        # sum_weights = (area_weights.sum() * W if area_weights is not None else H * W)        
+        # rmse = torch.sqrt(error_sqaured.sum(dim=(1,2)) / sum_weights)  # (C,)
+        # rmse = rmse * (vars_mask if vars_mask is not None else 1.0)     # (C,)
+        # rmse_for_loss = rmse * (zeus_weights if zeus_weights is not None else 1.0) #---- 1.0 is not on device
+        # loss = (rmse_for_loss * self.pm.vars_to_boost_loss_cuda).mean()
+
         device = pred.device
         target = target.to(device)
-        vars_mask = vars_mask.to(device)
 
         C, H, W = target.shape
-        error_sqaured = (pred - target) ** 2    # (C, H, W)
-        weights = area_weights if area_weights is not None else 1.0     # (1, H, 1)     # 1.0 is not on device
-        sum_weights = weights.sum() * W if area_weights is None else H * W
-        rmse = torch.sqrt( (error_sqaured * weights).sum(dim=(1,2)) / sum_weights)  # (C,)
-        rmse = rmse * (vars_mask if vars_mask is not None else 1.0)     # (C,)
-        # rmse_for_loss = rmse * (zeus_weights if zeus_weights is not None else 1.0) #---- 1.0 is not on device
-        loss = (rmse * self.pm.vars_to_boost_loss_cuda).mean()
+
+        # Calculate sum_weights first (cheap operation)
+        if area_weights is not None:
+            area_weights = area_weights.to(device)
+            sum_weights = area_weights.sum() * W
+            # Use multiplication instead of in-place
+            weighted_error = (pred - target) ** 2 * area_weights
+        else:
+            sum_weights = H * W
+            weighted_error = (pred - target) ** 2
+
+        # Calculate RMSE (creates new tensor, no in-place)
+        rmse = torch.sqrt(weighted_error.sum(dim=(1, 2)) / sum_weights)  # (C,)
+
+        # Apply masks with regular multiplication
+        if vars_mask is not None:
+            vars_mask = vars_mask.to(device)
+            rmse = rmse * vars_mask
+
+        if zeus_weights is not None:
+            zeus_weights = zeus_weights.to(device)
+            rmse_for_loss = rmse * zeus_weights
+        else:
+            rmse_for_loss = rmse
+
+        # Ensure vars_to_boost_loss_cuda is on the right device
+        loss = (rmse_for_loss * self.pm.vars_to_boost_loss_cuda.to(device)).mean()
+
+        # Optional: clear large intermediate tensors if they're not needed
+        # Only do this if you're sure they won't be used again
+        if area_weights is not None:
+            del weighted_error
+
 
         # self._print_tensor_state(1, target)                 # 
         # self._print_tensor_state(2, pred)
