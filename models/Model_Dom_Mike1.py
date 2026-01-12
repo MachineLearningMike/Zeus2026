@@ -514,29 +514,29 @@ class Model_Dom():
     
     def print_compare_parameters(self):
         state_dict = self.model.state_dict()
-        new_params_names = self.get_new_parameter_names(codec=["encoder", "decoder"], layer=1, block=[4, 5, 6, 7], 
+        params_names = self.get_new_parameter_names(codec=["encoder", "decoder"], layer=1, block=[4, 5, 6, 7], 
                         linear=["attn.proj", "mlp.fc2"], name=["weight", "bias"], 
                         prefix="encoder_decoder")
-        new_params_values = [(state_dict[name].mean().item(), state_dict[name].std().item()) for name in new_params_names]
-        print('new parameters: [' + ', '.join(f'({a:.0e}, {b:.0e})'.replace('e-0', 'e-').replace('e+0', 'e+') for a, b in new_params_values) + ']')
+        params_values = [(state_dict[name].abs().mean().item(), state_dict[name].std().item()) for name in params_names]
+        print('new parameters: [' + ', '.join(f'({a:.0e}, {b:.0e})'.replace('e-0', 'e-').replace('e+0', 'e+') for a, b in params_values) + ']')
 
-        new_params_names = self.get_new_parameter_names(codec=["encoder", "decoder"], layer=1, block=[0, 1, 2, 3], 
+        params_names = self.get_new_parameter_names(codec=["encoder", "decoder"], layer=1, block=[0, 1, 2, 3], 
                         linear=["attn.proj", "mlp.fc2"], name=["weight", "bias"], 
                         prefix="encoder_decoder")
-        new_params_values = [(state_dict[name].mean().item(), state_dict[name].std().item()) for name in new_params_names]
-        print('old parameters: [' + ', '.join(f'({a:.0e}, {b:.0e})'.replace('e-0', 'e-').replace('e+0', 'e+') for a, b in new_params_values) + ']')
+        params_values = [(state_dict[name].abs().mean().item(), state_dict[name].std().item()) for name in params_names]
+        print('old parameters: [' + ', '.join(f'({a:.0e}, {b:.0e})'.replace('e-0', 'e-').replace('e+0', 'e+') for a, b in params_values) + ']')
         
-        new_params_names = self.get_new_parameter_names(codec=["encoder", "decoder"], layer=0, block=[2, 3], 
+        params_names = self.get_new_parameter_names(codec=["encoder", "decoder"], layer=0, block=[2, 3], 
                         linear=["attn.proj", "mlp.fc2"], name=["weight", "bias"], 
                         prefix="encoder_decoder")
-        new_params_values = [(state_dict[name].mean().item(), state_dict[name].std().item()) for name in new_params_names]
-        print('new parameters: [' + ', '.join(f'({a:.0e}, {b:.0e})'.replace('e-0', 'e-').replace('e+0', 'e+') for a, b in new_params_values) + ']')
+        params_values = [(state_dict[name].abs().mean().item(), state_dict[name].std().item()) for name in params_names]
+        print('new parameters: [' + ', '.join(f'({a:.0e}, {b:.0e})'.replace('e-0', 'e-').replace('e+0', 'e+') for a, b in params_values) + ']')
 
-        new_params_names = self.get_new_parameter_names(codec=["encoder", "decoder"], layer=0, block=[0, 1], 
+        params_names = self.get_new_parameter_names(codec=["encoder", "decoder"], layer=0, block=[0, 1], 
                         linear=["attn.proj", "mlp.fc2"], name=["weight", "bias"], 
                         prefix="encoder_decoder")
-        new_params_values = [(state_dict[name].mean().item(), state_dict[name].std().item()) for name in new_params_names]
-        print('old parameters: [' + ', '.join(f'({a:.0e}, {b:.0e})'.replace('e-0', 'e-').replace('e+0', 'e+') for a, b in new_params_values) + ']')
+        params_values = [(state_dict[name].abs().mean().item(), state_dict[name].std().item()) for name in params_names]
+        print('old parameters: [' + ', '.join(f'({a:.0e}, {b:.0e})'.replace('e-0', 'e-').replace('e+0', 'e+') for a, b in params_values) + ']')
                 
     
     def get_new_parameter_names(self, codec=["encoder", "decoder"], layer=1, block=[4, 5, 6, 7], 
