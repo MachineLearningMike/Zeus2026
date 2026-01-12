@@ -128,7 +128,8 @@ class Zeus_Dataset(Dataset):
     def load_data(self):
         self.mean_meteo, self.std_meteo, self.mean_tempo, self.std_tempo, \
         self.mean_meteo_ready_cpu, self.std_meteo_ready_cpu, self.mean_meteo_ready_cuda, self.std_meteo_ready_cuda, \
-        self.mean_tempo_ready_cpu, self.std_tempo_ready_cpu, self.mean_tempo_ready_cuda, self.std_tempo_ready_cuda, self.area_weights_cuda \
+        self.mean_tempo_ready_cpu, self.std_tempo_ready_cpu, self.mean_tempo_ready_cuda, self.std_tempo_ready_cuda, \
+        self.area_weights_cuda, self.p_intercalated_vars \
         = self.load_dataset_params()
         
         if self.pm.include_difficulty: 
@@ -1139,13 +1140,12 @@ class Zeus_Dataset(Dataset):
             p_intercalated_vars.append(var)
             
         # Find where and how self.p_intercalated_vars is used.
-        self.p_intercalated_vars = p_intercalated_vars
         
         #------------------------- Create self.air_level_pressure_indices and self.air_level_pressure_values
         #------------------------ 'msl' and 'sp' are missing?
         air_level_pressure_indices = []
         # air_level_pressure_values = []
-        for idx, var in enumerate(self.p_intercalated_vars):
+        for idx, var in enumerate(p_intercalated_vars):
             if var.startswith("p_"):
                 air_level_pressure_indices.append(idx)
                 hecta = 100.0
@@ -1156,7 +1156,7 @@ class Zeus_Dataset(Dataset):
             
         #--------------------------------- loss weights --------------------
         loss_boost_for_target_vars = []
-        for var in self.p_intercalated_vars:
+        for var in p_intercalated_vars:
             if var.startswith("p_"):
                 loss_boost_for_target_vars.append(0.)
             elif var in ["t2m", "tp", "u100m","v100m", "d2m", "sp"]:
@@ -1170,10 +1170,10 @@ class Zeus_Dataset(Dataset):
         
         #-------------------------------- meteo ----------------------
         mean_meteo = []
-        for var in self.p_intercalated_vars:
+        for var in p_intercalated_vars:
             mean_meteo.append(mean_meteo_dict[var])
         std_meteo = []
-        for var in self.p_intercalated_vars:
+        for var in p_intercalated_vars:
             std_meteo.append(std_meteo_dict[var])
         
         mean_meteo, std_meteo = torch.tensor(mean_meteo), torch.tensor(std_meteo)
@@ -1212,7 +1212,7 @@ class Zeus_Dataset(Dataset):
             mean_meteo, std_meteo, mean_tempo, std_tempo, 
             mean_meteo_ready_cpu, std_meteo_ready_cpu, mean_meteo_ready_cuda, std_meteo_ready_cuda,
             mean_tempo_ready_cpu, std_tempo_ready_cpu, mean_tempo_ready_cuda, std_tempo_ready_cuda,
-            area_weights_cuda,
+            area_weights_cuda, p_intercalated_vars
         )
         
         return pack
@@ -1248,11 +1248,12 @@ class Zeus_Dataset(Dataset):
         output.mul_(std).add_(mean)  # in-place unnormalize
     
     def load_era5_data_vars(self):
-        vars = [ERA5_DATA_VARS[var_name_map[k]] for k in self.pm.targetVariables if var_name_map[k] in ERA5_DATA_VARS.keys()]
+        # vars = [ERA5_DATA_VARS[var_name_map[k]] for k in self.pm.variables if var_name_map[k] in ERA5_DATA_VARS.keys()]
+        vars = list(ERA5_DATA_VARS.values())    # Make it secure, later, by matching the var names and their order.
         zeus_weights = (torch.tensor(vars, dtype=self.pm.dtype) * len(vars)).to('cuda' if torch.cuda.is_available() else 'cpu')
-        base = torch.ones(len(self.pm.variables), dtype=torch.float32, device='cpu')
+        base = torch.ones(len(self.p_intercalated_vars), dtype=torch.float32, device='cpu')
         base[-len(vars):] = zeus_weights
-        zeus_weights = base      
+        zeus_weights = base.to('cuda' if torch.cuda.is_available() else 'cpu')
         return zeus_weights
    
     #----------------------------------- Difficulty ------------------------------
