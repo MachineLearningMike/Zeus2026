@@ -357,11 +357,11 @@ class Model_Dom():
                     print(unexpected_keys)
                     
                     
-                # After loading, copy 2nd embedding to all others
-                with torch.no_grad():
-                    second_embed = self.model.patch_extractor.cascade_embeds.weight[1].clone()
-                    for i in range(self.model.patch_extractor.cascade_embeds.num_embeddings):
-                        self.model.patch_extractor.cascade_embeds.weight[i] = second_embed
+                #------------------------- This is a special code line --------------------
+                # We want to train other embeddings starting from the trained embeddings
+                # This code should be commented out after the embeddings are trained and saved.
+                # self.copy_trained_cascade_embedding_other_embeddings()
+
 
                 # # Check if model has normalization layers
                 # norm_layers = []
@@ -471,7 +471,7 @@ class Model_Dom():
                         self.learning_rate = checkpoint['learning_rate']
                         logging.info(f"learning_rate loaded {self.learning_rate}")
 
-                    self.best_loss = checkpoint['best_loss']
+                    self.best_loss = 1e10 # checkpoint['best_loss']
                     logging.info(f"best_loss loaded {self.best_loss}")
 
                     self.accum_iterations = checkpoint['accum_iterations']
@@ -518,6 +518,12 @@ class Model_Dom():
         self.epoch, self.packed_losses_metrics = epoch, packed_losses_metrics        
         
         return self.epoch, self.packed_losses_metrics
+    
+    def copy_trained_cascade_embedding_other_embeddings(self):
+        with torch.no_grad():
+            second_embed = self.model.patch_extractor.cascade_embeds.weight[1].clone()
+            for i in range(self.model.patch_extractor.cascade_embeds.num_embeddings):
+                self.model.patch_extractor.cascade_embeds.weight[i] = second_embed
     
     def print_compare_parameters(self):
         state_dict = self.model.state_dict()
