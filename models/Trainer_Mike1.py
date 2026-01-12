@@ -251,9 +251,9 @@ class Model_Trainer():
         error_sqaured = (pred - target) ** 2 * (area_weights if area_weights is not None else 1.0)   # (C, H, W)
         sum_weights = (area_weights.sum() * W if area_weights is not None else H * W)
         rmse = torch.sqrt(error_sqaured.sum(dim=(1,2)) / sum_weights)  # (C,)
-        # rmse = rmse * (vars_mask if vars_mask is not None else 1.0)     # (C,)
-        # rmse_for_loss = rmse * (zeus_weights if zeus_weights is not None else 1.0) #---- 1.0 is not on device
-        loss = (rmse * self.pm.vars_to_boost_loss_cuda).mean()
+        rmse = rmse * (vars_mask if vars_mask is not None else 1.0)     # (C,)
+        rmse_for_loss = rmse * (zeus_weights if zeus_weights is not None else 1.0) #---- 1.0 is not on device
+        loss = (rmse_for_loss * self.pm.vars_to_boost_loss_cuda).mean()
 
         # self._print_tensor_state(1, target)                 # 
         # self._print_tensor_state(2, pred)
