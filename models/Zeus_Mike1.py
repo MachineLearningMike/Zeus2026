@@ -174,7 +174,7 @@ class Zeus(nn.Module):
         fn_unnornalize(pred_normal, pred_unnormal)
         
         if type_metrics == "rmse":
-            lossAndMetrics = fn_loss(ssY.meteo_unnormal, pred_unnormal, batch_diff, zeus_weights, vars_mask=air_levels_mask, area_weights=area_weights)
+            lossAndMetrics = fn_loss(ssY.meteo_unnormal, pred_unnormal, batch_diff, zeus_weights=zeus_weights, vars_mask=air_levels_mask, area_weights=area_weights)
             unnormalized_metrics = lossAndMetrics[1] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics   #---- [1] picks rmse
         elif type_metrics == "mae":
             unnormalized_metrics = torch.abs(ssY.meteo_unnormal - pred_unnormal).mean(dim=(1, 2))    # (C,)
