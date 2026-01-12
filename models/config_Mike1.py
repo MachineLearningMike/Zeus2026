@@ -1366,7 +1366,7 @@ projects["Zeus_25Dec28_1"] = {
     "models_to_play": [0,],
     "metrics" : "rmse", # "mae", "rmse"
     'nStepsPerCycle' : 2,       # Can be changed upto the type of GPU.
-    'max_cascade_step' : 2,     # max = nStepsPerCycle
+    'max_cascade_step' : 1,     # max = nStepsPerCycle
     },
     
     "data": {
