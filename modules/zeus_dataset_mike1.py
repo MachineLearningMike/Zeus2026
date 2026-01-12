@@ -1250,9 +1250,9 @@ class Zeus_Dataset(Dataset):
     def load_era5_data_vars(self):
         # vars = [ERA5_DATA_VARS[var_name_map[k]] for k in self.pm.variables if var_name_map[k] in ERA5_DATA_VARS.keys()]
         vars = list(ERA5_DATA_VARS.values())  # Make it as secure as the above line, later.
-        vars = vars * len(vars)
+        vars = [v * len(vars) for v in vars]
         vars = [1.0 for _ in range(len(self.p_intercalated_vars) - len(vars))] + vars
-        zeus_weights = (torch.tensor(vars) * len(vars))
+        zeus_weights = torch.tensor(vars)
         zeus_weights = zeus_weights.to('cuda' if torch.cuda.is_available() else 'cpu')
         return zeus_weights
    
