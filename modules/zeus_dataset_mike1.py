@@ -1157,9 +1157,9 @@ class Zeus_Dataset(Dataset):
         #--------------------------------- loss weights --------------------
         loss_boost_for_target_vars = []
         for var in p_intercalated_vars:
-            if var.startswith("p_"):
-                loss_boost_for_target_vars.append(0.)
-            elif var in ["t2m", "tp", "u100m","v100m", "d2m", "sp"]:
+            # if var.startswith("p_"):      # handled by mask
+            #     loss_boost_for_target_vars.append(0.)
+            if var in self.pm.targetVariables: # ["t2m", "tp", "u100m","v100m", "d2m", "sp"]:
                 loss_boost_for_target_vars.append(self.pm.lossXtargets)
             else:
                 loss_boost_for_target_vars.append(1.)
