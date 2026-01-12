@@ -1405,8 +1405,8 @@ projects["Zeus_25Dec28_1"] = {
         'use_checkpoint' : False,
         
         # The current model goes OOM on A100, with layers_to_enhance_in_enc_dec = [0] and nEnhancementPairs = [1]
-        'layers_to_enhance_in_enc_dec' : [],
-        'nEnhancementPairs': [],  # pairs
+        'layers_to_enhance_in_enc_dec' : [0],
+        'nEnhancementPairs': [1],  # pairs
     }, 
     
     "model_1": {},
