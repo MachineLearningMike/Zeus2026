@@ -9,6 +9,7 @@ import logging
 import sys
 import shutil
 from importlib import import_module
+import itertools
 
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
@@ -385,11 +386,13 @@ class Model_Dom():
                 # if norm_stats_keys:
                 #     logging.info(f"Sample: {norm_stats_keys[:5]}")
 
+                self.print_compare_parameters()
+
                 #---------------------------------------------------------------------------------------
-                packed_losses_metrics = None
+                packed_losses_metrics = None                
                 
                 if self.trainable:
-
+                    
                     epoch = checkpoint['epoch']
                     
                     #------------------- learning_rate -------------------------
@@ -508,6 +511,43 @@ class Model_Dom():
         self.epoch, self.packed_losses_metrics = epoch, packed_losses_metrics        
         
         return self.epoch, self.packed_losses_metrics
+    
+    def print_compare_parameters(self):
+        state_dict = self.model.state_dict()
+        new_params_names = self.get_new_parameter_names(codec=["encoder", "decoder"], layer=1, block=[4, 5, 6, 7], 
+                        linear=["attn.proj", "mlp.fc2"], name=["weight", "bias"], 
+                        prefix="encoder_decoder")
+        new_params_values = [(state_dict[name].mean().item(), state_dict[name].std().item()) for name in new_params_names]
+        print('new parameters: [' + ', '.join(f'({a:.0e}, {b:.0e})'.replace('e-0', 'e-').replace('e+0', 'e+') for a, b in new_params_values) + ']')
+
+        new_params_names = self.get_new_parameter_names(codec=["encoder", "decoder"], layer=1, block=[0, 1, 2, 3], 
+                        linear=["attn.proj", "mlp.fc2"], name=["weight", "bias"], 
+                        prefix="encoder_decoder")
+        new_params_values = [(state_dict[name].mean().item(), state_dict[name].std().item()) for name in new_params_names]
+        print('old parameters: [' + ', '.join(f'({a:.0e}, {b:.0e})'.replace('e-0', 'e-').replace('e+0', 'e+') for a, b in new_params_values) + ']')
+        
+        new_params_names = self.get_new_parameter_names(codec=["encoder", "decoder"], layer=0, block=[2, 3], 
+                        linear=["attn.proj", "mlp.fc2"], name=["weight", "bias"], 
+                        prefix="encoder_decoder")
+        new_params_values = [(state_dict[name].mean().item(), state_dict[name].std().item()) for name in new_params_names]
+        print('new parameters: [' + ', '.join(f'({a:.0e}, {b:.0e})'.replace('e-0', 'e-').replace('e+0', 'e+') for a, b in new_params_values) + ']')
+
+        new_params_names = self.get_new_parameter_names(codec=["encoder", "decoder"], layer=0, block=[0, 1], 
+                        linear=["attn.proj", "mlp.fc2"], name=["weight", "bias"], 
+                        prefix="encoder_decoder")
+        new_params_values = [(state_dict[name].mean().item(), state_dict[name].std().item()) for name in new_params_names]
+        print('old parameters: [' + ', '.join(f'({a:.0e}, {b:.0e})'.replace('e-0', 'e-').replace('e+0', 'e+') for a, b in new_params_values) + ']')
+                
+    
+    def get_new_parameter_names(self, codec=["encoder", "decoder"], layer=1, block=[4, 5, 6, 7], 
+                                linear=["attn.proj", "mlp.fc2"], name=["weight", "bias"], 
+                                prefix="encoder_decoder"):
+        combinations = []
+        for c, b, l, n in itertools.product(codec, block, linear, name):
+            param_name = f"{prefix}.{c}.layers.{layer}.blocks.{b}.{l}.{n}"
+            combinations.append(param_name)
+        return combinations
+        
 
     def count_blocks_in_model(self, model, layer_indices=[1]):
         """
