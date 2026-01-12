@@ -1394,7 +1394,7 @@ projects["Zeus_25Dec28_1"] = {
         'increasing' : True,
         'type_pos_bias' : 'lonBand', # 'sphere', 'None'
         'pair_bias_dim' : 5,
-        'depth_list' : [4, 12, 4],   # [6, 8, 4] leads to OOP on A100
+        'depth_list' : [6, 12, 4],   # [6, 8, 4] leads to OOP on A100
         'head_list' : [4, 8, 16],
         'skippable' : True,
         'skip_learnable' : True,
@@ -1405,8 +1405,8 @@ projects["Zeus_25Dec28_1"] = {
         'use_checkpoint' : False,
         
         # The current model goes OOM on A100, with layers_to_enhance_in_enc_dec = [0] and nEnhancementPairs = [1]
-        'layers_to_enhance_in_enc_dec' : [0],
-        'nEnhancementPairs': [1],  # pairs
+        'layers_to_enhance_in_enc_dec' : [],
+        'nEnhancementPairs': [],  # pairs
     }, 
     
     "model_1": {},
