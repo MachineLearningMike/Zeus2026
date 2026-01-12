@@ -443,7 +443,7 @@ class Model_Trainer():
                                 #--- 3.2. pop currentQ
                                 X0, X1 = currentQ[0]; currentQ = currentQ[1:]
                                 
-                                #-------------------- control snapshot device ----------
+                                #-------------------- avoid device control INTENTIONALLY here ----------
                                 # X0.to(device)
                                 # if self.pm.pair_not_single_snapshot:
                                 #     X1.to(device)

@@ -355,6 +355,13 @@ class Model_Dom():
                 if len(unexpected_keys) > 0:
                     print("------------------ unexpected keys --------------------")
                     print(unexpected_keys)
+                    
+                    
+                # After loading, copy 2nd embedding to all others
+                with torch.no_grad():
+                    second_embed = self.model.patch_extractor.cascade_embeds.weight[1].clone()
+                    self.model.patch_extractor.cascade_embeds.weight.data.copy_(second_embed)
+                    self.model.patch_extractor.cascade_embeds.weight.data[1] = second_embed
 
                 # # Check if model has normalization layers
                 # norm_layers = []
