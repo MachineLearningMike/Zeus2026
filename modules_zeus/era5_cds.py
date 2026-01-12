@@ -15,7 +15,7 @@ import pandas as pd
 from era5_base import Era5BaseLoader
 from sample import Era5Sample
 from zeus_time import get_today, to_timestamp
-from constants import (
+from modules_zeus.constants_old import (
     ERA5_CACHE_DIR,
     COPERNICUS_ERA5_URL,
     LIVE_HOURS_PREDICT_RANGE,

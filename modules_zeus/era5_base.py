@@ -7,7 +7,7 @@ import pandas as pd
 
 from sample import Era5Sample
 from converter import get_converter
-from constants import (
+from modules_zeus.constants_old import (
     ERA5_DATA_VARS,
     ERA5_LATITUDE_RANGE,
     ERA5_LONGITUDE_RANGE,

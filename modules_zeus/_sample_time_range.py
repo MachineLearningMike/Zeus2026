@@ -3,14 +3,14 @@ import pandas as pd
 import zeus_time as zeus_time
 from typing import Tuple, Optional
 
-import constants as constants
+import modules_zeus.constants_old as constants_old
 
 #------------------------- sampe_time_range, code from zeus ----------------
 
 predict_sample_range: Tuple[float, float] = (1, 25)       # Mike
-start_sample_std: float = constants.LIVE_START_SAMPLE_STD
-uniform_start_prob: float = constants.LIVE_UNIFORM_START_OFFSET_PROB
-start_offset_range: Tuple[int, int] = constants.LIVE_START_OFFSET_RANGE
+start_sample_std: float = constants_old.LIVE_START_SAMPLE_STD
+uniform_start_prob: float = constants_old.LIVE_UNIFORM_START_OFFSET_PROB
+start_offset_range: Tuple[int, int] = constants_old.LIVE_START_OFFSET_RANGE
 
 def sample_time_range() -> Tuple[pd.Timestamp, pd.Timestamp, int]:
     """

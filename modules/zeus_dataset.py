@@ -29,7 +29,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 from modules.params import Params
 from modules.utils import check_dir
 # Make they're from sure modules_zeus
-from modules_zeus.constants import ERA5_DATA_VARS
+from modules_zeus.constants_old import ERA5_DATA_VARS
 from modules_zeus.sample import Era5Sample
 from modules_zeus.coordinates import get_bbox, slice_bbox
 from modules_zeus.era5_cds import Era5CDSLoader, get_today

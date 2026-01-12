@@ -6,7 +6,7 @@ from pathlib import Path
 
 import os, sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
-from modules_zeus.constants import (
+from modules_zeus.constants_old import (
     REWARD_DIFFICULTY_SCALER,  
     REWARD_IMPROVEMENT_WEIGHT,
     REWARD_IMPROVEMENT_MIN_DELTA,

@@ -21,7 +21,7 @@ Zeus = getattr(module, 'Zeus')
 # # from Zeus_Flash2D_Blocked import Zeus
 
 import modules.utils as utils
-from modules_zeus.constants import ERA5_DATA_VARS
+from modules_zeus.constants_old import ERA5_DATA_VARS
 # from modules_zeus.constants import (
 #     # REWARD_DIFFICULTY_SCALER,  
 #     # REWARD_IMPROVEMENT_WEIGHT,

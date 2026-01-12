@@ -207,13 +207,13 @@ else:
     if 'A100' in gpu_names:
         config['nStepsPerCycle'] = 1
         config['dollarsPerHour'] = 0.58
-        print(f"A100 found!!! nStepsPerBatch {config['nStepsPerCycle']}")
+        print(f"A100 found!!! nStepsPerCycle {config['nStepsPerCycle']}")
     elif 'B200' in gpu_names:
         config['nStepsPerCycle'] = 4
         config['dollarsPerHour'] = 0.9475
-        print(f"B200 found!!! nStepsPerBatch {config['nStepsPerCycle']}")
+        print(f"B200 found!!! nStepsPerCycle {config['nStepsPerCycle']}")
     else:
-        config['nStepsPerCycle'] = 1
+        config['nStepsPerCycle'] = 2    # comeback 1
         config['dollarsPerHour'] = 0.1
 
     
@@ -1365,7 +1365,8 @@ projects["Zeus_25Dec28_1"] = {
     "GPUWaitsData" : True,
     "models_to_play": [0,],
     "metrics" : "rmse", # "mae", "rmse"
-    'max_cascade_step' : 2,
+    'nStepsPerCycle' : 2,       # Can be changed upto the type of GPU.
+    'max_cascade_step' : 2,     # max = nStepsPerCycle
     },
     
     "data": {

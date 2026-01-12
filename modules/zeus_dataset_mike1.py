@@ -73,7 +73,7 @@ class Zeus_Dataset(Dataset):
         self.var_mean_tempo_checkpoint_path = management_path / "mean_var_tempo_checkpoint.pth"
         
         self.difficulties = None
-        self.era5_data_vars = None
+        self.zeus_weights = None
 
         self.era5_cds_loader = Era5CDSLoader()
         self.train_dates, self.vali_dates, self.test_dates = None, None, None
@@ -134,7 +134,7 @@ class Zeus_Dataset(Dataset):
         if self.pm.include_difficulty: 
             self.difficulties = self.load_difficulties()
         
-        self.era5_data_vars = self.load_era5_data_vars()
+        self.zeus_weights = self.load_era5_data_vars()
         
         self.train_hours, self.vali_hours, self.test_hours = self.split_data_hours_by_date_segents(
             self.pm.train_start_dt, self.pm.vali_start_dt, self.pm.test_start_dt, self.pm.test_end_dt_inclusive,
@@ -1249,8 +1249,8 @@ class Zeus_Dataset(Dataset):
     
     def load_era5_data_vars(self):
         vars = [ERA5_DATA_VARS[var_name_map[k]] for k in self.pm.targetVariables if var_name_map[k] in ERA5_DATA_VARS.keys()]
-        era5_data_vars = torch.tensor(vars, dtype=self.pm.dtype)
-        return era5_data_vars
+        zeus_weights = (torch.tensor(vars, dtype=self.pm.dtype) * len(vars)).to('cuda' if torch.cuda.is_available() else 'cpu')
+        return zeus_weights
    
     #----------------------------------- Difficulty ------------------------------
 
@@ -1810,7 +1810,7 @@ class Zeus_Dataset(Dataset):
         else:
             batch_diff = None
         
-        return batch, batch_diff, self.era5_data_vars     # (B, T1FG, C, H, W), (B, T2FG, C, H, W), (B, 1, C, H, W), (C,)
+        return batch, batch_diff, self.zeus_weights     # (B, T1FG, C, H, W), (B, T2FG, C, H, W), (B, 1, C, H, W), (C,)
     
     def check_accumulation_periods(self):
         """Check accumulation periods for flux variables."""
@@ -1887,7 +1887,7 @@ class Zeus_Dataset(Dataset):
                 param = self._param
 
             # (B, T1FG, C, H, W), (B, T2FG, C, H, W), (B, 1, C, H, W), (C,)
-            # batch_x, batch_y, batch_diff, era5_data_vars
+            # batch_x, batch_y, batch_diff, zeus_weights
             batch = self.take_batch()
             gc.collect()
 

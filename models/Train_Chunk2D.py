@@ -19,8 +19,8 @@ from models.Zeus_Flash2D_TBlocks import Zeus
 from modules.zeus_dataset import Zeus_Dataset
 import modules.utils as utils
 from modules.params import Params
-from modules_zeus.constants import ERA5_DATA_VARS
-from modules_zeus.constants import (
+from modules_zeus.constants_old import ERA5_DATA_VARS
+from modules_zeus.constants_old import (
     REWARD_DIFFICULTY_SCALER,  
     REWARD_IMPROVEMENT_WEIGHT,
     REWARD_IMPROVEMENT_MIN_DELTA,

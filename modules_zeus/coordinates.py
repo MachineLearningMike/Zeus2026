@@ -5,7 +5,7 @@ from check_shapes import check_shapes
 import torch
 import torch.nn.functional as F
 
-from constants import ERA5_AREA_SAMPLE_RANGE
+from modules_zeus.constants_old import ERA5_AREA_SAMPLE_RANGE
 
 def bbox_to_str(bbox: Tuple[Union[float, np.number]]) -> str:
     """

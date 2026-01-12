@@ -239,8 +239,8 @@ class Model_Trainer():
         plt.tight_layout()
         plt.show()
 
-    # def loss(self, target, pred, batch_diff, era5_data_vars):
-    def loss(self, target, pred, batch_diff, era5_data_vars, vars_mask=None, area_weights=None):
+    # def loss(self, target, pred, batch_diff, zeus_weights):
+    def loss(self, target, pred, batch_diff, zeus_weights, vars_mask=None, area_weights=None):
         # (C,H,W), (C,H,W), (C, H, W), (C,)
         # 32, cuda, False ; 32, cuda, True !!!, 32, cuda, False, 32, cuda, False
         device = pred.device
@@ -253,12 +253,13 @@ class Model_Trainer():
         sum_weights = weights.sum() * W if area_weights is None else H * W
         rmse = torch.sqrt( (error_sqaured * weights).sum(dim=(1,2)) / sum_weights)  # (C,)
         rmse = rmse * (vars_mask if vars_mask is not None else 1.0)     # (C,)
+        rmse[-len(self.pm.targetVariables):] *= zeus_weights #---- apply zeus weights
         loss = (rmse * self.pm.vars_to_boost_loss_cuda).mean()
 
         # self._print_tensor_state(1, target)                 # 
         # self._print_tensor_state(2, pred)
         # self._print_tensor_state(3, batch_diff)
-        # self._print_tensor_state(4, era5_data_vars)
+        # self._print_tensor_state(4, zeus_weights)
         # self._print_tensor_state(4.5, rmse)
 
         # if batch_diff is not None:
@@ -276,14 +277,14 @@ class Model_Trainer():
         #     rmse = (1 - REWARD_IMPROVEMENT_WEIGHT) * quality_score + REWARD_IMPROVEMENT_WEIGHT * improvement_score    # (B, C, H, W), 32, cuda, True !!!
         #     # self._print_tensor_state(11, rmse)
         
-        # era5_data_vars = era5_data_vars.to(device)
-        # reward = rmse * era5_data_vars   # (C,), 32, cuda, True !!!, the-higher-the-worse
+        # zeus_weights = zeus_weights.to(device)
+        # reward = rmse * zeus_weights   # (C,), 32, cuda, True !!!, the-higher-the-worse
         # self._print_tensor_state(12, reward)
         # reward = reward.mean()  # (,)
 
         # return rmse.mean(), rmse # (,), (C,)     32, cuda, True
 
-        # era5_data_vars = era5_data_vars.to(device)
+        # zeus_weights = zeus_weights.to(device)
         
         return loss, rmse
     
@@ -370,7 +371,7 @@ class Model_Trainer():
 
             if not pbar.no_more_data():  pbar.prefetch(x_set_label)        # Prefetch ensures getting new bacthes.
             if batch is None: break     # just in case
-            batch_of_ss_lists, batch_diff, era5_data_vars = batch   # (slots, B, T1FG, C, H, W), (B, T2FG, C, H, W), None or (B, C, H, W), (C,)
+            batch_of_ss_lists, batch_diff, zeus_weights = batch   # (slots, B, T1FG, C, H, W), (B, T2FG, C, H, W), None or (B, C, H, W), (C,)
 
             if False:
                 self.show_data(batch_x)
@@ -441,7 +442,7 @@ class Model_Trainer():
                                 substep_result, substep_loss, substep_metrics = md.forward_backward_no_optimizer_step(
                                         X0, X1, Y, cascade_step,
                                         self.loss, self.dataset.normalize_meteo, self.dataset.unnormalize_meteo, 
-                                        batch_diff, era5_data_vars, trainable=trainable,
+                                        batch_diff, zeus_weights, trainable=trainable,
                                         type_metrics = self.pm.metrics, 
                                         predicted_snapshot_required = predicted_snapshot_required,
                                         air_level_pressure_indices = self.dataset.air_level_pressure_indices,

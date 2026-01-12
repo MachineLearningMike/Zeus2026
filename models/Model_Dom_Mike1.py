@@ -24,7 +24,7 @@ Zeus = getattr(module, 'Zeus')
 # from Zeus_Mike1 import Zeus
 
 import modules.utils as utils
-from modules_zeus.constants import ERA5_DATA_VARS
+from modules_zeus.constants_old import ERA5_DATA_VARS
 # from modules_zeus.constants import (
 #     # REWARD_DIFFICULTY_SCALER,  
 #     # REWARD_IMPROVEMENT_WEIGHT,
@@ -180,8 +180,8 @@ class Model_Dom():
     
     def load_era5_data_vars(self):
         vars = [ERA5_DATA_VARS[k] for k in self.pm.variables if k in ERA5_DATA_VARS.keys()]
-        self.era5_data_vars = torch.tensor(vars)
-        return self.era5_data_vars
+        self.zeus_weights = torch.tensor(vars)
+        return self.zeus_weights
     
     def set_learning_rate(self, lr):
         for param_group in self.optimizer.param_groups:
@@ -196,7 +196,7 @@ class Model_Dom():
         if vali_metric is not None:
             wasBestEpoch = False
 
-            weighted_metric = vali_metric * (self.era5_data_vars.to(vali_metric.device))
+            weighted_metric = vali_metric * (self.zeus_weights.to(vali_metric.device))
 
             if torch.mean(weighted_metric) < torch.mean(self.weighted_metric_old):
                 wasBestEpoch = True
@@ -1099,7 +1099,7 @@ class Model_Dom():
     def forward_backward_no_optimizer_step(self,
             X0, X1, Y, cascade_step,
             fn_loss, fn_nornalize, fn_unnornalize, 
-            batch_diff, era5_data_vars, trainable,
+            batch_diff, zeus_weights, trainable,
             type_metrics, predicted_snapshot_required,
             air_level_pressure_indices, air_level_pressure_values,
             scaler, area_weights,
@@ -1108,7 +1108,7 @@ class Model_Dom():
         return self.model.forward_backward_no_optimizer_step(
             X0, X1, Y, cascade_step,
             fn_loss, fn_nornalize, fn_unnornalize, 
-            batch_diff, era5_data_vars, trainable,
+            batch_diff, zeus_weights, trainable,
             type_metrics, predicted_snapshot_required,
             air_level_pressure_indices, air_level_pressure_values,
             scaler, area_weights,
