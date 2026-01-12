@@ -181,8 +181,8 @@ class Model_Dom():
     
     def load_era5_data_vars(self):
         vars = [ERA5_DATA_VARS[k] for k in self.pm.variables if k in ERA5_DATA_VARS.keys()]
-        self.zeus_weights = torch.tensor(vars)
-        return self.zeus_weights
+        self.zeus_loss_weights_on_target_vars = torch.tensor(vars)
+        return self.zeus_loss_weights_on_target_vars
     
     def set_learning_rate(self, lr):
         for param_group in self.optimizer.param_groups:
@@ -197,7 +197,7 @@ class Model_Dom():
         if vali_metric is not None:
             wasBestEpoch = False
 
-            weighted_metric = vali_metric * (self.zeus_weights.to(vali_metric.device))
+            weighted_metric = vali_metric * (self.zeus_loss_weights_on_target_vars.to(vali_metric.device))
 
             if torch.mean(weighted_metric) < torch.mean(self.weighted_metric_old):
                 wasBestEpoch = True
@@ -525,6 +525,7 @@ class Model_Dom():
                         prefix="encoder_decoder")
         params_values = [(state_dict[name].abs().mean().item(), state_dict[name].std().item()) for name in params_names]
         print('old parameters: [' + ', '.join(f'({a:.0e}, {b:.0e})'.replace('e-0', 'e-').replace('e+0', 'e+') for a, b in params_values) + ']')
+        
         
         params_names = self.get_new_parameter_names(codec=["encoder", "decoder"], layer=0, block=[2, 3], 
                         linear=["attn.proj", "mlp.fc2"], name=["weight", "bias"], 
@@ -1139,7 +1140,7 @@ class Model_Dom():
     def forward_backward_no_optimizer_step(self,
             X0, X1, Y, cascade_step,
             fn_loss, fn_nornalize, fn_unnornalize, 
-            batch_diff, zeus_weights, trainable,
+            batch_diff, zeus_loss_weights_on_target_vars, trainable,
             type_metrics, predicted_snapshot_required,
             air_level_pressure_indices, air_level_pressure_values,
             scaler, area_weights,
@@ -1148,7 +1149,7 @@ class Model_Dom():
         return self.model.forward_backward_no_optimizer_step(
             X0, X1, Y, cascade_step,
             fn_loss, fn_nornalize, fn_unnornalize, 
-            batch_diff, zeus_weights, trainable,
+            batch_diff, zeus_loss_weights_on_target_vars, trainable,
             type_metrics, predicted_snapshot_required,
             air_level_pressure_indices, air_level_pressure_values,
             scaler, area_weights,

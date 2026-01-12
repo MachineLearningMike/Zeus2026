@@ -239,25 +239,25 @@ class Model_Trainer():
         plt.tight_layout()
         plt.show()
 
-    # def loss(self, target, pred, batch_diff, zeus_weights):
-    def loss(self, target, pred, batch_diff, zeus_weights, vars_mask=None, area_weights=None):
+    # def loss(self, target, pred, batch_diff, zeus_loss_weights_on_target_vars):
+    def loss(self, target, pred, batch_diff, zeus_loss_weights_on_target_vars, vars_to_mask_on_loss=None, area_weights=None):
         # (C,H,W), (C,H,W), (C, H, W), (C,)
         # 32, cuda, False ; 32, cuda, True !!!, 32, cuda, False, 32, cuda, False
         device = pred.device
         target = target.to(device)
-        vars_mask = vars_mask.to(device)
+        vars_to_mask_on_loss = vars_to_mask_on_loss.to(device)
 
         C, H, W = target.shape
         error_sqaured = (pred - target) ** 2 * (area_weights if area_weights is not None else 1.0)   # (C, H, W)
         sum_weights = area_weights.sum() * W if area_weights is not None else H * W
         rmse = torch.sqrt(error_sqaured.sum(dim=(1,2)) / sum_weights)  # (C,)
-        rmse = rmse * (vars_mask if vars_mask is not None else 1.0)     # (C,)
-        loss = (rmse * self.pm.vars_to_boost_loss_cuda * (zeus_weights if zeus_weights is not None else 1.0)).mean()
+        rmse = rmse * (vars_to_mask_on_loss if vars_to_mask_on_loss is not None else 1.0)     # (C,)
+        loss = (rmse * self.pm.loss_amplification_on_target_vars * (zeus_loss_weights_on_target_vars if zeus_loss_weights_on_target_vars is not None else 1.0)).mean()
 
         # self._print_tensor_state(1, target)                 # 
         # self._print_tensor_state(2, pred)
         # self._print_tensor_state(3, batch_diff)
-        # self._print_tensor_state(4, zeus_weights)
+        # self._print_tensor_state(4, zeus_loss_weights_on_target_vars)
         # self._print_tensor_state(4.5, rmse)
 
         # if batch_diff is not None:
@@ -275,14 +275,14 @@ class Model_Trainer():
         #     rmse = (1 - REWARD_IMPROVEMENT_WEIGHT) * quality_score + REWARD_IMPROVEMENT_WEIGHT * improvement_score    # (B, C, H, W), 32, cuda, True !!!
         #     # self._print_tensor_state(11, rmse)
         
-        # zeus_weights = zeus_weights.to(device)
-        # reward = rmse * zeus_weights   # (C,), 32, cuda, True !!!, the-higher-the-worse
+        # zeus_loss_weights_on_target_vars = zeus_loss_weights_on_target_vars.to(device)
+        # reward = rmse * zeus_loss_weights_on_target_vars   # (C,), 32, cuda, True !!!, the-higher-the-worse
         # self._print_tensor_state(12, reward)
         # reward = reward.mean()  # (,)
 
         # return rmse.mean(), rmse # (,), (C,)     32, cuda, True
 
-        # zeus_weights = zeus_weights.to(device)
+        # zeus_loss_weights_on_target_vars = zeus_loss_weights_on_target_vars.to(device)
         
         return loss, rmse
     
@@ -369,7 +369,7 @@ class Model_Trainer():
 
             if not pbar.no_more_data():  pbar.prefetch(x_set_label)        # Prefetch ensures getting new bacthes.
             if batch is None: break     # just in case
-            batch_of_ss_lists, batch_diff, zeus_weights = batch   # (slots, B, T1FG, C, H, W), (B, T2FG, C, H, W), None or (B, C, H, W), (C,)
+            batch_of_ss_lists, batch_diff, zeus_loss_weights_on_target_vars = batch   # (slots, B, T1FG, C, H, W), (B, T2FG, C, H, W), None or (B, C, H, W), (C,)
 
             if False:
                 self.show_data(batch_x)
@@ -389,89 +389,110 @@ class Model_Trainer():
                 Xs = batch_of_ss_lists[0]   # batch_of_ss_lists undergoes changes. This code doesn't know the content of X
                 assert len(Xs) == self.pm.nStepsPerCycle + (2 if self.pm.pair_not_single_snapshot else 1)
                     
-                for md in mds:            
+                for md in mds:
+                    train_step_loss = []; train_step_metrics = []; n_actual_predictions = 0
+
                     with autocast(device_type='cuda', dtype=torch.bfloat16):    # time: 97 -> 82, memory: little
                         #------------------------ this algorithm is studied in zeus_train_6_hourly.py -----------
                         
                         # assert len(Xs) >= 2, "length of Xs is not enough 1"
-                        
-                        X0 = Xs[0]; Xs = Xs[1:]
+                            
                         if self.pm.pair_not_single_snapshot:
-                            X1 = Xs[0]; Xs = Xs[1:]
+                            currentQ = [(Xs[0], Xs[1])]; Xs = Xs[2:]
                         else:
-                            X1 = X0
-                                            
-                        oldQ = [(X0, X1)]
+                            currentQ = [(Xs[0], Xs[0])]; Xs = Xs[1:]
 
                         # assert len(Xs) > 0, "length of Xs is not enough 2"
                         
                         #--------------------------------------------- starting a set of steps for md...
-
-                        train_step_loss = []; train_step_metrics = []; cnt = 0
-                        while len(Xs) > 0:  # loops at least once
+                        while len(currentQ) > 0 and len(Xs) > 0:  # we have Xs and Y
                             # State: 
-                            # len(Xs) > 0, len(oldQ) > 0, [x0.device == device and x1.device == device for (x0, x1) in oldQ]
-                            # 2 * len(oldQ) count of X is stored in oldQ in device, together with model parameters.
-                            # oldQ stores raw X's
+                            # len(Xs) > 0, len(currentQ) > 0, [x0.device == device and x1.device == device for (x0, x1) in currentQ]
+                            # 2 * len(currentQ) count of X is stored in currentQ in device, together with model parameters.
+                            # currentQ stores raw X's
                             
-                            #----------------------------------------- starting a step for md...
-
+                            #=== 1. take a new Y
+                            
                             Y = Xs[0]; Xs = Xs[1:]
                             
-                            if self.pm.pair_not_single_snapshot:
-                                newQ = [(oldQ[0][1], Y)]  # assert len(newQ) > 0        # newQ[0] stores raw X's
+                            #=== 2. initialize futureQ with Y, if we have futture Y.
+                            
+                            we_have_future_y = len(Xs) > 0
+                                                        
+                            if we_have_future_y:          # Current Y will target the future Y
+                                if self.pm.pair_not_single_snapshot:
+                                    futureQ = [(currentQ[0][1], Y)]
+                                else:
+                                    futureQ = [(Y, Y)]
                             else:
-                                newQ = [(Y, Y)]
+                                futureQ = []
 
-                            while len(oldQ) > 0:     # loops at least once
+
+                            #=== 3. consume currentQ to predict Y
+                            
+                            cascade_step = 0    # Our model has known the 1st cascade_step, which is non-cascade actually, as 1.
+                            
+                            while len(currentQ) > 0:     # consume Xs for the shared Y
+
+                                cascade_step += 1   # The top of currentQ, or futureQ, which is non-cascade actually, is assigned cascade_step = 1.
                                 
-                                #-------------------------------------- starting a substep for md...
+                                #--- 3.1. Stop consuming currentQ if we overgo self.pm.max_cascade_step
+                                if cascade_step > self.pm.max_cascade_step:     # self.pm.max_cascade_step == 1 when we don't allow true cascade steps.
+                                    break
                                 
-                                X0, X1 = oldQ[0]; oldQ = oldQ[1:]    # assert X.device == device
-                                cascade_step = len(newQ)
+                                #--- 3.2. pop currentQ
+                                X0, X1 = currentQ[0]; currentQ = currentQ[1:]
                                 
                                 #-------------------- control snapshot device ----------
                                 # X0.to(device)
                                 # if self.pm.pair_not_single_snapshot:
                                 #     X1.to(device)
                                 # Y.to(device)
-                                                     
-                                # predicted_snapshot_required = (len(Xs) > 0 or len(oldQ) > 0 and cascade_step < self.pm.max_cascade_step)
-                                predicted_snapshot_required = False
+                                
+                                #--- 3.3. choose if to request the prediction of Y
+                                # Don't request the predictio X unless we have future Y. 
+                                # It will be one-step deeper cascade, than the current, if the prediction is used as X, because it used the Y prediction of the current prediction as X.
+                                we_can_have_deeper_cascade_than_current = (cascade_step < self.pm.max_cascade_step)
+                                predicted_snapshot_required = we_have_future_y and we_can_have_deeper_cascade_than_current
+
+                                #--- 3.4. use X0 and X1 to predict Y
                                 substep_result, substep_loss, substep_metrics = md.forward_backward_no_optimizer_step(
                                         X0, X1, Y, cascade_step,
                                         self.loss, self.dataset.normalize_meteo, self.dataset.unnormalize_meteo, 
-                                        batch_diff, zeus_weights, trainable=trainable,
+                                        batch_diff, zeus_loss_weights_on_target_vars, trainable=trainable,
                                         type_metrics = self.pm.metrics, 
                                         predicted_snapshot_required = predicted_snapshot_required,
                                         air_level_pressure_indices = self.dataset.air_level_pressure_indices,
                                         air_level_pressure_values = self.dataset.air_level_pressure_values,
                                         scaler=md.scaler, area_weights=self.dataset.area_weights_cuda,
                                     )
-                                cnt += 1
+                                
+                                #--- 3.5. count the actual predictions.
+                                n_actual_predictions += 1
 
-                                # if len(newQ) < self.pm.max_cascade_step:
+                                #--- 3.6. put the prediction of Y in futureQ, if we requested it.
+                                # Note if we requested it, futureQ is already have Y as the top.
                                 if substep_result is not None:
                                     if self.pm.pair_not_single_snapshot:
-                                        newQ.append((X1, substep_result))                      # +1 X
+                                        futureQ.append((X1, substep_result))
                                     else:
-                                        newQ.append((substep_result, substep_result))
+                                        futureQ.append((substep_result, substep_result))
                                     
-                                del X0
-                                if not self.pm.pair_not_single_snapshot:
-                                    del X1      # The same object, but different reference.
+                                #--- 3.7. seek to reduce the references to X0 and X1 as early as possible to save memory.
+                                # This deletion is a folow-up of the prediction call.
+                                del X0, X1
                                                             
-                                #--------------------------------------- The substep finished.
-                                
+                                #--- 3.8. conclude substep
                                 train_step_loss.append(substep_loss)          # [substep_loss...]
                                 train_step_metrics.append(substep_metrics)    # [substep_metrics...]
                                 
-                            #------------------------------------------- The step finished.
-                            # state: len(oldQ) == 0, len(oldQ) > 0
-                            oldQ = newQ
+                            #=== 4. switch to futureQ, as currentQ is finished.
+                            currentQ = futureQ      # futureQ will be initialized later.
                             
-                        # assert cnt == int((self.pm.nStepsPerCycle + 1) * self.pm.nStepsPerCycle / 2)
-                        # print('++++++++++++++++++++++++++', cnt, predicted_snapshot_required)
+                            #=== 5. delete Y (or reduce the number of its references) as early as possible to save memory.
+                            del Y
+                            
+                        n_actual_predictions = n_actual_predictions
                             
                         #------------------------------------------------ The set of steps finished.
                         md.store_step_loss_and_metrics(train_step_loss, train_step_metrics) # [substep_loss...], [substep_metrics...]
@@ -501,7 +522,7 @@ class Model_Trainer():
             # This is to save the model in case it suddenly deviates to diverge.
             if trainable is True:
                 [md.save_best_loss_model(loss) for md, loss in [(md, md.step_loss) for md in mds]]
-                for md in mds: md.accum_iterations += self.pm.nStepsPerCycle
+                for md in mds: md.accum_iterations += n_actual_predictions
             
             if trainable is True and step % self.pm.steps_to_save == 0:
                 [(md.pack_losses_metrics(), md.save_state()) for md in mds]
