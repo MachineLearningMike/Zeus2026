@@ -41,7 +41,7 @@ config = {
     "hecta_pascals" : HECTA_PASCAL_UNCHANGEABLE,
     "targetVariables": [ "t2m", "tp", "u100m","v100m", "d2m", "sp",],
     "pole_angle": 30.0,      #
-    "hourly_offset": -1,
+    "hourly_offset": 0,     # exactly 0, 6, 12, 18
     "modulo": 6,
     "nRawStepsPerBatch": 1,
 

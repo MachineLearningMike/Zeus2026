@@ -322,9 +322,7 @@ class Zeus_Dataset(Dataset):
             start_dt, end_dt, lat_range=None, lon_range=None,
             modulo=6, max_workers_snapshots=7, max_workers_vars=10):
         """
-        Parallel download of FuXi2 snapshots:
-        - Snapshots (6-hourly) are parallelized.
-        - Variables inside each snapshot are parallelized.
+        Run any_get_snapshot_dict in parallel
         """
 
         # -------------------------
@@ -2098,14 +2096,13 @@ if __name__ == "__main__":
     # pass
     
     # setup_logging()
-    # dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
-    #     variables=VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map = var_name_map,
-    #     start_dt = datetime(2023, 10, 27, 23), 
-    #     end_dt = datetime(2023, 10, 27, 23),
-    #     modulo=6,
-    #     # max_workers_snapshots=1, max_workers_vars=1,
-    #     verify_existing = True,
-    # )
+    dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
+        variables=VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map = var_name_map,
+        start_dt = datetime(2015, 1, 1, 0), 
+        end_dt = datetime(2024, 12, 31, 18),
+        modulo=6,
+        # max_workers_snapshots=1, max_workers_vars=1,
+    )
 
     # Maybe on the vm
     # inclusive_left = datetime(2014, 12, 31, 23)
@@ -2118,11 +2115,11 @@ if __name__ == "__main__":
     # inclusive_left = datetime(2016, 1, 1, 5)
     # inclusive_right = datetime(2016, 12, 31, 23)
 
-    mean_meteo, m = dataset.ensure_meteo_data_integrity_while_getting_mean(
-        inclusive_left=inclusive_left,
-        inclusive_right=inclusive_right,
-        modulo = 6
-    )
+    # mean_meteo, m = dataset.ensure_meteo_data_integrity_while_getting_mean(
+    #     inclusive_left=inclusive_left,
+    #     inclusive_right=inclusive_right,
+    #     modulo = 6
+    # )
 
     # dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=6)
 
