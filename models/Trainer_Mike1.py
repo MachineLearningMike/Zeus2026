@@ -387,7 +387,7 @@ class Model_Trainer():
                 # for _ in  range(self.train_bombs):    # train_bomb cannot work because we destroy batch_of_ss_lists.
                     
                 Xs = batch_of_ss_lists[0]   # batch_of_ss_lists undergoes changes. This code doesn't know the content of X
-                assert len(Xs) == self.pm.nStepsPerCycle + (2 if self.pm.pair_not_single_snapshot else 1)
+                assert len(Xs) == self.pm.nRawStepsPerBatch + (2 if self.pm.pair_not_single_snapshot else 1)
                     
                 for md in mds:
                     train_step_loss = []; train_step_metrics = []; n_actual_predictions = 0
@@ -492,7 +492,11 @@ class Model_Trainer():
                             #=== 5. delete Y (or reduce the number of its references) as early as possible to save memory.
                             del Y
                             
-                        n_actual_predictions = n_actual_predictions
+                        #+++ verification --- works!                
+                        # n_substeps_on_full_cascades = (self.pm.nRawStepsPerBatch) * (self.pm.nRawStepsPerBatch + 1) // 2
+                        # n_substep_cut_by_cascade_limit = (self.pm.nRawStepsPerBatch - self.pm.max_cascade_step) * (self.pm.nRawStepsPerBatch - self.pm.max_cascade_step + 1) // 2
+                        # n_substeps = n_substeps_on_full_cascades - n_substep_cut_by_cascade_limit
+                        # assert n_actual_predictions == n_substeps
                             
                         #------------------------------------------------ The set of steps finished.
                         md.store_step_loss_and_metrics(train_step_loss, train_step_metrics) # [substep_loss...], [substep_metrics...]

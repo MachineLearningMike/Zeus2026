@@ -43,7 +43,7 @@ config = {
     "pole_angle": 30.0,      #
     "hourly_offset": -1,
     "modulo": 6,
-    "nStepsPerCycle": 1,
+    "nRawStepsPerBatch": 1,
 
     "org_height": 721,
     "org_width": 1440,
@@ -165,7 +165,7 @@ if platform.system() == "Windows":
     config["dim_to_layerFFN_dim"] = 4
     
     config["factor10"] = 2  # 
-    config['nStepsPerCycle'] = 1
+    config['nRawStepsPerBatch'] = 1
     
     # shared_model_params['nHeads'] = 4
     # shared_model_params['patch_kernel'] = 4
@@ -179,7 +179,7 @@ if platform.system() == "Windows":
         
     config["use_PE"] = True
     
-    config['nStepsPerCycle'] = 1
+    config['nRawStepsPerBatch'] = 2
     config['dollarsPerHour'] = 0.1
     
     config["epochs"] = 100
@@ -200,20 +200,20 @@ else:
         config["management_path"] = "/home/mike/zeus_management"
 
     config["factor10"] = 10  # 
-    config['nStepsPerCycle'] = 4        # 2 on A100, 4 on B200
+    config['nRawStepsPerBatch'] = 4        # 2 on A100, 4 on B200
     
     from modules.utils import get_gpu_names
     gpu_names = get_gpu_names()
     if 'A100' in gpu_names:
-        config['nStepsPerCycle'] = 1
+        config['nRawStepsPerBatch'] = 1
         config['dollarsPerHour'] = 0.58
-        print(f"A100 found!!! nStepsPerCycle {config['nStepsPerCycle']}")
+        print(f"A100 found!!! nRawStepsPerBatch {config['nRawStepsPerBatch']}")
     elif 'B200' in gpu_names:
-        config['nStepsPerCycle'] = 4
+        config['nRawStepsPerBatch'] = 4
         config['dollarsPerHour'] = 0.9475
-        print(f"B200 found!!! nStepsPerCycle {config['nStepsPerCycle']}")
+        print(f"B200 found!!! nRawStepsPerBatch {config['nRawStepsPerBatch']}")
     else:
-        config['nStepsPerCycle'] = 2    # comeback 1
+        config['nRawStepsPerBatch'] = 2    # comeback 1
         config['dollarsPerHour'] = 0.1
 
     
@@ -1366,8 +1366,8 @@ projects["Zeus_25Dec28_1"] = {
     "GPUWaitsData" : True,
     "models_to_play": [0,],
     "metrics" : "rmse", # "mae", "rmse"
-    # Let it be chosen by GPU rule 'nStepsPerCycle' : 2,       # Can be changed upto the type of GPU.
-    'max_cascade_step' : 1,     # max = nStepsPerCycle. 1 = no actual cascades, raw prediction only
+    # Let it be chosen by GPU rule 'nRawStepsPerBatch' : 2,       # Can be changed upto the type of GPU.
+    'max_cascade_step' : 1,     # max = nRawStepsPerBatch. 1 = no actual cascades, raw prediction only
     },
     
     "data": {
