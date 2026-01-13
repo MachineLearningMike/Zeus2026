@@ -1814,7 +1814,7 @@ class Zeus_Dataset(Dataset):
         else:
             batch_diff = None
         
-        return batch, batch_diff, self.zeus_loss_weights_on_target_vars     # (B, T1FG, C, H, W), (B, T2FG, C, H, W), (B, 1, C, H, W), (C,)
+        return batch, batch_diff     # (B, T1FG, C, H, W), (B, T2FG, C, H, W), (B, 1, C, H, W), (C,)
     
     def check_accumulation_periods(self):
         """Check accumulation periods for flux variables."""

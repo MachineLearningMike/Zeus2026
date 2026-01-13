@@ -150,6 +150,7 @@ class Model_Trainer():
             pass
         
     def train(self):
+        focus_md = self.get_md_focus(self.model_doms)
         [md.zero_losses_metrics() for md in self.model_doms]        
         [md.try_load_state() for md in self.model_doms]
         self.try_load_state()        
@@ -159,7 +160,7 @@ class Model_Trainer():
         
         mds_to_keep_going = self.model_doms
         
-        for epoch in range(0, 100): #self.pm.epochs):
+        for epoch in range(focus_md.epoch, self.pm.epochs + 1): # epoch starts from 1.
             mds_to_train = mds_to_keep_going
             self.model_doms = mds_to_keep_going
         
@@ -171,7 +172,7 @@ class Model_Trainer():
             # md_focus_list = [md for md in mds_to_train if md.md_id == self.focus_md_id]
             # md_focus = md_focus_list[0] if len(md_focus_list) == 1 else mds_to_train[0]
             
-            train_losses, train_metrics = self.run_epoch(mds_to_train, "train_set", trainable=True)   # (,), (C,)
+            train_losses, train_metrics = self.run_epoch(mds_to_train, "train_set", trainable=True, epoch=epoch)   # (,), (C,)
 
             [md.get_epoch_display_batch(loss_list, metric_list) for (md, loss_list, metric_list) in zip(mds_to_train, train_losses, train_metrics)]
             [logging.info("Finished train epoch {}, {}".format(md.epoch, (md.display))) for md in mds_to_train]
@@ -179,7 +180,6 @@ class Model_Trainer():
             mds_to_validate = [md for md in mds_to_train if md.pm.skip_validation is False]
             if len(mds_to_validate) <= 0:
                 logging.info("All validation(s) skipped as configured with 'skip_validation'")
-                continue
             else:
                 [logging.info("--------- Starting valid epoch {} @ model {} ----------".format(md.epoch, md.md_id)) for md in mds_to_validate]
                             
@@ -194,16 +194,16 @@ class Model_Trainer():
                 keep_goings, best_metrics = map(list, zip(*[md.save_best_train(vm) for md, vm in zip(mds_to_validate, vali_metrics)]))
                 mds_to_keep_going = [md for (md, keep_going) in zip(mds_to_validate, keep_goings) if keep_going is True]
                 
-                [md.save_state(train_finished=True) for md in mds_to_validate  if md not in mds_to_keep_going]
-                [logging.info("!!! Train finished: model {}".format(md.md_id)) for md in mds_to_validate  if md not in mds_to_keep_going]
-                self.save_state()
-                
                 if len(mds_to_validate) == 1:
                     best_metric_yet = best_metrics[0]
                     if self.bayes is not None:  self.bayes.on_epoch_end()
                     
             for md in mds_to_train: md.epoch += 1
             if len(mds_to_keep_going) == 0: break
+            
+        [md.save_state(train_finished=True) for md in mds_to_keep_going]
+        [logging.info("!!! Train finished: model {}".format(md.md_id)) for md in mds_to_keep_going]
+        self.save_state()
 
         return - best_metric_yet
     
@@ -238,53 +238,6 @@ class Model_Trainer():
 
         plt.tight_layout()
         plt.show()
-
-    # def loss(self, target, pred, batch_diff, zeus_loss_weights_on_target_vars):
-    def loss(self, target, pred, batch_diff, zeus_loss_weights_on_target_vars, vars_to_mask_on_loss=None, area_weights=None):
-        # (C,H,W), (C,H,W), (C, H, W), (C,)
-        # 32, cuda, False ; 32, cuda, True !!!, 32, cuda, False, 32, cuda, False
-        device = pred.device
-        target = target.to(device)
-        vars_to_mask_on_loss = vars_to_mask_on_loss.to(device)
-
-        C, H, W = target.shape
-        error_sqaured = (pred - target) ** 2 * (area_weights if area_weights is not None else 1.0)   # (C, H, W)
-        sum_weights = area_weights.sum() * W if area_weights is not None else H * W
-        rmse = torch.sqrt(error_sqaured.sum(dim=(1,2)) / sum_weights)  # (C,)
-        rmse = rmse * (vars_to_mask_on_loss if vars_to_mask_on_loss is not None else 1.0)     # (C,)
-        loss = (rmse * self.pm.loss_amplification_on_target_vars * (zeus_loss_weights_on_target_vars if zeus_loss_weights_on_target_vars is not None else 1.0)).mean()
-
-        # self._print_tensor_state(1, target)                 # 
-        # self._print_tensor_state(2, pred)
-        # self._print_tensor_state(3, batch_diff)
-        # self._print_tensor_state(4, zeus_loss_weights_on_target_vars)
-        # self._print_tensor_state(4.5, rmse)
-
-        # if batch_diff is not None:
-        #     baseline_rmse = 0
-        #     improvement = baseline_rmse - rmse  - self.min_sota_delta.to(device)   # (B, C, H, W), 32, cuda, True,  the-higher-the-better
-        #     # self._print_tensor_state(5, improvement)
-        #     baseline_improvement = torch.maximum(torch.tensor(0.0).to(device), improvement)    # 0.0, (B, C, H, W), 32, cuda, True !!!,  the-higher-the-better
-        #     # self._print_tensor_state(6, baseline_improvement)
-        #     gamma = torch.pow(REWARD_DIFFICULTY_SCALER, batch_diff * 2 - 1).to(device)  # (B, C, H, W), 32, cuda, False,  the-higher-the-more-difficult
-        #     # self._print_tensor_state(7, gamma)
-        #     quality_score = self.get_curved_scores(rmse, gamma)       # (B, C, H, W), 32, cuda, True !!!, the-higher-the-worse
-        #     # self._print_tensor_state(8, quality_score)
-        #     improvement_score = self.get_curved_scores(-baseline_improvement, gamma) # (B, C, H, W), 32, cuda, True !!!, the-higher-the-worse
-        #     # self._print_tensor_state(10, improvement_score)
-        #     rmse = (1 - REWARD_IMPROVEMENT_WEIGHT) * quality_score + REWARD_IMPROVEMENT_WEIGHT * improvement_score    # (B, C, H, W), 32, cuda, True !!!
-        #     # self._print_tensor_state(11, rmse)
-        
-        # zeus_loss_weights_on_target_vars = zeus_loss_weights_on_target_vars.to(device)
-        # reward = rmse * zeus_loss_weights_on_target_vars   # (C,), 32, cuda, True !!!, the-higher-the-worse
-        # self._print_tensor_state(12, reward)
-        # reward = reward.mean()  # (,)
-
-        # return rmse.mean(), rmse # (,), (C,)     32, cuda, True
-
-        # zeus_loss_weights_on_target_vars = zeus_loss_weights_on_target_vars.to(device)
-        
-        return loss, rmse
     
     def clean_gpu_every(self, n_iter, step):
         if step % n_iter == 0:
@@ -340,22 +293,27 @@ class Model_Trainer():
         md_focus = md_focus_list[0] if len(md_focus_list) == 1 else mds[0]
         return md_focus
     
-    def run_epoch(self, mds, x_set_label, trainable=True):
+    def run_epoch(self, mds, x_set_label, trainable=True, epoch=1):
                
         # data_slots = [0] + [md.md_id + 1 for md in mds]
         # self.dataset.set_data_slots(data_slots)
         renewed = self.dataset.refresh_x_set(x_set_label, seed=self.pm.seed, renew_if_new_epoch=True)
         logging.info("{} {}".format(x_set_label, "renewed" if renewed else "left over from previous run"))
-
-        for md in mds:
-            if md.packed_losses_metrics is not None:
-                logging.info("Continuing saved epoch... epoch/model {}/{}".format(md.epoch, md.md_id))
                         
         pbar = zeus_tqdm(self.dataset)
         pbar.start_prefetch_thread()
 
         if self.nDevices > 1: gpu_executor = ThreadPoolExecutor(max_workers=len(self.devices))
         else: gpu_executor = None
+        
+        train_dict = {
+            'fn_normalize_metro': self.dataset.normalize_meteo,
+            'fn_unnormalize_metro': self.dataset.unnormalize_meteo,
+            'zeus_loss_weights_on_target_vars': self.dataset.zeus_loss_weights_on_target_vars,
+            'air_level_pressure_indices': self.dataset.air_level_pressure_indices,
+            'area_weights': self.dataset.area_weights_cuda,
+            'type_metrics': self.pm.metrics,
+        }
         
         if not pbar.no_more_data():  pbar.prefetch(x_set_label)        # Fetch one batch asynchronously
 
@@ -369,7 +327,7 @@ class Model_Trainer():
 
             if not pbar.no_more_data():  pbar.prefetch(x_set_label)        # Prefetch ensures getting new bacthes.
             if batch is None: break     # just in case
-            batch_of_ss_lists, batch_diff, zeus_loss_weights_on_target_vars = batch   # (slots, B, T1FG, C, H, W), (B, T2FG, C, H, W), None or (B, C, H, W), (C,)
+            batch_of_ss_lists, batch_diff = batch   # (slots, B, T1FG, C, H, W), (B, T2FG, C, H, W), None or (B, C, H, W), (C,)
 
             if False:
                 self.show_data(batch_x)
@@ -379,10 +337,6 @@ class Model_Trainer():
             # self.transient_step += slots.shape[1]     # increase by batch size
             
             if self.nDevices <= 1:
-                # !!! This context leads lots of parameters that don't receive gradient. Move into single_GPU_forward_loss_backward.
-                # context = autocast(device_type=self.device_type, dtype=torch.bfloat16) if self.pm.use_autocast else nullcontext()
-                # with context:
-                # with torch.set_grad_enabled(trainable):   # grad is managed by single_GPU_forward_loss_backward
 
                 # for _ in  range(self.train_bombs):    # train_bomb cannot work because we destroy batch_of_ss_lists.
                     
@@ -395,22 +349,15 @@ class Model_Trainer():
                     with autocast(device_type='cuda', dtype=torch.bfloat16):    # time: 97 -> 82, memory: little
                         #------------------------ this algorithm is studied in zeus_train_6_hourly.py -----------
                         
-                        # assert len(Xs) >= 2, "length of Xs is not enough 1"
-                            
+                        # assert len(Xs) >= 2, "length of Xs is not enough 1"                            
                         if self.pm.pair_not_single_snapshot:
                             currentQ = [(Xs[0], Xs[1])]; Xs = Xs[2:]
                         else:
                             currentQ = [(Xs[0], Xs[0])]; Xs = Xs[1:]
 
-                        # assert len(Xs) > 0, "length of Xs is not enough 2"
-                        
-                        #--------------------------------------------- starting a set of steps for md...
+                        # assert len(Xs) > 0, "length of Xs is not enough 2"                        
                         while len(currentQ) > 0 and len(Xs) > 0:  # we have Xs and Y
-                            # State: 
-                            # len(Xs) > 0, len(currentQ) > 0, [x0.device == device and x1.device == device for (x0, x1) in currentQ]
-                            # 2 * len(currentQ) count of X is stored in currentQ in device, together with model parameters.
-                            # currentQ stores raw X's
-                            
+
                             #=== 1. take a new Y
                             
                             Y = Xs[0]; Xs = Xs[1:]
@@ -443,29 +390,17 @@ class Model_Trainer():
                                 #--- 3.2. pop currentQ
                                 X0, X1 = currentQ[0]; currentQ = currentQ[1:]
                                 
-                                #-------------------- avoid device control INTENTIONALLY here ----------
-                                # X0.to(device)
-                                # if self.pm.pair_not_single_snapshot:
-                                #     X1.to(device)
-                                # Y.to(device)
-                                
                                 #--- 3.3. choose if to request the prediction of Y
                                 # Don't request the predictio X unless we have future Y. 
                                 # It will be one-step deeper cascade, than the current, if the prediction is used as X, because it used the Y prediction of the current prediction as X.
                                 we_can_have_deeper_cascade_than_current = (cascade_step < self.pm.max_cascade_step)
                                 predicted_snapshot_required = we_have_future_y and we_can_have_deeper_cascade_than_current
-
+                                                                
                                 #--- 3.4. use X0 and X1 to predict Y
-                                substep_result, substep_loss, substep_metrics = md.forward_backward_no_optimizer_step(
-                                        X0, X1, Y, cascade_step,
-                                        self.loss, self.dataset.normalize_meteo, self.dataset.unnormalize_meteo, 
-                                        batch_diff, zeus_loss_weights_on_target_vars, trainable=trainable,
-                                        type_metrics = self.pm.metrics, 
+                                substep_result, substep_loss, substep_metrics = md.model.forward_backward_no_optimizer_step(
+                                        train_dict, X0, X1, Y, cascade_step, batch_diff, trainable, scaler=md.scaler,
                                         predicted_snapshot_required = predicted_snapshot_required,
-                                        air_level_pressure_indices = self.dataset.air_level_pressure_indices,
-                                        air_level_pressure_values = self.dataset.air_level_pressure_values,
-                                        scaler=md.scaler, area_weights=self.dataset.area_weights_cuda,
-                                    )
+                                )
                                 
                                 #--- 3.5. count the actual predictions.
                                 n_actual_predictions += 1
@@ -529,7 +464,7 @@ class Model_Trainer():
                 for md in mds: md.accum_iterations += n_actual_predictions
             
             if trainable is True and step % self.pm.steps_to_save == 0:
-                [(md.pack_losses_metrics(), md.save_state()) for md in mds]
+                [(md.pack_losses_and_metrics(), md.save_state()) for md in mds]
                 self.save_state()
             self.clean_gpu_every(1, step)
             self.respond_to_cursor()
@@ -544,7 +479,7 @@ class Model_Trainer():
         pbar.stop_prefetch_thread()
         
         if trainable is True: 
-            [(md.pack_losses_metrics(), md.save_state()) for md in mds]
+            [(md.pack_losses_and_metrics(), md.save_state(epoch_finished=True)) for md in mds]
             self.save_state()
         if gpu_executor is not None: gpu_executor.shutdown()
 

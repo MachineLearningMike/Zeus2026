@@ -182,7 +182,7 @@ if platform.system() == "Windows":
     config['nRawStepsPerBatch'] = 2
     config['dollarsPerHour'] = 0.1
     
-    config["epochs"] = 100
+    config["epochs"] = 2
     config["steps_to_save"] = 2
     config["abundant_GPUs"] = False
     

@@ -339,7 +339,7 @@ class Model_Sequence_Trainer():
         logging.info("{} {}".format(x_set_label, "renewed" if renewed else "left over from previous run"))
 
         for md in mds:
-            if md.packed_losses_metrics is not None:
+            if md.packed_losses_and_metrics is not None:
                 logging.info("Continuing saved epoch... epoch/model {}/{}".format(md.epoch, md.md_id))
         
         # Simulated completion and return
@@ -455,7 +455,7 @@ class Model_Sequence_Trainer():
             
             step += 1
             if trainable is True and step % self.pm.steps_to_save == 0:
-                [(md.pack_losses_metrics(), md.save_state()) for md in mds]
+                [(md.pack_losses_and_metrics(), md.save_state()) for md in mds]
                 self.save_state()
             self.clean_gpu_every(50, step)
             self.respond_to_cursor()
@@ -468,7 +468,7 @@ class Model_Sequence_Trainer():
         pbar.stop_prefetch_thread()
         
         if trainable is True: 
-            [(md.pack_losses_metrics(), md.save_state()) for md in mds]
+            [(md.pack_losses_and_metrics(), md.save_state()) for md in mds]
             self.save_state()
         if gpu_executor is not None: gpu_executor.shutdown()
 

@@ -35,6 +35,7 @@ class Params:
         
         self.train_hours_limit = config['train_hours_limit']
         self.dollarsPerHour = config['dollarsPerHour']
+        self.epochs = config['epochs']
 
         #============================ data, shared ===========================================================================
         self.variables = config['variables']

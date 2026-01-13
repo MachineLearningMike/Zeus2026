@@ -506,7 +506,7 @@ class Train():
     def set_eval_mode(self):
         if self.model is not None: self.model.eval()
         
-    def pack_losses_metrics(self, epoch_loss, epoch_rmses):
+    def pack_losses_and_metrics(self, epoch_loss, epoch_rmses):
         assert epoch_loss is not None and epoch_rmses is not None
         return {
             "epoch_loss": [t.item() for t in epoch_loss],          # each scalar -> float
@@ -796,7 +796,7 @@ class Train():
             
             step += 1
             if trainable is True and step % self.pm.steps_to_save == 0:
-                step_state = self.pack_losses_metrics(_epoch_loss, _epoch_rmses)
+                step_state = self.pack_losses_and_metrics(_epoch_loss, _epoch_rmses)
                 self.save_state(step_state=step_state)  # Step_save
             self.clean_gpu_every(50, step)
             self.respond_to_cursor()

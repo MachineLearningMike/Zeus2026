@@ -71,7 +71,7 @@ class Model_Dom():
             self.scaler = GradScaler(device=self.device)
 
             self.epoch = 0
-            self.packed_losses_metrics = None
+            self.packed_losses_and_metrics = None
             self.epochs_since_improvement = 0
             self.weighted_metric_old = torch.ones_like(self.load_era5_data_vars()) * 1e9
             self.learning_rate = None
@@ -202,7 +202,7 @@ class Model_Dom():
                 'weighted_metric_old': self.weighted_metric_old,
                 'epochs_since_improvement': self.epochs_since_improvement,
                 'train_finished' : train_finished,
-                'packed_losses_metrics': self.packed_losses_metrics,
+                'packed_losses_and_metrics': self.packed_losses_and_metrics,
                 'learning_rate': self.learning_rate,
             })
         utils.check_dir(self.project_path)
@@ -297,7 +297,7 @@ class Model_Dom():
                     missing_keys, unexpected_keys = self.model.load_state_dict(state_dict, strict=False)
                     logging.info("Model loaded with saved state: \n_missing_keys: {}, \n_unexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
 
-                packed_losses_metrics = None
+                packed_losses_and_metrics = None
                 if self.trainable:
                     
                     try:                                               
@@ -323,9 +323,9 @@ class Model_Dom():
                         self.epochs_since_improvement = checkpoint['epochs_since_improvement']
                         logging.info("weighted_metric_old and epochs_since_improvement loaded with saved values")
 
-                        if checkpoint.get('packed_losses_metrics', None) is not None:
-                            packed_losses_metrics = checkpoint['packed_losses_metrics']
-                            logging.info("packed_losses_metrics loaded")
+                        if checkpoint.get('packed_losses_and_metrics', None) is not None:
+                            packed_losses_and_metrics = checkpoint['packed_losses_and_metrics']
+                            logging.info("packed_losses_and_metrics loaded")
                             
                         if self.pm.overwrite_saved_lr:
                             self.learning_rate = self.pm.lr
@@ -339,8 +339,8 @@ class Model_Dom():
                     except Exception as e:
                         logging.info(str(e))
 
-                # print('----------- packed_losses_metrics loaded is ', packed_losses_metrics)
-                if packed_losses_metrics is not None:  # The previous session was terminated after a new step was finished and before an epoch is finished.
+                # print('----------- packed_losses_and_metrics loaded is ', packed_losses_and_metrics)
+                if packed_losses_and_metrics is not None:  # The previous session was terminated after a new step was finished and before an epoch is finished.
                     epoch = epoch
                 else:   # The previous session was terminated after an epoch was finished and before a new step was finished. 
                     epoch = epoch + 1
@@ -356,26 +356,26 @@ class Model_Dom():
         
         if file_not_found:               
             # Start a new training, creating the file.
-            epoch = 0; packed_losses_metrics = None    # This is the moment where an existing train will be overriden !!!    
+            epoch = 0; packed_losses_and_metrics = None    # This is the moment where an existing train will be overriden !!!    
         elif train_finished and self.trainable:
             # Keep the finished train intact.
             logging.info("You tried to start/continue a finished training. Aborting... No! specially")
             # sys.exit()
         elif not file_loaded:
             # Start a new training, creating the file.
-            epoch = 0; packed_losses_metrics = None    # This is the moment where an existing train will be overriden !!!    
+            epoch = 0; packed_losses_and_metrics = None    # This is the moment where an existing train will be overriden !!!    
         else: # file found, train not finished, file loaded
             # Continue the loaded train.
-            epoch = epoch; packed_losses_metrics = packed_losses_metrics
+            epoch = epoch; packed_losses_and_metrics = packed_losses_and_metrics
                         
         self.total_losses = self.load_history()
         logging.info("train history loaded. length: {}".format(len(self.total_losses)))
 
-        self.unpack_losses_metrics(packed_losses_metrics)
+        self.unpack_losses_metrics(packed_losses_and_metrics)
 
-        self.epoch, self.packed_losses_metrics = epoch, packed_losses_metrics        
+        self.epoch, self.packed_losses_and_metrics = epoch, packed_losses_and_metrics        
         
-        return self.epoch, self.packed_losses_metrics
+        return self.epoch, self.packed_losses_and_metrics
 
     def get_epoch_display(self, loss, metrics):
         lead = "model {}, ".format(self.md_id)
@@ -411,22 +411,22 @@ class Model_Dom():
     
     def zero_losses_metrics(self):
         self.epoch_losses, self.epoch_metrics = [], []
-        self.packed_losses_metrics = {}
+        self.packed_losses_and_metrics = {}
         
 
-    def pack_losses_metrics(self):
+    def pack_losses_and_metrics(self):
         assert self.epoch_losses is not None and self.epoch_metrics is not None
-        self.packed_losses_metrics = {
+        self.packed_losses_and_metrics = {
             "epoch_losses": [t.item() for t in self.epoch_losses],          # each scalar -> float
             "epoch_metrics": [t.tolist() for t in self.epoch_metrics]         # each (4,) tensor -> list    
         }
-        return self.packed_losses_metrics
+        return self.packed_losses_and_metrics
 
-    def unpack_losses_metrics(self, packed_losses_metrics):
+    def unpack_losses_metrics(self, packed_losses_and_metrics):
         self.epoch_losses, self.epoch_metrics = [], []
-        if packed_losses_metrics is not None:
-            self.epoch_losses = [torch.tensor(v) for v in packed_losses_metrics["epoch_losses"]]
-            self.epoch_metrics = [torch.tensor(v) for v in packed_losses_metrics["epoch_metrics"]]
+        if packed_losses_and_metrics is not None:
+            self.epoch_losses = [torch.tensor(v) for v in packed_losses_and_metrics["epoch_losses"]]
+            self.epoch_metrics = [torch.tensor(v) for v in packed_losses_and_metrics["epoch_metrics"]]
             
     def get_pbar_description_epoch(self):    # (steps,), (stept, C)
         if len(self.epoch_losses) <= 0 or len(self.epoch_metrics) <= 0: 
