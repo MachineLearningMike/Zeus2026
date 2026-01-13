@@ -231,8 +231,8 @@ class Zeus_Dataset(Dataset):
 
         if self.total_ds is None:
             print("Getting normal_meteo_buffers ERA5 dataset......", end='')
-            self.total_ds = self.get_normalized_dataset()
-            print("done.")
+            self.total_ds = self.get_normalized_dataset()   # Multiple threads run this line.
+            # print("done.")
             
         total_ds = self.total_ds
 
