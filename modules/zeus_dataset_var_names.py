@@ -490,7 +490,8 @@ var_name_map = {
     'mpts': 'mean_period_of_total_swell',
     'mpww': 'mean_period_of_wind_waves',
     'shts': 'significant_height_of_total_swell',
-    'shww': 'significant_height_of_wind_waves'
+    'shww': 'significant_height_of_wind_waves',
+    'tcwv': 'total_column_water_vapour',
 }
 
 VARIABLE_NAME_LIST_UNCHANGEABLE = [     # exported. 
@@ -512,31 +513,15 @@ VARIABLE_NAME_LIST_UNCHANGEABLE = [     # exported.
     # Upper-air variables (Z, T, U, V, Q)
     # ------------------------------
 
-    "z_50","t_50","u_50","v_50","q_50",
-    "z_100","t_100","u_100","v_100","q_100",
-    "z_150","t_150","u_150","v_150","q_150",
-    "z_200","t_200","u_200","v_200","q_200",
-    "z_250","t_250","u_250","v_250","q_250",
-    "z_300","t_300","u_300","v_300","q_300",
-    "z_400","t_400","u_400","v_400","q_400",
-    "z_500","t_500","u_500","v_500","q_500",
-    "z_600","t_600","u_600","v_600","q_600",
-    "z_700","t_700","u_700","v_700","q_700",
+    "z_500",
     "z_850","t_850","u_850","v_850","q_850",
-    "z_925","t_925","u_925","v_925","q_925",
-    "z_1000","t_1000","u_1000","v_1000","q_1000",
 
     # ------------------------------
     # Surface variables
     # ------------------------------
 
     # "sst",        # NaN, maybe on land
-    "u10m","v10m",
-    "msl",
-    # clouds
-    "lcc","mcc","hcc","tcc",
-    # radiation
-    "ssr","ssrd","fdir","ttr",    
+    "tcwv",
     
     #--------------------------------------
     # Target variables come last - FIXED. (All are surface variables)
