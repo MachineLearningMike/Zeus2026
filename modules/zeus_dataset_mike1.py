@@ -2100,7 +2100,7 @@ if __name__ == "__main__":
         variables=VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map = var_name_map,
         start_dt = datetime(2015, 1, 1, 0), 
         end_dt = datetime(2016, 12, 31, 18),
-        modulo=6,
+        modulo=1,
         # max_workers_snapshots=1, max_workers_vars=1,
     )
 
