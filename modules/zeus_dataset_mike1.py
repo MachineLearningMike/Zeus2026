@@ -54,13 +54,13 @@ class Zeus_Dataset(Dataset):
         check_dir(management_path)
 
         if not self.pm.dual_drive:
-            self.cds_folder = dataset_path / "CDS"
+            self.cds_folder = dataset_path / "era5"
             self.cds_folder.mkdir(parents=True, exist_ok=True)
             self.shard_dirs = [self.cds_folder]
         else:
-            self.cds_folder_even = dataset_path / "data_even" / "CDS"            
+            self.cds_folder_even = dataset_path / "data_even" / "era5"            
             self.cds_folder_even.mkdir(parents=True, exist_ok=True)
-            self.cds_folder_odd = dataset_path / "data_odd" / "CDS"
+            self.cds_folder_odd = dataset_path / "data_odd" / "era5"
             self.cds_folder_odd.mkdir(parents=True, exist_ok=True)
             self.shard_dirs = [self.cds_folder_even, self.cds_folder_odd]
     
@@ -2028,13 +2028,14 @@ if __name__ == "__main__":
     # pass
     
     # setup_logging()
-    # dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
-    #     variables=VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map = var_name_map,
-    #     start_dt = datetime(2015, 1, 1, 0), 
-    #     end_dt = datetime(2016, 12, 31, 18),
-    #     modulo=1,
-    #     # max_workers_snapshots=1, max_workers_vars=1,
-    # )
+    dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
+        variables=VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map = var_name_map,
+        # ----- 7 years, 1-hourly ------
+        start_dt = datetime(2015, 1, 1, 0),
+        end_dt = datetime(2021, 12, 31, 23),
+        modulo=1,
+        # max_workers_snapshots=1, max_workers_vars=1,
+    )
 
     # Maybe on the vm
     # inclusive_left = datetime(2014, 12, 31, 23)
@@ -2044,14 +2045,14 @@ if __name__ == "__main__":
     # inclusive_left = datetime(2019, 12, 31, 23)
     # inclusive_right = datetime(2024, 12, 31, 23)
 
-    inclusive_left = datetime(2016, 1, 1, 0)
-    inclusive_right = datetime(2016, 1, 31, 18)
+    # inclusive_left = datetime(2016, 1, 1, 0)
+    # inclusive_right = datetime(2016, 1, 31, 18)
 
-    mean_meteo, m = dataset.ensure_meteo_data_integrity_while_getting_mean(
-        inclusive_left=inclusive_left,
-        inclusive_right=inclusive_right,
-        modulo = 6
-    )
+    # mean_meteo, m = dataset.ensure_meteo_data_integrity_while_getting_mean(
+    #     inclusive_left=inclusive_left,
+    #     inclusive_right=inclusive_right,
+    #     modulo = 6
+    # )
 
     # dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=6)
 
