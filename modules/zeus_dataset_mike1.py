@@ -2038,9 +2038,9 @@ if __name__ == "__main__":
     # setup_logging()
     dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
         variables=VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map = var_name_map,
-        # ----- 7 years, 1-hourly ------
+        # ----- 8 years, 1-hourly, 720 GB (700.8 GB ------
         start_dt = datetime(2015, 1, 1, 0),
-        end_dt = datetime(2021, 12, 31, 23),
+        end_dt = datetime(2022, 12, 31, 23),
         modulo=1,
         max_workers_snapshots=4, max_workers_vars=6,
     )
