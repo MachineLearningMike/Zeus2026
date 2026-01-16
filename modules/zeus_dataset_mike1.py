@@ -368,7 +368,7 @@ class Zeus_Dataset(Dataset):
             memory_limit_mb=2048):  # 2GB limit
         
         def get_memory_usage():
-            process = psutil.Process(os.getpid())
+            process = shutil.Process(os.getpid())
             return process.memory_info().rss / 1024 / 1024
         
         # Collect time steps
