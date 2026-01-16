@@ -275,7 +275,7 @@ class Zeus_Dataset(Dataset):
         return variable, array
 
 
-    def any_get_snapshot_dict(self, year, month, day, hour, modulo, max_workers_vars, variables):
+    def any_get_snapshot_dict(self, year, month, day, hour, modulo, max_workers_vars, variables, no_return=False):
         """Download all variables for a single snapshot in parallel."""
 
         dict = None
@@ -323,8 +323,10 @@ class Zeus_Dataset(Dataset):
                 else:
                     print(f"==================================== snapshot at {year}/{month}/{day}/{hour} failed        !!!")
 
-        return dict
-    
+        if not no_return:
+            return dict
+        else:
+            return None
     
     # def download_fuXi2_snapshots_levels_region_parallel_vars(
     #         self, variables, var_name_map,
@@ -401,11 +403,12 @@ class Zeus_Dataset(Dataset):
                     self._wait_for_some_completions(futures, completed)
                     gc.collect()
                     available_memory = psutil.virtual_memory().available / 1024 / 1024
-                
+
+                no_return = True                
                 future = executor.submit(
                     self.any_get_snapshot_dict,
                     year, month, day, hour,
-                    modulo, max_workers_vars, variables
+                    modulo, max_workers_vars, variables, no_return
                 )
                 futures.append((future, idx))
             
@@ -413,10 +416,6 @@ class Zeus_Dataset(Dataset):
             for future, idx in futures:
                 try:
                     result = future.result()
-                    # Process and free memory immediately
-                    # self._process_and_free(result)
-                    del result
-                    gc.collect()
                     completed += 1
                     
                     if completed % 10 == 0:
@@ -432,27 +431,6 @@ class Zeus_Dataset(Dataset):
         if len(futures) > 0:
             wait([f[0] for f in futures], return_when=FIRST_COMPLETED)
             
-    def _process_and_free(self, result):
-        """Process the result and free memory"""
-        try:
-            # Process your data here (example)
-            if isinstance(result, dict):
-                # Do something with the data
-                pass
-            elif hasattr(result, 'close'):
-                result.close()
-            
-            # Explicitly delete to free memory
-            del result
-            
-            # Force garbage collection
-            import gc
-            gc.collect()
-            
-        except Exception as e:
-            print(f"Error in _process_and_free: {e}")
-            
-                    
     def get_geo_data(self, management_path, variables):
         total_ds = self.get_normalized_dataset()
         snapshot_time = "2025-11-10T00:00"
