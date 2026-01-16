@@ -144,21 +144,28 @@ class Zeus_Dataset(Dataset):
         return
     
     def get_normalized_dataset(self):
-        dataset = None
-        try:
-            dataset = xr.open_zarr("gs://gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3", chunks=None)
-            # convert latitude and longitude to -90 to 90 and -180 to 180 respectively
-            if dataset["longitude"].max() > 180:
-                dataset = dataset.assign_coords(longitude=(dataset["longitude"].values + 180) % 360 - 180)
-            if dataset["latitude"].max() > 90:
-                dataset = dataset.assign_coords(latitude=dataset["latitude"].values - 90)
+        
+        if self.total_ds is None:
+        
+            dataset = None
+            try:
+                dataset = xr.open_zarr("gs://gcp-public-data-arco-era5/ar/full_37-1h-0p25deg-chunk-1.zarr-v3", chunks=None)
+                # convert latitude and longitude to -90 to 90 and -180 to 180 respectively
+                if dataset["longitude"].max() > 180:
+                    dataset = dataset.assign_coords(longitude=(dataset["longitude"].values + 180) % 360 - 180)
+                if dataset["latitude"].max() > 90:
+                    dataset = dataset.assign_coords(latitude=dataset["latitude"].values - 90)
 
-            dataset = dataset.sortby(["latitude", "longitude"])
-            dataset = dataset.chunk()
-            
-            #  -90 <= lat <= +90 [-90, +90], -180 <= lon < 180 [-180, +180)
-        except:
-            print("Failed to get gcp-era5 dataset")
+                dataset = dataset.sortby(["latitude", "longitude"])
+                dataset = dataset.chunk()
+                
+                #  -90 <= lat <= +90 [-90, +90], -180 <= lon < 180 [-180, +180)
+            except:
+                print("Failed to get gcp-era5 dataset")
+
+            self.total_ds = dataset
+        else:
+            dataset = self.total_ds
 
         return dataset
 
