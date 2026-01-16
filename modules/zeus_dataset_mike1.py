@@ -29,7 +29,7 @@ import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 import requests
 
-import os, sys
+import os, sys, gc
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.CylindricalResizer import CylindricalResizer
@@ -399,7 +399,6 @@ class Zeus_Dataset(Dataset):
                     print(f"Memory low ({available_memory:.1f}MB available), pausing...")
                     # Wait for some tasks to complete
                     self._wait_for_some_completions(futures, completed)
-                    import gc
                     gc.collect()
                     available_memory = psutil.virtual_memory().available / 1024 / 1024
                 
