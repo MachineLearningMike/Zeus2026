@@ -328,7 +328,7 @@ class Zeus_Dataset(Dataset):
     def download_fuXi2_snapshots_levels_region_parallel_vars(
             self, variables, var_name_map,
             start_dt, end_dt, lat_range=None, lon_range=None,
-            modulo=6, max_workers_snapshots=12, max_workers_vars=6):
+            modulo=6, max_workers_snapshots=6, max_workers_vars=6):
         """
         Run any_get_snapshot_dict in parallel
         """
@@ -2042,7 +2042,7 @@ if __name__ == "__main__":
         start_dt = datetime(2015, 1, 1, 0),
         end_dt = datetime(2021, 12, 31, 23),
         modulo=1,
-        # max_workers_snapshots=1, max_workers_vars=1,
+        max_workers_snapshots=4, max_workers_vars=6,
     )
 
     # Maybe on the vm
