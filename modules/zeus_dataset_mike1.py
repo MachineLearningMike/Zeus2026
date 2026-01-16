@@ -2086,7 +2086,7 @@ if __name__ == "__main__":
         start_dt = datetime(2015, 1, 1, 0),
         end_dt = datetime(2022, 12, 31, 23),
         modulo=1,
-        max_workers_snapshots=4, max_workers_vars=6,
+        max_workers_snapshots=6, max_workers_vars=6,
     )
 
     # Maybe on the vm
