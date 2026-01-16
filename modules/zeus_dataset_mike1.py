@@ -325,41 +325,85 @@ class Zeus_Dataset(Dataset):
         return dict
     
     
+    # def download_fuXi2_snapshots_levels_region_parallel_vars(
+    #         self, variables, var_name_map,
+    #         start_dt, end_dt, lat_range=None, lon_range=None,
+    #         modulo=6, max_workers_snapshots=6, max_workers_vars=6):
+    #     """
+    #     Run any_get_snapshot_dict in parallel
+    #     """
+
+    #     # -------------------------
+    #     # Parallel execution of snapshots
+    #     # -------------------------
+    #     with ThreadPoolExecutor(max_workers=max_workers_snapshots) as snap_executor:
+    #         futures = []
+
+    #         start_year, end_year = start_dt.year, end_dt.year
+
+    #         for year in range(start_year, end_year + 1):
+    #             for month in range(1, 13):
+    #                 last_day = self.get_last_day_of_month(year, month)
+    #                 for day in range(1, last_day + 1):
+    #                     for hour in range(0, 24, modulo):
+    #                         dt = datetime(year, month, day, hour) + timedelta(hours=self.pm.hourly_offset) # hourly_offset = -1
+    #                         if dt < start_dt or end_dt < dt: continue
+    #                         futures.append(
+    #                             snap_executor.submit(self.any_get_snapshot_dict, dt.year, dt.month, dt.day, dt.hour, modulo, max_workers_vars, variables)
+    #                         )
+
+    #         # Wait for all snapshots to finish
+    #         for future in as_completed(futures):
+    #             try:
+    #                 dict = future.result()
+    #             except Exception as e:
+    #                 print(f"Error processing snapshot: {e}")
+    #                 continue
+                    
+                    
     def download_fuXi2_snapshots_levels_region_parallel_vars(
             self, variables, var_name_map,
             start_dt, end_dt, lat_range=None, lon_range=None,
             modulo=6, max_workers_snapshots=6, max_workers_vars=6):
-        """
-        Run any_get_snapshot_dict in parallel
-        """
-
-        # -------------------------
-        # Parallel execution of snapshots
-        # -------------------------
+        
+        # Semaphore to limit concurrent futures
+        future_semaphore = threading.Semaphore(max_workers_snapshots * 2)
+        
         with ThreadPoolExecutor(max_workers=max_workers_snapshots) as snap_executor:
             futures = []
-
+            
             start_year, end_year = start_dt.year, end_dt.year
-
+            
             for year in range(start_year, end_year + 1):
                 for month in range(1, 13):
                     last_day = self.get_last_day_of_month(year, month)
                     for day in range(1, last_day + 1):
                         for hour in range(0, 24, modulo):
-                            dt = datetime(year, month, day, hour) + timedelta(hours=self.pm.hourly_offset) # hourly_offset = -1
-                            if dt < start_dt or end_dt < dt: continue
-                            futures.append(
-                                snap_executor.submit(self.any_get_snapshot_dict, dt.year, dt.month, dt.day, dt.hour, modulo, max_workers_vars, variables)
+                            dt = datetime(year, month, day, hour) + timedelta(hours=self.pm.hourly_offset)
+                            if dt < start_dt or end_dt < dt: 
+                                continue
+                            
+                            # Wait if too many futures are pending
+                            future_semaphore.acquire()
+                            
+                            future = snap_executor.submit(
+                                self.any_get_snapshot_dict, 
+                                dt.year, dt.month, dt.day, dt.hour, 
+                                modulo, max_workers_vars, variables
                             )
-
-            # Wait for all snapshots to finish
+                            
+                            # Release semaphore when future completes
+                            future.add_done_callback(lambda f: future_semaphore.release())
+                            futures.append(future)
+            
+            # Process results as they complete
             for future in as_completed(futures):
                 try:
-                    dict = future.result()
+                    result = future.result()
+                    # Process result here
                 except Exception as e:
                     print(f"Error processing snapshot: {e}")
                     continue
-                    
                     
     def get_geo_data(self, management_path, variables):
         total_ds = self.get_normalized_dataset()
