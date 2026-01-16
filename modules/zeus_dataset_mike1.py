@@ -286,9 +286,7 @@ class Zeus_Dataset(Dataset):
             pass
         
         if dict is not None:                       
-            print(f"==================================== snapshot at {year}/{month}/{day}/{hour} exists!")       
-            return dict
-        
+            print(f"==================================== snapshot at {year}/{month}/{day}/{hour} exists!")               
         else:
             var_dict = {}
 
