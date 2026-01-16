@@ -129,7 +129,7 @@ class Zeus_Dataset(Dataset):
         self.mean_meteo, self.std_meteo, self.mean_tempo, self.std_tempo, \
         self.mean_meteo_ready_cpu, self.std_meteo_ready_cpu, self.mean_meteo_ready_cuda, self.std_meteo_ready_cuda, \
         self.mean_tempo_ready_cpu, self.std_tempo_ready_cpu, self.mean_tempo_ready_cuda, self.std_tempo_ready_cuda, \
-        self.area_weights_cuda, self.p_intercalated_vars \
+        self.area_weights_cuda \
         = self.load_dataset_params()
         
         if self.pm.include_difficulty: 
@@ -247,8 +247,8 @@ class Zeus_Dataset(Dataset):
             ds = total_ds[era_var].sel(time=snapshot_time)
 
         # Compute array
-        array = ds.values.astype(np.float32)
-        # array = np.random.rand(721, 1440)
+        # array = ds.values.astype(np.float32)          # comeback --- simulation
+        array = np.random.rand(721, 1440)
 
         # If NaNs exist, try interpolation along 'level' for upper-air variables
         if np.isnan(array).any() and upper_air:
@@ -866,7 +866,8 @@ class Zeus_Dataset(Dataset):
                 continue
 
             tensor = Snapshot(year, month, day, hour, meteo=None, meteo_unnormal=None).tempo
-            assert tensor.shape == (Snapshot.tempo_dims, Snapshot.full_export_h, Snapshot.full_export_w)
+            size = Snapshot.get_export_size()
+            assert tensor.shape == (Snapshot.tempo_dims, size[0], size[1])
             
             if cuda_available:
                 tensor = tensor.cuda()
@@ -957,7 +958,8 @@ class Zeus_Dataset(Dataset):
                 continue
             
             tensor = Snapshot(year, month, day, hour, meteo=None, meteo_unnormal=None).tempo
-            assert tensor.shape == (Snapshot.tempo_dims, Snapshot.full_export_h, Snapshot.full_export_w)
+            size = Snapshot.get_export_size()
+            assert tensor.shape == (Snapshot.tempo_dims, size[0], size[1])
             
             if cuda_available:
                 tensor = tensor.cuda()
@@ -1090,93 +1092,10 @@ class Zeus_Dataset(Dataset):
         mean_meteo_dict, std_meteo_dict, mean_tempo, std_tempo = \
         data['mean_meteo_dict'], data['std_meteo_dict'], (data['mean_tempo']), data['std_tempo']
         mean_tempo = np.array(mean_tempo, dtype=np.float32); std_tempo = np.array(std_tempo, dtype=np.float32)
-
-        #----------------- replace meteo mean/std with group mean/std     
-        # Make sure, once again, the order follows self.pm.variables
-
-        if self.pm.group_normalize:
-            for group in self.pm.variable_groups:
-                mean_sum = 0.0; var_sum = 0.0
-                for var in group:
-                    mean_sum = mean_sum + mean_meteo_dict[var]
-                    var_sum = var_sum + (std_meteo_dict[var]) ** 2     # **2 to get variation from std.
-
-                mean = mean_sum / len(group)
-                var_mean = var_sum / len(group)
-
-                for var in group:
-                    mean_meteo_dict[var] = mean
-                    std_meteo_dict[var] = var_mean **  0.5
-
-        #----------------- find pressure_mean and pressure_std, from air levels and 'sp' and 'msl'
-        # air pressure mean: [...] _ [sp.mean, msl'mean]
-        hecta = 100
-        pascals = [p * hecta for p in self.pm.hecta_pascals]
-        pascals.append(mean_meteo_dict['sp'])   # surface pressure
-        pascals.append(mean_meteo_dict['msl'])        
-        pressure_mean = np.array(pascals).mean().item()
-
-        # air pressure var: [0] * 13 + [sp'var, msl'var]
-        pascals = [0] * len(self.pm.hecta_pascals)
-        pascals.append(std_meteo_dict['sp']**2)
-        pascals.append(std_meteo_dict['msl']**2)
-        pressure_std = np.array(pascals).mean().item()**0.5
-            
-        #----------------- create self.p_intercalated_vars, by using pressure_mean and pressure_std, which are from air levels and 'sp' and 'msl'
-        p_intercalated_vars = []
-        for idx, var in enumerate(self.pm.variables):
-            if idx % num_vars_per_level == 0 and idx // num_vars_per_level < num_levels:
-            #----------------- add P_level -----------------
-                var_name = "p_" + str(HECTA_PASCAL_UNCHANGEABLE[idx // num_vars_per_level])
-                p_intercalated_vars.append(var_name)
-                mean_meteo_dict[var_name] = pressure_mean
-                std_meteo_dict[var_name] = pressure_std
-            if var == 'msl' or var == 'sp':
-                #----------------- handle msl and sp
-                mean_meteo_dict[var] = pressure_mean
-                std_meteo_dict[var] = pressure_std  
-            p_intercalated_vars.append(var)
-            
-        # Find where and how self.p_intercalated_vars is used.
         
-        #------------------------- Create self.air_level_pressure_indices and self.air_level_pressure_values
-        #------------------------ 'msl' and 'sp' are missing?
-        air_level_pressure_indices = []
-        # air_level_pressure_values = []
-        for idx, var in enumerate(p_intercalated_vars):
-            if var.startswith("p_"):
-                air_level_pressure_indices.append(idx)
-                hecta = 100.0
-                pressure = (int(var[2:]) * hecta - pressure_mean) / pressure_std
-                # air_level_pressure_values.append(pressure)
-        self.air_level_pressure_indices = torch.tensor(air_level_pressure_indices) # .to("cuda" if torch.cuda.is_available() else "cpu")
-        # self.air_level_pressure_values = torch.tensor(air_level_pressure_values).to("cuda" if torch.cuda.is_available() else "cpu")
-            
-        #--------------------------------- loss weights --------------------
-        loss_boost_for_target_vars = []
-        for var in p_intercalated_vars:
-            # if var.startswith("p_"):      # handled by mask
-            #     loss_boost_for_target_vars.append(0.)
-            if var in self.pm.targetVariables: # ["t2m", "tp", "u100m","v100m", "d2m", "sp"]:
-                loss_boost_for_target_vars.append(self.pm.lossXtargets)
-            else:
-                loss_boost_for_target_vars.append(1.)
         
-        self.pm.loss_weights_cpu = torch.tensor(loss_boost_for_target_vars, dtype=torch.float32)
-        if torch.cuda.is_available():
-            self.pm.loss_amplification_on_target_vars = torch.tensor(loss_boost_for_target_vars, dtype=torch.float32).to("cuda")
         
-        #-------------------------------- meteo ----------------------
-        mean_meteo = []
-        for var in p_intercalated_vars:
-            mean_meteo.append(mean_meteo_dict[var])
-        std_meteo = []
-        for var in p_intercalated_vars:
-            std_meteo.append(std_meteo_dict[var])
-        
-        mean_meteo, std_meteo = torch.tensor(mean_meteo), torch.tensor(std_meteo)
-                
-        self.mean_meteo, self.std_meteo = mean_meteo, std_meteo
+        # self.mean_meteo, self.std_meteo = mean_meteo, std_meteo
         
         # This violence may cause inconsistency, I know.
         mean_meteo_ready_cpu = rearrange(mean_meteo, 'c -> c 1 1').to("cpu")
@@ -1210,7 +1129,7 @@ class Zeus_Dataset(Dataset):
             mean_meteo, std_meteo, mean_tempo, std_tempo, 
             mean_meteo_ready_cpu, std_meteo_ready_cpu, mean_meteo_ready_cuda, std_meteo_ready_cuda,
             mean_tempo_ready_cpu, std_tempo_ready_cpu, mean_tempo_ready_cuda, std_tempo_ready_cuda,
-            area_weights_cuda, p_intercalated_vars
+            area_weights_cuda,
         )
         
         return pack
@@ -2096,30 +2015,30 @@ if __name__ == "__main__":
     # pass
     
     # setup_logging()
-    dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
-        variables=VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map = var_name_map,
-        start_dt = datetime(2015, 1, 1, 0), 
-        end_dt = datetime(2016, 12, 31, 18),
-        modulo=1,
-        # max_workers_snapshots=1, max_workers_vars=1,
-    )
+    # dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
+    #     variables=VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map = var_name_map,
+    #     start_dt = datetime(2015, 1, 1, 0), 
+    #     end_dt = datetime(2016, 12, 31, 18),
+    #     modulo=1,
+    #     # max_workers_snapshots=1, max_workers_vars=1,
+    # )
 
     # Maybe on the vm
     # inclusive_left = datetime(2014, 12, 31, 23)
     # inclusive_right = datetime(2024, 12, 31, 23)
 
     # New true data on the local
-    inclusive_left = datetime(2019, 12, 31, 23)
-    inclusive_right = datetime(2024, 12, 31, 23)
+    # inclusive_left = datetime(2019, 12, 31, 23)
+    # inclusive_right = datetime(2024, 12, 31, 23)
 
-    # inclusive_left = datetime(2016, 1, 1, 5)
-    # inclusive_right = datetime(2016, 12, 31, 23)
+    inclusive_left = datetime(2016, 1, 1, 0)
+    inclusive_right = datetime(2016, 1, 31, 18)
 
-    # mean_meteo, m = dataset.ensure_meteo_data_integrity_while_getting_mean(
-    #     inclusive_left=inclusive_left,
-    #     inclusive_right=inclusive_right,
-    #     modulo = 6
-    # )
+    mean_meteo, m = dataset.ensure_meteo_data_integrity_while_getting_mean(
+        inclusive_left=inclusive_left,
+        inclusive_right=inclusive_right,
+        modulo = 6
+    )
 
     # dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=6)
 
@@ -2128,8 +2047,8 @@ if __name__ == "__main__":
     # print(dict)
     
     if len(dict["missing_hours"]) <= 0:
-        inclusive_left = datetime(2014, 12, 31, 23)
-        inclusive_right = datetime(2024, 12, 31, 23)
+        inclusive_left = inclusive_left
+        inclusive_right = inclusive_right
         dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=6)
         
     else:

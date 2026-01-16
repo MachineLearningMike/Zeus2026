@@ -69,9 +69,9 @@ config = {
     "test_end_dt_inclusive": datetime(2025, 1, 1, 0) - timedelta(hours=1),
     
     
-    "snapshot_pair_on_cuda": False,
-    "pair_not_single_snapshot": False,
-    "group_normalize": True,
+    "snapshot_pair_on_cuda": False,     # False for light version
+    "pair_not_single_snapshot": True,
+    "group_normalize": False,           # False for light version
 }
 
 
