@@ -2105,7 +2105,7 @@ if __name__ == "__main__":
         variables=VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map = var_name_map,
         # ----- 8 years, 1-hourly, 720 GB (700.8 GB ------
         # start_dt = datetime(2015, 1, 1, 0),
-        start_dt = datetime(2015, 10, 31, 0),
+        start_dt = datetime(2015, 11, 12, 0),
         end_dt = datetime(2022, 12, 31, 23),
         modulo=1,
         max_workers_snapshots=6, max_workers_vars=6,
