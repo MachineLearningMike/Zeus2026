@@ -324,6 +324,7 @@ class Zeus_Dataset(Dataset):
         if not no_return:
             return dict
         else:
+            if dict is not None: del dict
             return None
     
     # def download_fuXi2_snapshots_levels_region_parallel_vars(
