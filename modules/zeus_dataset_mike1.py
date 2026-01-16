@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import xarray as xr
 import threading
 import shutil
+import psutil
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import calendar
 import gc
@@ -368,7 +369,7 @@ class Zeus_Dataset(Dataset):
             memory_limit_mb=2048):  # 2GB limit
         
         def get_memory_usage():
-            process = shutil.Process(os.getpid())
+            process = psutil.Process(os.getpid())
             return process.memory_info().rss / 1024 / 1024
         
         # Collect time steps
