@@ -365,9 +365,13 @@ class Zeus_Dataset(Dataset):
             self, variables, var_name_map,
             start_dt, end_dt, lat_range=None, lon_range=None,
             modulo=6, max_workers_snapshots=4, max_workers_vars=6,
-            batch_size=20):  # Process 20 at a time
+            memory_limit_mb=2048):  # 2GB limit
         
-        # Collect all time steps
+        def get_memory_usage():
+            process = psutil.Process(os.getpid())
+            return process.memory_info().rss / 1024 / 1024
+        
+        # Collect time steps
         time_steps = []
         start_year, end_year = start_dt.year, end_dt.year
         
@@ -381,40 +385,50 @@ class Zeus_Dataset(Dataset):
                             time_steps.append((dt.year, dt.month, dt.day, dt.hour))
         
         total = len(time_steps)
-        print(f"Processing {total} time steps in batches of {batch_size}")
+        print(f"Processing {total} steps, memory limit: {memory_limit_mb}MB")
         
-        # Process in batches
-        for batch_start in range(0, total, batch_size):
-            batch_end = min(batch_start + batch_size, total)
-            batch = time_steps[batch_start:batch_end]
+        with ThreadPoolExecutor(max_workers=max_workers_snapshots) as executor:
+            futures = []
+            completed = 0
             
-            print(f"Batch {batch_start//batch_size + 1}/{(total + batch_size - 1)//batch_size}")
-            
-            with ThreadPoolExecutor(max_workers=min(len(batch), max_workers_snapshots)) as executor:
-                futures = []
-                for year, month, day, hour in batch:
-                    future = executor.submit(
-                        self.any_get_snapshot_dict,
-                        year, month, day, hour,
-                        modulo, max_workers_vars, variables
-                    )
-                    futures.append(future)
+            for idx, (year, month, day, hour) in enumerate(time_steps):
+                # Check memory before submitting new task
+                current_memory = get_memory_usage()
+                if current_memory > memory_limit_mb:
+                    print(f"Memory high ({current_memory:.1f}MB), pausing...")
+                    # Wait for some tasks to complete
+                    self._wait_for_some_completions(futures, completed)
+                    import gc
+                    gc.collect()
                 
-                # Process this batch before moving to next
-                for future in as_completed(futures):
-                    try:
-                        result = future.result()
-                        # Process and discard immediately
-                        self._process_result_immediately(result)
-                    except Exception as e:
-                        print(f"Error in batch: {e}")
+                future = executor.submit(
+                    self.any_get_snapshot_dict,
+                    year, month, day, hour,
+                    modulo, max_workers_vars, variables
+                )
+                futures.append((future, idx))
             
-            # Optional: Small pause between batches
-            import time
-            if batch_end < total:
-                time.sleep(0.5)
-        
-        print("All batches completed")
+            # Process results
+            for future, idx in futures:
+                try:
+                    result = future.result()
+                    # Process and free memory immediately
+                    self._process_and_free(result)
+                    completed += 1
+                    
+                    if completed % 10 == 0:
+                        mem = get_memory_usage()
+                        print(f"{completed}/{total}, Memory: {mem:.1f}MB")
+                        
+                except Exception as e:
+                    print(f"Task {idx} failed: {e}")
+
+    def _wait_for_some_completions(self, futures, min_complete):
+        """Wait for some futures to complete"""
+        from concurrent.futures import wait, FIRST_COMPLETED
+        if len(futures) > 0:
+            wait([f[0] for f in futures], return_when=FIRST_COMPLETED)
+            
                     
     def get_geo_data(self, management_path, variables):
         total_ds = self.get_normalized_dataset()
