@@ -321,7 +321,7 @@ class Zeus_Dataset(Dataset):
                 if dict is not None:
                     print(f"==================================== snapshot at {year}/{month}/{day}/{hour} saved         !")
                 else:
-                    print(f"==================================== snapshot at {year}/{month}/{day}/{hour} failed        !!!")                        
+                    print(f"==================================== snapshot at {year}/{month}/{day}/{hour} failed        !!!")
 
         return dict
     
@@ -415,8 +415,9 @@ class Zeus_Dataset(Dataset):
                 try:
                     result = future.result()
                     # Process and free memory immediately
-                    self._process_and_free(result)
+                    # self._process_and_free(result)
                     del result
+                    gc.collect()
                     completed += 1
                     
                     if completed % 10 == 0:
