@@ -154,8 +154,8 @@ class Snapshot:
     geo_dense_dims = 4  # ['orograph', 'sin_lat', 'sin_lon', 'cos_lon']
     geo_cat_dims = 2    # ['land_sea_mask', 'soil_type']
 
-    full_export_h = 720        # exclude the north pole.
-    full_export_w = 1440
+    original_720_h = 720        # exclude the north pole.
+    original_1440_w = 1440
     
     num_air_levels = num_levels
     air_level_dims = num_vars_per_level
@@ -173,8 +173,8 @@ class Snapshot:
         Snapshot.geo_dense_dims = 4
         Snapshot.geo_cat_dims = 2
 
-        Snapshot.full_export_h = 720        # exclude the north pole.
-        Snapshot.full_export_w = 1440
+        Snapshot.original_720_h = 720        # exclude the north pole.
+        Snapshot.original_1440_w = 1440
         
         Snapshot.num_air_levels = num_levels
         Snapshot.air_level_dims = num_vars_per_level
@@ -186,9 +186,9 @@ class Snapshot:
 
         #--------------------------------------------------------------------------------------------------------
         _geo_dense = Snapshot.create_geo_dense_era5(dense_npy_paths)
-        Snapshot._geo_dense = Snapshot.crop_tensor(_geo_dense, size=(Snapshot.full_export_h, Snapshot.full_export_w))
+        Snapshot._geo_dense = Snapshot.crop_tensor(_geo_dense, size=(Snapshot.original_720_h, Snapshot.original_1440_w))
         _geo_cat = Snapshot.create_geo_cat_era5(categorical_npy_paths)
-        Snapshot._geo_cat = Snapshot.crop_tensor(_geo_cat, size=(Snapshot.full_export_h, Snapshot.full_export_w))
+        Snapshot._geo_cat = Snapshot.crop_tensor(_geo_cat, size=(Snapshot.original_720_h, Snapshot.original_1440_w))
             
     def __init__(self, year, month, day, hour, meteo, meteo_unnormal, device='cpu'):
         assert year is not None and month is not None and day is not None and hour is not None
@@ -204,7 +204,7 @@ class Snapshot:
 
         #---------------------- temporary ----------------------
         exp_h, exp_w = Snapshot.get_export_size()
-        full_size = (Snapshot.full_export_h, Snapshot.full_export_w)
+        full_size = (Snapshot.original_720_h, Snapshot.original_1440_w)
 
         #----------------- meteo normalized -------------
         # meteo, if not None, comes in two scenarios: 
@@ -219,7 +219,7 @@ class Snapshot:
             assert meteo.shape[2] >= exp_w
             _meteo_tensor = meteo
             
-        if _meteo_tensor.shape[1] > Snapshot.full_export_h or _meteo_tensor.shape[2] > Snapshot.full_export_w:
+        if _meteo_tensor.shape[1] > Snapshot.original_720_h or _meteo_tensor.shape[2] > Snapshot.original_1440_w:
             _meteo_tensor = Snapshot.crop_tensor(_meteo_tensor, full_size)
             
         self._meteo = _meteo_tensor
@@ -458,7 +458,7 @@ class Snapshot:
         
     #------------------ export tensors  --------------------
     def get_export_size():
-        return (int(Snapshot.full_export_h/10*Snapshot.export_factor10), int(Snapshot.full_export_w/10*Snapshot.export_factor10))
+        return (int(Snapshot.original_720_h/10*Snapshot.export_factor10), int(Snapshot.original_1440_w/10*Snapshot.export_factor10))
     
     def resize_for_export(tensor):
         """

@@ -1135,7 +1135,7 @@ class Zeus_Dataset(Dataset):
             std_tempo_ready_cuda = rearrange(std_tempo, 'c -> c 1 1').to("cuda")
 
         Snapshot.set_original_settings(factor10=self.pm.factor10)
-        area_weights_cuda = Snapshot.get_cosign_lat().to("cuda")[None, :, None]   # for (C, H, W)
+        area_weights_cuda = Snapshot.cos_lat_sin_lon[None, :, None].to("cuda")   # for (C, H, W)
 
         pack = (
             mean_meteo, std_meteo, mean_tempo, std_tempo, 
@@ -1180,7 +1180,8 @@ class Zeus_Dataset(Dataset):
         # vars = [ERA5_DATA_VARS[var_name_map[k]] for k in self.pm.variables if var_name_map[k] in ERA5_DATA_VARS.keys()]
         vars = list(ERA5_DATA_VARS.values())  # Make it as secure as the above line, later.
         vars = [v * len(vars) for v in vars]
-        vars = [1.0 for _ in range(len(self.p_intercalated_vars) - len(vars))] + vars
+        # vars = [1.0 for _ in range(len(self.p_intercalated_vars) - len(vars))] + vars
+        vars = [1.0 for _ in range(len(self.pm.variables) - len(vars))] + vars
         zeus_loss_weights_on_target_vars = torch.tensor(vars)
         zeus_loss_weights_on_target_vars = zeus_loss_weights_on_target_vars.to('cuda' if torch.cuda.is_available() else 'cpu')
         return zeus_loss_weights_on_target_vars

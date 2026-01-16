@@ -69,13 +69,13 @@ class Zeus(nn.Module):
         else:
             ss2 = ss1
 
-        levels, surface = Snapshot.pack_pair_snapshots(ss1, ss2, device=device)
+        surface_meteo_tempo_dense = Snapshot.pack_pair_snapshots(ss1, ss2, device=device)
         
         self.patch_kernel=(patch_kernel,patch_kernel)
         self.patch_stride=(patch_stride,patch_stride)
         
         self.patch_extractor = PatchFeatureExtractor(
-                levels, surface, 
+                surface_meteo_tempo_dense, 
                 c_out=swin_dim, 
                 patch_kernel=self.patch_kernel, 
                 patch_stride=self.patch_stride

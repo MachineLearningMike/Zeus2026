@@ -12,126 +12,10 @@ from models.config_Mike1 import config
 
 from modules.zeus_dateset_geo_tempo import Geo_Tempo
 from modules.zeus_dataset_var_names import VARIABLE_NAME_LIST_UNCHANGEABLE, mike1_variables_order, num_vars_per_level, num_levels, HECTA_PASCAL_UNCHANGEABLE
+from modules.utils import best_segments_increasing, best_segments_decreasing, check_consistency
 
 import math
 
-def best_segments_increasing(N, S):
-    """
-    Return actual segments of numbers 0..N-1
-    based on non-decreasing lengths maximizing trailing uniformity.
-    Mirrors the logic of best_segments_decreasing.
-    """
-    # Step 1: compute segment lengths
-    def best_segment_lengths_increasing(N, S):
-        best_seq = None
-        best_trailing = 0
-
-        def dfs(seq, remaining, remaining_count):
-            nonlocal best_seq, best_trailing
-            if remaining_count == 0:
-                if remaining != 0:
-                    return
-                # trailing uniform length
-                last_val = seq[-1]
-                count = 0
-                for x in reversed(seq):
-                    if x == last_val:
-                        count += 1
-                    else:
-                        break
-                if count > best_trailing:
-                    best_trailing = count
-                    best_seq = seq[:]
-                return
-
-            # Mirror logic: next value ≥ previous (or floor of even distribution if seq empty)
-            start = seq[-1] if seq else max(1, remaining // remaining_count)
-            max_val = remaining - (remaining_count - 1)  # leave at least 1 for remaining segments
-            for val in range(start, max_val + 1):
-                dfs(seq + [val], remaining - val, remaining_count - 1)
-
-        dfs([], N, S)
-        return best_seq
-
-    lengths = best_segment_lengths_increasing(N, S)
-
-    # Step 2: build actual segments
-    segments = []
-    start = 0
-    for length in lengths:
-        segments.append(list(range(start, start + length)))
-        start += length
-    return segments
-
-import math
-
-def best_segments_decreasing(N, S):
-    """
-    Return actual segments of numbers 0..N-1
-    based on non-increasing lengths maximizing trailing uniformity.
-    """
-    # Step 1: compute segment lengths
-    def best_segment_lengths_decreasing(N, S):
-        best_seq = None
-        best_trailing = 0
-
-        def dfs(seq, remaining, remaining_count):
-            nonlocal best_seq, best_trailing
-            if remaining_count == 0:
-                if remaining != 0:
-                    return
-                # trailing uniform length
-                last_val = seq[-1]
-                count = 0
-                for x in reversed(seq):
-                    if x == last_val:
-                        count += 1
-                    else:
-                        break
-                if count > best_trailing:
-                    best_trailing = count
-                    best_seq = seq[:]
-                return
-            # next value ≤ previous (or ceiling of even distribution if seq empty)
-            start = seq[-1] if seq else math.ceil(remaining / remaining_count)
-            min_val = 1
-            for val in range(start, min_val-1, -1):
-                if val * remaining_count < remaining:
-                    continue
-                dfs(seq + [val], remaining - val, remaining_count - 1)
-
-        dfs([], N, S)
-        return best_seq
-
-    lengths = best_segment_lengths_decreasing(N, S)
-
-    # Step 2: build actual segments
-    segments = []
-    start = 0
-    for length in lengths:
-        segments.append(list(range(start, start + length)))
-        start += length
-    return segments
-
-def check_consistency(n, s):
-    inc = best_segments_increasing(n, s)
-    dec = best_segments_decreasing(n, s)
-    def assert_full(A):
-        sum = []
-        for a in A:
-            sum = sum + a
-        assert len(A) == s
-        assert len(sum) == n
-        assert set(sum) == set(range(n))
-    assert_full(inc)
-    assert_full(dec)
-    inc_l = [len(a) for a in inc]
-    dec_l = [len(a) for a in dec]
-    print(inc_l)
-    print(dec_l)
-    assert inc_l == dec_l[::-1]
-    print(inc)
-    print(dec)
 
 #--------------------------------------- Snapshot ----------------------------
 
@@ -146,52 +30,66 @@ class classproperty:
 class Snapshot:
     assert mike1_variables_order == "[v_l for v ztuvq for l in levels] + surface_vars"
        
-    export_factor10 = 10
+    factor10 = 10
     
     # temporary. can be added and changed any time
-    meteo_dims = len(VARIABLE_NAME_LIST_UNCHANGEABLE) + len(HECTA_PASCAL_UNCHANGEABLE)
+    meteo_dims = len(VARIABLE_NAME_LIST_UNCHANGEABLE)
     tempo_dims = 4      # [sin_orbital_angle', 'cos_orbital_angle', 'sin_solor_hour', 'cos_solar_hour']
-    geo_dense_dims = 4  # ['orograph', 'sin_lat', 'sin_lon', 'cos_lon']
+    geo_dense_dims = 4  # ['orograph', 'sin_lat', 'sin_lon', 'cos_lon']     # We do need lon besides solor_hour
     geo_cat_dims = 2    # ['land_sea_mask', 'soil_type']
 
-    full_export_h = 720        # exclude the north pole.
-    full_export_w = 1440
+    original_720_h = 720        # exclude the north pole.
+    original_1440_w = 1440
     
-    num_air_levels = num_levels
-    air_level_dims = num_vars_per_level
+    num_air_levels = 0 # num_levels
+    air_level_dims = 0 # num_vars_per_level
    
-    delevel_plan = best_segments_increasing(num_air_levels, 7)
+    # delevel_plan = best_segments_increasing(num_air_levels, 7)
     
-    _geo_dense = None   # on device
-    _geo_cat = None
+    geo_dense = None
+    geo_cat = None
+    cos_lat_sin_lon = None
     
     def set_original_settings(factor10=10, increasing=True, packed_levels=7, device='cpu'):
-        Snapshot.export_factor10 = factor10
+        Snapshot.factor10 = factor10
         # temporary. can be added and changed any time
-        Snapshot.meteo_dims = len(VARIABLE_NAME_LIST_UNCHANGEABLE) + len(HECTA_PASCAL_UNCHANGEABLE )
+        Snapshot.meteo_dims = len(VARIABLE_NAME_LIST_UNCHANGEABLE)
         Snapshot.tempo_dims = 4      # 4 variables + 1 embedding: sin/cos earth_orbital_angle (2), sin/cos true_solar_hour (2), cascade_emb
         Snapshot.geo_dense_dims = 4
         Snapshot.geo_cat_dims = 2
 
-        Snapshot.full_export_h = 720        # exclude the north pole.
-        Snapshot.full_export_w = 1440
+        Snapshot.original_720_h = 720        # exclude the north pole.
+        Snapshot.original_1440_w = 1440
         
-        Snapshot.num_air_levels = num_levels
-        Snapshot.air_level_dims = num_vars_per_level + int(len(HECTA_PASCAL_UNCHANGEABLE )/num_levels)
+        # Snapshot.num_air_levels = num_levels
+        Snapshot.air_level_dims = 0 # num_vars_per_level + int(len(HECTA_PASCAL_UNCHANGEABLE )/num_levels)
     
         if increasing:
-            Snapshot.delevel_plan = best_segments_increasing(Snapshot.num_air_levels, packed_levels)
+            Snapshot.delevel_plan = [] # best_segments_increasing(Snapshot.num_air_levels, packed_levels)
         else:
-            Snapshot.delevel_plan = best_segments_decreasing(Snapshot.num_air_levels, packed_levels)
+            Snapshot.delevel_plan = [] # best_segments_decreasing(Snapshot.num_air_levels, packed_levels)
         
-        categorical_npy_paths = [config['land_sea_mask_npy_path'], config['soil_type_npy_path']]
         dense_npy_paths = [config['orograph_npy_path']]
+        categorical_npy_paths = [config['land_sea_mask_npy_path'], config['soil_type_npy_path']]
 
         #--------------------------------------------------------------------------------------------------------
-        _geo_dense = Snapshot.create_geo_dense_era5(dense_npy_paths).to(device)
-        Snapshot._geo_dense = Snapshot.crop_tensor(_geo_dense, size=(Snapshot.full_export_h, Snapshot.full_export_w))
-        _geo_cat = Snapshot.create_geo_cat_era5(categorical_npy_paths).to(device)
-        Snapshot._geo_cat = Snapshot.crop_tensor(_geo_cat, size=(Snapshot.full_export_h, Snapshot.full_export_w))
+        #-------------------- orograph_npy_path, cos(lat), sin(lon), cos(lon)
+        geo_dense = Snapshot.create_geo_dense(dense_npy_paths).to(device)      #---------- to device 
+        Snapshot.geo_dense = geo_dense
+        size = Snapshot.get_export_size()
+        assert Snapshot.geo_dense.shape == (Snapshot.geo_dense_dims, size[0], size[1])
+        
+        #-------------------- orograph_npy_path, cos(lat), sin(lon), cos(lon)
+        geo_cat = Snapshot.create_geo_cat(categorical_npy_paths).to(device)        #---------- to device
+        Snapshot.geo_cat = geo_cat
+        size = Snapshot.get_export_size()
+        assert Snapshot.geo_cat.shape == (Snapshot.geo_cat_dims, size[0], size[1])
+        
+        cos_lat_sin_lon = Snapshot.create_cos_lat_sin_lon()
+        Snapshot.cos_lat_sin_lon = cos_lat_sin_lon
+        size = Snapshot.get_export_size()
+        assert Snapshot.cos_lat_sin_lon.shape == (2, size[0], size[1])
+
             
     def __init__(self, year, month, day, hour, meteo, meteo_unnormal):
         assert year is not None and month is not None and day is not None and hour is not None
@@ -204,47 +102,49 @@ class Snapshot:
 
         #---------------------- temporary ----------------------
         exp_h, exp_w = Snapshot.get_export_size()
-        full_size = (Snapshot.full_export_h, Snapshot.full_export_w)
+        full_size = (Snapshot.original_720_h, Snapshot.original_1440_w)
 
         #----------------- meteo normalized -------------
         # meteo, if not None, comes in two scenarios: 
         # - dataset: (n, 721, 1440)
         # - prediction: (n, 720/10*factor10, 1440/10*factor10) = (n, exp_h, exp_w)
         if meteo is None:
+            print("!!!!!!! meteo is None. Simulating with random numbers...")
             _meteo_tensor = torch.rand(Snapshot.meteo_dims, exp_h, exp_w) - 0.5     # placeholder for tests.
         else:
-            assert torch.is_tensor(meteo)
-            assert meteo.shape[0] == Snapshot.meteo_dims
-            assert meteo.shape[1] >= exp_h
-            assert meteo.shape[2] >= exp_w
-            _meteo_tensor = meteo
-            
-
-        _meteo_tensor = Snapshot.crop_tensor(_meteo_tensor, full_size)
-            
-        self._meteo = _meteo_tensor
+            meteo = Snapshot.crop_tensor(meteo, (Snapshot.original_720_h, Snapshot.original_1440_w))
+            if Snapshot.factor10 != 10:
+                meteo = Snapshot.resize_continuous_bilinear_channel_wise_cylindric_for_export(meteo)
+        self.meteo = _meteo_tensor
 
         #--------------- meteo_unnormalized -------------
         # meteo_unnormal, if not None, comes from dataset: (n, 721, 1440)
         # 
         if meteo_unnormal is not None:
             meteo_unnormal = Snapshot.crop_tensor(meteo_unnormal, full_size)
-        self._meteo_unnormal = meteo_unnormal
+            if Snapshot.factor10 != 10:
+                meteo_unnormal = Snapshot.resize_continuous_bilinear_channel_wise_cylindric_for_export(meteo_unnormal)
+
+        self.meteo_unnormal = meteo_unnormal
 
         #--------------- tempo ---------------
 
-        _tempo = self.create_tempo_era5()
-        self._tempo = Snapshot.crop_tensor(_tempo, full_size)
+        tempo = self.create_tempo()        
+        self.tempo = tempo
 
         #---------------- geo ----------------
         
-        self._geo_dense = Snapshot._geo_dense
-        self._geo_cat = Snapshot._geo_cat
-
-    def get_cosign_lat():
-        cos_lan = Geo_Tempo.cos_lat_sin_lon_tensor_era5()[0, :, 0]
-        size = Snapshot.get_export_size()[0]
-        return cos_lan[-size:] if Geo_Tempo.respect_north else cos_lan[:size]
+        self._geo_dense = Snapshot.geo_dense
+        self._geo_cat = Snapshot.geo_cat
+        
+        
+    def create_cos_lat_sin_lon():
+        tensor = Geo_Tempo.cos_lat_sin_lon_tensor_era5()
+        tensor = Snapshot.crop_tensor(tensor, (Snapshot.original_720_h, Snapshot.original_1440_w))
+        if Snapshot.factor10 != 10:
+            tensor = Snapshot.resize_continuous_bilinear_channel_wise_cylindric_for_export(tensor)
+        return tensor
+        
 
     def crop_tensor(tensor, size):
         tensor_cropped = tensor[:, -size[0]:] if Geo_Tempo.respect_north else tensor[:, :size[0]]
@@ -253,128 +153,21 @@ class Snapshot:
         
     def num_get_train_variables():
         return Snapshot.meteo_dims + Snapshot.tempo_dims + Snapshot.geo_dense_dims + Snapshot.geo_cat_dims
-            
-    #------------------ meteo -----------------------
-    def _get_meteo(self):
-        return self._meteo
-    def _set_meteo(self, meteo):
-        self._meteo = meteo
-    
-    meteo_internal = property(
-        fget = _get_meteo,
-        fset = _set_meteo,
-    )
-    
-    def _get_meteo(self):
-        meteo = self.meteo_internal
-        
-        if not Snapshot.is_export_size(meteo):
-            meteo = Snapshot.resize_for_export(meteo)
-        
-        return meteo
-    
-    def _set_meteo(self, meteo):
-        self.meteo_internal = meteo
-
-    meteo = property(
-        fget = _get_meteo,
-        fset = _set_meteo,
-    )
-    
-    #------------------ meteo unnormalized --------------
-    def _get_meteo_unnormal_external(self):
-        _meteo_unnormal = self._meteo_unnormal
-    
-        if Snapshot.export_factor10 != 10:
-            _meteo_unnormal = Snapshot.resize_for_export(_meteo_unnormal)
-    
-        return _meteo_unnormal
-    
-    meteo_unnormal = property(
-        fget = _get_meteo_unnormal_external,
-    )
-    
-    #------------------ tempo -----------------------
-    def _get_tempo(self):
-        return self._tempo
-    
-    tempo_internal = property(
-        fget = _get_tempo,
-    )
-    
-    def _get_tempo_external(self):
-        tempo = self.tempo_internal
-        
-        if not Snapshot.is_export_size(tempo):
-            tempo = Snapshot.resize_for_export(tempo)
-        
-        return tempo
-
-    tempo = property(
-        fget = _get_tempo_external,
-    )
-    
-    #------------------ geo dense -----------------------
-    def _get_geo_dense(self):
-        return self._geo_dense
-    geo_dense_internal = property(
-        fget = _get_geo_dense,
-    )
-    
-    def _get_geo_dense_external(self):
-        geo_dense = self.geo_dense_internal
-        
-        if not Snapshot.is_export_size(geo_dense):
-            geo_dense = Snapshot.resize_for_export(geo_dense)
-        
-        return geo_dense
-
-    geo_dense = property(
-        fget = _get_geo_dense_external,
-    )
-
-    @classproperty
-    def shared_geo_dense(cls):
-        geo_dense = Snapshot._geo_dense
-        if not Snapshot.is_export_size(geo_dense):
-            geo_dense = Snapshot.resize_for_export(geo_dense)
-        return geo_dense
-    
-    #------------------ geo cat -----------------------
-    def _get_geo_cat(self):
-        return self._geo_cat
-    geo_cat_internal = property(
-        fget = _get_geo_cat,
-    )
-    
-    def _get_geo_cat_external(self):
-        geo_cat = self.geo_cat_internal
-        
-        if not Snapshot.is_export_size(geo_cat):
-            geo_cat = Snapshot.resize_for_export(geo_cat)
-        
-        return geo_cat
-
-    geo_cat = property(
-        fget = _get_geo_cat_external,
-    )
-    
-    @classproperty
-    def shared_geo_cat(cls):
-        geo_cat = Snapshot._geo_cat
-        if not Snapshot.is_export_size(geo_cat):
-            geo_cat = Snapshot.resize_for_export(geo_cat)        
-        return geo_cat
 
     #--------------------------------------------------------------------------
     
-    def create_tempo_era5(self):
+    def create_tempo(self):
         # Do NOT mormalize this instance-wide. They should be normalized dataset-wide.
         dt_utc = datetime(self.year, self.month, self.day, self.hour, tzinfo=timezone.utc)
         sin_cos_earth_orbit_angle_tensor_era5 = Geo_Tempo.sin_cos_earth_orbit_angle_tensor_era5(dt_utc)
         sin_cos_true_solar_hours_tensor_era5 = Geo_Tempo.sin_cos_true_solar_hours_tensor_era5(dt_utc)
-        tempo_tensor = torch.concat([sin_cos_earth_orbit_angle_tensor_era5, sin_cos_true_solar_hours_tensor_era5], dim=0)
-        return tempo_tensor
+        tensor = torch.concat([sin_cos_earth_orbit_angle_tensor_era5, sin_cos_true_solar_hours_tensor_era5], dim=0)
+        
+        tensor = Snapshot.crop_tensor(tensor, (Snapshot.original_720_h, Snapshot.original_1440_w))
+        if Snapshot.factor10 != 10:
+            tensor = Snapshot.resize_continuous_bilinear_channel_wise_cylindric_for_export(tensor)
+        
+        return tensor
     
     def load_npy_files(npy_paths):
         arrays = []
@@ -386,7 +179,7 @@ class Snapshot:
             arrays.append(array)            
         return arrays
         
-    def create_geo_dense_era5(dense_npy_paths):
+    def create_geo_dense(dense_npy_paths):
         #------------------- dense, file -----------------
         # DO normalize them, because this instance are all repeated and dataset-wide normalization is equal to instance-wide normalization.
         dense_arrays = Snapshot.load_npy_files(dense_npy_paths)
@@ -396,31 +189,22 @@ class Snapshot:
             processed_arrays.append(arr)
 
         # Stack into one array
-        stack = np.stack(processed_arrays, axis=0)  # shape: (n, final_H, final_W)
-        # Vectorized per-array normalization
-        means = stack.mean(axis=(1, 2), keepdims=True)
-        stds  = stack.std(axis=(1, 2), keepdims=True)
-        stack = (stack - means) / (stds + 1e-12)  # avoid division by zero
+        file_stack = np.stack(processed_arrays, axis=0)  # shape: (n, final_H, final_W)
+        file_stack = torch.from_numpy(file_stack)  # shape: (n, final_H, final_W)
 
-        # Convert to PyTorch tensor
-        geo_dense_tensor = torch.from_numpy(stack)  # shape: (n, final_H, final_W)
-
-        # This code gives the same precision as the above.                
-        # processed_arrays = [torch.from_numpy(arr) for arr in processed_arrays]
-        # stack = torch.stack(processed_arrays, dim=0)
-        # means = torch.mean(stack, dim=(1,2), keepdim=True)
-        # stds = torch.std(stack, dim=(1,2), keepdim=True)
-        # geo_dense_tensor = (stack - means) / (stds + 1e-12)
-        
         #-------------------- dense, lat lon ------------------
         geo_sin_lat_sin_cos_lon_tensor = Geo_Tempo.sin_lat_sin_cos_lon_tensor_era5() # (3, final_H, final_W)
-        geo_sin_lat_sin_cos_lon_tensor = (geo_sin_lat_sin_cos_lon_tensor - torch.mean(geo_sin_lat_sin_cos_lon_tensor, dim=(1,2), keepdim=True)) \
-        / (torch.std(geo_sin_lat_sin_cos_lon_tensor, dim=(1,2), keepdim=True) + 1e-12)
+        tensor = torch.concat([file_stack, geo_sin_lat_sin_cos_lon_tensor], dim=0)
         
-        return torch.concat([geo_dense_tensor, geo_sin_lat_sin_cos_lon_tensor], dim=0)
+        tensor = Snapshot.crop_tensor(tensor, (Snapshot.original_720_h, Snapshot.original_1440_w))
+        if Snapshot.factor10 != 10:
+            tensor = Snapshot.resize_continuous_bilinear_channel_wise_cylindric_for_export(tensor)
+        tensor = (tensor - tensor.mean(dim=(1,2), keepdim=True)) / (tensor.std(dim=(1,2), keepdim=True) + 1e-12)
+        
+        return tensor
 
     
-    def create_geo_cat_era5(categorical_npy_paths):
+    def create_geo_cat(categorical_npy_paths):
         #----------------- categorical, file --------------
         
         # load and normalize category values. Convert to a tensor
@@ -444,39 +228,75 @@ class Snapshot:
             processed_arrays.append(arr)
 
         # Now all arrays have shape (final_H, final_W)
-        stack = np.stack(processed_arrays, axis=0)
-        geo_categorical_tensor = torch.from_numpy(stack)  # shape: (num_arrays, final_H, final_W)
-
-        return geo_categorical_tensor
-
+        numpy = np.stack(processed_arrays, axis=0)
+        tensor = torch.from_numpy(numpy)
         
+        tensor = Snapshot.crop_tensor(tensor, (Snapshot.original_720_h, Snapshot.original_1440_w))
+        if Snapshot.factor10 != 10:
+            tensor = Snapshot.resize_categorical_nearest_channelwise_cylindric(tensor, Snapshot.get_export_size())                    
+        # No normalization for categories !!!!!!!!!!!
+        # tensor = (tensor - tensor.mean(dim=(1,2), keepdim=True)) / (tensor.std(dim=(1,2), keepdim=True) + 1e-12)
+
+        return tensor
+
+    def resize_categorical_nearest_channelwise_cylindric(tensor, target_resolution):
+        target_H, target_W = target_resolution
+        C, H, W = tensor.shape
+        
+        x = tensor.unsqueeze(0).float()
+        
+        # Cylindrical wrap: copy edges
+        pad_w = W // 2
+        x_wrapped = torch.cat([x[..., -pad_w:], x, x[..., :pad_w]], dim=3)
+        # Now: [1, C, H, W + W]
+        
+        # Calculate scale and interpolate
+        scale_w = target_W / W
+        # Add wrap padding in target space
+        target_pad = int(scale_w * pad_w)  # pad_w in source → target_pad in target
+        
+        # Interpolate to larger size (includes wrap in target space)
+        target_W_with_wrap = target_W + 2 * target_pad
+        x_resized = F.interpolate(x_wrapped, size=(target_H, target_W_with_wrap), 
+                                mode='nearest')
+        
+        # Crop out the center (remove wrap padding)
+        start = target_pad
+        x_cropped = x_resized[..., start:start + target_W]
+        
+        return x_cropped[0]
+            
     #------------------ export tensors  --------------------
     def get_export_size():
-        return (int(Snapshot.full_export_h/10*Snapshot.export_factor10), int(Snapshot.full_export_w/10*Snapshot.export_factor10))
+        return (int(Snapshot.original_720_h/10*Snapshot.factor10), int(Snapshot.original_1440_w/10*Snapshot.factor10))
     
-    def resize_for_export(tensor):
-        """
-        Resize a tensor (C, H, W) to Snapshot.get_export_size(),
-        treating the horizontal dimension as cylindrical (wrap-around).
-        """
+    def resize_continuous_bilinear_channel_wise_cylindric_for_export(tensor, mode='bilinear'):
         x = tensor.unsqueeze(0)  # (1, C, H, W)
-        size_h, size_w = Snapshot.get_export_size()  # target size
-
+        size_h, size_w = Snapshot.get_export_size()
+        
         C, H, W = x.shape[1], x.shape[2], x.shape[3]
-
-        # 1. Wrap horizontally: pad 1/2 width on both sides
-        pad_w = W // 2
-        x_wrapped = torch.cat([x[..., -pad_w:], x, x[..., :pad_w]], dim=3)  # (1, C, H, W + W)
-
-        # 2. Interpolate to target size
-        x_resized = F.interpolate(x_wrapped, size=(size_h, size_w + 0), mode='bilinear', align_corners=False)
-
-        # 3. Crop central W region
-        start = (x_resized.shape[3] - size_w) // 2
-        x_resized = x_resized[..., :, start:start + size_w]
-
-        x_resized = x_resized.squeeze(0)  # (C, H, W)
-        return x_resized
+        
+        # Process channels (optional - can do all at once)
+        result_channels = []
+        
+        for c in range(C):
+            x_channel = x[:, c:c+1, :, :]  # (1, 1, H, W)
+            
+            # Cylindrical wrap
+            pad_w = W // 2
+            x_wrapped = torch.cat([x_channel[..., -pad_w:], 
+                                x_channel, 
+                                x_channel[..., :pad_w]], dim=3)
+            
+            # Interpolate wrapped tensor to target size
+            # This preserves cylindrical continuity
+            x_resized = F.interpolate(x_wrapped, size=(size_h, size_w), 
+                                    mode=mode, align_corners=False)
+            
+            result_channels.append(x_resized)
+        
+        result = torch.cat(result_channels, dim=1)
+        return result.squeeze(0)
 
     def is_export_size(tensor):
         exp_h, exp_w = Snapshot.get_export_size()
@@ -494,41 +314,39 @@ class Snapshot:
             _, H, W = ss.meteo.shape
             
             meteo = ss.meteo                        
-            meteo = meteo[:Snapshot.air_level_dims*Snapshot.num_air_levels].view(Snapshot.air_level_dims, Snapshot.num_air_levels, H, W)
+            # meteo = meteo[:Snapshot.air_level_dims*Snapshot.num_air_levels].view(Snapshot.air_level_dims, Snapshot.num_air_levels, H, W)
             
-            tempo = ss.tempo # 
-
             # --- Vertical levels ---            
 
-            delevels = []
-            for idx, group in enumerate(Snapshot.delevel_plan):
-                start = group[0]
-                end = group[-1] + 1
+            # delevels = []
+            # for idx, group in enumerate(Snapshot.delevel_plan):
+            #     start = group[0]
+            #     end = group[-1] + 1
                 
-                level_slice = torch.concat([meteo[:, start:end, :, :].reshape(-1, H, W), tempo], dim=0).to(device)
-                delevels.append(level_slice)  # list of length levels, each (different s, H, W)
+            #     level_slice = torch.concat([meteo[:, start:end, :, :].reshape(-1, H, W), ss.tempo], dim=0).to(device)
+            #     delevels.append(level_slice)  # list of length levels, each (different s, H, W)
 
             # --- Surface variables ---
-            meteo_surface = ss.meteo[Snapshot.air_level_dims*Snapshot.num_air_levels:, :, :].view(-1, H, W)  # (m_surf, H, W)
-            tempo_surface = tempo                                                                     # (t, H, W)
-            surface = torch.concat([meteo_surface, tempo_surface], dim=0).to(device)
+            meteo_surface = ss.meteo # [Snapshot.air_level_dims*Snapshot.num_air_levels:, :, :].view(-1, H, W)  # (m_surf, H, W)
+            tempo_surface = ss.tempo                                                                     # (t, H, W)
+            surface = torch.concat([meteo_surface, tempo_surface], dim=0)  #.to(device)
 
-            return delevels, surface
+            return surface
 
         # --- Process snapshots ---
-        lev1, surf1 = arrange_by_level(ss1)
+        surf1_meteo_temop = arrange_by_level(ss1)
         if ss1 != ss2:
-            lev2, surf2 = arrange_by_level(ss2)
+            surf2 = arrange_by_level(ss2)
                 
         # --- Concatenate corresponding levels ---
         _, H, W = ss1.meteo.shape
 
         if ss1 != ss2:    
-            delevels_paired = [torch.cat([l1, l2, ss1.geo_dense], dim=0) for l1, l2 in zip(lev1, lev2)]  # list of (m+t+g)*2, H, W
-            surface_paired = torch.cat([surf1, surf2, ss1.geo_dense], dim=0)                             # (m_surf+t+g)*2, H, W
+            # delevels_paired = [torch.cat([l1, l2, ss1.geo_dense], dim=0) for l1, l2 in zip(lev1, lev2)]  # list of (m+t+g)*2, H, W
+            surface_meteo_tempo_dense = torch.cat([surf1_meteo_temop.to(device), surf2.to(device), ss1.geo_dense], dim=0)                             # (m_surf+t+g)*2, H, W
         else:
-            delevels_paired = [torch.cat([l1, ss1.geo_dense], dim=0) for l1 in lev1]  # list of (m+t+g)*2, H, W
-            surface_paired = torch.cat([surf1, ss1.geo_dense], dim=0)                             # (m_surf+t+g)*2, H, W
+            # delevels_paired = [torch.cat([l1, ss1.geo_dense], dim=0) for l1 in lev1]  # list of (m+t+g)*2, H, W
+            surface_meteo_tempo_dense = torch.cat([surf1_meteo_temop.to(device), ss1.geo_dense], dim=0)                             # (m_surf+t+g)*2, H, W
 
         #---------- asserts ------------        
         # assert not torch.isnan(surface_paired).any()
@@ -538,11 +356,11 @@ class Snapshot:
         #     assert lvl.shape == ((Snapshot.air_level_dims * len(group) + Snapshot.tempo_dims) * nSnapshots + Snapshot.geo_dense_dims, export_size[0], export_size[1])
         # assert surface_paired.shape == ((Snapshot.meteo_dims - Snapshot.air_level_dims * Snapshot.num_air_levels + Snapshot.tempo_dims) * nSnapshots + Snapshot.geo_dense_dims, export_size[0], export_size[1])
 
-        return delevels_paired, surface_paired  # requires_grad == False
+        return surface_meteo_tempo_dense  # requires_grad == False
     
     #------------------ miscellaneout --------------------
 
-Snapshot.set_original_settings()
+Snapshot.set_original_settings(factor10=2)
 
 #------------------------------------------------------------------------------------------------------------------------------------
 
@@ -569,10 +387,10 @@ if __name__ == "__main__":
     then = now + timedelta(hours=6)
     ss2 = Snapshot(then.year, then.month, then.day, then.hour, meteo=None, meteo_unnormal=None)
     
-    levels, surface = Snapshot.pack_pair_snapshots(ss1, ss2)
-    for idx, lvl in enumerate(levels):
-        print(idx, lvl.shape)
-        break
+    surface = Snapshot.pack_pair_snapshots(ss1, ss2)
+    # for idx, lvl in enumerate(levels):
+    #     print(idx, lvl.shape)
+    #     break
     print(14, surface.shape)
 
     now = datetime.now(timezone.utc)
@@ -584,8 +402,6 @@ if __name__ == "__main__":
     print("meteo, tempo, geo: ", snapshot_now.meteo.shape, snapshot_now.tempo.shape, snapshot_now.geo_dense.shape, snapshot_now.geo_cat.shape)    
     Snapshot.export_factor10 = 10
     
-    print("class property: ", Snapshot.shared_geo_dense.shape)
-
     import numpy as np
     import matplotlib.pyplot as plt
     import cartopy.crs as ccrs
@@ -655,14 +471,14 @@ if __name__ == "__main__":
     then = now + timedelta(hours=6)
     ss2 = Snapshot(then.year, then.month, then.day, then.hour, meteo=None, meteo_unnormal=None)
     
-    delevels_paired, surface_paired = Snapshot.pack_pair_snapshots(ss1, ss2)
-    delevels, surface = Snapshot.pack_pair_snapshots(ss1, ss1)
+    surface_paired = Snapshot.pack_pair_snapshots(ss1, ss2)
+    surface = Snapshot.pack_pair_snapshots(ss1, ss1)
 
     nSnapshots = 2 if ss1 != ss2 else 1
     
     export_size = Snapshot.get_export_size()
-    for lvl, group in zip(delevels_paired, Snapshot.delevel_plan):
-        assert lvl.shape == ((Snapshot.air_level_dims * len(group) + Snapshot.tempo_dims) * nSnapshots + Snapshot.geo_dense_dims, export_size[0], export_size[1])
+    # for lvl, group in zip(delevels_paired, Snapshot.delevel_plan):
+    #     assert lvl.shape == ((Snapshot.air_level_dims * len(group) + Snapshot.tempo_dims) * nSnapshots + Snapshot.geo_dense_dims, export_size[0], export_size[1])
     assert surface_paired.shape == ((Snapshot.meteo_dims - Snapshot.air_level_dims * Snapshot.num_air_levels + Snapshot.tempo_dims) * nSnapshots + Snapshot.geo_dense_dims, export_size[0], export_size[1])
 
     geo_dense_titles = ['orograph, const.', 'sin lat, const.', 'sin lon., const.', 'cos lon, const.']
@@ -687,5 +503,5 @@ if __name__ == "__main__":
     # If packing is correct, this code should show correct geo-distributions.
     for [channel_id, ss, title] in surface_items:
         show_on_map(surface_paired[channel_id].numpy(), title=f"{title} ss = {ss}, surface")
-    for [level_id, channel_id, ss, title] in level_items:
-        show_on_map(delevels_paired[level_id][channel_id].numpy(), title=f"{title} ss = {ss}, level {level_id}")
+    # for [level_id, channel_id, ss, title] in level_items:
+    #     show_on_map(delevels_paired[level_id][channel_id].numpy(), title=f"{title} ss = {ss}, level {level_id}")
