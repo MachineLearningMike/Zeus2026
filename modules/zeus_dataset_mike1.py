@@ -268,9 +268,8 @@ class Zeus_Dataset(Dataset):
             array = ds.interp(level=int(level)).values.astype(np.float32)
 
         assert not np.isnan(array).any(), f"Warning: {idx} {variable} still has NaNs at {year}/{month}/{day}/{hour}"
-
         assert array.shape == (721, 1440), f"array.shape is not (721, 1440) but {array.shape}"
-        print(f"Checked OK: {idx} {variable} at {year}/{month}/{day}/{hour}")
+        print(f"Variable downloaded OK: {idx} {variable} at {year}/{month}/{day}/{hour}")
 
         return variable, array
 
@@ -309,12 +308,9 @@ class Zeus_Dataset(Dataset):
                 if success:
                     snapshot_path = self.get_file_path_npz(year, month, day, hour, modulo)
                     
-                    try:
-                        check_dir(snapshot_path.parent)
-                        save(snapshot_path, var_dict)
-                        dict = self.load_dict(datetime(year, month, day, hour), modulo)
-                    except:
-                        pass
+                    check_dir(snapshot_path.parent)
+                    save(snapshot_path, var_dict)
+                    dict = self.load_dict(datetime(year, month, day, hour), modulo)
 
                 if dict is not None:
                     print(f"==================================== snapshot at {year}/{month}/{day}/{hour} saved         !")
