@@ -87,7 +87,8 @@ class Zeus_Dataset(Dataset):
         
         self.resizer = CylindricalResizer()
         
-        self.total_ds = self.get_normalized_dataset()
+        self.total_ds = None
+        self.total_ds = self.get_normalized_dataset()   # For downloading
         
         #-------------------------------------------------------------------------
         self.normal_meteo_buffers = [None] * (self.pm.nRawStepsPerBatch + 2)
