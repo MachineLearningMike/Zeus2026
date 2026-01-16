@@ -416,6 +416,7 @@ class Zeus_Dataset(Dataset):
                     result = future.result()
                     # Process and free memory immediately
                     self._process_and_free(result)
+                    del result
                     completed += 1
                     
                     if completed % 10 == 0:
