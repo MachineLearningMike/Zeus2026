@@ -393,14 +393,15 @@ class Zeus_Dataset(Dataset):
             completed = 0
             
             for idx, (year, month, day, hour) in enumerate(time_steps):
-                # Original code with just the condition flipped:
+
                 available_memory = psutil.virtual_memory().available / 1024 / 1024
-                if available_memory < memory_limit_mb:  # CHANGED: < instead of >
+                while available_memory < memory_limit_mb:  # CHANGED: < instead of >
                     print(f"Memory low ({available_memory:.1f}MB available), pausing...")
                     # Wait for some tasks to complete
                     self._wait_for_some_completions(futures, completed)
                     import gc
                     gc.collect()
+                    available_memory = psutil.virtual_memory().available / 1024 / 1024
                 
                 future = executor.submit(
                     self.any_get_snapshot_dict,
