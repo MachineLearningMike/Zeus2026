@@ -320,7 +320,7 @@ class Zeus_Dataset(Dataset):
     def download_fuXi2_snapshots_levels_region_parallel_vars(
             self, variables, var_name_map,
             start_dt, end_dt, lat_range=None, lon_range=None,
-            modulo=6, max_workers_snapshots=6, max_workers_vars=13):
+            modulo=6, max_workers_snapshots=4, max_workers_vars=13):
         """
         Run any_get_snapshot_dict in parallel
         """
