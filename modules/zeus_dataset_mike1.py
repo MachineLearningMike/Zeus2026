@@ -45,7 +45,7 @@ from modules.zeus_dataset_Snapshot import Snapshot
 # from modules.zeus_dataset_sharding_dynamic import ERA5ZarrShards
 
 class Zeus_Dataset(Dataset):
-    def __init__(self, pm, dataset_path, management_path):
+    def __init__(self, pm, dataset_path, management_path, download=False):
         super().__init__()
         self.pm = pm
         self.data_limit = pm.data_limit
@@ -88,7 +88,7 @@ class Zeus_Dataset(Dataset):
         self.resizer = CylindricalResizer()
         
         self.total_ds = None
-        self.total_ds = self.get_normalized_dataset()   # For downloading
+        if download: self.total_ds = self.get_normalized_dataset()   # For downloading
         
         #-------------------------------------------------------------------------
         self.normal_meteo_buffers = [None] * (self.pm.nRawStepsPerBatch + 2)
@@ -2023,7 +2023,7 @@ if __name__ == "__main__":
     from modules.zeus_dataset_var_names import VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map
     pm = Params(config)
 
-    dataset = Zeus_Dataset(pm, Path(config['dataset_path']), Path(config['management_path']))
+    dataset = Zeus_Dataset(pm, Path(config['dataset_path']), Path(config['management_path']), download=True)
     
     # dataset.check_accumulation_periods()
     
