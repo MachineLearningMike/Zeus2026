@@ -393,10 +393,10 @@ class Zeus_Dataset(Dataset):
             completed = 0
             
             for idx, (year, month, day, hour) in enumerate(time_steps):
-                # Check memory before submitting new task
-                current_memory = get_memory_usage()
-                if current_memory > memory_limit_mb:
-                    print(f"Memory high ({current_memory:.1f}MB), pausing...")
+                # Original code with just the condition flipped:
+                available_memory = psutil.virtual_memory().available / 1024 / 1024
+                if available_memory < memory_limit_mb:  # CHANGED: < instead of >
+                    print(f"Memory low ({available_memory:.1f}MB available), pausing...")
                     # Wait for some tasks to complete
                     self._wait_for_some_completions(futures, completed)
                     import gc
