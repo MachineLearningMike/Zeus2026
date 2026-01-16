@@ -431,6 +431,26 @@ class Zeus_Dataset(Dataset):
         if len(futures) > 0:
             wait([f[0] for f in futures], return_when=FIRST_COMPLETED)
             
+    def _process_and_free(self, result):
+        """Process the result and free memory"""
+        try:
+            # Process your data here (example)
+            if isinstance(result, dict):
+                # Do something with the data
+                pass
+            elif hasattr(result, 'close'):
+                result.close()
+            
+            # Explicitly delete to free memory
+            del result
+            
+            # Force garbage collection
+            import gc
+            gc.collect()
+            
+        except Exception as e:
+            print(f"Error in _process_and_free: {e}")
+            
                     
     def get_geo_data(self, management_path, variables):
         total_ds = self.get_normalized_dataset()
