@@ -364,14 +364,13 @@ class Zeus_Dataset(Dataset):
     def download_fuXi2_snapshots_levels_region_parallel_vars(
             self, variables, var_name_map,
             start_dt, end_dt, lat_range=None, lon_range=None,
-            modulo=6, max_workers_snapshots=6, max_workers_vars=6):
+            modulo=6, max_workers_snapshots=4, max_workers_vars=6):
         
-        # Semaphore to limit concurrent futures
-        future_semaphore = threading.Semaphore(max_workers_snapshots * 2)
-        
-        with ThreadPoolExecutor(max_workers=max_workers_snapshots) as snap_executor:
+        with ThreadPoolExecutor(max_workers=max_workers_snapshots) as executor:
             futures = []
             
+            # Create time steps list first
+            time_steps = []
             start_year, end_year = start_dt.year, end_dt.year
             
             for year in range(start_year, end_year + 1):
@@ -380,30 +379,51 @@ class Zeus_Dataset(Dataset):
                     for day in range(1, last_day + 1):
                         for hour in range(0, 24, modulo):
                             dt = datetime(year, month, day, hour) + timedelta(hours=self.pm.hourly_offset)
-                            if dt < start_dt or end_dt < dt: 
-                                continue
-                            
-                            # Wait if too many futures are pending
-                            future_semaphore.acquire()
-                            
-                            future = snap_executor.submit(
-                                self.any_get_snapshot_dict, 
-                                dt.year, dt.month, dt.day, dt.hour, 
-                                modulo, max_workers_vars, variables
-                            )
-                            
-                            # Release semaphore when future completes
-                            future.add_done_callback(lambda f: future_semaphore.release())
-                            futures.append(future)
+                            if start_dt <= dt <= end_dt:
+                                time_steps.append((dt.year, dt.month, dt.day, dt.hour))
             
-            # Process results as they complete
+            print(f"Total time steps: {len(time_steps)}")
+            
+            # Submit ALL tasks without semaphore
+            for idx, (year, month, day, hour) in enumerate(time_steps):
+                future = executor.submit(
+                    self._safe_snapshot_wrapper,
+                    year, month, day, hour,
+                    modulo, max_workers_vars, variables,
+                    idx, len(time_steps)
+                )
+                futures.append(future)
+            
+            # Process with memory management
+            results_processed = 0
             for future in as_completed(futures):
                 try:
-                    result = future.result()
-                    # Process result here
-                except Exception as e:
-                    print(f"Error processing snapshot: {e}")
+                    result = future.result(timeout=300)  # 5 min timeout
+                    # Process immediately and FREE memory
+                    self._process_and_discard(result)
+                    results_processed += 1
+                    
+                    if results_processed % 10 == 0:
+                        print(f"Processed {results_processed}/{len(time_steps)}")
+                        
+                except TimeoutError:
+                    print(f"Timeout on task")
                     continue
+                except Exception as e:
+                    print(f"Error: {e}")
+                    continue
+
+    def _safe_snapshot_wrapper(self, year, month, day, hour, modulo, max_workers_vars, variables, idx, total):
+        """Wrapper to ensure resources are cleaned up"""
+        try:
+            return self.any_get_snapshot_dict(
+                year, month, day, hour,
+                modulo, max_workers_vars, variables
+            )
+        finally:
+            # Force cleanup
+            import gc
+            gc.collect()
                     
     def get_geo_data(self, management_path, variables):
         total_ds = self.get_normalized_dataset()
