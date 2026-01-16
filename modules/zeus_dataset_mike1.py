@@ -247,8 +247,8 @@ class Zeus_Dataset(Dataset):
             ds = total_ds[era_var].sel(time=snapshot_time)
 
         # Compute array
-        # array = ds.values.astype(np.float32)          # comeback --- simulation
-        array = np.random.rand(721, 1440)
+        array = ds.values.astype(np.float32)
+        # array = np.random.rand(721, 1440)          # comeback --- simulation
 
         # If NaNs exist, try interpolation along 'level' for upper-air variables
         if np.isnan(array).any() and upper_air:
@@ -1085,17 +1085,29 @@ class Zeus_Dataset(Dataset):
             
         return mean_tempo, std_tempo, mean_tempo, std_tempo
     
+    
     def load_dataset_params(self):
+
         with open(self.param_path, "r") as f:
             data = json.load(f)
             # print('------', data, torch.tensor(data['mean']).shape)
+
         mean_meteo_dict, std_meteo_dict, mean_tempo, std_tempo = \
         data['mean_meteo_dict'], data['std_meteo_dict'], (data['mean_tempo']), data['std_tempo']
         mean_tempo = np.array(mean_tempo, dtype=np.float32); std_tempo = np.array(std_tempo, dtype=np.float32)
+
+        #--------------------- tempo -----------------
         
-        
-        
-        # self.mean_meteo, self.std_meteo = mean_meteo, std_meteo
+        mean_meteo = []
+        for var in self.pm.variables:
+            mean_meteo.append(mean_meteo_dict[var])
+        std_meteo = []
+        for var in self.pm.variables:
+            std_meteo.append(std_meteo_dict[var])
+            
+        mean_meteo, std_meteo = torch.tensor(mean_meteo), torch.tensor(std_meteo)
+            
+        self.mean_meteo, self.std_meteo = mean_meteo, std_meteo
         
         # This violence may cause inconsistency, I know.
         mean_meteo_ready_cpu = rearrange(mean_meteo, 'c -> c 1 1').to("cpu")
@@ -2057,7 +2069,8 @@ if __name__ == "__main__":
 
     mean_meteo, std_meteo, mean_tempo, std_tempo, \
     mean_meteo_ready_cpu, std_meteo_ready_cpu, mean_meteo_ready_cuda, std_meteo_ready_cuda, \
-    mean_tempo_ready_cpu, std_tempo_ready_cpu, mean_tempo_ready_cuda, std_tempo_ready_cuda \
+    mean_tempo_ready_cpu, std_tempo_ready_cpu, mean_tempo_ready_cuda, std_tempo_ready_cuda, \
+    area_weights_cuda \
     = dataset.load_dataset_params()
 
     print("-------- mean_meteo: ", mean_meteo.shape, mean_meteo[-3:])
