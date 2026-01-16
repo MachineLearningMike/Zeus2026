@@ -364,66 +364,57 @@ class Zeus_Dataset(Dataset):
     def download_fuXi2_snapshots_levels_region_parallel_vars(
             self, variables, var_name_map,
             start_dt, end_dt, lat_range=None, lon_range=None,
-            modulo=6, max_workers_snapshots=4, max_workers_vars=6):
+            modulo=6, max_workers_snapshots=4, max_workers_vars=6,
+            batch_size=20):  # Process 20 at a time
         
-        with ThreadPoolExecutor(max_workers=max_workers_snapshots) as executor:
-            futures = []
+        # Collect all time steps
+        time_steps = []
+        start_year, end_year = start_dt.year, end_dt.year
+        
+        for year in range(start_year, end_year + 1):
+            for month in range(1, 13):
+                last_day = self.get_last_day_of_month(year, month)
+                for day in range(1, last_day + 1):
+                    for hour in range(0, 24, modulo):
+                        dt = datetime(year, month, day, hour) + timedelta(hours=self.pm.hourly_offset)
+                        if start_dt <= dt <= end_dt:
+                            time_steps.append((dt.year, dt.month, dt.day, dt.hour))
+        
+        total = len(time_steps)
+        print(f"Processing {total} time steps in batches of {batch_size}")
+        
+        # Process in batches
+        for batch_start in range(0, total, batch_size):
+            batch_end = min(batch_start + batch_size, total)
+            batch = time_steps[batch_start:batch_end]
             
-            # Create time steps list first
-            time_steps = []
-            start_year, end_year = start_dt.year, end_dt.year
+            print(f"Batch {batch_start//batch_size + 1}/{(total + batch_size - 1)//batch_size}")
             
-            for year in range(start_year, end_year + 1):
-                for month in range(1, 13):
-                    last_day = self.get_last_day_of_month(year, month)
-                    for day in range(1, last_day + 1):
-                        for hour in range(0, 24, modulo):
-                            dt = datetime(year, month, day, hour) + timedelta(hours=self.pm.hourly_offset)
-                            if start_dt <= dt <= end_dt:
-                                time_steps.append((dt.year, dt.month, dt.day, dt.hour))
+            with ThreadPoolExecutor(max_workers=min(len(batch), max_workers_snapshots)) as executor:
+                futures = []
+                for year, month, day, hour in batch:
+                    future = executor.submit(
+                        self.any_get_snapshot_dict,
+                        year, month, day, hour,
+                        modulo, max_workers_vars, variables
+                    )
+                    futures.append(future)
+                
+                # Process this batch before moving to next
+                for future in as_completed(futures):
+                    try:
+                        result = future.result()
+                        # Process and discard immediately
+                        self._process_result_immediately(result)
+                    except Exception as e:
+                        print(f"Error in batch: {e}")
             
-            print(f"Total time steps: {len(time_steps)}")
-            
-            # Submit ALL tasks without semaphore
-            for idx, (year, month, day, hour) in enumerate(time_steps):
-                future = executor.submit(
-                    self._safe_snapshot_wrapper,
-                    year, month, day, hour,
-                    modulo, max_workers_vars, variables,
-                    idx, len(time_steps)
-                )
-                futures.append(future)
-            
-            # Process with memory management
-            results_processed = 0
-            for future in as_completed(futures):
-                try:
-                    result = future.result(timeout=300)  # 5 min timeout
-                    # Process immediately and FREE memory
-                    self._process_and_discard(result)
-                    results_processed += 1
-                    
-                    if results_processed % 10 == 0:
-                        print(f"Processed {results_processed}/{len(time_steps)}")
-                        
-                except TimeoutError:
-                    print(f"Timeout on task")
-                    continue
-                except Exception as e:
-                    print(f"Error: {e}")
-                    continue
-
-    def _safe_snapshot_wrapper(self, year, month, day, hour, modulo, max_workers_vars, variables, idx, total):
-        """Wrapper to ensure resources are cleaned up"""
-        try:
-            return self.any_get_snapshot_dict(
-                year, month, day, hour,
-                modulo, max_workers_vars, variables
-            )
-        finally:
-            # Force cleanup
-            import gc
-            gc.collect()
+            # Optional: Small pause between batches
+            import time
+            if batch_end < total:
+                time.sleep(0.5)
+        
+        print("All batches completed")
                     
     def get_geo_data(self, management_path, variables):
         total_ds = self.get_normalized_dataset()
