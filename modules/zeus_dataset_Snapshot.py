@@ -37,6 +37,11 @@ class Snapshot:
     tempo_dims = 4      # [sin_orbital_angle', 'cos_orbital_angle', 'sin_solor_hour', 'cos_solar_hour']
     geo_dense_dims = 4  # ['orograph', 'sin_lat', 'sin_lon', 'cos_lon']     # We do need lon besides solor_hour
     geo_cat_dims = 2    # ['land_sea_mask', 'soil_type']
+    
+    #----------------------- Strategy ---------------------
+    #   If t_{-6} and t{0} are used to form the Time dimension, we should be able to reduce or even drop tempo.
+    #   
+    
 
     original_720_h = 720        # exclude the north pole.
     original_1440_w = 1440
@@ -334,19 +339,23 @@ class Snapshot:
             return surface
 
         # --- Process snapshots ---
-        surf1_meteo_temop = arrange_by_level(ss1)
+        meteo_temop = arrange_by_level(ss1)
+        surf1_meteo_temop_dense = torch.cat([meteo_temop.to(device), ss1.geo_dense], dim=0)
+        
+        surf2_meteo_temop_dense = None
         if ss1 != ss2:
-            surf2 = arrange_by_level(ss2)
+            meteo_temop = arrange_by_level(ss2)
+            surf2_meteo_temop_dense = torch.cat([meteo_temop.to(device), ss2.geo_dense], dim=0)
                 
         # --- Concatenate corresponding levels ---
         _, H, W = ss1.meteo.shape
 
-        if ss1 != ss2:    
+        if ss1 == ss2:    
             # delevels_paired = [torch.cat([l1, l2, ss1.geo_dense], dim=0) for l1, l2 in zip(lev1, lev2)]  # list of (m+t+g)*2, H, W
-            surface_meteo_tempo_dense = torch.cat([surf1_meteo_temop.to(device), surf2.to(device), ss1.geo_dense], dim=0)                             # (m_surf+t+g)*2, H, W
+            surface_meteo_tempo_dense = torch.stack([surf1_meteo_temop_dense], dim=1)       # (m_surf+t+g), 1, H, W
         else:
             # delevels_paired = [torch.cat([l1, ss1.geo_dense], dim=0) for l1 in lev1]  # list of (m+t+g)*2, H, W
-            surface_meteo_tempo_dense = torch.cat([surf1_meteo_temop.to(device), ss1.geo_dense], dim=0)                             # (m_surf+t+g)*2, H, W
+            surface_meteo_tempo_dense = torch.stack([surf1_meteo_temop_dense, surf2_meteo_temop_dense], dim=1)       # (m_surf+t+g), 2, H, W
 
         #---------- asserts ------------        
         # assert not torch.isnan(surface_paired).any()

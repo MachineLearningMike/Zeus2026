@@ -2101,15 +2101,15 @@ if __name__ == "__main__":
     # pass
     
     # setup_logging()
-    dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
-        variables=VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map = var_name_map,
-        # ----- 8 years, 1-hourly, 720 GB (700.8 GB ------
-        start_dt = datetime(2023, 1, 1, 0),
-        # start_dt = datetime(2016, 1, 30, 0),
-        end_dt = datetime(2025, 12, 31, 23),
-        modulo=1,
-        max_workers_snapshots=6, max_workers_vars=6,
-    )
+    # dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
+    #     variables=VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map = var_name_map,
+    #     # ----- 8 years, 1-hourly, 720 GB (700.8 GB ------
+    #     start_dt = datetime(2023, 1, 1, 0),
+    #     # start_dt = datetime(2016, 1, 30, 0),
+    #     end_dt = datetime(2025, 12, 31, 23),
+    #     modulo=1,
+    #     max_workers_snapshots=6, max_workers_vars=6,
+    # )
 
     # Maybe on the vm
     # inclusive_left = datetime(2014, 12, 31, 23)
@@ -2119,8 +2119,8 @@ if __name__ == "__main__":
     # inclusive_left = datetime(2019, 12, 31, 23)
     # inclusive_right = datetime(2024, 12, 31, 23)
 
-    # inclusive_left = datetime(2016, 1, 1, 0)
-    # inclusive_right = datetime(2016, 1, 31, 18)
+    inclusive_left = datetime(2018, 1, 1, 0)
+    inclusive_right = datetime(2025, 12, 31, 23)
 
     # mean_meteo, m = dataset.ensure_meteo_data_integrity_while_getting_mean(
     #     inclusive_left=inclusive_left,
@@ -2130,29 +2130,28 @@ if __name__ == "__main__":
 
     # dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=6)
 
-    dict = dataset.analyze_hourly_paths(inclusive_left=None, inclusive_right=None, modulo=6)
+    dict = dataset.analyze_hourly_paths(inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=1)
     # print(f"count: {dict['count']}, first_hour: {dict['first_hour']}, last_hour: {dict['last_hour']}, missing_hours: {dict['missing_hours']}")
     # print(dict)
     
     if len(dict["missing_hours"]) <= 0:
         inclusive_left = inclusive_left
         inclusive_right = inclusive_right
-        dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=6)
-        
+        # dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=1)        
     else:
         print(dict["missing_hours"])
         print("Missing hours found!")
 
-    mean_meteo, std_meteo, mean_tempo, std_tempo, \
-    mean_meteo_ready_cpu, std_meteo_ready_cpu, mean_meteo_ready_cuda, std_meteo_ready_cuda, \
-    mean_tempo_ready_cpu, std_tempo_ready_cpu, mean_tempo_ready_cuda, std_tempo_ready_cuda, \
-    area_weights_cuda \
-    = dataset.load_dataset_params()
+    # mean_meteo, std_meteo, mean_tempo, std_tempo, \
+    # mean_meteo_ready_cpu, std_meteo_ready_cpu, mean_meteo_ready_cuda, std_meteo_ready_cuda, \
+    # mean_tempo_ready_cpu, std_tempo_ready_cpu, mean_tempo_ready_cuda, std_tempo_ready_cuda, \
+    # area_weights_cuda \
+    # = dataset.load_dataset_params()
 
-    print("-------- mean_meteo: ", mean_meteo.shape, mean_meteo[-3:])
-    print("-------- std_meteo: ", std_meteo.shape, std_meteo[-3:])
-    print("-------- mean_tempo: ", mean_tempo.shape, mean_tempo[-3:])
-    print("-------- std_tempo: ", std_tempo.shape, std_tempo[-3:])
+    # print("-------- mean_meteo: ", mean_meteo.shape, mean_meteo[-3:])
+    # print("-------- std_meteo: ", std_meteo.shape, std_meteo[-3:])
+    # print("-------- mean_tempo: ", mean_tempo.shape, mean_tempo[-3:])
+    # print("-------- std_tempo: ", std_tempo.shape, std_tempo[-3:])
 
     # train_hours, vali_hours, test_hours = dataset.split_data_hours_by_date_segents(
     #     datetime(2015, 1, 1, 10), datetime(2015, 1, 10, 10), datetime(2015, 1, 20, 10), datetime(2015, 1, 30, 10),
