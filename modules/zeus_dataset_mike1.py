@@ -2140,7 +2140,8 @@ if __name__ == "__main__":
         # dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=1)        
     else: 
         print(dict["missing_hours"])
-        print(f"{len(dict["missing_hours"])} missing hours found!")
+        n = len(dict["missing_hours"])
+        print(f"{n} missing hours found!")
 
     # mean_meteo, std_meteo, mean_tempo, std_tempo, \
     # mean_meteo_ready_cpu, std_meteo_ready_cpu, mean_meteo_ready_cuda, std_meteo_ready_cuda, \
