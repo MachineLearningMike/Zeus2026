@@ -2101,15 +2101,14 @@ if __name__ == "__main__":
     # pass
     
     # setup_logging()
-    # dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
-    #     variables=VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map = var_name_map,
-    #     # ----- 8 years, 1-hourly, 720 GB (700.8 GB ------
-    #     start_dt = datetime(2023, 1, 1, 0),
-    #     # start_dt = datetime(2016, 1, 30, 0),
-    #     end_dt = datetime(2025, 12, 31, 23),
-    #     modulo=1,
-    #     max_workers_snapshots=6, max_workers_vars=6,
-    # )
+    dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
+        variables=VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map = var_name_map,
+        # ----- 8 years, 1-hourly, 720 GB (700.8 GB ------
+        start_dt = datetime(2018, 1, 1, 0),
+        end_dt = datetime(2025, 12, 31, 23),
+        modulo=1,
+        max_workers_snapshots=6, max_workers_vars=6,
+    )
 
     # Maybe on the vm
     # inclusive_left = datetime(2014, 12, 31, 23)
