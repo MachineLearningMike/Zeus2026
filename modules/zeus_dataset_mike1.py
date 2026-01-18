@@ -216,17 +216,11 @@ class Zeus_Dataset(Dataset):
             #----------------------------------- This decides the order of arrays !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             #----------------------------------- The order must be consistent across training and inference. !!!!!!!!!!!!!
             #----------------------------------- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-            for var in self.p_intercalated_vars:
-                if var.startswith('p_'):
-                    # newly added pressure variables at air levels.
-                    hecta = 100.0
-                    pressure = int(var[2:]) * hecta
-                    arr = np.ones(shape=(721, 1440), dtype=np.float32) * pressure
-                else:
-                    arr = array_dict[var]
+            for var in self.pm.variables:
+                arr = array_dict[var]
                 arrays.append(arr)
             array = np.stack(arrays, axis=0)
-            assert array.shape[0] == self.pm.nVariables + len(HECTA_PASCAL_UNCHANGEABLE)
+            assert array.shape[0] == self.pm.nVariables
         except Exception as e:
             print(e)
             array = None
