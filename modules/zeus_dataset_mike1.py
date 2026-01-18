@@ -510,8 +510,8 @@ class Zeus_Dataset(Dataset):
         for year, month, day, hour, path in self.iter_hourly_paths():
             hn = self.hours_since_epoch(year, month, day, hour)
             hours.append(hn)
-        hours = list(set(hours))    # Remove redundants, though there shouldn't be.
-
+        assert sorted(hours) == sorted(list(set(hours))) 
+ 
         existing_hours = sorted(hours)
         dataset_min = existing_hours[0]
         dataset_max = existing_hours[-1]
