@@ -287,6 +287,8 @@ class Zeus_Dataset(Dataset):
         if dict is not None:                       
             print(f"==================================== snapshot at {year}/{month}/{day}/{hour} exists!")               
         else:       # dict == None
+            print(F"!!! Snapshot at {year}/{month}/{day}/{hour} not ready. Downloading (again) ...")
+
             var_dict = {}
 
             # Parallel download of variables
@@ -630,7 +632,7 @@ class Zeus_Dataset(Dataset):
             if skip < step:
                 continue
 
-            data = self.any_get_snapshot_dict(dt.year, dt.month, dt.day, dt.hour, modulo, max_workers_vars=30, variables=self.pm.variables)
+            data = self.any_get_snapshot_dict(dt.year, dt.month, dt.day, dt.hour, modulo, max_workers_vars=len(self.pm.variables), variables=self.pm.variables)
             if data is None:
                 print("Filed to load data. Quiting...") 
                 sys.exit()
