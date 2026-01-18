@@ -173,11 +173,7 @@ class Zeus_Dataset(Dataset):
 
     def get_file_path(self, year, month, day, hour, modulo):
         # - self.pm.hourly_offset is not required
-        cds_folder = self.cds_folder \
-            if not self.pm.dual_drive \
-            else self.cds_folder_even \
-            if (int(self.hours_since_epoch(year, month, day, hour) - self.pm.hourly_offset) / modulo) % 2 == 0 \
-            else self.cds_folder_odd
+        cds_folder = self.cds_folder if not self.pm.dual_drive else self.cds_folder_even if hour % 2 == 0 else self.cds_folder_odd
         return cds_folder / str(year) / str(month).zfill(2) / str(day).zfill(2)
     def get_file_path_npz(self, year, month, day, hour, modulo):
         return self.get_file_path(year, month, day, hour, modulo) / (str(hour).zfill(2) + ".npz")
