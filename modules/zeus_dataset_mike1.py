@@ -373,6 +373,7 @@ class Zeus_Dataset(Dataset):
         time_steps = []
         start_year, end_year = start_dt.year, end_dt.year
         
+        # This block extends [start_dt, end_dt] to its full range.
         for year in range(start_year, end_year + 1):
             for month in range(1, 13):
                 last_day = self.get_last_day_of_month(year, month)
@@ -495,8 +496,8 @@ class Zeus_Dataset(Dataset):
             yield item
 
     def analyze_hourly_paths(self, inclusive_left=None, inclusive_right=None, modulo=6):
-        print("even contents:", list(self.cds_folder_even.iterdir()))
-        print("odd contents:", list(self.cds_folder_odd.iterdir()))
+        # print("even contents:", list(self.cds_folder_even.iterdir()))
+        # print("odd contents:", list(self.cds_folder_odd.iterdir()))
         
         """
         Analyze hourly files with optional datetime boundaries.
@@ -517,7 +518,7 @@ class Zeus_Dataset(Dataset):
         for year, month, day, hour, path in self.iter_hourly_paths():
             hn = self.hours_since_epoch(year, month, day, hour)
             hours.append(hn)
-        hours = list(set(hours))    # Remove redundants.
+        hours = list(set(hours))    # Remove redundants, though there shouldn't be.
 
         existing_hours = sorted(hours)
         dataset_min = existing_hours[0]
@@ -1055,7 +1056,7 @@ class Zeus_Dataset(Dataset):
         return std, step
 
 
-    def analyze_hourly_dataset(self, save=False, inclusive_left=None, inclusive_right=None, modulo=6):
+    def analyze_hourly_dataset(self, save=False, inclusive_left=None, inclusive_right=None, modulo=6, save_file_name=None):
         """
         Analyze dataset over hourly paths: compute mean and std for all variables.
 
@@ -1117,9 +1118,14 @@ class Zeus_Dataset(Dataset):
             mean_meteo_dict = {var: float(val) for var, val in zip(self.pm.variables, mean_meteo)}  # mean, a numpy array, acts as a list
             std_meteo_dict  = {var: float(val) for var, val in zip(self.pm.variables, std_meteo)}   # std, a numpy array, acts as a list
 
+            if save_file_name is None:
+                save_path = self.param_path
+            else:
+                save_path = self.param_path.with_stem(save_file_name)
+
             # Load old data if it exists
-            if self.param_path.exists() and self.param_path.is_file():
-                with open(self.param_path, "r") as f:
+            if save_path.exists() and save_path.is_file():
+                with open(save_path, "r") as f:
                     try:
                         data = json.load(f)
                     except json.JSONDecodeError:
@@ -1134,7 +1140,7 @@ class Zeus_Dataset(Dataset):
             data["std_tempo"] = std_tempo.tolist()
 
             # Save updated data
-            with open(self.param_path, "w") as f:
+            with open(save_path, "w") as f:
                 json.dump(data, f, indent=4)
                 
             print("dataset params saved.")
@@ -2107,15 +2113,15 @@ if __name__ == "__main__":
     # mean_meteo, m = dataset.ensure_meteo_data_integrity_while_getting_mean(
     #     inclusive_left=inclusive_left,
     #     inclusive_right=inclusive_right,
-    #     modulo = 6
+    #     modulo = 1
     # )
 
-    # dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=6)
+    dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=6, save_file_name="param_2018_2025_modulo6")
 
-    dict = dataset.analyze_hourly_paths(inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=1)
-    print(f"count: {dict['count']}, first_hour: {dict['first_hour']}, last_hour: {dict['last_hour']}, missing_hours: {dict['missing_hours']}")
-    if len(dict["missing_hours"]) > 0:
-        print(dict["missing_hours"])
+    # dict = dataset.analyze_hourly_paths(inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=1)
+    # print(f"count: {dict['count']}, first_hour: {dict['first_hour']}, last_hour: {dict['last_hour']}, missing_hours: {dict['missing_hours']}")
+    # if len(dict["missing_hours"]) > 0:
+    #     print(dict["missing_hours"])
 
     # mean_meteo, std_meteo, mean_tempo, std_tempo, \
     # mean_meteo_ready_cpu, std_meteo_ready_cpu, mean_meteo_ready_cuda, std_meteo_ready_cuda, \
