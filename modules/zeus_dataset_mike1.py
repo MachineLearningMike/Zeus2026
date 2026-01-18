@@ -2113,10 +2113,7 @@ if __name__ == "__main__":
 
     dict = dataset.analyze_hourly_paths(inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=1)
     print(f"count: {dict['count']}, first_hour: {dict['first_hour']}, last_hour: {dict['last_hour']}, missing_hours: {dict['missing_hours']}")
-
-    if len(dict["missing_hours"]) <= 0:
-        print(dict)        
-    else: 
+    if len(dict["missing_hours"]) > 0:
         print(dict["missing_hours"])
 
     # mean_meteo, std_meteo, mean_tempo, std_tempo, \
