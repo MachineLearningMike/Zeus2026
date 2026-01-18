@@ -518,15 +518,6 @@ class Zeus_Dataset(Dataset):
             hn = self.hours_since_epoch(year, month, day, hour)
             hours.append(hn)
 
-        if not hours:
-            return {
-                "count": 0,
-                "first_hour": None,
-                "last_hour": None,
-                "missing_hours": [],
-                "existing_hours": [],
-            }
-
         hours_sorted = sorted(hours)
         dataset_min = hours_sorted[0]
         dataset_max = hours_sorted[-1]
@@ -553,15 +544,6 @@ class Zeus_Dataset(Dataset):
 
         # Step 3 — Keep only hours inside the interval
         inside = [hn for hn in hours_sorted if left_hn <= hn <= right_hn]
-
-        if not inside:
-            return {
-                "count": 0,
-                "first_hour": None,
-                "last_hour": None,
-                "missing_hours": [],
-                "existing_hours": [],
-            }
 
         first_hour = inside[0]
         last_hour = inside[-1]
@@ -2130,17 +2112,12 @@ if __name__ == "__main__":
     # dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=6)
 
     dict = dataset.analyze_hourly_paths(inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=1)
-    # print(f"count: {dict['count']}, first_hour: {dict['first_hour']}, last_hour: {dict['last_hour']}, missing_hours: {dict['missing_hours']}")
-    # print(dict)
-    
+    print(f"count: {dict['count']}, first_hour: {dict['first_hour']}, last_hour: {dict['last_hour']}, missing_hours: {dict['missing_hours']}")
+
     if len(dict["missing_hours"]) <= 0:
-        inclusive_left = inclusive_left
-        inclusive_right = inclusive_right
-        # dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=1)        
+        print(dict)        
     else: 
         print(dict["missing_hours"])
-        n = len(dict["missing_hours"])
-        print(f"{n} missing hours found!")
 
     # mean_meteo, std_meteo, mean_tempo, std_tempo, \
     # mean_meteo_ready_cpu, std_meteo_ready_cpu, mean_meteo_ready_cuda, std_meteo_ready_cuda, \
