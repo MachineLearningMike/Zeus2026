@@ -517,10 +517,11 @@ class Zeus_Dataset(Dataset):
         for year, month, day, hour, path in self.iter_hourly_paths():
             hn = self.hours_since_epoch(year, month, day, hour)
             hours.append(hn)
+        hours = list(set(hours))    # Remove redundants.
 
-        hours_sorted = sorted(hours)
-        dataset_min = hours_sorted[0]
-        dataset_max = hours_sorted[-1]
+        existing_hours = sorted(hours)
+        dataset_min = existing_hours[0]
+        dataset_max = existing_hours[-1]
 
         # Step 2 — Convert boundaries
         if inclusive_left is None:
@@ -543,21 +544,21 @@ class Zeus_Dataset(Dataset):
             raise ValueError("inclusive_left must be <= inclusive_right")
 
         # Step 3 — Keep only hours inside the interval
-        inside = [hn for hn in hours_sorted if left_hn <= hn <= right_hn]
+        existing_hours = [hn for hn in existing_hours if left_hn <= hn <= right_hn]
 
-        first_hour = inside[0]
-        last_hour = inside[-1]
+        first_hour = existing_hours[0]
+        last_hour = existing_hours[-1]
 
         # Step 4 — Identify missing hours in the window
         full_range = sorted(list(set(range(left_hn, right_hn + 1, modulo))))
-        missing = sorted(set(full_range) - set(inside))
+        missing = sorted(set(full_range) - set(existing_hours))
 
         return {
-            "count": len(inside),
+            "count": len(existing_hours),
             "first_hour": first_hour,
             "last_hour": last_hour,
             "missing_hours": missing,
-            "existing_hours": inside,
+            "existing_hours": existing_hours,
         }
     
     def read_checkpoint(self, path, keys):
