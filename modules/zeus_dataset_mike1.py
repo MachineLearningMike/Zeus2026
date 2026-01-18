@@ -571,17 +571,20 @@ class Zeus_Dataset(Dataset):
         torch.save(data, path)
         return       
 
-    def ensure_meteo_data_integrity_while_getting_mean(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6):
+    def ensure_meteo_data_integrity_while_getting_mean(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6, save_file_name=None):
         """
         Compute the mean over all variables across hourly files, with checkpointing.
         """
         cuda_available = torch.cuda.is_available()
         mean_dict = None
+        
+        if save_file_name is not None: save_file_name += "_mean_meteo"
+        checkpoint_path = self.mean_meteo_onestop_checkpoint_path if save_file_name is None else self.mean_meteo_onestop_checkpoint_path.with_stem(save_file_name)
 
         # Load checkpoint if exists
         try:
             checkpoint = self.read_checkpoint(
-                self.mean_meteo_onestop_checkpoint_path,
+                checkpoint_path,
                 ["mean_dict", "step", "inclusive_left", "inclusive_right"]
             )
 
@@ -646,39 +649,42 @@ class Zeus_Dataset(Dataset):
 
             if step % checkpoint_interval == 0:
                 print(f"Checkpointing mean_meteo... {step}: {year}-{month:02d}-{day:02d} {hour:02d}")
-                tmp_path = str(self.mean_meteo_onestop_checkpoint_path) + ".tmp"
+                tmp_path = str(checkpoint_path) + ".tmp"
                 self.save_checkpoint(tmp_path, {
                     "mean_dict": mean_dict,
                     "step": step,
                     "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
                     "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
                 })
-                shutil.move(tmp_path, self.mean_meteo_onestop_checkpoint_path)
+                shutil.move(tmp_path, checkpoint_path)
 
         # Final save
-        tmp_path = str(self.mean_meteo_onestop_checkpoint_path) + ".tmp"
+        tmp_path = str(checkpoint_path) + ".tmp"
         self.save_checkpoint(tmp_path, {
             "mean_dict": mean_dict,
             "step": step,
             "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
             "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
         })
-        shutil.move(tmp_path, self.mean_meteo_onestop_checkpoint_path)
+        shutil.move(tmp_path, checkpoint_path)
 
         return mean, step
 
 
-    def get_mean_meteo(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6):
+    def get_mean_meteo(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6, save_file_name=None):
         """
         Compute the mean over all variables across hourly files, with checkpointing.
         """
         cuda_available = torch.cuda.is_available()
         mean_dict = None
+        
+        if save_file_name is not None: save_file_name += "_mean_meteo"
+        checkpoint_path = self.mean_meteo_checkpoint_path if save_file_name is None else self.mean_meteo_checkpoint_path.with_stem(save_file_name)
 
         # Load checkpoint if exists
         try:
             checkpoint = self.read_checkpoint(
-                self.mean_meteo_checkpoint_path,
+                checkpoint_path,
                 ["mean_dict", "step", "inclusive_left", "inclusive_right"]
             )
 
@@ -740,40 +746,43 @@ class Zeus_Dataset(Dataset):
 
             if step % checkpoint_interval == 0:
                 print(f"Checkpointing mean_meteo... {step}: {year}-{month:02d}-{day:02d} {hour:02d}")
-                tmp_path = str(self.mean_meteo_checkpoint_path) + ".tmp"
+                tmp_path = str(checkpoint_path) + ".tmp"
                 self.save_checkpoint(tmp_path, {
                     "mean_dict": mean_dict,
                     "step": step,
                     "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
                     "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
                 })
-                shutil.move(tmp_path, self.mean_meteo_checkpoint_path)
+                shutil.move(checkpoint_path)
 
         # Final save
-        tmp_path = str(self.mean_meteo_checkpoint_path) + ".tmp"
+        tmp_path = str(checkpoint_path) + ".tmp"
         self.save_checkpoint(tmp_path, {
             "mean_dict": mean_dict,
             "step": step,
             "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
             "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
         })
-        shutil.move(tmp_path, self.mean_meteo_checkpoint_path)
+        shutil.move(tmp_path, checkpoint_path)
 
         return mean, step
 
 
-    def get_std_meteo(self, mean, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6):
+    def get_std_meteo(self, mean, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6, save_file_name=None):
         """
         Compute the standard deviation over all variables across hourly files, with checkpointing.
         Uses incremental variance formula.
         """
         cuda_available = torch.cuda.is_available()
         var_mean_dict = None
+        
+        if save_file_name is not None: save_file_name += "_var_mean_meteo"
+        checkpoint_path = self.mean_meteo_checkpoint_path if save_file_name is None else self.mean_meteo_checkpoint_path.with_stem(save_file_name)
 
         # Load checkpoint if exists
         try:
             checkpoint = self.read_checkpoint(
-                self.var_mean_meteo_checkpoint_path,
+                checkpoint_path,
                 ["var_mean_dict", "step", "inclusive_left", "inclusive_right"]
             )
 
@@ -840,30 +849,30 @@ class Zeus_Dataset(Dataset):
 
             if step % checkpoint_interval == 0:
                 print(f"Checkpointing var_mean_meteo...{step}: {year}-{month:02d}-{day:02d} {hour:02d}")
-                tmp_path = str(self.var_mean_meteo_checkpoint_path) + ".tmp"
+                tmp_path = str(checkpoint_path) + ".tmp"
                 self.save_checkpoint(tmp_path, {
                     "var_mean_dict": var_mean_dict,
                     "step": step,
                     "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
                     "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
                 })
-                shutil.move(tmp_path, self.var_mean_meteo_checkpoint_path)
+                shutil.move(tmp_path, checkpoint_path)
 
         # Final save
-        tmp_path = str(self.var_mean_meteo_checkpoint_path) + ".tmp"
+        tmp_path = str(checkpoint_path) + ".tmp"
         self.save_checkpoint(tmp_path, {
             "var_mean_dict": var_mean_dict,
             "step": step,
             "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
             "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
         })
-        shutil.move(tmp_path, self.var_mean_meteo_checkpoint_path)
+        shutil.move(tmp_path, checkpoint_path)
 
         std = np.sqrt(var_mean)
         return std, step
     
 
-    def get_mean_tempo(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6):
+    def get_mean_tempo(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6, save_file_name=None):
         """
         Compute the mean over all variables across hourly files, with checkpointing.
         """        
@@ -871,10 +880,13 @@ class Zeus_Dataset(Dataset):
         mean = None
         Snapshot.set_original_settings(factor10=self.pm.factor10)
 
+        if save_file_name is not None: save_file_name += "_mean_tempo"
+        checkpoint_path = self.mean_meteo_checkpoint_path if save_file_name is None else self.mean_meteo_checkpoint_path.with_stem(save_file_name)
+
         # Load checkpoint if exists
         try:
             checkpoint = self.read_checkpoint(
-                self.mean_tempo_checkpoint_path,
+                checkpoint_path,
                 ["mean", "step", "inclusive_left", "inclusive_right"]
             )
 
@@ -932,29 +944,29 @@ class Zeus_Dataset(Dataset):
             
             if step % checkpoint_interval == 0:
                 print(f"Checkpointing mean_tempo... {step}: {year}-{month:02d}-{day:02d} {hour:02d}")
-                tmp_path = str(self.mean_tempo_checkpoint_path) + ".tmp"
+                tmp_path = str(checkpoint_path) + ".tmp"
                 self.save_checkpoint(tmp_path, {
                     "mean": mean,
                     "step": step,
                     "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
                     "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
                 })
-                shutil.move(tmp_path, self.mean_tempo_checkpoint_path)
+                shutil.move(tmp_path, checkpoint_path)
 
         # Final save
-        tmp_path = str(self.mean_tempo_checkpoint_path) + ".tmp"
+        tmp_path = str(checkpoint_path) + ".tmp"
         self.save_checkpoint(tmp_path, {
             "mean": mean,
             "step": step,
             "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
             "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
         })
-        shutil.move(tmp_path, self.mean_tempo_checkpoint_path)
+        shutil.move(tmp_path, checkpoint_path)
 
         return mean, step
 
 
-    def get_std_tempo(self, mean, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6):
+    def get_std_tempo(self, mean, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6, save_file_name=None):
         """
         Compute the standard deviation over all variables across hourly files, with checkpointing.
         Uses incremental variance formula.
@@ -963,10 +975,13 @@ class Zeus_Dataset(Dataset):
         var_mean = None
         Snapshot.set_original_settings(factor10=self.pm.factor10)
 
+        if save_file_name is not None: save_file_name += "_var_mean_tempo"
+        checkpoint_path = self.mean_meteo_checkpoint_path if save_file_name is None else self.mean_meteo_checkpoint_path.with_stem(save_file_name)
+
         # Load checkpoint if exists
         try:
             checkpoint = self.read_checkpoint(
-                self.var_mean_tempo_checkpoint_path,
+                checkpoint_path,
                 ["var_mean", "step", "inclusive_left", "inclusive_right"]
             )
 
@@ -1025,24 +1040,24 @@ class Zeus_Dataset(Dataset):
 
             if step % checkpoint_interval == 0:
                 print(f"Checkpointing var_mean_tempo...{step}: {year}-{month:02d}-{day:02d} {hour:02d}")
-                tmp_path = str(self.var_mean_tempo_checkpoint_path) + ".tmp"
+                tmp_path = str(checkpoint_path) + ".tmp"
                 self.save_checkpoint(tmp_path, {
                     "var_mean": var_mean,
                     "step": step,
                     "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
                     "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
                 })
-                shutil.move(tmp_path, self.var_mean_tempo_checkpoint_path)
+                shutil.move(tmp_path, checkpoint_path)
 
         # Final save
-        tmp_path = str(self.var_mean_tempo_checkpoint_path) + ".tmp"
+        tmp_path = str(checkpoint_path) + ".tmp"
         self.save_checkpoint(tmp_path, {
             "var_mean": var_mean,
             "step": step,
             "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
             "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
         })
-        shutil.move(tmp_path, self.var_mean_tempo_checkpoint_path)
+        shutil.move(tmp_path, checkpoint_path)
 
         std = np.sqrt(var_mean)
         return std, step
@@ -1072,7 +1087,7 @@ class Zeus_Dataset(Dataset):
         mean_meteo, m = self.ensure_meteo_data_integrity_while_getting_mean(
             inclusive_left=inclusive_left,
             inclusive_right=inclusive_right,
-            modulo = modulo
+            modulo = modulo, save_file_name=save_file_name
         )
 
         # Compute std with checkpointing
@@ -1080,7 +1095,7 @@ class Zeus_Dataset(Dataset):
             mean_meteo,
             inclusive_left=inclusive_left,
             inclusive_right=inclusive_right,
-            modulo = modulo
+            modulo = modulo, save_file_name=save_file_name
         )
 
         assert m == n, f"Step mismatch: mean step ({m}) vs std step ({n})"
@@ -1090,7 +1105,7 @@ class Zeus_Dataset(Dataset):
         mean_tempo, m = self.get_mean_tempo(
             inclusive_left=inclusive_left,
             inclusive_right=inclusive_right,
-            modulo = modulo
+            modulo = modulo, save_file_name=save_file_name
         )
 
         # Compute std with checkpointing
@@ -1098,7 +1113,7 @@ class Zeus_Dataset(Dataset):
             mean_tempo,
             inclusive_left=inclusive_left,
             inclusive_right=inclusive_right,
-            modulo = modulo
+            modulo = modulo, save_file_name=save_file_name
         )
 
         assert m == n, f"Step mismatch: mean step ({m}) vs std step ({n})"
