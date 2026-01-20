@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 # Change
 
 from modules.zeus_dataset_var_names import VARIABLE_NAME_LIST_UNCHANGEABLE, VARIABLE_GROUP_LIST_UNCHANGEABLE, HECTA_PASCAL_UNCHANGEABLE
-# The order of variables must consistent across training and inference !!!!!!!!!!!!!!
+# The order of meteo_variables must consistent across training and inference !!!!!!!!!!!!!!
 
 config = {
     #============================ project parameters ===============================
@@ -36,7 +36,7 @@ config = {
     
     #============================ data parameters ===========================================================================
     "dtype" : 32,   # 16 is complicated. deffered.
-    "variables": VARIABLE_NAME_LIST_UNCHANGEABLE,   #!!!!!!!!!!!!!!!!!!!!!!!!!!!! The order of variables must consistent across training and inference !!!!!!
+    "meteo_variables": VARIABLE_NAME_LIST_UNCHANGEABLE,   #!!!!!!!!!!!!!!!!!!!!!!!!!!!! The order of meteo_variables must consistent across training and inference !!!!!!
     "variable_groups" : VARIABLE_GROUP_LIST_UNCHANGEABLE,
     "hecta_pascals" : HECTA_PASCAL_UNCHANGEABLE,
     "targetVariables": [ "t2m", "tp", "u100m","v100m", "d2m", "sp",],
@@ -72,6 +72,10 @@ config = {
     "snapshot_pair_on_cuda": False,     # False for light version
     "pair_not_single_snapshot": True,
     "group_normalize": False,           # False for light version
+    
+    "geo_dense_variables": ["orograph", "sin_lat", "sin_lon", "cos_lon"],
+    "geo_cat_variables": ["land_sea_mask", "soil_type"],
+    "tempo_variables": ["sin_orbit", "cos_orbit", "sin_solor", "cos_solar"],
 }
 
 
@@ -241,14 +245,14 @@ config.update({
 
 
 n = config["nFrames"]
-C = len(config["variables"])
+C = len(config["meteo_variables"])
 
 # Land-sea-maks from ERA5 is too noisy to accept, so I created this with the help of GPT.
 config["land_sea_mask_npy_path"] = "data/land_sea_mask_721x1440.npy_geo"
 # int8 version of ERA5 soil type, from GCP
 config["soil_type_npy_path"] = "data/soil_type_721x1440.npy_geo"
 # ERA5 geopotential_at_surface, from GCP    
-config["orograph_npy_path"] = "data/geopotential_at_surface.npy_geo"
+config["orograph_npy_path"] = "data/orograph_721x1440.npy_geo"
    
 #-------------------------------------------------- project list ---------------
 projects = {}

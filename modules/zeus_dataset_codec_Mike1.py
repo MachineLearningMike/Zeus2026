@@ -83,7 +83,7 @@ def decode(encoded, meta):
             decoded[k] = decode_float16(arr, meta[k])
     return decoded    
 
-def save_variables(path, encoded_dict, metadata_dict):
+def save_encoded_variables(path, encoded_dict, metadata_dict):
     save_dict = {f"data_{k}": v for k, v in encoded_dict.items()}
     save_dict["meta"] = json.dumps(metadata_dict)
     np.savez_compressed(path, **save_dict)
@@ -97,9 +97,9 @@ def load_variables(path):
 
 def save(path, array_dict):
     encoded, meta = encode(array_dict)
-    save_variables(path, encoded, meta)
+    save_encoded_variables(path, encoded, meta)
 
-def load(path):
+def load_and_decode(path):
     encoded, meta = load_variables(path)
     array_dict = decode(encoded, meta)
     return array_dict
@@ -108,7 +108,7 @@ def load(path):
 if __name__ == "__main__":
 
     import numpy as np
-    # from this_module import encode, save_variables, load_decoded_variables
+    # from this_module import encode, save_encoded_variables, load_and_decode
 
     array_dict = {
         "2m_temperature": np.random.uniform(200, 320, (24, 721, 1440)).astype(np.float32),
@@ -132,7 +132,7 @@ if __name__ == "__main__":
     save(path, array_dict)
     
     print("loading...")
-    array_dict_restored = load(path)
+    array_dict_restored = load_and_decode(path)
 
     for k in array_dict:
         rel_diff = np.max(np.abs(array_dict_restored[k] - array_dict[k])) / np.mean(np.abs(array_dict_restored[k]))

@@ -37,7 +37,7 @@ class Params:
         self.dollarsPerHour = config['dollarsPerHour']
 
         #============================ data, shared ===========================================================================
-        self.variables = config['variables']
+        self.meteo_variables = config['meteo_variables']
         self.variable_groups = config['variable_groups']
         self.hecta_pascals = config['hecta_pascals']
         self.targetVariables = config['targetVariables']
@@ -57,7 +57,7 @@ class Params:
         self.FG = config['FG']
         self.T1 = config['T1']
 
-        self.nVariables = len(config['variables'])
+        self.nVariables = len(config['meteo_variables'])
         self.nFramesIn = config['T1'] * config['FG']                # 2 * 24 = 48           # temporal seq_len
 
         self.nFramesOut = config['T2'] * config['FG']                          # 24
@@ -78,6 +78,10 @@ class Params:
         self.pair_not_single_snapshot = config['pair_not_single_snapshot']
         self.group_normalize = config['group_normalize']
         self.lossXtargets = config['lossXtargets']
+        
+        self.geo_dense_variables = config['geo_dense_variables']
+        self.geo_cat_variables = config['geo_cat_variables']
+        self.tempo_variables = config['tempo_variables']
             
         #============================ model, individual ========================================================================
 

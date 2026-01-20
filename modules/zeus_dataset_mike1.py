@@ -41,7 +41,7 @@ from modules_zeus.coordinates import get_bbox, slice_bbox
 from modules_zeus.era5_cds import Era5CDSLoader, get_today
 from modules.zeus_dataset_var_names import VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map, num_vars_per_level, num_levels, HECTA_PASCAL_UNCHANGEABLE
 
-from modules.zeus_dataset_codec_Mike1 import load, save
+from modules.zeus_dataset_codec_Mike1 import load_and_decode, save
 from modules.zeus_dataset_Snapshot import Snapshot
 # from modules.zeus_dataset_sharding_dynamic import ERA5ZarrShards
 
@@ -69,9 +69,9 @@ class Zeus_Dataset(Dataset):
         self.split_hours_path = management_path / 'split_hours.json'
         self.mean_meteo_checkpoint_path = management_path / "mean_meteo_checkpoint.pth"
         self.mean_meteo_onestop_checkpoint_path = management_path / "mean_meteo_onestop_checkpoint.pth"
-        self.var_mean_meteo_checkpoint_path = management_path / "mean_var_meteo_checkpoint.pth"
+        self.variance_meteo_checkpoint_path = management_path / "mean_var_meteo_checkpoint.pth"
         self.mean_tempo_checkpoint_path = management_path / "mean_tempo_checkpoint.pth"
-        self.var_mean_tempo_checkpoint_path = management_path / "mean_var_tempo_checkpoint.pth"
+        self.variance_tempo_checkpoint_path = management_path / "mean_var_tempo_checkpoint.pth"
         
         self.difficulties = None
         self.zeus_loss_weights_on_target_vars = None
@@ -117,7 +117,7 @@ class Zeus_Dataset(Dataset):
     
     def get_shard_shape(self):
         shape = {}
-        for variable in self.pm.variables:
+        for variable in self.pm.meteo_variables:
             shape.update({ variable: (721, 1440) })
         return shape
 
@@ -195,25 +195,27 @@ class Zeus_Dataset(Dataset):
     
     #---------------------------------------------------------------------------   
     
-    def load_dict(self, dt, modulo):
+    def load_decode_check_for_variable_existency(self, dt, modulo, variables):
         path = self.get_file_path_npz(dt.year, dt.month, dt.day, dt.hour, modulo)
         try:
-            array_dict = load(path)
+            dict = load_and_decode(path)
+            for var in variables:
+                assert var in dict
         except Exception as e:
             print(e)
-            array_dict = None
-        return array_dict
+            dict = None
+        return dict
     
-    def load_array(self, dt, modulo):
+    def load_decode_get_array_for_variables(self, dt, modulo, variables):
         path = self.get_file_path_npz(dt.year, dt.month, dt.day, dt.hour, modulo)
         arrays = []
         try:
-            array_dict = load(path)
+            dict = load_and_decode(path)
             #----------------------------------- This decides the order of arrays !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             #----------------------------------- The order must be consistent across training and inference. !!!!!!!!!!!!!
             #----------------------------------- !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-            for var in self.pm.variables:
-                arr = array_dict[var]
+            for var in variables:
+                arr = dict[var]
                 arrays.append(arr)
             array = np.stack(arrays, axis=0)
             assert array.shape[0] == self.pm.nVariables
@@ -222,32 +224,31 @@ class Zeus_Dataset(Dataset):
             array = None
         return array
     
-    def download_variable(self, idx,  year, month, day, hour, variable):
+    def download_variable(self, idx,  year, month, day, hour, variable, simulated=False):
         """Download a single variable for a given snapshot, interpolating NaNs if needed."""
         
         upper_air = False
         snapshot_time = f"{year}-{month:02d}-{day:02d}T{hour:02d}:00"
-
-        if self.total_ds is None:
-            print("Getting normal_meteo_buffers ERA5 dataset......", end='')
-            self.total_ds = self.get_normalized_dataset()   # Multiple threads run this line.
-            # print("done.")
-            
-        total_ds = self.total_ds
-
-        # Check if it's an upper-air variable
-        if '_' in variable and variable.split('_')[0] in variable:
-            upper_air = True
-            var_name, level = variable.split('_')
-            era_var = var_name_map[var_name]
-            ds = total_ds[era_var].sel(level=int(level), time=snapshot_time)
+        
+        if simulated:
+            array = np.random.rand(721, 1440)
         else:
-            era_var = var_name_map[variable]
-            ds = total_ds[era_var].sel(time=snapshot_time)
+            total_ds = self.total_ds
+            if total_ds is None:
+                print("Getting normal_meteo_buffers ERA5 dataset......", end='')
+                total_ds = self.get_normalized_dataset()   # Multiple threads run this line.
 
-        # Compute array
-        array = ds.values.astype(np.float32)
-        # array = np.random.rand(721, 1440)          # comeback --- simulation
+            # Check if it's an upper-air variable
+            if '_' in variable and variable.split('_')[0] in variable:
+                upper_air = True
+                var_name, level = variable.split('_')
+                era_var = var_name_map[var_name]
+                ds = total_ds[era_var].sel(level=int(level), time=snapshot_time)
+            else:
+                era_var = var_name_map[variable]
+                ds = total_ds[era_var].sel(time=snapshot_time)
+
+            array = ds.values.astype(np.float32)
 
         # If NaNs exist, try interpolation along 'level' for upper-air variables
         if np.isnan(array).any() and upper_air:
@@ -264,13 +265,13 @@ class Zeus_Dataset(Dataset):
         return variable, array
 
 
-    def any_get_snapshot_dict(self, year, month, day, hour, modulo, max_workers_vars, variables, no_return=False):
+    def load_meteo_file_downloading_if_not_ready(self, year, month, day, hour, modulo, max_workers_vars, variables, no_return=False, simulated=False):
         """Download all variables for a single snapshot in parallel."""
 
         dict = None
         
         try:
-            dict = self.load_dict(datetime(year, month, day, hour), modulo)
+            dict = self.load_decode_check_for_variable_existency(datetime(year, month, day, hour), modulo, variables)
         except:
             pass
         
@@ -279,30 +280,30 @@ class Zeus_Dataset(Dataset):
         else:       # dict == None
             print(F"!!! Snapshot at {year}/{month}/{day}/{hour} not ready. Downloading (again) ...")
 
-            var_dict = {}
+            variance_dict = {}
 
             # Parallel download of variables
             with ThreadPoolExecutor(max_workers=max_workers_vars) as var_executor:
-                var_futures = [var_executor.submit(self.download_variable, idx, year, month, day, hour, var) for idx, var in enumerate(variables)]
+                var_futures = [var_executor.submit(self.download_variable, idx, year, month, day, hour, var, simulated) for idx, var in enumerate(variables)]
 
                 for idx, future in enumerate(as_completed(var_futures)):
                     var_name, array = future.result()
-                    var_dict[var_name] = array
+                    variance_dict[var_name] = array
 
                 success = True
                 for idx, var in enumerate(variables):
-                    if var_dict.get(var, None) is None:
+                    if variance_dict.get(var, None) is None:
                         logging.fatal(f"--------------- variable: {idx} {year}/{month}/{day}/{hour}/{idx}, {variables[idx]} failed to download. Quiting snapshot...")
                         success = False; break
                     else:
-                        assert var_dict[var].shape == (721, 1440)
+                        assert variance_dict[var].shape == (721, 1440)
 
                 if success:
                     snapshot_path = self.get_file_path_npz(year, month, day, hour, modulo)
                     
                     check_dir(snapshot_path.parent)
-                    save(snapshot_path, var_dict)
-                    dict = self.load_dict(datetime(year, month, day, hour), modulo)
+                    save(snapshot_path, variance_dict)
+                    dict = self.load_decode_check_for_variable_existency(datetime(year, month, day, hour), modulo, variables)
 
                 if dict is not None:
                     print(f"==================================== snapshot at {year}/{month}/{day}/{hour} saved         !")
@@ -314,66 +315,25 @@ class Zeus_Dataset(Dataset):
         else:
             if dict is not None: del dict
             return None
-    
-    # def download_fuXi2_snapshots_levels_region_parallel_vars(
-    #         self, variables, var_name_map,
-    #         start_dt, end_dt, lat_range=None, lon_range=None,
-    #         modulo=6, max_workers_snapshots=6, max_workers_vars=6):
-    #     """
-    #     Run any_get_snapshot_dict in parallel
-    #     """
-
-    #     # -------------------------
-    #     # Parallel execution of snapshots
-    #     # -------------------------
-    #     with ThreadPoolExecutor(max_workers=max_workers_snapshots) as snap_executor:
-    #         futures = []
-
-    #         start_year, end_year = start_dt.year, end_dt.year
-
-    #         for year in range(start_year, end_year + 1):
-    #             for month in range(1, 13):
-    #                 last_day = self.get_last_day_of_month(year, month)
-    #                 for day in range(1, last_day + 1):
-    #                     for hour in range(0, 24, modulo):
-    #                         dt = datetime(year, month, day, hour) + timedelta(hours=self.pm.hourly_offset) # hourly_offset = -1
-    #                         if dt < start_dt or end_dt < dt: continue
-    #                         futures.append(
-    #                             snap_executor.submit(self.any_get_snapshot_dict, dt.year, dt.month, dt.day, dt.hour, modulo, max_workers_vars, variables)
-    #                         )
-
-    #         # Wait for all snapshots to finish
-    #         for future in as_completed(futures):
-    #             try:
-    #                 dict = future.result()
-    #             except Exception as e:
-    #                 print(f"Error processing snapshot: {e}")
-    #                 continue
                     
                     
-    def download_fuXi2_snapshots_levels_region_parallel_vars(
+    def download_meteo_variables(
             self, variables, var_name_map,
             start_dt, end_dt, lat_range=None, lon_range=None,
             modulo=6, max_workers_snapshots=4, max_workers_vars=6,
-            memory_limit_mb=1048):  # 1GB limit
+            memory_limit_mb=1048, simulated=False):  # 1GB limit
         
         def get_memory_usage():
             process = psutil.Process(os.getpid())
             return process.memory_info().rss / 1024 / 1024
         
         # Collect time steps
-        time_steps = []
-        start_year, end_year = start_dt.year, end_dt.year
-        
-        # This block extends [start_dt, end_dt] to its full range.
-        for year in range(start_year, end_year + 1):
-            for month in range(1, 13):
-                last_day = self.get_last_day_of_month(year, month)
-                for day in range(1, last_day + 1):
-                    for hour in range(0, 24, modulo):
-                        dt = datetime(year, month, day, hour) + timedelta(hours=self.pm.hourly_offset)
-                        if start_dt <= dt <= end_dt:
-                            time_steps.append((dt.year, dt.month, dt.day, dt.hour))
+        time_steps = []                            
+        dt = inclusive_left - timedelta(hours=modulo)
+        right = inclusive_right - timedelta(hours=modulo)
+        while dt <= right:
+            dt += timedelta(hours=modulo)
+            time_steps.append((dt.year, dt.month, dt.day, dt.hour))
         
         total = len(time_steps)
         print(f"Processing {total} steps, memory limit: {memory_limit_mb}MB")
@@ -394,9 +354,9 @@ class Zeus_Dataset(Dataset):
 
                 no_return = True                
                 future = executor.submit(
-                    self.any_get_snapshot_dict,
+                    self.load_meteo_file_downloading_if_not_ready,
                     year, month, day, hour,
-                    modulo, max_workers_vars, variables, no_return
+                    modulo, max_workers_vars, variables, no_return, simulated
                 )
                 futures.append((future, idx))
             
@@ -571,7 +531,7 @@ class Zeus_Dataset(Dataset):
         torch.save(data, path)
         return       
 
-    def ensure_meteo_data_integrity_while_getting_mean(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6, file_name_suffix=None):
+    def get_std_meteo_downloading_if_not_ready(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6, file_name_suffix=None):
         """
         Compute the mean over all variables across hourly files, with checkpointing.
         """
@@ -589,7 +549,7 @@ class Zeus_Dataset(Dataset):
             )
 
             mean_dict = checkpoint[0] if len(checkpoint) > 0 else None
-            mean = np.array([mean_dict[var] for var in self.pm.variables]) if mean_dict is not None else None
+            mean = np.array([mean_dict[var] for var in self.pm.meteo_variables]) if mean_dict is not None else None
             
             # step = checkpoint[1] if len(checkpoint) > 1 else 0
             step = int(checkpoint[1]) if len(checkpoint) > 1 else 0
@@ -604,13 +564,13 @@ class Zeus_Dataset(Dataset):
             ck_right_match = (ck_right == inclusive_right) or (ck_right is None and inclusive_right is None)
             if mean is None or not (ck_left_match and ck_right_match):
                 print("Checkpoint missing or date range mismatch. Starting new mean meteo...")
-                mean = np.zeros((len(self.pm.variables),), dtype=np.float32)
+                mean = np.zeros((len(self.pm.meteo_variables),), dtype=np.float32)
                 step = 0
             else:
                 print(f"Resuming existing mean meteo... step={step}")
         except:
             print("No checkpoint found for mean meteo. Starting new mean meteo...")
-            mean = np.zeros((len(self.pm.variables),), dtype=np.float32)
+            mean = np.zeros((len(self.pm.meteo_variables),), dtype=np.float32)
             step = 0
 
         skip = -1
@@ -625,13 +585,17 @@ class Zeus_Dataset(Dataset):
             if skip < step:
                 continue
 
-            data = self.any_get_snapshot_dict(dt.year, dt.month, dt.day, dt.hour, modulo, max_workers_vars=len(self.pm.variables), variables=self.pm.variables)
+            data = self.load_meteo_file_downloading_if_not_ready(
+                dt.year, dt.month, dt.day, dt.hour, modulo, 
+                max_workers_vars=len(self.pm.meteo_variables), 
+                variables=self.pm.meteo_variables,
+                )
             if data is None:
                 print("Filed to load data. Quiting...") 
                 sys.exit()
             
-            # Make sure the order follows self.pm.variables
-            arr = np.stack([data[key] for key in self.pm.variables], axis=0)  # (C, H, W)
+            # Make sure the order follows self.pm.meteo_variables
+            arr = np.stack([data[key] for key in self.pm.meteo_variables], axis=0)  # (C, H, W)
 
             if cuda_available:
                 tensor_arr = torch.tensor(arr, dtype=torch.float32).cuda()
@@ -645,7 +609,7 @@ class Zeus_Dataset(Dataset):
             step += 1
             mean = mean * (step - 1)/step + _mean / step
             
-            mean_dict = {var: mean[idx] for idx, var in enumerate(self.pm.variables)}
+            mean_dict = {var: mean[idx] for idx, var in enumerate(self.pm.meteo_variables)}
 
             if step % checkpoint_interval == 0:
                 print(f"Checkpointing mean_meteo... {step}: {year}-{month:02d}-{day:02d} {hour:02d}")
@@ -658,15 +622,16 @@ class Zeus_Dataset(Dataset):
                 })
                 shutil.move(tmp_path, checkpoint_path)
 
-        # Final save
-        tmp_path = str(checkpoint_path) + ".tmp"
-        self.save_checkpoint(tmp_path, {
-            "mean_dict": mean_dict,
-            "step": step,
-            "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
-            "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
-        })
-        shutil.move(tmp_path, checkpoint_path)
+        if mean_dict is not None:
+            # Final save
+            tmp_path = str(checkpoint_path) + ".tmp"
+            self.save_checkpoint(tmp_path, {
+                "mean_dict": mean_dict,
+                "step": step,
+                "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
+                "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
+            })
+            shutil.move(tmp_path, checkpoint_path)
 
         return mean, step
 
@@ -689,7 +654,7 @@ class Zeus_Dataset(Dataset):
             )
 
             mean_dict = checkpoint[0] if len(checkpoint) > 0 else None
-            mean = np.array([mean_dict[var] for var in self.pm.variables]) if mean_dict is not None else None
+            mean = np.array([mean_dict[var] for var in self.pm.meteo_variables]) if mean_dict is not None else None
             
             # step = checkpoint[1] if len(checkpoint) > 1 else 0
             step = int(checkpoint[1]) if len(checkpoint) > 1 else 0
@@ -704,13 +669,13 @@ class Zeus_Dataset(Dataset):
             ck_right_match = (ck_right == inclusive_right) or (ck_right is None and inclusive_right is None)
             if mean is None or not (ck_left_match and ck_right_match):
                 print("Checkpoint missing or date range mismatch. Starting new mean meteo...")
-                mean = np.zeros((len(self.pm.variables),), dtype=np.float32)
+                mean = np.zeros((len(self.pm.meteo_variables),), dtype=np.float32)
                 step = 0
             else:
                 print(f"Resuming existing mean meteo... step={step}")
         except:
             print("No checkpoint found for mean meteo. Starting new mean meteo...")
-            mean = np.zeros((len(self.pm.variables),), dtype=np.float32)
+            mean = np.zeros((len(self.pm.meteo_variables),), dtype=np.float32)
             step = 0
 
         skip = -1
@@ -726,10 +691,10 @@ class Zeus_Dataset(Dataset):
                 continue
 
             file_path = self.get_file_path_npz(year, month, day, hour, modulo)
-            data = load(file_path)
+            dict = load_and_decode(file_path)
             
-            # Make sure the order follows self.pm.variables
-            arr = np.stack([data[key] for key in self.pm.variables], axis=0)  # (C, H, W)
+            # Make sure the order follows self.pm.meteo_variables
+            arr = np.stack([dict[key] for key in self.pm.meteo_variables], axis=0)  # (C, H, W)
 
             if cuda_available:
                 tensor_arr = torch.tensor(arr, dtype=torch.float32).cuda()
@@ -738,12 +703,12 @@ class Zeus_Dataset(Dataset):
                 _mean = arr.mean(axis=(1, 2))
 
             if np.any(np.isnan(_mean)):
-                raise Exception(f"NaN found in hourly mean: {file_path}")
+                raise Exception(f"NaN found in mean_meteo: {file_path}")
 
             step += 1
             mean = mean * (step - 1)/step + _mean / step
             
-            mean_dict = {var: mean[idx] for idx, var in enumerate(self.pm.variables)}
+            mean_dict = {var: mean[idx] for idx, var in enumerate(self.pm.meteo_variables)}
 
             if step % checkpoint_interval == 0:
                 print(f"Checkpointing mean_meteo... {step}: {year}-{month:02d}-{day:02d} {hour:02d}")
@@ -756,39 +721,40 @@ class Zeus_Dataset(Dataset):
                 })
                 shutil.move(checkpoint_path)
 
-        # Final save
-        tmp_path = str(checkpoint_path) + ".tmp"
-        self.save_checkpoint(tmp_path, {
-            "mean_dict": mean_dict,
-            "step": step,
-            "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
-            "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
-        })
-        shutil.move(tmp_path, checkpoint_path)
+        if mean_dict is not None:
+            # Final save
+            tmp_path = str(checkpoint_path) + ".tmp"
+            self.save_checkpoint(tmp_path, {
+                "mean_dict": mean_dict,
+                "step": step,
+                "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
+                "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
+            })
+            shutil.move(tmp_path, checkpoint_path)
 
         return mean, step
 
 
-    def get_std_meteo(self, mean, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6, file_name_suffix=None):
+    def get_var_meteo(self, mean, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6, file_name_suffix=None):
         """
         Compute the standard deviation over all variables across hourly files, with checkpointing.
         Uses incremental variance formula.
         """
         cuda_available = torch.cuda.is_available()
-        var_mean_dict = None
+        variance_dict = None
         
-        original = self.var_mean_meteo_checkpoint_path
+        original = self.variance_meteo_checkpoint_path
         checkpoint_path = original if file_name_suffix is None else original.with_stem(original.stem + "_" + file_name_suffix)
 
         # Load checkpoint if exists
         try:
             checkpoint = self.read_checkpoint(
                 checkpoint_path,
-                ["var_mean_dict", "step", "inclusive_left", "inclusive_right"]
+                ["variance_dict", "step", "inclusive_left", "inclusive_right"]
             )
 
-            var_mean_dict = checkpoint[0] if len(checkpoint) > 0 else None
-            var_mean = np.array([var_mean_dict[var] for var in self.pm.variables]) if var_mean_dict is not None else None
+            variance_dict = checkpoint[0] if len(checkpoint) > 0 else None
+            variance = np.array([variance_dict[var] for var in self.pm.meteo_variables]) if variance_dict is not None else None
 
             
             # step = checkpoint[1] if len(checkpoint) > 1 else 0
@@ -802,15 +768,15 @@ class Zeus_Dataset(Dataset):
             # Check consistency with provided boundaries
             ck_left_match = (ck_left == inclusive_left) or (ck_left is None and inclusive_left is None)
             ck_right_match = (ck_right == inclusive_right) or (ck_right is None and inclusive_right is None)
-            if var_mean is None or not (ck_left_match and ck_right_match):
+            if variance is None or not (ck_left_match and ck_right_match):
                 print("Checkpoint missing or date range mismatch. Starting new std meteo...")
-                var_mean = np.ones((len(self.pm.variables),), dtype=np.float32)
+                variance = np.ones((len(self.pm.meteo_variables),), dtype=np.float32)
                 step = 0
             else:
                 print(f"Resuming existing std meteo... step={step}")
         except:
             print("No checkpoint found for std meteo. Starting new std meteo...")
-            var_mean = np.ones((len(self.pm.variables),), dtype=np.float32)
+            variance = np.ones((len(self.pm.meteo_variables),), dtype=np.float32)
             step = 0
 
         skip = -1
@@ -826,49 +792,49 @@ class Zeus_Dataset(Dataset):
                 continue
 
             file_path = self.get_file_path_npz(year, month, day, hour, modulo)
-            data = load(file_path)
+            dict = load_and_decode(file_path)
 
-            # Make sure the order follows self.pm.variables
-            arr = np.stack([data[key] for key in self.pm.variables], axis=0)  # (C, H, W)
+            # Make sure the order follows self.pm.meteo_variables
+            arr = np.stack([dict[key] for key in self.pm.meteo_variables], axis=0)  # (C, H, W)
 
             if cuda_available:
                 tensor_arr = torch.tensor(arr, dtype=torch.float32).cuda()
                 mean_tensor = torch.tensor(mean, dtype=torch.float32).cuda().view(-1, 1, 1)
-                _var = torch.mean((tensor_arr - mean_tensor) ** 2, dim=(1, 2)).cpu().numpy()
+                _variance = torch.mean((tensor_arr - mean_tensor) ** 2, dim=(1, 2)).cpu().numpy()
             else:
-                _var = np.mean((arr - mean[:, None, None]) ** 2, axis=(1, 2))
+                _variance = np.mean((arr - mean[:, None, None]) ** 2, axis=(1, 2))
 
-            if np.any(np.isnan(_var)):
-                raise Exception(f"NaN found in hourly variance: {file_path}")
+            if np.any(np.isnan(_variance)):
+                raise Exception(f"NaN found in var_meteo: {file_path}")
 
             step += 1
-            var_mean = var_mean * (step - 1)/step + _var / step
+            variance = variance * (step - 1)/step + _variance / step
 
-            var_mean_dict = {var: var_mean[idx] for idx, var in enumerate(self.pm.variables)}
+            variance_dict = {var: variance[idx] for idx, var in enumerate(self.pm.meteo_variables)}
 
             if step % checkpoint_interval == 0:
-                print(f"Checkpointing var_mean_meteo...{step}: {year}-{month:02d}-{day:02d} {hour:02d}")
+                print(f"Checkpointing variance_meteo...{step}: {year}-{month:02d}-{day:02d} {hour:02d}")
                 tmp_path = str(checkpoint_path) + ".tmp"
                 self.save_checkpoint(tmp_path, {
-                    "var_mean_dict": var_mean_dict,
+                    "variance_dict": variance_dict,
                     "step": step,
                     "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
                     "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
                 })
                 shutil.move(tmp_path, checkpoint_path)
 
-        # Final save
-        tmp_path = str(checkpoint_path) + ".tmp"
-        self.save_checkpoint(tmp_path, {
-            "var_mean_dict": var_mean_dict,
-            "step": step,
-            "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
-            "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
-        })
-        shutil.move(tmp_path, checkpoint_path)
-
-        std = np.sqrt(var_mean)
-        return std, step
+        if variance_dict is not None:
+            # Final save
+            tmp_path = str(checkpoint_path) + ".tmp"
+            self.save_checkpoint(tmp_path, {
+                "variance_dict": variance_dict,
+                "step": step,
+                "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
+                "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
+            })
+            shutil.move(tmp_path, checkpoint_path)
+        
+        return variance, step
     
 
     def get_mean_tempo(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6, file_name_suffix=None):
@@ -876,8 +842,13 @@ class Zeus_Dataset(Dataset):
         Compute the mean over all variables across hourly files, with checkpointing.
         """        
         cuda_available = torch.cuda.is_available()
-        mean = None
-        Snapshot.set_original_settings(factor10=self.pm.factor10)
+        mean_dict = None
+        
+        Snapshot.set_original_settings(factor10=self.pm.factor10, 
+            geo_dense_variables = self.pm.geo_dense_variables,
+            geo_cat_variables = self.pm.geo_cat_variables,
+            tempo_variables = self.pm.tempo_variables,            
+            )
 
         original = self.mean_tempo_checkpoint_path
         checkpoint_path = original if file_name_suffix is None else original.with_stem(original.stem + "_" + file_name_suffix)
@@ -886,10 +857,11 @@ class Zeus_Dataset(Dataset):
         try:
             checkpoint = self.read_checkpoint(
                 checkpoint_path,
-                ["mean", "step", "inclusive_left", "inclusive_right"]
+                ["mean_dict", "step", "inclusive_left", "inclusive_right"]
             )
 
-            mean = checkpoint[0] if len(checkpoint) > 0 else None
+            mean_dict = checkpoint[0] if len(checkpoint) > 0 else None            
+            mean = np.array([mean_dict[var] for var in Snapshot.tempo_variables]) if mean_dict is not None else None
             
             # step = checkpoint[1] if len(checkpoint) > 1 else 0
             step = int(checkpoint[1]) if len(checkpoint) > 1 else 0
@@ -926,8 +898,6 @@ class Zeus_Dataset(Dataset):
                 continue
 
             tensor = Snapshot(year, month, day, hour, meteo=None, meteo_unnormal=None).tempo
-            size = Snapshot.get_export_size()
-            assert tensor.shape == (Snapshot.tempo_dims, size[0], size[1])
             
             if cuda_available:
                 tensor = tensor.cuda()
@@ -936,55 +906,65 @@ class Zeus_Dataset(Dataset):
                 _mean = tensor.numpy().mean(axis=(1, 2))
 
             if np.any(np.isnan(_mean)):
-                raise Exception(f"NaN found in hourly mean: {file_path}")
+                raise Exception(f"NaN found in mean_tempo")
 
             step += 1
             mean = mean * (step - 1)/step + _mean / step
+            
+            mean_dict = {var: mean[idx] for idx, var in enumerate(Snapshot.tempo_variables)}
             
             if step % checkpoint_interval == 0:
                 print(f"Checkpointing mean_tempo... {step}: {year}-{month:02d}-{day:02d} {hour:02d}")
                 tmp_path = str(checkpoint_path) + ".tmp"
                 self.save_checkpoint(tmp_path, {
-                    "mean": mean,
+                    "mean_dict": mean_dict,
                     "step": step,
                     "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
                     "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
                 })
                 shutil.move(tmp_path, checkpoint_path)
 
-        # Final save
-        tmp_path = str(checkpoint_path) + ".tmp"
-        self.save_checkpoint(tmp_path, {
-            "mean": mean,
-            "step": step,
-            "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
-            "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
-        })
-        shutil.move(tmp_path, checkpoint_path)
+        if mean_dict is not None:
+            # Final save
+            if mean_dict:
+                tmp_path = str(checkpoint_path) + ".tmp"
+                self.save_checkpoint(tmp_path, {
+                    "mean_dict": mean_dict,
+                    "step": step,
+                    "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
+                    "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
+                })
+                shutil.move(tmp_path, checkpoint_path)
 
         return mean, step
 
 
-    def get_std_tempo(self, mean, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6, file_name_suffix=None):
+    def get_var_tempo(self, mean, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6, file_name_suffix=None):
         """
         Compute the standard deviation over all variables across hourly files, with checkpointing.
         Uses incremental variance formula.
         """
         cuda_available = torch.cuda.is_available()
-        var_mean = None
-        Snapshot.set_original_settings(factor10=self.pm.factor10)
+        variance_dict = None
         
-        original = self.var_mean_tempo_checkpoint_path
+        Snapshot.set_original_settings(factor10=self.pm.factor10, 
+            geo_dense_variables = self.pm.geo_dense_variables,
+            geo_cat_variables = self.pm.geo_cat_variables,
+            tempo_variables = self.pm.tempo_variables,            
+            )
+        
+        original = self.variance_tempo_checkpoint_path
         checkpoint_path = original if file_name_suffix is None else original.with_stem(original.stem + "_" + file_name_suffix)
 
         # Load checkpoint if exists
         try:
             checkpoint = self.read_checkpoint(
                 checkpoint_path,
-                ["var_mean", "step", "inclusive_left", "inclusive_right"]
+                ["variance_dict", "step", "inclusive_left", "inclusive_right"]
             )
 
-            var_mean = checkpoint[0] if len(checkpoint) > 0 else None
+            variance_dict = checkpoint[0] if len(checkpoint) > 0 else None
+            variance = np.array([variance_dict[var] for var in Snapshot.tempo_variables]) if variance_dict is not None else None
             
             # step = checkpoint[1] if len(checkpoint) > 1 else 0
             step = int(checkpoint[1]) if len(checkpoint) > 1 else 0
@@ -997,15 +977,15 @@ class Zeus_Dataset(Dataset):
             # Check consistency with provided boundaries
             ck_left_match = (ck_left == inclusive_left) or (ck_left is None and inclusive_left is None)
             ck_right_match = (ck_right == inclusive_right) or (ck_right is None and inclusive_right is None)
-            if var_mean is None or not (ck_left_match and ck_right_match):
+            if variance is None or not (ck_left_match and ck_right_match):
                 print("Checkpoint missing or date range mismatch. Starting new std tempo...")
-                var_mean = np.ones((Snapshot.tempo_dims,), dtype=np.float32)
+                variance = np.ones((Snapshot.tempo_dims,), dtype=np.float32)
                 step = 0
             else:
                 print(f"Resuming existing std tempo... step={step}")
         except:
             print("No checkpoint found for std tempo. Starting new std tempo...")
-            var_mean = np.ones((Snapshot.tempo_dims,), dtype=np.float32)
+            variance = np.ones((Snapshot.tempo_dims,), dtype=np.float32)
             step = 0
 
         skip = -1
@@ -1021,45 +1001,45 @@ class Zeus_Dataset(Dataset):
                 continue
             
             tensor = Snapshot(year, month, day, hour, meteo=None, meteo_unnormal=None).tempo
-            size = Snapshot.get_export_size()
-            assert tensor.shape == (Snapshot.tempo_dims, size[0], size[1])
             
             if cuda_available:
                 tensor = tensor.cuda()
                 mean_tensor = torch.tensor(mean, dtype=torch.float32).cuda().view(-1, 1, 1)
-                _var = torch.mean((tensor - mean_tensor) ** 2, dim=(1, 2)).cpu().numpy()
+                _variance = torch.mean((tensor - mean_tensor) ** 2, dim=(1, 2)).cpu().numpy()
             else:
-                _var = np.mean((tensor.numpy() - mean[:, None, None]) ** 2, axis=(1, 2))
+                _variance = np.mean((tensor.numpy() - mean[:, None, None]) ** 2, axis=(1, 2))
 
-            if np.any(np.isnan(_var)):
-                raise Exception(f"NaN found in hourly variance: {file_path}")
+            if np.any(np.isnan(_variance)):
+                raise Exception(f"NaN found in var_tempo")
 
             step += 1
-            var_mean = var_mean * (step - 1)/step + _var / step
+            variance = variance * (step - 1)/step + _variance / step
+            
+            variance_dict = {var: variance[idx] for idx, var in enumerate(Snapshot.tempo_variables)}
 
             if step % checkpoint_interval == 0:
-                print(f"Checkpointing var_mean_tempo...{step}: {year}-{month:02d}-{day:02d} {hour:02d}")
+                print(f"Checkpointing var_tempo...{step}: {year}-{month:02d}-{day:02d} {hour:02d}")
                 tmp_path = str(checkpoint_path) + ".tmp"
                 self.save_checkpoint(tmp_path, {
-                    "var_mean": var_mean,
+                    "variance_dict": variance_dict,
                     "step": step,
                     "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
                     "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
                 })
                 shutil.move(tmp_path, checkpoint_path)
 
-        # Final save
-        tmp_path = str(checkpoint_path) + ".tmp"
-        self.save_checkpoint(tmp_path, {
-            "var_mean": var_mean,
-            "step": step,
-            "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
-            "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
-        })
-        shutil.move(tmp_path, checkpoint_path)
+        if variance_dict is not None:
+            # Final save
+            tmp_path = str(checkpoint_path) + ".tmp"
+            self.save_checkpoint(tmp_path, {
+                "variance_dict": variance_dict,
+                "step": step,
+                "inclusive_left": inclusive_left.isoformat() if inclusive_left else None,
+                "inclusive_right": inclusive_right.isoformat() if inclusive_right else None
+            })
+            shutil.move(tmp_path, checkpoint_path)
 
-        std = np.sqrt(var_mean)
-        return std, step
+        return variance, step
 
 
     def analyze_hourly_dataset(self, save=False, inclusive_left=None, inclusive_right=None, modulo=6, file_name_suffix=None):
@@ -1083,14 +1063,14 @@ class Zeus_Dataset(Dataset):
         #     modulo = modulo
         # )
 
-        mean_meteo, m = self.ensure_meteo_data_integrity_while_getting_mean(
+        mean_meteo, m = self.get_std_meteo_downloading_if_not_ready(
             inclusive_left=inclusive_left,
             inclusive_right=inclusive_right,
             modulo = modulo, file_name_suffix=file_name_suffix
         )
 
         # Compute std with checkpointing
-        std_meteo, n = self.get_std_meteo(
+        var_meteo, n = self.get_var_meteo(
             mean_meteo,
             inclusive_left=inclusive_left,
             inclusive_right=inclusive_right,
@@ -1108,7 +1088,7 @@ class Zeus_Dataset(Dataset):
         )
 
         # Compute std with checkpointing
-        std_tempo, n = self.get_std_tempo(
+        var_tempo, n = self.get_var_tempo(
             mean_tempo,
             inclusive_left=inclusive_left,
             inclusive_right=inclusive_right,
@@ -1120,9 +1100,12 @@ class Zeus_Dataset(Dataset):
         # Save results if requested
         if save:
             # Map variable names to values
-            # Make sure the order follows self.pm.variables
-            mean_meteo_dict = {var: float(val) for var, val in zip(self.pm.variables, mean_meteo)}  # mean, a numpy array, acts as a list
-            std_meteo_dict  = {var: float(val) for var, val in zip(self.pm.variables, std_meteo)}   # std, a numpy array, acts as a list
+            # Make sure the order follows self.pm.meteo_variables
+            mean_meteo_dict = {var: float(val) for var, val in zip(self.pm.meteo_variables, list(mean_meteo))}  # mean_, a numpy array, acts as a list
+            variance_meteo_dict  = {var: float(val) for var, val in zip(self.pm.meteo_variables, list(var_meteo))}   # var_, a numpy array, acts as a list
+
+            mean_tempo_dict = {var: float(val) for var, val in zip(Snapshot.tempo_variables, list(mean_tempo))}  # mean_, a numpy array, acts as a list
+            variance_tempo_dict  = {var: float(val) for var, val in zip(Snapshot.tempo_variables, list(var_tempo))}   # var_, a numpy array, acts as a list
 
             original = self.param_path
             save_path = original if file_name_suffix is None else original.with_stem(original.stem + "_" + file_name_suffix)
@@ -1139,9 +1122,9 @@ class Zeus_Dataset(Dataset):
 
             # Update only the relevant fields
             data["mean_meteo_dict"] = mean_meteo_dict
-            data["std_meteo_dict"] = std_meteo_dict
-            data["mean_tempo"] = mean_tempo.tolist()
-            data["std_tempo"] = std_tempo.tolist()
+            data["variance_meteo_dict"] = variance_meteo_dict
+            data["mean_tempo_dict"] = mean_tempo_dict
+            data["variance_tempo_dict"] = variance_tempo_dict
 
             # Save updated data
             with open(save_path, "w") as f:
@@ -1149,29 +1132,33 @@ class Zeus_Dataset(Dataset):
                 
             print("dataset params saved.")
             
-        return mean_tempo, std_tempo, mean_tempo, std_tempo
+        return mean_tempo, var_tempo, mean_tempo, var_tempo
     
     
-    def load_dataset_params(self):
+    def load_dataset_params(self, file_name_suffix=None):
 
-        with open(self.param_path, "r") as f:
+        original = self.param_path
+        params_path = original if file_name_suffix is None else original.with_stem(original.stem + "_" + file_name_suffix)
+
+
+        with open(params_path, "r") as f:
             data = json.load(f)
             # print('------', data, torch.tensor(data['mean']).shape)
 
-        mean_meteo_dict, std_meteo_dict, mean_tempo, std_tempo = \
-        data['mean_meteo_dict'], data['std_meteo_dict'], (data['mean_tempo']), data['std_tempo']
-        mean_tempo = np.array(mean_tempo, dtype=np.float32); std_tempo = np.array(std_tempo, dtype=np.float32)
+        mean_meteo_dict, variance_meteo_dict, mean_tempo_dict, variance_tempo_dict = \
+        data['mean_meteo_dict'], data['variance_meteo_dict'], (data['mean_tempo_dict']), data['variance_tempo_dict']
 
-        #--------------------- tempo -----------------
+        #--------------------- meteo -----------------
         
         mean_meteo = []
-        for var in self.pm.variables:
+        for var in self.pm.meteo_variables:
             mean_meteo.append(mean_meteo_dict[var])
-        std_meteo = []
-        for var in self.pm.variables:
-            std_meteo.append(std_meteo_dict[var])
-            
-        mean_meteo, std_meteo = torch.tensor(mean_meteo), torch.tensor(std_meteo)
+        var_meteo = []
+        for var in self.pm.meteo_variables:
+            var_meteo.append(variance_meteo_dict[var])
+
+        # This is the place where var changes to std.            
+        mean_meteo, std_meteo = torch.tensor(mean_meteo), torch.sqrt(torch.tensor(var_meteo))   #------------- sqrt
             
         self.mean_meteo, self.std_meteo = mean_meteo, std_meteo
         
@@ -1187,7 +1174,23 @@ class Zeus_Dataset(Dataset):
 
         #----------------- tempo -------------------
         
-        mean_tempo, std_tempo = torch.tensor(mean_tempo), torch.tensor(std_tempo)
+        # Current Snapshot.tempo_variables should be part of the Snapshot.tempo_variables used to create dataset params
+        
+        Snapshot.set_original_settings(factor10=self.pm.factor10, 
+            geo_dense_variables = self.pm.geo_dense_variables,
+            geo_cat_variables = self.pm.geo_cat_variables,
+            tempo_variables = self.pm.tempo_variables,            
+            )
+        
+        mean_tempo = []
+        for var in Snapshot.tempo_variables:
+            mean_tempo.append(mean_tempo_dict[var])
+        var_tempo = []
+        for var in Snapshot.tempo_variables:
+            var_tempo.append(variance_tempo_dict[var])
+
+        # This is the place where var changes to std.            
+        mean_tempo, std_tempo = torch.tensor(mean_tempo), torch.sqrt(torch.tensor(var_tempo))           #----------- sqrt         
                 
         self.mean_tempo, self.std_tempo = mean_tempo, std_tempo
         
@@ -1200,7 +1203,6 @@ class Zeus_Dataset(Dataset):
             mean_tempo_ready_cuda = rearrange(mean_tempo, 'c -> c 1 1').to("cuda")
             std_tempo_ready_cuda = rearrange(std_tempo, 'c -> c 1 1').to("cuda")
 
-        Snapshot.set_original_settings(factor10=self.pm.factor10)
         area_weights_cuda = Snapshot.cos_lat_sin_lon[None, :, None].to("cuda")   # for (C, H, W)
 
         pack = (
@@ -1211,6 +1213,142 @@ class Zeus_Dataset(Dataset):
         )
         
         return pack
+    
+    #----------------- Visualize ---------------------
+    
+    def play_weather_snapshots(self, inclusive_left, inclusive_right, modulo):
+        
+        import keyboard
+        import matplotlib.pyplot as plt
+        from matplotlib import colors
+        
+        def get_key():
+            """
+            Wait for and return arrow key presses.
+            """
+            # Wait for any key press
+            key = keyboard.read_key()
+            
+            # Map to our command names
+            key_map = {
+                'up': 'up',
+                'down': 'down', 
+                'left': 'left',
+                'right': 'right',
+                'q': 'quit',
+                'esc': 'quit'
+            }
+            
+            return key_map.get(key, None)
+        
+        def show_array(arr, variable, dt):
+            """
+            Display a 3D array (C, H, W) as multiple 2D plots (one per channel)
+            or as a single composite image.
+            """
+            # Clear previous plot
+            plt.clf()
+            
+            # Handle different array shapes
+            if len(arr.shape) == 3:
+                channels, height, width = arr.shape
+                
+                # Create subplots for each channel
+                fig, axes = plt.subplots(1, channels, figsize=(5*channels, 5))
+                
+                # If only one channel, make axes iterable
+                if channels == 1:
+                    axes = [axes]
+                
+                for c in range(channels):
+                    # Get data for this channel
+                    channel_data = arr[c]
+                    
+                    # Determine colormap based on data
+                    if np.nanmin(channel_data) >= 0 and np.nanmax(channel_data) <= 1:
+                        # Normalized data [0,1]
+                        cmap = 'viridis'
+                        vmin, vmax = 0, 1
+                    else:
+                        # Use diverging colormap for data with negative values
+                        cmap = 'RdBu_r'
+                        abs_max = max(abs(np.nanmin(channel_data)), abs(np.nanmax(channel_data)))
+                        vmin, vmax = -abs_max, abs_max
+                    
+                    # Plot
+                    im = axes[c].imshow(channel_data, cmap=cmap, vmin=vmin, vmax=vmax)
+                    axes[c].set_title(f'Channel {c}')
+                    axes[c].axis('off')
+                    plt.colorbar(im, ax=axes[c], fraction=0.046, pad=0.04)
+            
+            elif len(arr.shape) == 2:
+                # Single 2D array
+                plt.imshow(arr, cmap='viridis')
+                plt.colorbar()
+                plt.axis('off')
+                plt.title(f'2D Array - Shape: {arr.shape}, varable: {variable}, datetime: {dt}')
+            
+            else:
+                # Unexpected shape - show statistics
+                print(f"Unexpected array shape: {arr.shape}")
+                print(f"Min: {np.nanmin(arr):.4f}, Max: {np.nanmax(arr):.4f}")
+                print(f"Mean: {np.nanmean(arr):.4f}, Std: {np.nanstd(arr):.4f}")
+                return
+            
+            # Add overall title with datetime info
+            plt.suptitle(f'Date: {dt.strftime("%Y-%m-%d %H:%M")} | Variable: {variable}', 
+                        fontsize=12, y=0.95)
+            
+            # Adjust layout and display
+            plt.tight_layout()
+            plt.draw()
+            plt.pause(0.01)  # Small pause to update display
+        
+        # Main loop -----------------------------------------------------------------------------
+        var_id = 0
+        move = 1
+        dt = inclusive_left
+        
+        # Initialize plot window
+        plt.ion()  # Interactive mode on
+        fig = plt.figure(figsize=(10, 6))
+        
+        while inclusive_left <= dt and dt <= inclusive_right:
+            year, month, day, hour = dt.year, dt.month, dt.day, dt.hour
+
+            file_path = self.get_file_path_npz(year, month, day, hour, modulo)
+            dict_data = load_and_decode(file_path)  # Renamed from dict to avoid shadowing
+
+            variable = self.pm.meteo_variables[var_id]
+            arr = dict_data[variable]  # (C, H, W)
+
+            show_array(arr, variable, dt)
+            
+            print("Controls: ↑/↓: change variable, ←/→: navigate time, q: quit")
+            
+            var_changed = False; time_changed = False
+            key = get_key()
+            if key == "up": 
+                var_id += 1;    var_changed = True
+            elif key == "down": 
+                var_id -= 1;    var_changed = True
+            elif key == "left": 
+                dir = -1;      time_changed = True
+            elif key == "right": 
+                dir = 1;       time_changed = True
+            elif key == "quit":
+                print("Quitting...")
+                break
+            
+            if var_changed:
+                var_id = min(max(0, var_id), len(self.pm.meteo_variables) - 1)
+
+            if time_changed:
+                dt = dt + timedelta(hours=dir*modulo)
+        
+        # Cleanup
+        plt.ioff()
+        plt.close(fig)
 
     #----------------- Standardize --------------------
 
@@ -1243,11 +1381,11 @@ class Zeus_Dataset(Dataset):
         output.mul_(std).add_(mean)  # in-place unnormalize
     
     def load_era5_data_vars(self):
-        # vars = [ERA5_DATA_VARS[var_name_map[k]] for k in self.pm.variables if var_name_map[k] in ERA5_DATA_VARS.keys()]
+        # vars = [ERA5_DATA_VARS[var_name_map[k]] for k in self.pm.meteo_variables if var_name_map[k] in ERA5_DATA_VARS.keys()]
         vars = list(ERA5_DATA_VARS.values())  # Make it as secure as the above line, later.
         vars = [v * len(vars) for v in vars]
         # vars = [1.0 for _ in range(len(self.p_intercalated_vars) - len(vars))] + vars
-        vars = [1.0 for _ in range(len(self.pm.variables) - len(vars))] + vars
+        vars = [1.0 for _ in range(len(self.pm.meteo_variables) - len(vars))] + vars
         zeus_loss_weights_on_target_vars = torch.tensor(vars)
         zeus_loss_weights_on_target_vars = zeus_loss_weights_on_target_vars.to('cuda' if torch.cuda.is_available() else 'cpu')
         return zeus_loss_weights_on_target_vars
@@ -1281,9 +1419,9 @@ class Zeus_Dataset(Dataset):
     
 
     def create_difficulties(self, latest_date):
-        for variable_idx in range(len(self.pm.variables)):
+        for variable_idx in range(len(self.pm.meteo_variables)):
             # handle variables one by one, as month_data is of huge size.
-            print(self.pm.variables[variable_idx])
+            print(self.pm.meteo_variables[variable_idx])
             difficulties = []
             maxDeffVar = 0.0
             for nth in range(12):
@@ -1314,7 +1452,7 @@ class Zeus_Dataset(Dataset):
             for var_per_loc, year, month in difficulties:
                 rel_var_per_loc = var_per_loc / maxDeffVar      # (721, 1440)
                 current_folder = Path(__file__).resolve().parent
-                folder = current_folder / "weights" / self.pm.variables[variable_idx]
+                folder = current_folder / "weights" / self.pm.meteo_variables[variable_idx]
                 folder.mkdir(parents=True, exist_ok=True)
                 path = folder / (str(year) + '-' + str(month).zfill(2) + ".npy")
                 np.save(path, rel_var_per_loc)
@@ -1325,7 +1463,7 @@ class Zeus_Dataset(Dataset):
 
         difficulties = {}
 
-        for variable in self.pm.variables:
+        for variable in self.pm.meteo_variables:
             _difficulties = {}
 
             for nth in range(12):
@@ -1720,8 +1858,8 @@ class Zeus_Dataset(Dataset):
         assert output.shape[-5:] == torch.Size([Fm, C, size_hw[0], size_hw[1]])
         return output
 
-    def load_snapshot(self, dt, modulo, with_normalized, idx):
-        array = self.load_array(dt, modulo)
+    def load_meteo_create_snapshot(self, dt, modulo, with_normalized, idx):
+        array = self.load_decode_get_array_for_variables(dt, modulo, self.pm.meteo_variables)
         assert array is not None
         
         if array is not None:
@@ -1773,7 +1911,7 @@ class Zeus_Dataset(Dataset):
             with_normalized = True
             futures = [
                 self._disk_threadPool.submit(
-                        self.load_snapshot, dt + timedelta(hours=self.pm.modulo*idx), self.pm.modulo, with_normalized, idx
+                        self.load_meteo_create_snapshot, dt + timedelta(hours=self.pm.modulo*idx), self.pm.modulo, with_normalized, idx
                     ) for idx in range(self.pm.nRawStepsPerBatch + (2 if self.pm.pair_not_single_snapshot else 1))
                 ]
 
@@ -1795,7 +1933,7 @@ class Zeus_Dataset(Dataset):
             batch_diff = []
             for b in range(B):
                 variable_diff = []
-                for variable in self.pm.variables:
+                for variable in self.pm.meteo_variables:
                     # self.difficulties[vaiable][months[b]].shape = (720, 1440)
                     diff = self.difficulties[variable][months[b]]   # (721, 1440)
                     variable_diff.append(torch.tensor(diff, dtype=self.pm.dtype))
@@ -2081,7 +2219,7 @@ if __name__ == "__main__":
     from modules.zeus_dataset_var_names import VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map
     pm = Params(config)
 
-    dataset = Zeus_Dataset(pm, Path(config['dataset_path']), Path(config['management_path']), download=True)
+    dataset = Zeus_Dataset(pm, Path(config['dataset_path']), Path(config['management_path']), download=False)
     
     # dataset.check_accumulation_periods()
     
@@ -2092,46 +2230,43 @@ if __name__ == "__main__":
     # # List variables
     # print(ds.data_vars)
     # pass
-    
-    # setup_logging()
-    # dataset.download_fuXi2_snapshots_levels_region_parallel_vars(
+
+
+    inclusive_left = datetime(2025, 1, 1, 0)
+    inclusive_right = datetime(2025, 1, 2, 23)
+
+    # inclusive_left = datetime(2018, 1, 1, 0)
+    # inclusive_right = datetime(2025, 12, 31, 23)
+
+    # dataset.play_weather_snapshots(inclusive_left, inclusive_right, modulo=1)
+
+    # dataset.download_meteo_variables(
     #     variables=VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map = var_name_map,
     #     # ----- 8 years, 1-hourly, 720 GB (700.8 GB ------
-    #     start_dt = datetime(2018, 1, 1, 0),
-    #     end_dt = datetime(2025, 12, 31, 23),
+    #     start_dt = inclusive_left,
+    #     end_dt = inclusive_right,
     #     modulo=1,
     #     max_workers_snapshots=6, max_workers_vars=6,
+    #     simulated=True
     # )
 
-    # Maybe on the vm
-    # inclusive_left = datetime(2014, 12, 31, 23)
-    # inclusive_right = datetime(2024, 12, 31, 23)
-
-    # New true data on the local
-    # inclusive_left = datetime(2019, 12, 31, 23)
-    # inclusive_right = datetime(2024, 12, 31, 23)
-
-    inclusive_left = datetime(2018, 1, 1, 0)
-    inclusive_right = datetime(2025, 12, 31, 23)
-
-    # mean_meteo, m = dataset.ensure_meteo_data_integrity_while_getting_mean(
+    # mean_meteo, m = dataset.get_std_meteo_downloading_if_not_ready(
     #     inclusive_left=inclusive_left,
     #     inclusive_right=inclusive_right,
-    #     modulo = 1
+    #     modulo = 1,
     # )
 
-    dict = dataset.analyze_hourly_paths(inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=1)
-    print(f"count: {dict['count']}, first_hour: {dict['first_hour']}, last_hour: {dict['last_hour']}, missing_hours: {dict['missing_hours']}")
-    if len(dict["missing_hours"]) > 0:
-        print(dict["missing_hours"])
+    # dict = dataset.analyze_hourly_paths(inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=1)
+    # print(f"count: {dict['count']}, first_hour: {dict['first_hour']}, last_hour: {dict['last_hour']}, n_missing_hours: {len(dict['missing_hours'])}")
 
+    dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=1, file_name_suffix="208_2025_m1")
     dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=6, file_name_suffix="208_2025_m6")
 
-    # mean_meteo, std_meteo, mean_tempo, std_tempo, \
-    # mean_meteo_ready_cpu, std_meteo_ready_cpu, mean_meteo_ready_cuda, std_meteo_ready_cuda, \
-    # mean_tempo_ready_cpu, std_tempo_ready_cpu, mean_tempo_ready_cuda, std_tempo_ready_cuda, \
-    # area_weights_cuda \
-    # = dataset.load_dataset_params()
+    mean_meteo, std_meteo, mean_tempo, std_tempo, \
+    mean_meteo_ready_cpu, std_meteo_ready_cpu, mean_meteo_ready_cuda, std_meteo_ready_cuda, \
+    mean_tempo_ready_cpu, std_tempo_ready_cpu, mean_tempo_ready_cuda, std_tempo_ready_cuda, \
+    area_weights_cuda \
+    = dataset.load_dataset_params(file_name_suffix="208_2025_m6")
 
     # print("-------- mean_meteo: ", mean_meteo.shape, mean_meteo[-3:])
     # print("-------- std_meteo: ", std_meteo.shape, std_meteo[-3:])

@@ -94,8 +94,7 @@ def load_variables(filename):
         encoded = {k.replace("data_", ""): npz[k] for k in npz.files if k.startswith("data_")}
     return encoded, meta
 
-
-def load_decoded_variables(filename):
+def load_and_decode(filename):
     encoded, meta = load_variables(filename)
     return decode(encoded, meta)
 
@@ -103,7 +102,7 @@ def load_decoded_variables(filename):
 if __name__ == "__main__":
 
     import numpy as np
-    # from this_module import encode, save_variables, load_decoded_variables
+    # from this_module import encode, save_variables, load_and_decode
 
     array_dict = {
         "2m_temperature": np.random.uniform(200, 320, (24, 721, 1440)).astype(np.float32),
@@ -129,7 +128,7 @@ if __name__ == "__main__":
     
     print("loading...")
 
-    decoded = load_decoded_variables(path)
+    decoded = load_and_decode(path)
 
     for k in array_dict:
         diff = np.max(np.abs(decoded[k] - array_dict[k]))

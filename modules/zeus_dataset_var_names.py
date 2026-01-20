@@ -529,7 +529,7 @@ HECTA_PASCAL_UNCHANGEABLE = [
 num_vars_per_level = 5
 num_levels = 13
 num_vars_surface = 17
-mike1_variables_order = "[v_l for v ztuvq for l in levels] + surface_vars"
+mike1_variables_order = "surface_vars only"
 
 print("len VARIABLE_NAME_LIST_UNCHANGEABLE: ", len(VARIABLE_NAME_LIST_UNCHANGEABLE))
 

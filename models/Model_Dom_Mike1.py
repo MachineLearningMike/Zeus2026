@@ -180,7 +180,7 @@ class Model_Dom():
         return scheduler
     
     def load_era5_data_vars(self):
-        vars = [ERA5_DATA_VARS[k] for k in self.pm.variables if k in ERA5_DATA_VARS.keys()]
+        vars = [ERA5_DATA_VARS[k] for k in self.pm.meteo_variables if k in ERA5_DATA_VARS.keys()]
         self.zeus_loss_weights_on_target_vars = torch.tensor(vars)
         return self.zeus_loss_weights_on_target_vars
     

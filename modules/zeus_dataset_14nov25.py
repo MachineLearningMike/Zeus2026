@@ -36,7 +36,7 @@ from modules_zeus.sample import Era5Sample
 from modules_zeus.coordinates import get_bbox, slice_bbox
 from modules_zeus.era5_cds import Era5CDSLoader, get_today
 
-from modules.zeus_dataset_codec import encode, save_variables, load_decoded_variables
+from modules.zeus_dataset_codec import encode, save_variables, load_and_decode
 
 class Zeus_Dataset(Dataset):
     def __init__(self, pm, dataset_path, management_path):
@@ -176,7 +176,7 @@ class Zeus_Dataset(Dataset):
             if file_path_npy.exists(): files_to_remove.append(file_path_npy)
         except:
             try:
-                load = load_decoded_variables(file_path_npz)    # npZ
+                load = load_and_decode(file_path_npz)    # npZ
                 idx = 0; values = []
                 for key, value in load.items():
                     assert key == self.pm.variables[idx]; idx += 1
@@ -412,7 +412,7 @@ class Zeus_Dataset(Dataset):
             file_path = day_dir / 'all.npz'
             
             values = []
-            load = load_decoded_variables(file_path)    # npZ
+            load = load_and_decode(file_path)    # npZ
             idx = 0; values = []
             for key, value in load.items():
                 assert key == self.pm.variables[idx]; idx += 1
@@ -465,7 +465,7 @@ class Zeus_Dataset(Dataset):
             file_path = day_dir / 'all.npz'
 
             values = []
-            load = load_decoded_variables(file_path)    # npZ
+            load = load_and_decode(file_path)    # npZ
             idx = 0; values = []
             for key, value in load.items():
                 assert key == self.pm.variables[idx]; idx += 1
@@ -906,7 +906,7 @@ class Zeus_Dataset(Dataset):
     def load_day_all_data(self, day):
         all_path = self.get_file_path(day.year, day.month, day.day, 'all')
         try:
-            load = load_decoded_variables(all_path)
+            load = load_and_decode(all_path)
             idx = 0; values = []
             for key, value in load.items():
                 assert key == self.pm.variables[idx]; idx += 1

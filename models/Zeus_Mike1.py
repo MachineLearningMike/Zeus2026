@@ -41,10 +41,12 @@ class Zeus(nn.Module):
         nRawStepsPerBatch = pm.nRawStepsPerBatch
         choose_best_loss_model = pm.choose_best_loss_model
         
-        
         pair_bias_dim = pm.pair_bias_dim
         
-
+        geo_dense_variables = pm.geo_dense_variables
+        geo_cat_variables = pm.geo_cat_variables
+        tempo_variables = pm.tempo_variables
+        
         H, W = int(720/10 * factor10), int(1440/10 * factor10)
     
         print("Zeus model being created..............................................................")
@@ -52,14 +54,23 @@ class Zeus(nn.Module):
         print(f"sWin {sWin}, num_encoder_decoder {num_encoder_decoder}, nLevels {nLevels}, increasing {increasing}, type_pos_bias {type_pos_bias}")
         print(f"depth_list {depth_list}, head_list {head_list}, qkv_bias {qkv_bias}, skippable {skippable}, skip_learnable {skip_learnable}")
         print(f"nRawStepsPerBatch {nRawStepsPerBatch}, choose_best_loss_model {choose_best_loss_model}")
+
+        print(f"geo_dense_variables: {geo_dense_variables}")
+        print(f"geo_cat_variables: {geo_cat_variables}")
+        print(f"tempo_variables: {tempo_variables}")
+
         print(".......................................................................................")
 
         self.device = device
     
         #---------------- Patch extractor -----------------
         
-        Snapshot.set_original_settings(factor10=factor10, increasing=increasing, packed_levels=nLevels - 1, device=self.device)  # Setup that will be persistent.
-        
+        # Setup that will be persistent throughout
+        Snapshot.set_original_settings(factor10=factor10, increasing=increasing, packed_levels=nLevels - 1, device=self.device,
+            geo_dense_variables = geo_dense_variables,
+            geo_cat_variables = geo_cat_variables,
+            tempo_variables = tempo_variables,
+            )  
         now = datetime.now(timezone.utc)
         ss1 = Snapshot(now.year, now.month, now.day, now.hour, meteo=None, meteo_unnormal=None)
         
