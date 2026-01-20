@@ -571,15 +571,15 @@ class Zeus_Dataset(Dataset):
         torch.save(data, path)
         return       
 
-    def ensure_meteo_data_integrity_while_getting_mean(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6, save_file_name=None):
+    def ensure_meteo_data_integrity_while_getting_mean(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6, file_name_suffix=None):
         """
         Compute the mean over all variables across hourly files, with checkpointing.
         """
         cuda_available = torch.cuda.is_available()
         mean_dict = None
         
-        if save_file_name is not None: save_file_name += "_mean_meteo"
-        checkpoint_path = self.mean_meteo_onestop_checkpoint_path if save_file_name is None else self.mean_meteo_onestop_checkpoint_path.with_stem(save_file_name)
+        original = self.mean_meteo_onestop_checkpoint_path
+        checkpoint_path = original if file_name_suffix is None else original.with_stem(original.stem + "_" + file_name_suffix)
 
         # Load checkpoint if exists
         try:
@@ -671,15 +671,15 @@ class Zeus_Dataset(Dataset):
         return mean, step
 
 
-    def get_mean_meteo(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6, save_file_name=None):
+    def get_mean_meteo(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6, file_name_suffix=None):
         """
         Compute the mean over all variables across hourly files, with checkpointing.
         """
         cuda_available = torch.cuda.is_available()
         mean_dict = None
         
-        if save_file_name is not None: save_file_name += "_mean_meteo"
-        checkpoint_path = self.mean_meteo_checkpoint_path if save_file_name is None else self.mean_meteo_checkpoint_path.with_stem(save_file_name)
+        original = self.mean_meteo_checkpoint_path
+        checkpoint_path = original if file_name_suffix is None else original.with_stem(original.stem + "_" + file_name_suffix)
 
         # Load checkpoint if exists
         try:
@@ -768,7 +768,7 @@ class Zeus_Dataset(Dataset):
         return mean, step
 
 
-    def get_std_meteo(self, mean, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6, save_file_name=None):
+    def get_std_meteo(self, mean, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6, file_name_suffix=None):
         """
         Compute the standard deviation over all variables across hourly files, with checkpointing.
         Uses incremental variance formula.
@@ -776,8 +776,8 @@ class Zeus_Dataset(Dataset):
         cuda_available = torch.cuda.is_available()
         var_mean_dict = None
         
-        if save_file_name is not None: save_file_name += "_var_mean_meteo"
-        checkpoint_path = self.var_mean_meteo_checkpoint_path if save_file_name is None else self.var_mean_meteo_checkpoint_path.with_stem(save_file_name)
+        original = self.var_mean_meteo_checkpoint_path
+        checkpoint_path = original if file_name_suffix is None else original.with_stem(original.stem + "_" + file_name_suffix)
 
         # Load checkpoint if exists
         try:
@@ -872,7 +872,7 @@ class Zeus_Dataset(Dataset):
         return std, step
     
 
-    def get_mean_tempo(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6, save_file_name=None):
+    def get_mean_tempo(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6, file_name_suffix=None):
         """
         Compute the mean over all variables across hourly files, with checkpointing.
         """        
@@ -880,8 +880,8 @@ class Zeus_Dataset(Dataset):
         mean = None
         Snapshot.set_original_settings(factor10=self.pm.factor10)
 
-        if save_file_name is not None: save_file_name += "_mean_tempo"
-        checkpoint_path = self.mean_tempo_checkpoint_path if save_file_name is None else self.mean_tempo_checkpoint_path.with_stem(save_file_name)
+        original = self.mean_tempo_checkpoint_path
+        checkpoint_path = original if file_name_suffix is None else original.with_stem(original.stem + "_" + file_name_suffix)
 
         # Load checkpoint if exists
         try:
@@ -966,7 +966,7 @@ class Zeus_Dataset(Dataset):
         return mean, step
 
 
-    def get_std_tempo(self, mean, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6, save_file_name=None):
+    def get_std_tempo(self, mean, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6, file_name_suffix=None):
         """
         Compute the standard deviation over all variables across hourly files, with checkpointing.
         Uses incremental variance formula.
@@ -974,9 +974,9 @@ class Zeus_Dataset(Dataset):
         cuda_available = torch.cuda.is_available()
         var_mean = None
         Snapshot.set_original_settings(factor10=self.pm.factor10)
-
-        if save_file_name is not None: save_file_name += "_var_mean_tempo"
-        checkpoint_path = self.var_mean_tempo_checkpoint_path if save_file_name is None else self.var_mean_tempo_checkpoint_path.with_stem(save_file_name)
+        
+        original = self.var_mean_tempo_checkpoint_path
+        checkpoint_path = original if file_name_suffix is None else original.with_stem(original.stem + "_" + file_name_suffix)
 
         # Load checkpoint if exists
         try:
@@ -1063,7 +1063,7 @@ class Zeus_Dataset(Dataset):
         return std, step
 
 
-    def analyze_hourly_dataset(self, save=False, inclusive_left=None, inclusive_right=None, modulo=6, save_file_name=None):
+    def analyze_hourly_dataset(self, save=False, inclusive_left=None, inclusive_right=None, modulo=6, file_name_suffix=None):
         """
         Analyze dataset over hourly paths: compute mean and std for all variables.
 
@@ -1087,7 +1087,7 @@ class Zeus_Dataset(Dataset):
         mean_meteo, m = self.ensure_meteo_data_integrity_while_getting_mean(
             inclusive_left=inclusive_left,
             inclusive_right=inclusive_right,
-            modulo = modulo, save_file_name=save_file_name
+            modulo = modulo, file_name_suffix=file_name_suffix
         )
 
         # Compute std with checkpointing
@@ -1095,7 +1095,7 @@ class Zeus_Dataset(Dataset):
             mean_meteo,
             inclusive_left=inclusive_left,
             inclusive_right=inclusive_right,
-            modulo = modulo, save_file_name=save_file_name
+            modulo = modulo, file_name_suffix=file_name_suffix
         )
 
         assert m == n, f"Step mismatch: mean step ({m}) vs std step ({n})"
@@ -1105,7 +1105,7 @@ class Zeus_Dataset(Dataset):
         mean_tempo, m = self.get_mean_tempo(
             inclusive_left=inclusive_left,
             inclusive_right=inclusive_right,
-            modulo = modulo, save_file_name=save_file_name
+            modulo = modulo, file_name_suffix=file_name_suffix
         )
 
         # Compute std with checkpointing
@@ -1113,7 +1113,7 @@ class Zeus_Dataset(Dataset):
             mean_tempo,
             inclusive_left=inclusive_left,
             inclusive_right=inclusive_right,
-            modulo = modulo, save_file_name=save_file_name
+            modulo = modulo, file_name_suffix=file_name_suffix
         )
 
         assert m == n, f"Step mismatch: mean step ({m}) vs std step ({n})"
@@ -1125,10 +1125,8 @@ class Zeus_Dataset(Dataset):
             mean_meteo_dict = {var: float(val) for var, val in zip(self.pm.variables, mean_meteo)}  # mean, a numpy array, acts as a list
             std_meteo_dict  = {var: float(val) for var, val in zip(self.pm.variables, std_meteo)}   # std, a numpy array, acts as a list
 
-            if save_file_name is None:
-                save_path = self.param_path
-            else:
-                save_path = self.param_path.with_stem(save_file_name)
+            original = self.param_path
+            save_path = original if file_name_suffix is None else original.with_stem(original.stem + "_" + file_name_suffix)
 
             # Load old data if it exists
             if save_path.exists() and save_path.is_file():
@@ -2128,7 +2126,7 @@ if __name__ == "__main__":
     if len(dict["missing_hours"]) > 0:
         print(dict["missing_hours"])
 
-    dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=6, save_file_name="param_2018_2025_modulo6")
+    dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=6, file_name_suffix="208_2025_m6")
 
     # mean_meteo, std_meteo, mean_tempo, std_tempo, \
     # mean_meteo_ready_cpu, std_meteo_ready_cpu, mean_meteo_ready_cuda, std_meteo_ready_cuda, \
