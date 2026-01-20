@@ -714,17 +714,18 @@ class Zeus_Dataset(Dataset):
             step = 0
 
         skip = -1
-        for year, month, day, hour, file_path in self.iter_hourly_paths():
-            current_dt = datetime(year, month, day, hour)
-            if inclusive_left and current_dt < inclusive_left:
-                continue
-            if inclusive_right and current_dt > inclusive_right:
-                continue
 
+        dt = inclusive_left - timedelta(hours=modulo)
+        right = inclusive_right - timedelta(hours=modulo)
+        while dt <= right:
+            dt += timedelta(hours=modulo)
+            year, month, day, hour = dt.year, dt.month, dt.day, dt.hour
+            
             skip += 1
             if skip < step:
                 continue
 
+            file_path = self.get_file_path_npz(year, month, day, hour, modulo)
             data = load(file_path)
             
             # Make sure the order follows self.pm.variables
@@ -813,21 +814,19 @@ class Zeus_Dataset(Dataset):
             step = 0
 
         skip = -1
-        for year, month, day, hour, file_path in self.iter_hourly_paths():
-            current_dt = datetime(year, month, day, hour)
-            if inclusive_left and current_dt < inclusive_left:
-                continue
-            if inclusive_right and current_dt > inclusive_right:
-                continue
 
+        dt = inclusive_left - timedelta(hours=modulo)
+        right = inclusive_right - timedelta(hours=modulo)
+        while dt <= right:
+            dt += timedelta(hours=modulo)
+            year, month, day, hour = dt.year, dt.month, dt.day, dt.hour
+            
             skip += 1
             if skip < step:
                 continue
 
+            file_path = self.get_file_path_npz(year, month, day, hour, modulo)
             data = load(file_path)
-            if any(key not in data for key in self.pm.variables):
-                print(f"Skipping {file_path}, missing variables")
-                continue
 
             # Make sure the order follows self.pm.variables
             arr = np.stack([data[key] for key in self.pm.variables], axis=0)  # (C, H, W)
@@ -915,13 +914,13 @@ class Zeus_Dataset(Dataset):
             step = 0
 
         skip = -1
-        for year, month, day, hour, file_path in self.iter_hourly_paths():
-            current_dt = datetime(year, month, day, hour)
-            if inclusive_left and current_dt < inclusive_left:
-                continue
-            if inclusive_right and current_dt > inclusive_right:
-                continue
-
+        
+        dt = inclusive_left - timedelta(hours=modulo)
+        right = inclusive_right - timedelta(hours=modulo)
+        while dt <= right:
+            dt += timedelta(hours=modulo)
+            year, month, day, hour = dt.year, dt.month, dt.day, dt.hour
+            
             skip += 1
             if skip < step:
                 continue
@@ -1010,13 +1009,13 @@ class Zeus_Dataset(Dataset):
             step = 0
 
         skip = -1
-        for year, month, day, hour, file_path in self.iter_hourly_paths():
-            current_dt = datetime(year, month, day, hour)
-            if inclusive_left and current_dt < inclusive_left:
-                continue
-            if inclusive_right and current_dt > inclusive_right:
-                continue
-
+        
+        dt = inclusive_left - timedelta(hours=modulo)
+        right = inclusive_right - timedelta(hours=modulo)
+        while dt <= right:
+            dt += timedelta(hours=modulo)
+            year, month, day, hour = dt.year, dt.month, dt.day, dt.hour
+            
             skip += 1
             if skip < step:
                 continue
