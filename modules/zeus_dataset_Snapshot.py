@@ -34,8 +34,13 @@ class Snapshot:
     
     # temporary. can be added and changed any time
     meteo_dims = len(VARIABLE_NAME_LIST_UNCHANGEABLE)
-    tempo_dims = 4      # [sin_orbital_angle', 'cos_orbital_angle', 'sin_solor_hour', 'cos_solar_hour']
-    geo_dense_dims = 4  # ['orograph', 'sin_lat', 'sin_lon', 'cos_lon']     # We do need lon besides solor_hour
+    
+    # torch.concat([sin_cos_earth_orbit_angle_tensor_era5, sin_cos_true_solar_hours_tensor_era5], dim=0)
+    tempo_dims = 4      # order: [sin_orbital_angle', 'cos_orbital_angle', 'sin_solor_hour', 'cos_solar_hour']
+    
+    # tensor = torch.concat([file_stack, geo_sin_lat_sin_cos_lon_tensor], dim=0)
+    geo_dense_dims = 4  # order: ['orograph', 'sin_lat', 'sin_lon', 'cos_lon']     # We do need lon besides solor_hour
+    
     geo_cat_dims = 2    # ['land_sea_mask', 'soil_type']
     
     #----------------------- Strategy ---------------------

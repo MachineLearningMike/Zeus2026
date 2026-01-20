@@ -777,7 +777,7 @@ class Zeus_Dataset(Dataset):
         var_mean_dict = None
         
         if save_file_name is not None: save_file_name += "_var_mean_meteo"
-        checkpoint_path = self.mean_meteo_checkpoint_path if save_file_name is None else self.mean_meteo_checkpoint_path.with_stem(save_file_name)
+        checkpoint_path = self.var_mean_meteo_checkpoint_path if save_file_name is None else self.var_mean_meteo_checkpoint_path.with_stem(save_file_name)
 
         # Load checkpoint if exists
         try:
@@ -881,7 +881,7 @@ class Zeus_Dataset(Dataset):
         Snapshot.set_original_settings(factor10=self.pm.factor10)
 
         if save_file_name is not None: save_file_name += "_mean_tempo"
-        checkpoint_path = self.mean_meteo_checkpoint_path if save_file_name is None else self.mean_meteo_checkpoint_path.with_stem(save_file_name)
+        checkpoint_path = self.mean_tempo_checkpoint_path if save_file_name is None else self.mean_tempo_checkpoint_path.with_stem(save_file_name)
 
         # Load checkpoint if exists
         try:
@@ -976,7 +976,7 @@ class Zeus_Dataset(Dataset):
         Snapshot.set_original_settings(factor10=self.pm.factor10)
 
         if save_file_name is not None: save_file_name += "_var_mean_tempo"
-        checkpoint_path = self.mean_meteo_checkpoint_path if save_file_name is None else self.mean_meteo_checkpoint_path.with_stem(save_file_name)
+        checkpoint_path = self.var_mean_tempo_checkpoint_path if save_file_name is None else self.var_mean_tempo_checkpoint_path.with_stem(save_file_name)
 
         # Load checkpoint if exists
         try:
