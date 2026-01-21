@@ -2217,7 +2217,7 @@ def copy_except_cds(src, dst):
             dst_file = os.path.join(dst_dir, file)
             shutil.copy2(src_file, dst_file)
 
-    print(f"✅ All contents (except 'CDS') copied from {src} → {dst}")
+    print(f"All contents (except 'CDS') copied from {src} → {dst}")
     
 def list_cds_variables(dataset):
     """Return all variable names for a CDS ERA5 dataset."""
