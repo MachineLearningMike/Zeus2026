@@ -276,9 +276,9 @@ class Zeus_Dataset(Dataset):
             pass
         
         if dict is not None:                       
-            print(f"==================================== snapshot at {year}/{month}/{day}/{hour} exists!")               
+            print(f"--------------------------------------------------- Meteo file at {year}/{month}/{day}/{hour} ready !")               
         else:       # dict == None
-            print(F"!!! Snapshot at {year}/{month}/{day}/{hour} not ready. Downloading (again) ...")
+            print(F"--------------------------------------------------- Meteo file at {year}/{month}/{day}/{hour} (re-)downloading ...")
 
             variance_dict = {}
 
@@ -468,9 +468,12 @@ class Zeus_Dataset(Dataset):
         # Step 1 — Scan all hours first
         hours = []
         for year, month, day, hour, path in self.iter_hourly_paths():
+            assert int(path.stem) in range(24), f"{year}, {month}, {day}, {path}"
+            assert path.suffix == ".npz", f"{year}, {month}, {day}, {path}"
             hn = self.hours_since_epoch(year, month, day, hour)
             hours.append(hn)
-        assert sorted(hours) == sorted(list(set(hours))) 
+        # assert sorted(hours) == sorted(list(set(hours))) 
+        n_unexpected_hours = len(hours) - len(list(set(hours)))
  
         existing_hours = sorted(hours)
         dataset_min = existing_hours[0]
@@ -508,6 +511,7 @@ class Zeus_Dataset(Dataset):
 
         return {
             "count": len(existing_hours),
+            "n_unexpected_hours" : n_unexpected_hours,
             "first_hour": first_hour,
             "last_hour": last_hour,
             "missing_hours": missing,
@@ -531,7 +535,7 @@ class Zeus_Dataset(Dataset):
         torch.save(data, path)
         return       
 
-    def get_std_meteo_downloading_if_not_ready(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6, file_name_suffix=None):
+    def get_mean_meteo_downloading_if_not_ready(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=10, modulo=6, file_name_suffix=None):
         """
         Compute the mean over all variables across hourly files, with checkpointing.
         """
@@ -541,7 +545,8 @@ class Zeus_Dataset(Dataset):
         original = self.mean_meteo_onestop_checkpoint_path
         checkpoint_path = original if file_name_suffix is None else original.with_stem(original.stem + "_" + file_name_suffix)
 
-        # Load checkpoint if exists
+        task = "mean_meteo"
+
         try:
             checkpoint = self.read_checkpoint(
                 checkpoint_path,
@@ -563,13 +568,14 @@ class Zeus_Dataset(Dataset):
             ck_left_match = (ck_left == inclusive_left) or (ck_left is None and inclusive_left is None)
             ck_right_match = (ck_right == inclusive_right) or (ck_right is None and inclusive_right is None)
             if mean is None or not (ck_left_match and ck_right_match):
-                print("Checkpoint missing or date range mismatch. Starting new mean meteo...")
+                print(f"Checkpoint missing or date range mismatch. Starting new {task} fram scratch...")
                 mean = np.zeros((len(self.pm.meteo_variables),), dtype=np.float32)
                 step = 0
             else:
-                print(f"Resuming existing mean meteo... step={step}")
+                print(f"Found step {step}-th record. Resuming {task} from step =. {step+1}..")
+                step = step
         except:
-            print("No checkpoint found for mean meteo. Starting new mean meteo...")
+            print(f"No checkpoint found for mean meteo. Starting new {task} from scratch...")
             mean = np.zeros((len(self.pm.meteo_variables),), dtype=np.float32)
             step = 0
 
@@ -592,7 +598,7 @@ class Zeus_Dataset(Dataset):
                 )
             if data is None:
                 print("Filed to load data. Quiting...") 
-                sys.exit()
+                sys.exit(1)
             
             # Make sure the order follows self.pm.meteo_variables
             arr = np.stack([data[key] for key in self.pm.meteo_variables], axis=0)  # (C, H, W)
@@ -604,7 +610,7 @@ class Zeus_Dataset(Dataset):
                 _mean = arr.mean(axis=(1, 2))
 
             if np.any(np.isnan(_mean)):
-                raise Exception(f"NaN found in hourly mean: {dt}")
+                raise Exception(f"NaN found in hourly mean: {dt}. Quiting...")
 
             step += 1
             mean = mean * (step - 1)/step + _mean / step
@@ -636,7 +642,7 @@ class Zeus_Dataset(Dataset):
         return mean, step
 
 
-    def get_mean_meteo(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6, file_name_suffix=None):
+    def get_mean_meteo(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=10, modulo=6, file_name_suffix=None):
         """
         Compute the mean over all variables across hourly files, with checkpointing.
         """
@@ -646,7 +652,8 @@ class Zeus_Dataset(Dataset):
         original = self.mean_meteo_checkpoint_path
         checkpoint_path = original if file_name_suffix is None else original.with_stem(original.stem + "_" + file_name_suffix)
 
-        # Load checkpoint if exists
+        task = "mean_meteo"
+        
         try:
             checkpoint = self.read_checkpoint(
                 checkpoint_path,
@@ -668,13 +675,14 @@ class Zeus_Dataset(Dataset):
             ck_left_match = (ck_left == inclusive_left) or (ck_left is None and inclusive_left is None)
             ck_right_match = (ck_right == inclusive_right) or (ck_right is None and inclusive_right is None)
             if mean is None or not (ck_left_match and ck_right_match):
-                print("Checkpoint missing or date range mismatch. Starting new mean meteo...")
+                print(f"Checkpoint missing or date range mismatch. Starting new {task} fram scratch...")
                 mean = np.zeros((len(self.pm.meteo_variables),), dtype=np.float32)
                 step = 0
             else:
-                print(f"Resuming existing mean meteo... step={step}")
+                print(f"Found step {step}-th record. Resuming {task} from step =. {step+1}..")
+                step = step
         except:
-            print("No checkpoint found for mean meteo. Starting new mean meteo...")
+            print(f"No checkpoint found for mean meteo. Starting new {task} from scratch...")
             mean = np.zeros((len(self.pm.meteo_variables),), dtype=np.float32)
             step = 0
 
@@ -735,7 +743,7 @@ class Zeus_Dataset(Dataset):
         return mean, step
 
 
-    def get_var_meteo(self, mean, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6, file_name_suffix=None):
+    def get_var_meteo(self, mean, inclusive_left=None, inclusive_right=None, checkpoint_interval=10, modulo=6, file_name_suffix=None):
         """
         Compute the standard deviation over all variables across hourly files, with checkpointing.
         Uses incremental variance formula.
@@ -746,7 +754,8 @@ class Zeus_Dataset(Dataset):
         original = self.variance_meteo_checkpoint_path
         checkpoint_path = original if file_name_suffix is None else original.with_stem(original.stem + "_" + file_name_suffix)
 
-        # Load checkpoint if exists
+        task = "variance_meteo"
+        
         try:
             checkpoint = self.read_checkpoint(
                 checkpoint_path,
@@ -767,15 +776,16 @@ class Zeus_Dataset(Dataset):
             
             # Check consistency with provided boundaries
             ck_left_match = (ck_left == inclusive_left) or (ck_left is None and inclusive_left is None)
-            ck_right_match = (ck_right == inclusive_right) or (ck_right is None and inclusive_right is None)
+            ck_right_match = (ck_right == inclusive_right) or (ck_right is None and inclusive_right is None)            
             if variance is None or not (ck_left_match and ck_right_match):
-                print("Checkpoint missing or date range mismatch. Starting new std meteo...")
+                print(f"Checkpoint missing or date range mismatch. Starting new {task} fram scratch...")
                 variance = np.ones((len(self.pm.meteo_variables),), dtype=np.float32)
                 step = 0
             else:
-                print(f"Resuming existing std meteo... step={step}")
+                print(f"Found step {step}-th record. Resuming {task} from step =. {step+1}..")
+                step = step
         except:
-            print("No checkpoint found for std meteo. Starting new std meteo...")
+            print(f"No checkpoint found for mean meteo. Starting new {task} from scratch...")
             variance = np.ones((len(self.pm.meteo_variables),), dtype=np.float32)
             step = 0
 
@@ -837,7 +847,7 @@ class Zeus_Dataset(Dataset):
         return variance, step
     
 
-    def get_mean_tempo(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6, file_name_suffix=None):
+    def get_mean_tempo(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=10, modulo=6, file_name_suffix=None):
         """
         Compute the mean over all variables across hourly files, with checkpointing.
         """        
@@ -853,7 +863,8 @@ class Zeus_Dataset(Dataset):
         original = self.mean_tempo_checkpoint_path
         checkpoint_path = original if file_name_suffix is None else original.with_stem(original.stem + "_" + file_name_suffix)
 
-        # Load checkpoint if exists
+        task = "mean_tempo"
+
         try:
             checkpoint = self.read_checkpoint(
                 checkpoint_path,
@@ -875,13 +886,14 @@ class Zeus_Dataset(Dataset):
             ck_left_match = (ck_left == inclusive_left) or (ck_left is None and inclusive_left is None)
             ck_right_match = (ck_right == inclusive_right) or (ck_right is None and inclusive_right is None)
             if mean is None or not (ck_left_match and ck_right_match):
-                print("Checkpoint missing or date range mismatch. Starting new mean tempo...")
+                print(f"Checkpoint missing or date range mismatch. Starting new {task} fram scratch...")
                 mean = np.zeros((Snapshot.tempo_dims,), dtype=np.float32)
                 step = 0
             else:
-                print(f"Resuming existing mean tempo... step={step}")
+                print(f"Found step {step}-th record. Resuming {task} from step =. {step+1}..")
+                step = step
         except:
-            print("No checkpoint found for mean tempo. Starting new mean tempo...")
+            print(f"No checkpoint found for mean meteo. Starting new {task} from scratch...")
             mean = np.zeros((Snapshot.tempo_dims,), dtype=np.float32)
             step = 0
 
@@ -939,7 +951,7 @@ class Zeus_Dataset(Dataset):
         return mean, step
 
 
-    def get_var_tempo(self, mean, inclusive_left=None, inclusive_right=None, checkpoint_interval=1, modulo=6, file_name_suffix=None):
+    def get_var_tempo(self, mean, inclusive_left=None, inclusive_right=None, checkpoint_interval=10, modulo=6, file_name_suffix=None):
         """
         Compute the standard deviation over all variables across hourly files, with checkpointing.
         Uses incremental variance formula.
@@ -955,6 +967,8 @@ class Zeus_Dataset(Dataset):
         
         original = self.variance_tempo_checkpoint_path
         checkpoint_path = original if file_name_suffix is None else original.with_stem(original.stem + "_" + file_name_suffix)
+        
+        task = "variance_tempo"
 
         # Load checkpoint if exists
         try:
@@ -978,16 +992,17 @@ class Zeus_Dataset(Dataset):
             ck_left_match = (ck_left == inclusive_left) or (ck_left is None and inclusive_left is None)
             ck_right_match = (ck_right == inclusive_right) or (ck_right is None and inclusive_right is None)
             if variance is None or not (ck_left_match and ck_right_match):
-                print("Checkpoint missing or date range mismatch. Starting new std tempo...")
+                print(f"Checkpoint missing or date range mismatch. Starting new {task} fram scratch...")
                 variance = np.ones((Snapshot.tempo_dims,), dtype=np.float32)
                 step = 0
             else:
-                print(f"Resuming existing std tempo... step={step}")
+                print(f"Found step {step}-th record. Resuming {task} from step =. {step+1}..")
+                step = step
         except:
-            print("No checkpoint found for std tempo. Starting new std tempo...")
+            print(f"No checkpoint found for mean meteo. Starting new {task} from scratch...")
             variance = np.ones((Snapshot.tempo_dims,), dtype=np.float32)
             step = 0
-
+            
         skip = -1
         
         dt = inclusive_left - timedelta(hours=modulo)
@@ -1063,7 +1078,7 @@ class Zeus_Dataset(Dataset):
         #     modulo = modulo
         # )
 
-        mean_meteo, m = self.get_std_meteo_downloading_if_not_ready(
+        mean_meteo, m = self.get_mean_meteo_downloading_if_not_ready(
             inclusive_left=inclusive_left,
             inclusive_right=inclusive_right,
             modulo = modulo, file_name_suffix=file_name_suffix
@@ -1217,138 +1232,183 @@ class Zeus_Dataset(Dataset):
     #----------------- Visualize ---------------------
     
     def play_weather_snapshots(self, inclusive_left, inclusive_right, modulo):
-        
         import keyboard
+        import matplotlib
+        # Set backend BEFORE any other matplotlib imports
+        matplotlib.use('TkAgg')  # or 'Qt5Agg'
+        
         import matplotlib.pyplot as plt
-        from matplotlib import colors
+        import cartopy.crs as ccrs
+        import numpy as np
+        from datetime import timedelta
+        import time
+        
+        # Define global variables at the beginning of the function
+        _fig = None
+        _ax = None
+        _im = None
+        _cbar = None
         
         def get_key():
             """
-            Wait for and return arrow key presses.
+            Get the most recent key press without buffering.
+            Returns None if no key is currently pressed.
             """
-            # Wait for any key press
-            key = keyboard.read_key()
+            import keyboard
+            import time
             
-            # Map to our command names
-            key_map = {
+            # Check all keys we care about
+            keys_to_check = {
                 'up': 'up',
                 'down': 'down', 
                 'left': 'left',
                 'right': 'right',
                 'q': 'quit',
+                '1': '1',
+                '2': '2',
+                '3': '3',
+                '4': '4',
+                '5': '5',
                 'esc': 'quit'
             }
             
-            return key_map.get(key, None)
+            # Check if any key is currently pressed
+            for key, action in keys_to_check.items():
+                if keyboard.is_pressed(key):
+                    # Wait for key release to ensure we don't get multiple triggers
+                    while keyboard.is_pressed(key):
+                        time.sleep(0.01)
+                    return action
+            
+            return None
         
-        def show_array(arr, variable, dt):
-            """
-            Display a 3D array (C, H, W) as multiple 2D plots (one per channel)
-            or as a single composite image.
-            """
-            # Clear previous plot
-            plt.clf()
+        def show_array(arr, variable, dt, modulo):
+            nonlocal _fig, _ax, _im, _cbar
             
-            # Handle different array shapes
-            if len(arr.shape) == 3:
-                channels, height, width = arr.shape
+            # Create figure if it doesn't exist
+            if _fig is None:
+                print("Creating new figure...")
+                _fig = plt.figure(figsize=(10, 7))
+                _ax = plt.axes(projection=ccrs.PlateCarree())
                 
-                # Create subplots for each channel
-                fig, axes = plt.subplots(1, channels, figsize=(5*channels, 5))
+                # Calculate the correct extent for your data
+                # Your data: (721, 1440) = (lat, lon)
+                # Latitude: -90 to +90 with 721 points
+                # Longitude: -180 to +180 with 1440 points
                 
-                # If only one channel, make axes iterable
-                if channels == 1:
-                    axes = [axes]
+                # Calculate step sizes
+                lat_step = 180.0 / (arr.shape[0] - 1)  # From -90 to +90
+                lon_step = 360.0 / (arr.shape[1] - 1)  # From -180 to +180
                 
-                for c in range(channels):
-                    # Get data for this channel
-                    channel_data = arr[c]
-                    
-                    # Determine colormap based on data
-                    if np.nanmin(channel_data) >= 0 and np.nanmax(channel_data) <= 1:
-                        # Normalized data [0,1]
-                        cmap = 'viridis'
-                        vmin, vmax = 0, 1
-                    else:
-                        # Use diverging colormap for data with negative values
-                        cmap = 'RdBu_r'
-                        abs_max = max(abs(np.nanmin(channel_data)), abs(np.nanmax(channel_data)))
-                        vmin, vmax = -abs_max, abs_max
-                    
-                    # Plot
-                    im = axes[c].imshow(channel_data, cmap=cmap, vmin=vmin, vmax=vmax)
-                    axes[c].set_title(f'Channel {c}')
-                    axes[c].axis('off')
-                    plt.colorbar(im, ax=axes[c], fraction=0.046, pad=0.04)
-            
-            elif len(arr.shape) == 2:
-                # Single 2D array
-                plt.imshow(arr, cmap='viridis')
-                plt.colorbar()
-                plt.axis('off')
-                plt.title(f'2D Array - Shape: {arr.shape}, varable: {variable}, datetime: {dt}')
+                # Calculate extent
+                # imshow expects: [left, right, bottom, top]
+                left = -180.0
+                right = 180.0
+                bottom = -90.0
+                top = 90.0
+                
+                # Plot with correct extent
+                _im = _ax.imshow(arr,
+                                transform=ccrs.PlateCarree(),
+                                extent=[left, right, bottom, top],
+                                cmap='viridis',
+                                origin='lower')
+                
+                # Add boundaries
+                _ax.coastlines(resolution='110m', linewidth=0.5)
+                _ax.gridlines(draw_labels=True, linewidth=0.5, color='gray', alpha=0.5, linestyle='--')
+                
+                # Add colorbar
+                _cbar = plt.colorbar(_im, ax=_ax)
+                _cbar.set_label(variable)
+                
+                # Set title
+                _ax.set_title(f'{variable} | {dt.strftime("%Y-%m-%d %H")}, mod: {modulo}')
+                
+                # Show window (non-blocking)
+                plt.show(block=False)
+                plt.pause(0.5)
             
             else:
-                # Unexpected shape - show statistics
-                print(f"Unexpected array shape: {arr.shape}")
-                print(f"Min: {np.nanmin(arr):.4f}, Max: {np.nanmax(arr):.4f}")
-                print(f"Mean: {np.nanmean(arr):.4f}, Std: {np.nanstd(arr):.4f}")
-                return
+                # Update existing plot
+                _im.set_data(arr)
+                _im.set_clim(vmin=np.nanmin(arr), vmax=np.nanmax(arr))
+                
+                # Update labels
+                _ax.set_title(f'{variable} | {dt.strftime("%Y-%m-%d %H")}, mod: {modulo}')
+                _cbar.set_label(variable)
+                
+                # Force redraw
+                _fig.canvas.draw_idle()
+                _fig.canvas.flush_events()
             
-            # Add overall title with datetime info
-            plt.suptitle(f'Date: {dt.strftime("%Y-%m-%d %H:%M")} | Variable: {variable}', 
-                        fontsize=12, y=0.95)
-            
-            # Adjust layout and display
-            plt.tight_layout()
-            plt.draw()
-            plt.pause(0.01)  # Small pause to update display
+            # Small pause
+            plt.pause(0.001)
         
         # Main loop -----------------------------------------------------------------------------
         var_id = 0
-        move = 1
         dt = inclusive_left
         
-        # Initialize plot window
-        plt.ion()  # Interactive mode on
-        fig = plt.figure(figsize=(10, 6))
+        # Turn on interactive mode ONCE
+        plt.ion()
         
+        old_path = None
         while inclusive_left <= dt and dt <= inclusive_right:
             year, month, day, hour = dt.year, dt.month, dt.day, dt.hour
 
             file_path = self.get_file_path_npz(year, month, day, hour, modulo)
-            dict_data = load_and_decode(file_path)  # Renamed from dict to avoid shadowing
+            if file_path != old_path:
+                dict_data = load_and_decode(file_path)
+                old_path = file_path
 
             variable = self.pm.meteo_variables[var_id]
             arr = dict_data[variable]  # (C, H, W)
 
-            show_array(arr, variable, dt)
+            # Display the array
+            show_array(arr, variable, dt, modulo)
             
-            print("Controls: ↑/↓: change variable, ←/→: navigate time, q: quit")
+            # Wait for key input
+            key = None
+            start_time = time.time()
             
-            var_changed = False; time_changed = False
-            key = get_key()
+            # Poll for key for up to 0.5 seconds
+            while key is None and (time.time() - start_time < 0.5):
+                key = get_key()
+                if key is None:
+                    time.sleep(0.05)  # Small sleep to prevent CPU overuse
+            
+            # Process key
             if key == "up": 
-                var_id += 1;    var_changed = True
+                var_id += 1
+                var_id = 0 if var_id >= len(self.pm.meteo_variables) else var_id
             elif key == "down": 
-                var_id -= 1;    var_changed = True
+                var_id -= 1
+                var_id = len(self.pm.meteo_variables) - 1 if var_id < 0 else var_id
             elif key == "left": 
-                dir = -1;      time_changed = True
+                dt = dt - timedelta(hours=modulo)
             elif key == "right": 
-                dir = 1;       time_changed = True
+                dt = dt + timedelta(hours=modulo)
+            elif key == '1':
+                modulo = 1
+            elif key == '2':
+                modulo = 6
+            elif key == '3':
+                modulo = 12
+            elif key == '4':
+                modulo = 24
+            elif key == '5':
+                modulo = 24 * 30
             elif key == "quit":
                 print("Quitting...")
                 break
-            
-            if var_changed:
-                var_id = min(max(0, var_id), len(self.pm.meteo_variables) - 1)
-
-            if time_changed:
-                dt = dt + timedelta(hours=dir*modulo)
+            elif key is None:
+                # No key pressed, continue to next iteration
+                continue
         
         # Cleanup
         plt.ioff()
-        plt.close(fig)
+        if _fig is not None:
+            plt.close(_fig)
 
     #----------------- Standardize --------------------
 
@@ -2232,13 +2292,13 @@ if __name__ == "__main__":
     # pass
 
 
-    inclusive_left = datetime(2025, 1, 1, 0)
-    inclusive_right = datetime(2025, 1, 2, 23)
+    # inclusive_left = datetime(2025, 1, 1, 0)
+    # inclusive_right = datetime(2025, 1, 2, 23)
 
-    # inclusive_left = datetime(2018, 1, 1, 0)
-    # inclusive_right = datetime(2025, 12, 31, 23)
+    inclusive_left = datetime(2018, 1, 1, 0)
+    inclusive_right = datetime(2025, 12, 31, 23)
 
-    # dataset.play_weather_snapshots(inclusive_left, inclusive_right, modulo=1)
+    dataset.play_weather_snapshots(inclusive_left, inclusive_right, modulo=6)
 
     # dataset.download_meteo_variables(
     #     variables=VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map = var_name_map,
@@ -2250,23 +2310,26 @@ if __name__ == "__main__":
     #     simulated=True
     # )
 
-    # mean_meteo, m = dataset.get_std_meteo_downloading_if_not_ready(
+    # mean_meteo, m = dataset.get_mean_meteo_downloading_if_not_ready(
     #     inclusive_left=inclusive_left,
     #     inclusive_right=inclusive_right,
     #     modulo = 1,
     # )
 
+    inclusive_left = datetime(2018, 1, 1, 0)
+    inclusive_right = datetime(2025, 12, 31, 23)
+
     # dict = dataset.analyze_hourly_paths(inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=1)
-    # print(f"count: {dict['count']}, first_hour: {dict['first_hour']}, last_hour: {dict['last_hour']}, n_missing_hours: {len(dict['missing_hours'])}")
+    # print(f"count: {dict['count']}, n_unexpected_hours: {dict['n_unexpected_hours']}, first_hour: {dict['first_hour']}, last_hour: {dict['last_hour']}, n_missing_hours: {len(dict['missing_hours'])}")
 
-    dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=1, file_name_suffix="208_2025_m1")
-    dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=6, file_name_suffix="208_2025_m6")
+    # dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=6, file_name_suffix="2008_2025_m6")
+    # dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=1, file_name_suffix="2008_2025_m1")
 
-    mean_meteo, std_meteo, mean_tempo, std_tempo, \
-    mean_meteo_ready_cpu, std_meteo_ready_cpu, mean_meteo_ready_cuda, std_meteo_ready_cuda, \
-    mean_tempo_ready_cpu, std_tempo_ready_cpu, mean_tempo_ready_cuda, std_tempo_ready_cuda, \
-    area_weights_cuda \
-    = dataset.load_dataset_params(file_name_suffix="208_2025_m6")
+    # mean_meteo, std_meteo, mean_tempo, std_tempo, \
+    # mean_meteo_ready_cpu, std_meteo_ready_cpu, mean_meteo_ready_cuda, std_meteo_ready_cuda, \
+    # mean_tempo_ready_cpu, std_tempo_ready_cpu, mean_tempo_ready_cuda, std_tempo_ready_cuda, \
+    # area_weights_cuda \
+    # = dataset.load_dataset_params(file_name_suffix="208_2025_m6")
 
     # print("-------- mean_meteo: ", mean_meteo.shape, mean_meteo[-3:])
     # print("-------- std_meteo: ", std_meteo.shape, std_meteo[-3:])
