@@ -1277,20 +1277,20 @@ class Zeus_Dataset(Dataset):
         var_id = 0
         dt = inclusive_left
                 
-        old_path = None
+        old_path = None; key_stroked = True
         while inclusive_left <= dt and dt <= inclusive_right:
+            if key_stroked:
+                file_path = self.get_file_path_npz(dt.year, dt.month, dt.day, dt.hour, modulo)
+                if file_path != old_path:
+                    dict_data = load_and_decode(file_path)
+                    old_path = file_path
 
-            file_path = self.get_file_path_npz(dt.year, dt.month, dt.day, dt.hour, modulo)
-            if file_path != old_path:
-                dict_data = load_and_decode(file_path)
-                old_path = file_path
+                variable = self.pm.meteo_variables[var_id]
+                arr_y = dict_data[variable]  # (C, H, W)
 
-            variable = self.pm.meteo_variables[var_id]
-            arr = dict_data[variable]  # (C, H, W)
-
-            # Display the array
+                # Display the array
+                show_array(arr1=arr_y, arr2=None, variable1=variable, variable2="", dt=dt, modulo=modulo)
             
-            show_array(arr1=arr, arr2=None, variable1=variable, variable2="", dt=datetime(2000,1,1,0), modulo=0)
             # Wait for key input
             key = None
             start_time = time.time()
@@ -1299,9 +1299,11 @@ class Zeus_Dataset(Dataset):
             while key is None and (time.time() - start_time < 0.5):
                 key = get_key()
                 if key is None:
-                    time.sleep(0.05)  # Small sleep to prevent CPU overuse
+                    time.sleep(0.1)  # Small sleep to prevent CPU overuse
             
             # Process key
+            key_stroked = True
+            
             if key == "up": 
                 var_id += 1
                 var_id = 0 if var_id >= len(self.pm.meteo_variables) else var_id
@@ -1323,26 +1325,26 @@ class Zeus_Dataset(Dataset):
             elif key == '5':
                 modulo = 24 * 30
             elif key == 'dec':
-                h = dt.hour
                 dict = Snapshot.get_season_events(dt.year)
-                dt = dict['dec_solstice'].replace(hour=h)
+                dt = dict['dec_solstice'].replace(hour=dt.hour, minute=0)
             elif key == 'mar':
                 h = dt.hour
                 dict = Snapshot.get_season_events(dt.year)
-                dt = dict['mar_equinox'].replace(hour=h)
+                dt = dict['mar_equinox'].replace(hour=dt.hour, minute=0)
             elif key == 'jun':
                 h = dt.hour
                 dict = Snapshot.get_season_events(dt.year)
-                dt = dict['jun_solstice'].replace(hour=h)
+                dt = dict['jun_solstice'].replace(hour=dt.hour, minute=0)
             elif key == 'sep':
                 h = dt.hour
                 dict = Snapshot.get_season_events(dt.year)
-                dt = dict['sep_equinox'].replace(hour=h)
+                dt = dict['sep_equinox'].replace(hour=dt.hour, minute=0)
             elif key == "quit":
                 print("Quitting...")
                 break
             elif key is None:
                 # No key pressed, continue to next iteration
+                key_stroked = False
                 continue
 
         finalize_for_show_array()
@@ -1396,27 +1398,31 @@ class Zeus_Dataset(Dataset):
         var_id = 0
         dt = inclusive_left
                 
-        old_path = None
+        old_path = None; key_stroked = True
         while inclusive_left <= dt and dt <= inclusive_right:
+            if key_stroked:
+                file_path = self.get_file_path_npz(dt.year, dt.month, dt.day, dt.hour, modulo)
+                if file_path != old_path:
+                    dict_data = load_and_decode(file_path)
+                    old_path = file_path
 
-            file_path = self.get_file_path_npz(dt.year, dt.month, dt.day, dt.hour, modulo)
-            if file_path != old_path:
-                dict_data = load_and_decode(file_path)
-                old_path = file_path
+                variable = self.pm.meteo_variables[var_id]
+                arr_y = dict_data[variable]  # (C, H, W)
 
-            variable = self.pm.meteo_variables[var_id]
-            arr_y = dict_data[variable]  # (C, H, W)
-
-            pred = None
-            dt_x = dt - timedelta(hours=modulo)
-            if inclusive_left <= dt_x and dt_x <= inclusive_right:
-                meteo_x = torch.from_numpy(self.load_decode_get_array_for_variables(dt_x, modulo=modulo, variables=self.pm.meteo_variables))
-                ss_x = Snapshot(dt_x.year, dt_x.month, dt_x.day, dt_x.hour, meteo=meteo_x, meteo_unnormal=None)
+                pred = None; e=s=time.time()
+                dt_x = dt - timedelta(hours=modulo)
+                if inclusive_left <= dt_x and dt_x <= inclusive_right:
+                    meteo_x = torch.from_numpy(self.load_decode_get_array_for_variables(dt_x, modulo=modulo, variables=self.pm.meteo_variables))
+                    ss_x = Snapshot(dt_x.year, dt_x.month, dt_x.day, dt_x.hour, meteo=meteo_x, meteo_unnormal=None)
+                
+                    s = time.time()
+                    pred = fast_physics_t2m_prediction(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, dt_x, delta_hours=modulo)
+                    e = time.time()
+                    # pred = ss_x.meteo[0].numpy() works   # array_x[0].numpy works
+                
+                show_array(arr1=arr_y, arr2=pred, variable1=variable, variable2=f"time: {e-s:.3f}", dt=dt, modulo=modulo)
             
-                pred = fast_physics_t2m_prediction(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, dt_x, delta_hours=modulo)
-                # pred = ss_x.meteo[0].numpy() works   # array_x[0].numpy works
             
-            show_array(arr1=arr_y, arr2=pred, variable1=variable, variable2=variable, dt=dt, modulo=modulo)
             # Wait for key input
             key = None
             start_time = time.time()
@@ -1425,9 +1431,11 @@ class Zeus_Dataset(Dataset):
             while key is None and (time.time() - start_time < 0.5):
                 key = get_key()
                 if key is None:
-                    time.sleep(0.05)  # Small sleep to prevent CPU overuse
+                    time.sleep(0.1)  # Small sleep to prevent CPU overuse
             
             # Process key
+            key_stroked = True
+            
             if key == "up": 
                 var_id += 1
                 var_id = 0 if var_id >= len(self.pm.meteo_variables) else var_id
@@ -1449,26 +1457,26 @@ class Zeus_Dataset(Dataset):
             elif key == '5':
                 modulo = 24 * 30
             elif key == 'dec':
-                h = dt.hour
                 dict = Snapshot.get_season_events(dt.year)
-                dt = dict['dec_solstice'].replace(hour=h)
+                dt = dict['dec_solstice'].replace(hour=dt.hour, minute=0)
             elif key == 'mar':
                 h = dt.hour
                 dict = Snapshot.get_season_events(dt.year)
-                dt = dict['mar_equinox'].replace(hour=h)
+                dt = dict['mar_equinox'].replace(hour=dt.hour, minute=0)
             elif key == 'jun':
                 h = dt.hour
                 dict = Snapshot.get_season_events(dt.year)
-                dt = dict['jun_solstice'].replace(hour=h)
+                dt = dict['jun_solstice'].replace(hour=dt.hour, minute=0)
             elif key == 'sep':
                 h = dt.hour
                 dict = Snapshot.get_season_events(dt.year)
-                dt = dict['sep_equinox'].replace(hour=h)
+                dt = dict['sep_equinox'].replace(hour=dt.hour, minute=0)
             elif key == "quit":
                 print("Quitting...")
                 break
             elif key is None:
                 # No key pressed, continue to next iteration
+                key_stroked = False
                 continue
 
         finalize_for_show_array()
@@ -2371,7 +2379,7 @@ if __name__ == "__main__":
     inclusive_left = datetime(2018, 1, 1, 0, tzinfo=timezone.utc)
     inclusive_right = datetime(2025, 12, 31, 23, tzinfo=timezone.utc)
 
-    # dataset.play_weather_snapshots(inclusive_left, inclusive_right, modulo=6)
+    dataset.play_weather_snapshots(inclusive_left, inclusive_right, modulo=6)
 
     dataset.play_physical_prediction(inclusive_left, inclusive_right, modulo=6)
 
