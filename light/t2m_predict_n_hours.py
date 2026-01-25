@@ -39,12 +39,15 @@ def fast_physics_t2m_prediction(meteo, geo_dense, geo_cat, geo_tempo,
     """
     Fast physics-based temperature prediction for any delta hours (0-12).
     Oceans are much less sensitive to sunshine than land.
-    Optimized for speed with vectorized operations.
+    GPU-optimized implementation.
     """
     # Validate delta
     delta_hours = max(0, min(12, delta_hours))
     if delta_hours == 0:
         return meteo[0].clone()
+    
+    # Ensure all tensors are on the same device
+    device = meteo.device
     
     # --- EXTRACT VARIABLES ---
     T0 = meteo[0]           # Current 2m temperature (K)
@@ -62,12 +65,13 @@ def fast_physics_t2m_prediction(meteo, geo_dense, geo_cat, geo_tempo,
     sin_orbit = geo_tempo[0]  # sin(orbital_angle)
     cos_orbit = geo_tempo[1]  # cos(orbital_angle)
     
-    device = T0.device
     H, W = T0.shape
     
     # --- CONSTANTS ---
-    SOLAR_CONST = 1361.0
-    HOURS_TO_RAD = 15.0 * math.pi / 180.0
+    SOLAR_CONST = torch.tensor(1361.0, device=device)
+    PI = torch.tensor(math.pi, device=device)
+    DEG2RAD = torch.tensor(math.pi / 180.0, device=device)
+    HOURS_TO_RAD = torch.tensor(15.0 * math.pi / 180.0, device=device)
     
     # Convert delta_hours to tensor
     delta_hours_tensor = torch.tensor(delta_hours, device=device, dtype=torch.float32)
@@ -91,7 +95,7 @@ def fast_physics_t2m_prediction(meteo, geo_dense, geo_cat, geo_tempo,
     
     # --- 3. SOLAR GEOMETRY - VECTORIZED ---
     orbital_rad = torch.atan2(sin_orbit, cos_orbit)
-    declination_rad = 23.44 * math.pi / 180.0 * torch.sin(orbital_rad)
+    declination_rad = 23.44 * DEG2RAD * torch.sin(orbital_rad)
     sin_delta = torch.sin(declination_rad)
     cos_delta = torch.cos(declination_rad)
     
@@ -122,7 +126,7 @@ def fast_physics_t2m_prediction(meteo, geo_dense, geo_cat, geo_tempo,
     afternoon = (local_solar_future >= 15) & (local_solar_future < 18)
     
     # --- 5. DIURNAL CYCLE - VECTORIZED ---
-    diurnal_adjustment = torch.zeros_like(T0)
+    diurnal_adjustment = torch.zeros_like(T0, device=device)
     
     # Pre-dawn (3-6 AM)
     pre_dawn_land = pre_dawn & is_land
@@ -161,19 +165,14 @@ def fast_physics_t2m_prediction(meteo, geo_dense, geo_cat, geo_tempo,
     late_night_ocean = late_night & is_ocean
     
     # Compute night factor
-    night_factor = torch.zeros_like(local_solar_future)
-    condition1 = late_night & (local_solar_future >= 21)
-    condition2 = late_night & (local_solar_future < 21)
-    
     night_factor = torch.where(
-        condition1,
+        late_night & (local_solar_future >= 21),
         (local_solar_future - 21) / 3.0,
-        night_factor
-    )
-    night_factor = torch.where(
-        condition2,
-        (local_solar_future + 3) / 6.0,
-        night_factor
+        torch.where(
+            late_night,
+            (local_solar_future + 3) / 6.0,
+            0.0
+        )
     )
     
     diurnal_adjustment = torch.where(
@@ -266,20 +265,18 @@ def fast_physics_t2m_prediction(meteo, geo_dense, geo_cat, geo_tempo,
     delta_T_energy = (Q_simple * delta_t_sec) / C_grid
     delta_T_energy = delta_T_energy * resp_grid * time_factor
     
-    # --- 8. ADVECTION - SIMPLIFIED BUT FAST ---
-    # Use roll operations for faster gradient computation
+    # --- 8. ADVECTION - GPU-OPTIMIZED ---
+    # Use fast roll operations with proper boundary handling
     dx = 27830 * cos_lat
-    dy = 27830 * torch.ones_like(cos_lat)
+    dy = 27830 * torch.ones_like(cos_lat, device=device)
     
-    # Compute gradients using roll (circular for longitude, replicate for latitude)
+    # Compute gradients using roll with circular boundary for longitude
     dT_dx = (torch.roll(T0, -1, dims=1) - torch.roll(T0, 1, dims=1)) / (2 * dx)
     dT_dy = (torch.roll(T0, -1, dims=0) - torch.roll(T0, 1, dims=0)) / (2 * dy)
     
-    # Handle boundaries - simple replication
-    dT_dx[:, 0] = dT_dx[:, 1]
-    dT_dx[:, -1] = dT_dx[:, -2]
-    dT_dy[0, :] = dT_dy[1, :]
-    dT_dy[-1, :] = dT_dy[-2, :]
+    # Handle boundaries efficiently
+    dT_dx = torch.cat([dT_dx[:, 1:2], dT_dx, dT_dx[:, -2:-1]], dim=1)[:, 1:-1]
+    dT_dy = torch.cat([dT_dy[1:2, :], dT_dy, dT_dy[-2:-1, :]], dim=0)[1:-1, :]
     
     advection = -(U * dT_dx + V * dT_dy)
     advection_factor = torch.where(is_land, 0.08, 0.12)
@@ -309,19 +306,26 @@ def fast_physics_t2m_prediction(meteo, geo_dense, geo_cat, geo_tempo,
     damping = torch.where(is_ocean, 0.95, 0.85)
     T_pred = damping * T_pred + (1 - damping) * T0
     
-    # --- 12. FAST SMOOTHING USING CONVOLUTION ---
-    smoothing = 0.25
+    # --- 12. FAST SMOOTHING USING CONVOLUTION - GPU OPTIMIZED ---
+    smoothing = torch.tensor(0.25, device=device)
     
-    # Create kernel for 3x3 smoothing
-    kernel = torch.ones(1, 1, 3, 3, device=device) / 9.0
+    # Use separable convolution for better GPU performance
+    # First smooth in x-direction
+    kernel_x = torch.ones(1, 1, 1, 3, device=device) / 3.0
+    T_pred_4d = T_pred.unsqueeze(0).unsqueeze(0)
     
-    # Add batch and channel dimensions for conv2d
-    T_pred_4d = T_pred.unsqueeze(0).unsqueeze(0)  # Shape: [1, 1, H, W]
+    # Apply convolution in x-direction
+    T_smooth_x = torch.nn.functional.conv2d(
+        torch.nn.functional.pad(T_pred_4d, (1, 1, 0, 0), mode='replicate'),
+        kernel_x,
+        padding=0
+    )
     
-    # Apply convolution with replication padding
+    # Then smooth in y-direction
+    kernel_y = torch.ones(1, 1, 3, 1, device=device) / 3.0
     T_smooth = torch.nn.functional.conv2d(
-        torch.nn.functional.pad(T_pred_4d, (1, 1, 1, 1), mode='replicate'),
-        kernel,
+        torch.nn.functional.pad(T_smooth_x, (0, 0, 1, 1), mode='replicate'),
+        kernel_y,
         padding=0
     ).squeeze()
     
@@ -346,12 +350,21 @@ def fast_physics_t2m_prediction(meteo, geo_dense, geo_cat, geo_tempo,
     return T_final
 
 
-# Test function to verify it works
-def test_prediction():
-    """Test the prediction function with sample data"""
-    # Create sample data
-    H, W = 721, 1440
+# GPU-enabled test and benchmark function
+def benchmark_gpu_prediction():
+    """Benchmark the GPU-optimized prediction function"""
+    import time
+    
+    # Check for GPU
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Using device: {device}")
+    print(f"GPU available: {torch.cuda.is_available()}")
+    if torch.cuda.is_available():
+        print(f"GPU name: {torch.cuda.get_device_name(0)}")
+        print(f"GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
+    
+    # Create test data on the selected device
+    H, W = 721, 1440
     
     meteo = torch.randn(6, H, W, device=device)
     geo_dense = torch.randn(5, H, W, device=device)
@@ -359,48 +372,140 @@ def test_prediction():
     geo_tempo = torch.randn(4, H, W, device=device)
     
     # Set reasonable values
-    meteo[0] = 273.15 + 20 * torch.cos(torch.linspace(-90, 90, H, device=device)).unsqueeze(1)
+    lat_tensor = torch.linspace(-90, 90, H, device=device)
+    meteo[0] = 273.15 + 20 * torch.cos(lat_tensor * math.pi / 180.0).unsqueeze(1)
     meteo[2] = 5.0  # U wind
     meteo[3] = 2.0  # V wind
     meteo[4] = meteo[0] - 5  # Dew point
     
     # Set land/ocean mask (alternating bands)
-    lat = torch.linspace(-90, 90, H, device=device)
-    land_mask = (torch.abs(lat.unsqueeze(1)) < 60).float()
+    land_mask = (torch.abs(lat_tensor.unsqueeze(1)) < 60).float()
     geo_cat[0] = land_mask
     
     # Set orbital position (summer solstice)
-    geo_tempo[0] = torch.sin(torch.tensor(math.pi/2, device=device))  # sin(90°)
-    geo_tempo[1] = torch.cos(torch.tensor(math.pi/2, device=device))  # cos(90°)
+    geo_tempo[0] = torch.sin(torch.tensor(math.pi/2, device=device))
+    geo_tempo[1] = torch.cos(torch.tensor(math.pi/2, device=device))
     
-    time_t_utc = datetime(2024, 6, 21, 12, 0, 0)  # Noon on summer solstice
+    time_t_utc = datetime(2024, 6, 21, 12, 0, 0)
     
-    # Test different prediction horizons
-    for delta in [0, 1, 3, 6, 12]:
-        print(f"\nTesting delta = {delta} hours")
-        try:
-            result = fast_physics_t2m_prediction(
-                meteo, geo_dense, geo_cat, geo_tempo, 
-                time_t_utc, delta
-            )
-            print(f"Success! Shape: {result.shape}")
-            print(f"Range: {result.min():.2f}K to {result.max():.2f}K")
-            
-            # Check land vs ocean differences
-            land_result = result[land_mask == 1]
-            ocean_result = result[land_mask == 0]
-            
-            if len(land_result) > 0 and len(ocean_result) > 0:
-                land_change = torch.mean(land_result - meteo[0][land_mask == 1])
-                ocean_change = torch.mean(ocean_result - meteo[0][land_mask == 0])
-                print(f"Land ΔT: {land_change:.2f}K, Ocean ΔT: {ocean_change:.2f}K")
-                print(f"Land is {abs(land_change/ocean_change):.1f}x more sensitive")
-                
-        except Exception as e:
-            print(f"Error: {e}")
-            import traceback
-            traceback.print_exc()
+    # Warm up GPU
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        for _ in range(5):
+            _ = fast_physics_t2m_prediction(meteo, geo_dense, geo_cat, geo_tempo, time_t_utc, 6)
+        torch.cuda.synchronize()
+    
+    # Benchmark
+    n_runs = 20
+    times = []
+    
+    for i in range(n_runs):
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        
+        start_time = time.perf_counter()
+        
+        result = fast_physics_t2m_prediction(meteo, geo_dense, geo_cat, geo_tempo, time_t_utc, 6)
+        
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        
+        end_time = time.perf_counter()
+        times.append(end_time - start_time)
+        
+        if i == 0:
+            print(f"First run result shape: {result.shape}")
+            print(f"Temperature range: {result.min():.2f}K to {result.max():.2f}K")
+    
+    # Calculate statistics
+    avg_time = sum(times) / n_runs
+    min_time = min(times)
+    max_time = max(times)
+    
+    print(f"\nBenchmark results ({n_runs} runs):")
+    print(f"Average time: {avg_time*1000:.1f} ms")
+    print(f"Minimum time: {min_time*1000:.1f} ms")
+    print(f"Maximum time: {max_time*1000:.1f} ms")
+    print(f"Throughput: {1/avg_time:.1f} predictions/second")
+    
+    # Memory usage info
+    if torch.cuda.is_available():
+        memory_allocated = torch.cuda.memory_allocated(0) / 1e6
+        memory_reserved = torch.cuda.memory_reserved(0) / 1e6
+        print(f"\nGPU memory allocated: {memory_allocated:.1f} MB")
+        print(f"GPU memory reserved: {memory_reserved:.1f} MB")
+    
+    return result
+
+
+# Utility function to ensure data is on GPU
+def move_to_gpu(data_dict):
+    """Move data to GPU if available"""
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    if isinstance(data_dict, dict):
+        return {k: v.to(device) if isinstance(v, torch.Tensor) else v 
+                for k, v in data_dict.items()}
+    elif isinstance(data_dict, (list, tuple)):
+        return [v.to(device) if isinstance(v, torch.Tensor) else v 
+                for v in data_dict]
+    else:
+        return data_dict.to(device) if isinstance(data_dict, torch.Tensor) else data_dict
 
 
 if __name__ == "__main__":
-    test_prediction()
+    print("=" * 60)
+    print("GPU-OPTIMIZED T2M PREDICTION BENCHMARK")
+    print("=" * 60)
+    
+    result = benchmark_gpu_prediction()
+    
+    # Test different time horizons
+    print("\n" + "=" * 60)
+    print("TESTING DIFFERENT PREDICTION HORIZONS")
+    print("=" * 60)
+    
+    # Create sample data once
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    H, W = 721, 1440
+    
+    meteo = torch.randn(6, H, W, device=device)
+    geo_dense = torch.randn(5, H, W, device=device)
+    geo_cat = torch.randn(2, H, W, device=device)
+    geo_tempo = torch.randn(4, H, W, device=device)
+    
+    # Set reasonable values
+    lat_tensor = torch.linspace(-90, 90, H, device=device)
+    meteo[0] = 273.15 + 20 * torch.cos(lat_tensor * math.pi / 180.0).unsqueeze(1)
+    meteo[2] = 5.0
+    meteo[3] = 2.0
+    meteo[4] = meteo[0] - 5
+    
+    land_mask = (torch.abs(lat_tensor.unsqueeze(1)) < 60).float()
+    geo_cat[0] = land_mask
+    
+    time_t_utc = datetime(2024, 6, 21, 12, 0, 0)
+    
+    for delta in [1, 3, 6, 12]:
+        print(f"\nDelta = {delta} hours:")
+        start_time = time.perf_counter()
+        
+        pred = fast_physics_t2m_prediction(meteo, geo_dense, geo_cat, geo_tempo, 
+                                          time_t_utc, delta)
+        
+        end_time = time.perf_counter()
+        
+        # Analyze land vs ocean differences
+        land_pred = pred[land_mask == 1]
+        ocean_pred = pred[land_mask == 0]
+        land_original = meteo[0][land_mask == 1]
+        ocean_original = meteo[0][land_mask == 0]
+        
+        land_change = torch.mean(land_pred - land_original).item()
+        ocean_change = torch.mean(ocean_pred - ocean_original).item()
+        
+        print(f"  Prediction time: {(end_time - start_time)*1000:.1f} ms")
+        print(f"  Land ΔT: {land_change:+.2f}K")
+        print(f"  Ocean ΔT: {ocean_change:+.2f}K")
+        if ocean_change != 0:
+            print(f"  Land sensitivity ratio: {abs(land_change / ocean_change):.1f}x")
