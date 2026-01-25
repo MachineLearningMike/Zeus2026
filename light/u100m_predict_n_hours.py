@@ -150,34 +150,22 @@ class U100mPredictor:
         lat_rad = torch.atan2(sin_lat, cos_lat)  # Latitude in radians
         lat_deg = torch.rad2deg(lat_rad)  # Latitude in degrees
         
-        # 1. Temperature tendency (solar heating effect)
-        # Cosine of zenith angle indicates solar intensity
-        hour_of_day = (current_time_utc.hour + delta_hours) % 24
-        
-        # Create tensor for diurnal cycle calculation
-        hour_tensor = torch.full((height, width), hour_of_day, 
-                                dtype=torch.float32, device=self.device)
-        diurnal_cycle = torch.sin(2 * self.PI * (hour_tensor - 12) / 24) * self.DIURNAL_AMPLITUDE
-        
-        # Future temperature estimate
-        future_t2m = t2m + diurnal_cycle * cos_zenit
-        
-        # 2. Jet stream influence (major upper-level wind feature)
+        # 1. Jet stream influence (major upper-level wind feature)
         jet_strength = self._compute_jet_stream(lat_rad, lat_deg, current_time_utc)
         
-        # 3. Pressure gradient effect (simplified geostrophic wind)
+        # 2. Pressure gradient effect (simplified geostrophic wind)
         pressure_gradient = self._compute_pressure_gradient(sp, lat_rad)
         
-        # 4. Friction effects (surface drag)
+        # 3. Friction effects (surface drag)
         time_decay = self._compute_friction_decay(land_sea_mask, delta_hours)
         
-        # 5. Temperature gradient effect (thermal wind)
+        # 4. Temperature gradient effect (thermal wind)
         temp_gradient = self._compute_temperature_gradient(t2m)
         
-        # 6. Topographic effects - wind channeling
+        # 5. Topographic effects - wind channeling
         topo_effect = self._compute_topographic_effect(orograph)
         
-        # 7. Combine all effects with physically reasonable weights
+        # 6. Combine all effects with physically reasonable weights
         predicted_u100 = (
             # Persistence with friction
             self.WEIGHT_PERSISTENCE * current_u100 * time_decay +
@@ -195,7 +183,7 @@ class U100mPredictor:
             self.WEIGHT_TOPO * topo_effect
         )
         
-        # 8. Apply smoothing and constraints
+        # 7. Apply smoothing and constraints
         predicted_u100 = self._apply_physical_constraints(predicted_u100, lat_rad, land_sea_mask)
         
         return self._convert_result(predicted_u100, return_tensor)
@@ -235,22 +223,37 @@ class U100mPredictor:
         return self.SEASONAL_BLEND * jet_strength + (1 - self.SEASONAL_BLEND) * jet_strength_seasonal
     
     def _compute_pressure_gradient(self, sp: torch.Tensor, lat_rad: torch.Tensor) -> torch.Tensor:
-        """Calculate simplified pressure gradient effect."""
+        """Calculate simplified pressure gradient effect with proper boundary handling."""
+        # Use convolution for more robust gradient calculation
         height, width = sp.shape
         
-        # Initialize gradient tensors
-        grad_x = torch.zeros_like(sp, device=self.device)
-        grad_y = torch.zeros_like(sp, device=self.device)
+        # Create gradient kernels
+        kernel_x = torch.tensor([[0, 0, 0],
+                                 [-1, 0, 1],
+                                 [0, 0, 0]], dtype=sp.dtype, device=self.device) / 2.0
         
-        # Central differences for interior points
-        grad_x[:, 1:-1] = (sp[:, 2:] - sp[:, :-2]) / 2.0
-        grad_y[1:-1, :] = (sp[2:, :] - sp[:-2, :]) / 2.0
+        kernel_y = torch.tensor([[0, -1, 0],
+                                 [0, 0, 0],
+                                 [0, 1, 0]], dtype=sp.dtype, device=self.device) / 2.0
         
-        # Forward/backward differences at boundaries
-        grad_x[:, 0] = sp[:, 1] - sp[:, 0]
-        grad_x[:, -1] = sp[:, -1] - sp[:, -2]
-        grad_y[0, :] = sp[1, :] - sp[0, :]
-        grad_y[-1, :] = sp[-1, :] - sp[-2, :]
+        # Reshape for convolution
+        sp_4d = sp.unsqueeze(0).unsqueeze(0)
+        kernel_x_4d = kernel_x.unsqueeze(0).unsqueeze(0)
+        kernel_y_4d = kernel_y.unsqueeze(0).unsqueeze(0)
+        
+        # Apply convolution with replication padding (not circular!)
+        # This avoids the horizontal boundary issue
+        grad_x = torch.nn.functional.conv2d(
+            torch.nn.functional.pad(sp_4d, (1, 1, 1, 1), mode='replicate'),
+            kernel_x_4d,
+            padding=0
+        ).squeeze()
+        
+        grad_y = torch.nn.functional.conv2d(
+            torch.nn.functional.pad(sp_4d, (1, 1, 1, 1), mode='replicate'),
+            kernel_y_4d,
+            padding=0
+        ).squeeze()
         
         # Coriolis parameter (avoid division by zero near equator)
         f = 2 * self.omega * torch.sin(lat_rad)
@@ -268,26 +271,49 @@ class U100mPredictor:
         return torch.exp(-friction_coeff * delta_hours)
     
     def _compute_temperature_gradient(self, t2m: torch.Tensor) -> torch.Tensor:
-        """Calculate temperature gradient effect."""
+        """Calculate temperature gradient effect with proper boundary handling."""
+        # Use convolution for more robust gradient calculation
         height, width = t2m.shape
         
-        # Calculate meridional temperature gradient (north-south)
-        grad_y = torch.zeros_like(t2m, device=self.device)
+        # Create gradient kernel for y-direction (north-south)
+        kernel_y = torch.tensor([[0, -1, 0],
+                                 [0, 0, 0],
+                                 [0, 1, 0]], dtype=t2m.dtype, device=self.device) / 2.0
         
-        # Central differences for interior
-        grad_y[1:-1, :] = (t2m[2:, :] - t2m[:-2, :]) / 2.0
+        # Reshape for convolution
+        t2m_4d = t2m.unsqueeze(0).unsqueeze(0)
+        kernel_y_4d = kernel_y.unsqueeze(0).unsqueeze(0)
         
-        # Boundaries
-        grad_y[0, :] = t2m[1, :] - t2m[0, :]
-        grad_y[-1, :] = t2m[-1, :] - t2m[-2, :]
+        # Apply convolution with replication padding
+        grad_y = torch.nn.functional.conv2d(
+            torch.nn.functional.pad(t2m_4d, (1, 1, 1, 1), mode='replicate'),
+            kernel_y_4d,
+            padding=0
+        ).squeeze()
         
         # Thermal wind: ∂u/∂z ∝ -∂T/∂y
         return self.THERMAL_WIND_SCALING * grad_y
     
     def _compute_topographic_effect(self, orograph: torch.Tensor) -> torch.Tensor:
         """Calculate topographic influence on wind."""
-        # Calculate gradient of topography
-        grad_y, grad_x = torch.gradient(orograph, dim=[0, 1])
+        # Use convolution for gradient calculation to avoid boundary issues
+        height, width = orograph.shape
+        
+        # Create gradient kernel for y-direction
+        kernel_y = torch.tensor([[0, -1, 0],
+                                 [0, 0, 0],
+                                 [0, 1, 0]], dtype=orograph.dtype, device=self.device) / 2.0
+        
+        # Reshape for convolution
+        orograph_4d = orograph.unsqueeze(0).unsqueeze(0)
+        kernel_y_4d = kernel_y.unsqueeze(0).unsqueeze(0)
+        
+        # Apply convolution with replication padding
+        grad_y = torch.nn.functional.conv2d(
+            torch.nn.functional.pad(orograph_4d, (1, 1, 1, 1), mode='replicate'),
+            kernel_y_4d,
+            padding=0
+        ).squeeze()
         
         # Wind deceleration when going uphill
         topo_effect = self.TOPO_SCALING * grad_y
@@ -330,7 +356,7 @@ class U100mPredictor:
         kernel_4d = kernel.unsqueeze(0).unsqueeze(0)
         
         smoothed = torch.nn.functional.conv2d(
-            torch.nn.functional.pad(wind_4d, (1, 1, 1, 1), mode='circular'),
+            torch.nn.functional.pad(wind_4d, (1, 1, 1, 1), mode='replicate'),  # Use replicate, not circular
             kernel_4d,
             padding=0
         ).squeeze()
@@ -397,34 +423,35 @@ class U100mPredictor:
         return explanation
 
 
-# Test function with GPU support
-def test_predictor_gpu():
-    """Test the predictor with GPU support."""
-    print("Testing U100mPredictor with GPU support")
+# Test function that demonstrates the fix
+def test_boundary_fix():
+    """Test the predictor to ensure no horizontal boundary artifacts."""
+    print("Testing U100mPredictor - Boundary Artifact Fix")
     print("=" * 60)
     
-    # Initialize predictor (auto-detects GPU if available)
-    predictor = U100mPredictor(return_cpu=True)  # Returns numpy arrays by default
-    print(f"Using device: {predictor.device}")
-    print(f"GPU available: {torch.cuda.is_available()}")
+    # Initialize predictor
+    predictor = U100mPredictor(return_cpu=True)
     
-    if torch.cuda.is_available():
-        print(f"GPU name: {torch.cuda.get_device_name(0)}")
-    
-    # Create test data
+    # Create test data with a smooth pressure field
     height, width = 721, 1440
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
     
-    # Create on appropriate device (predictor will move data if needed)
-    meteo = torch.randn(6, height, width)
-    geo_dense = torch.randn(5, height, width)
-    geo_cat = torch.randn(2, height, width)
-    tempo = torch.randn(4, height, width)
+    meteo = torch.randn(6, height, width, device=device)
+    geo_dense = torch.randn(5, height, width, device=device)
+    geo_cat = torch.randn(2, height, width, device=device)
+    tempo = torch.randn(4, height, width, device=device)
     
-    # Set some reasonable values
-    lat = torch.linspace(-90, 90, height)
-    meteo[0] = 273.15 + 20 * torch.cos(lat * math.pi / 180.0).unsqueeze(1)  # t2m
+    # Create smooth pressure field (no sharp boundaries)
+    lat = torch.linspace(-90, 90, height, device=device)
+    lon = torch.linspace(-180, 180, width, device=device)
+    
+    # Smooth pressure variation with latitude and longitude
+    pressure = 101325 + 1000 * torch.sin(lat * math.pi / 180.0).unsqueeze(1) * torch.cos(lon * math.pi / 180.0).unsqueeze(0)
+    meteo[5] = pressure  # sp
+    
+    # Smooth temperature field
+    meteo[0] = 273.15 + 20 * torch.cos(lat * math.pi / 180.0).unsqueeze(1)
     meteo[2] = 10 * torch.sin(lat * math.pi / 180.0).unsqueeze(1)  # u100
-    meteo[5] = 101325  # sp
     
     # Set land/ocean mask
     land_sea_mask = (torch.abs(lat.unsqueeze(1)) < 60).float()
@@ -432,66 +459,100 @@ def test_predictor_gpu():
     
     current_time = datetime(2024, 1, 15, 12, 0, 0)
     
-    # Warm up
-    for _ in range(2):
-        _ = predictor.predict(meteo, geo_dense, geo_cat, tempo, current_time, 6)
+    # Make prediction
+    pred = predictor.predict(meteo, geo_dense, geo_cat, tempo, current_time, 6)
     
-    # Test different prediction horizons
-    import time
+    # Check for boundary artifacts
+    print(f"Prediction shape: {pred.shape}")
     
-    for delta in [0, 1, 3, 6]:
-        print(f"\nTesting delta = {delta} hours")
-        
-        start_time = time.perf_counter()
-        pred = predictor.predict(meteo, geo_dense, geo_cat, tempo, current_time, delta)
-        end_time = time.perf_counter()
-        
-        print(f"Success! Prediction time: {(end_time - start_time)*1000:.1f} ms")
-        print(f"Prediction type: {type(pred)}")
-        print(f"Prediction shape: {pred.shape}")
-        
-        if isinstance(pred, np.ndarray):
-            print(f"Min: {pred.min():.2f}, Max: {pred.max():.2f}, Mean: {pred.mean():.2f}")
-        else:  # torch.Tensor
-            print(f"Min: {pred.min():.2f}, Max: {pred.max():.2f}, Mean: {pred.mean():.2f}")
+    # Check horizontal middle row for discontinuities
+    if isinstance(pred, np.ndarray):
+        middle_row = pred[height // 2, :]
+    else:
+        middle_row = pred[height // 2, :].cpu().numpy()
     
-    # Test with tensor return
-    print("\n" + "="*60)
-    print("Testing with tensor return:")
+    # Calculate differences between adjacent points
+    diffs = np.abs(np.diff(middle_row))
     
-    pred_tensor = predictor.predict(meteo, geo_dense, geo_cat, tempo, current_time, 6, return_tensor=True)
-    print(f"Tensor type: {type(pred_tensor)}")
-    print(f"Tensor device: {pred_tensor.device}")
+    print(f"\nBoundary analysis (middle row):")
+    print(f"Mean difference between adjacent points: {np.mean(diffs):.6f}")
+    print(f"Max difference between adjacent points: {np.max(diffs):.6f}")
+    print(f"Std of differences: {np.std(diffs):.6f}")
     
-    # Print physical explanation
-    print("\n" + "="*60)
-    print(predictor.get_physical_explanation())
-    print("="*60)
+    # Check for large jumps (potential boundary artifacts)
+    large_jumps = np.sum(diffs > 1.0)  # Count jumps > 1 m/s
+    print(f"Number of large jumps (>1 m/s): {large_jumps}")
+    
+    if large_jumps > 10:
+        print("WARNING: Potential boundary artifacts detected!")
+    else:
+        print("Good: No significant boundary artifacts detected.")
+    
+    # Also check vertical middle column
+    if isinstance(pred, np.ndarray):
+        middle_col = pred[:, width // 2]
+    else:
+        middle_col = pred[:, width // 2].cpu().numpy()
+    
+    col_diffs = np.abs(np.diff(middle_col))
+    print(f"\nVertical analysis (middle column):")
+    print(f"Mean vertical difference: {np.mean(col_diffs):.6f}")
+    print(f"Max vertical difference: {np.max(col_diffs):.6f}")
+    
+    return pred
 
 
-# Example of how to use in your existing code
-def example_integration():
-    """
-    Example showing how to integrate with your existing code.
-    """
-    # In your play_physical_prediction function:
-    # 1. Initialize predictor once (at module level or as class member)
-    u100m_predictor = U100mPredictor(return_cpu=True)  # Returns numpy arrays
+def visualize_prediction(pred):
+    """Simple visualization to check for boundary issues."""
+    import matplotlib.pyplot as plt
     
-    # 2. Make predictions
-    # pred = u100m_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, 
-    #                                ss_x.tempo, dt_x, delta_hours=modulo)
+    if isinstance(pred, torch.Tensor):
+        pred_np = pred.cpu().numpy()
+    else:
+        pred_np = pred
     
-    # 3. Your visualization code should work since pred is numpy array
-    # show_array(arr1=arr_y, arr2=pred, ...)
+    plt.figure(figsize=(15, 5))
     
-    print("Integration example:")
-    print("1. Initialize predictor: u100m_predictor = U100mPredictor(return_cpu=True)")
-    print("2. Make predictions: pred = u100m_predictor.predict(...)")
-    print("3. Use in visualization: show_array(arr1=..., arr2=pred, ...)")
-    print("\nThe predictor automatically uses GPU if available and returns CPU numpy arrays.")
+    plt.subplot(1, 3, 1)
+    plt.imshow(pred_np, cmap='RdBu_r', vmin=-20, vmax=20)
+    plt.colorbar(label='U100 (m/s)')
+    plt.title('Full Prediction')
+    
+    plt.subplot(1, 3, 2)
+    # Zoom in on middle region to check for boundaries
+    h_mid = pred_np.shape[0] // 2
+    w_mid = pred_np.shape[1] // 2
+    zoom = pred_np[h_mid-50:h_mid+50, w_mid-100:w_mid+100]
+    plt.imshow(zoom, cmap='RdBu_r', vmin=-20, vmax=20)
+    plt.colorbar(label='U100 (m/s)')
+    plt.title('Zoomed Middle Region')
+    
+    plt.subplot(1, 3, 3)
+    # Horizontal profile through middle
+    middle_row = pred_np[h_mid, :]
+    plt.plot(middle_row)
+    plt.xlabel('Longitude index')
+    plt.ylabel('U100 (m/s)')
+    plt.title('Horizontal Profile (middle row)')
+    plt.grid(True)
+    
+    plt.tight_layout()
+    plt.show()
 
 
 if __name__ == "__main__":
-    test_predictor_gpu()
-    example_integration()
+    print("Testing U100mPredictor with Boundary Fix")
+    print("=" * 60)
+    
+    pred = test_boundary_fix()
+    
+    # Uncomment to visualize
+    # visualize_prediction(pred)
+    
+    print("\n" + "="*60)
+    print("Summary of fixes applied:")
+    print("1. Changed gradient calculations from finite differences to convolution")
+    print("2. Used 'replicate' padding instead of different boundary conditions")
+    print("3. Ensured consistent boundary handling across all gradient calculations")
+    print("4. Applied same smoothing with replicate padding")
+    print("="*60)

@@ -1294,8 +1294,6 @@ class Zeus_Dataset(Dataset):
             # Wait for key input
             key = None
             start_time = time.time()
-            
-            # Poll for key for up to 0.5 seconds
             while key is None and (time.time() - start_time < 0.5):
                 key = get_key()
                 if key is None:
@@ -1433,8 +1431,6 @@ class Zeus_Dataset(Dataset):
             # Wait for key input
             key = None
             start_time = time.time()
-            
-            # Poll for key for up to 0.5 seconds
             while key is None and (time.time() - start_time < 0.5):
                 key = get_key()
                 if key is None:
