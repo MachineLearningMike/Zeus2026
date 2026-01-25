@@ -1354,7 +1354,7 @@ class Zeus_Dataset(Dataset):
     def play_physical_prediction(self, inclusive_left, inclusive_right, modulo):
             
         from modules.utils import show_array, initialize_for_show_array, finalize_for_show_array
-        from light.t2m_predict_n_hours import fast_physics_t2m_prediction
+        from light.t2m_predict_n_hours import FastPhysicsT2MPredictor
         from light.u100m_predict_n_hours import U100mPredictor
     
         def get_key():
@@ -1395,6 +1395,7 @@ class Zeus_Dataset(Dataset):
         
         initialize_for_show_array()
         
+        t2m_predictor = FastPhysicsT2MPredictor()
         u100m_predictor = U100mPredictor()
         
         # Main loop -----------------------------------------------------------------------------
@@ -1420,7 +1421,7 @@ class Zeus_Dataset(Dataset):
                 
                     s = time.time()
                     if variable == "t2m":
-                        pred = fast_physics_t2m_prediction(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, dt_x, delta_hours=modulo)
+                        pred = t2m_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, dt_x, delta_hours=modulo)
                     elif variable == "u100m":
                         pred = u100m_predictor.predict_u100m(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, dt_x, delta_hours=modulo)
                     e = time.time()
