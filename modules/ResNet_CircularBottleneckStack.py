@@ -136,3 +136,4 @@ if __name__ == "__main__":
     print("Time per run:", (end-start)/loops)
     print("Input shape:", x.shape)
     print("Output shape:", y.shape)
+ 

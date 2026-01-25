@@ -168,6 +168,158 @@ class Geo_Tempo():
         solpos = pvlib.solarposition.get_solarposition(pd.Timestamp(dt_utc), lat, lon)
         return solpos['zenith'].item()
 
+
+    def get_zenith_angle(dt_utc):
+        """
+        Compute zenith angle for entire ERA5 grid.
+        Warning: Slow due to pvlib's per-point computation.
+        """
+        if dt_utc.tzinfo is None:
+            dt_utc = dt_utc.replace(tzinfo=timezone.utc)
+        
+        lat_lon, lat_tensor, lon_tensor = Geo_Tempo.lat_lon_grid_tensor_era5_721()
+        lat_grid = lat_lon[0].numpy()
+        lon_grid = lat_lon[1].numpy()
+        
+        # Flatten for vectorized computation
+        lat_flat = lat_grid.ravel()
+        lon_flat = lon_grid.ravel()
+        
+        # Create array of timestamps (all same time)
+        times = pd.DatetimeIndex([pd.Timestamp(dt_utc)] * len(lat_flat))
+        
+        # Compute solar positions (vectorized in pvlib)
+        solpos = pvlib.solarposition.get_solarposition(
+            times, lat_flat, lon_flat,
+            method='nrel_numpy'
+        )
+        
+        # Reshape back to grid
+        zenith_grid = solpos['zenith'].values.reshape(lat_grid.shape)
+        
+        return torch.from_numpy(zenith_grid.astype(np.float32))
+
+    def get_zenith_angle_faster(dt_utc):
+        """
+        Wrapper for your ERA5 grid using PyTorch.
+        Returns: torch.Tensor [H, W] of zenith angles in degrees
+        """
+        # If naive datetime, treat as UTC
+        if dt_utc.tzinfo is None:
+            dt_utc = dt_utc.replace(tzinfo=timezone.utc)
+        
+        lat_lon, _, _ = Geo_Tempo.lat_lon_grid_tensor_era5_721()
+        lat_grid = lat_lon[0]
+        lon_grid = lat_lon[1]
+        
+        return Geo_Tempo.fast_zenith_angle_map(dt_utc, lat_grid, lon_grid, use_torch=True)
+
+    def fast_zenith_angle_map(dt_utc, 
+                            lat_grid=None, 
+                            lon_grid=None, 
+                            use_torch=True):
+        """
+        Compute zenith angle map (degrees) for entire grid using vectorized formula.
+        
+        Parameters:
+            dt_utc (datetime): UTC time
+            lat_grid (torch.Tensor or np.ndarray): [H, W] latitudes in degrees
+            lon_grid (torch.Tensor or np.ndarray): [H, W] longitudes in degrees
+            use_torch (bool): Use PyTorch tensors (faster on GPU)
+        
+        Returns:
+            zenith_map: [H, W] zenith angles in degrees (0-180)
+        """
+        if dt_utc.tzinfo is None:
+            dt_utc = dt_utc.replace(tzinfo=timezone.utc)
+        
+        # Get grid if not provided
+        if lat_grid is None or lon_grid is None:
+            lat_lon, _, _ = Geo_Tempo.lat_lon_grid_tensor_era5_721()
+            lat_grid = lat_lon[0]
+            lon_grid = lat_lon[1]
+        
+        # Convert to numpy if using torch (for some datetime operations)
+        if use_torch:
+            lat = lat_grid
+            lon = lon_grid
+        else:
+            lat = lat_grid.numpy() if isinstance(lat_grid, torch.Tensor) else lat_grid
+            lon = lon_grid.numpy() if isinstance(lon_grid, torch.Tensor) else lon_grid
+        
+        # 1. Compute solar declination (δ)
+        t = pd.Timestamp(dt_utc)
+        doy = t.timetuple().tm_yday  # day of year
+        
+        # Simple declination formula (accurate enough for most purposes)
+        # δ = 23.45 * sin(360/365 * (doy - 81))
+        B = np.radians(360 * (doy - 81) / 365)
+        delta_deg = 23.45 * np.sin(B)  # solar declination in degrees
+        
+        # 2. Compute hour angle (h) for each longitude
+        # True solar time = UTC + lon/15 + EoT
+        utc_h = t.hour + t.minute/60 + t.second/3600 + t.microsecond/3.6e9
+        
+        # Equation of time (in hours)
+        B_eot = np.radians(360 * (doy - 81) / 364)
+        eot_h = (9.87 * np.sin(2*B_eot) - 7.53 * np.cos(B_eot) - 1.5 * np.sin(B_eot)) / 60
+        
+        # Hour angle: h = 15° * (true_solar_time - 12)
+        # true_solar_time = UTC + lon/15 + EoT
+        if use_torch:
+            # PyTorch version
+            delta_rad = torch.deg2rad(torch.tensor(delta_deg, dtype=torch.float32))
+            lat_rad = torch.deg2rad(lat)
+            
+            # Hour angle computation
+            true_solar_h = (utc_h + lon/15.0 + eot_h) % 24
+            h_deg = 15.0 * (true_solar_h - 12.0)
+            h_rad = torch.deg2rad(h_deg)
+            
+            # Spherical trig formula
+            cos_z = (torch.sin(lat_rad) * torch.sin(delta_rad) + 
+                    torch.cos(lat_rad) * torch.cos(delta_rad) * torch.cos(h_rad))
+            
+            # Clamp to avoid numerical errors
+            cos_z = torch.clamp(cos_z, -1.0, 1.0)
+            
+            zenith_rad = torch.acos(cos_z)
+            zenith_deg = torch.rad2deg(zenith_rad)
+            
+        else:
+            # NumPy version
+            delta_rad = np.radians(delta_deg)
+            lat_rad = np.radians(lat)
+            
+            # Hour angle computation
+            true_solar_h = (utc_h + lon/15.0 + eot_h) % 24
+            h_deg = 15.0 * (true_solar_h - 12.0)
+            h_rad = np.radians(h_deg)
+            
+            # Spherical trig formula
+            cos_z = (np.sin(lat_rad) * np.sin(delta_rad) + 
+                    np.cos(lat_rad) * np.cos(delta_rad) * np.cos(h_rad))
+            
+            # Clamp to avoid numerical errors
+            cos_z = np.clip(cos_z, -1.0, 1.0)
+            
+            zenith_rad = np.arccos(cos_z)
+            zenith_deg = np.degrees(zenith_rad)
+        
+        return zenith_deg
+
+    def sin_cos_zeith_angle_tensor_era5(dt_utc):
+        # If naive datetime, treat as UTC
+        if dt_utc.tzinfo is None:
+            dt_utc = dt_utc.replace(tzinfo=timezone.utc)
+            
+        zenit_angle = Geo_Tempo.get_zenith_angle_faster(dt_utc)        
+        zenit_radian_tensor = torch.deg2rad(zenit_angle)
+        sin_zenit_tensor = torch.sin(zenit_radian_tensor)
+        cos_zenit_tensor = torch.cos(zenit_radian_tensor)
+        sin_cos = torch.stack([sin_zenit_tensor, cos_zenit_tensor], dim=0)
+        return sin_cos
+
     def equation_of_time_minutes(doy):
         B = math.radians(360.0 * (doy - 81) / 364.0)
         return 9.87 * math.sin(2*B) - 7.53 * math.cos(B) - 1.5 * math.sin(B)

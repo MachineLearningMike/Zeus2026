@@ -14,7 +14,7 @@ import platform
 import heapq
 from multiprocessing import Pool
 
-import json
+import json, time
 from einops import rearrange
 from datetime import datetime, date, timedelta, timezone
 
@@ -1232,23 +1232,9 @@ class Zeus_Dataset(Dataset):
     #----------------- Visualize ---------------------
     
     def play_weather_snapshots(self, inclusive_left, inclusive_right, modulo):
-        import keyboard
-        import matplotlib
-        # Set backend BEFORE any other matplotlib imports
-        matplotlib.use('TkAgg')  # or 'Qt5Agg'
-        
-        import matplotlib.pyplot as plt
-        import cartopy.crs as ccrs
-        import numpy as np
-        from datetime import timedelta
-        import time
-        
-        # Define global variables at the beginning of the function
-        _fig = None
-        _ax = None
-        _im = None
-        _cbar = None
-        
+               
+        from modules.utils import show_array, initialize_for_show_array, finalize_for_show_array
+       
         def get_key():
             """
             Get the most recent key press without buffering.
@@ -1263,13 +1249,16 @@ class Zeus_Dataset(Dataset):
                 'down': 'down', 
                 'left': 'left',
                 'right': 'right',
-                'q': 'quit',
                 '1': '1',
                 '2': '2',
                 '3': '3',
                 '4': '4',
                 '5': '5',
-                'esc': 'quit'
+                '6': 'dec',
+                '7': 'mar',
+                '8': 'jun',
+                '9': 'sep',
+                'esc': 'quit',
             }
             
             # Check if any key is currently pressed
@@ -1282,76 +1271,12 @@ class Zeus_Dataset(Dataset):
             
             return None
         
-        def show_array(arr, variable, dt, modulo):
-            nonlocal _fig, _ax, _im, _cbar
-            
-            # Create figure if it doesn't exist
-            if _fig is None:
-                print("Creating new figure...")
-                _fig = plt.figure(figsize=(10, 7))
-                _ax = plt.axes(projection=ccrs.PlateCarree())
-                
-                # Calculate the correct extent for your data
-                # Your data: (721, 1440) = (lat, lon)
-                # Latitude: -90 to +90 with 721 points
-                # Longitude: -180 to +180 with 1440 points
-                
-                # Calculate step sizes
-                lat_step = 180.0 / (arr.shape[0] - 1)  # From -90 to +90
-                lon_step = 360.0 / (arr.shape[1] - 1)  # From -180 to +180
-                
-                # Calculate extent
-                # imshow expects: [left, right, bottom, top]
-                left = -180.0
-                right = 180.0
-                bottom = -90.0
-                top = 90.0
-                
-                # Plot with correct extent
-                _im = _ax.imshow(arr,
-                                transform=ccrs.PlateCarree(),
-                                extent=[left, right, bottom, top],
-                                cmap='viridis',
-                                origin='lower')
-                
-                # Add boundaries
-                _ax.coastlines(resolution='110m', linewidth=0.5)
-                _ax.gridlines(draw_labels=True, linewidth=0.5, color='gray', alpha=0.5, linestyle='--')
-                
-                # Add colorbar
-                _cbar = plt.colorbar(_im, ax=_ax)
-                _cbar.set_label(variable)
-                
-                # Set title
-                _ax.set_title(f'{variable} | {dt.strftime("%Y-%m-%d %H")}, mod: {modulo}')
-                
-                # Show window (non-blocking)
-                plt.show(block=False)
-                plt.pause(0.5)
-            
-            else:
-                # Update existing plot
-                _im.set_data(arr)
-                _im.set_clim(vmin=np.nanmin(arr), vmax=np.nanmax(arr))
-                
-                # Update labels
-                _ax.set_title(f'{variable} | {dt.strftime("%Y-%m-%d %H")}, mod: {modulo}')
-                _cbar.set_label(variable)
-                
-                # Force redraw
-                _fig.canvas.draw_idle()
-                _fig.canvas.flush_events()
-            
-            # Small pause
-            plt.pause(0.001)
+        initialize_for_show_array()
         
         # Main loop -----------------------------------------------------------------------------
         var_id = 0
         dt = inclusive_left
-        
-        # Turn on interactive mode ONCE
-        plt.ion()
-        
+                
         old_path = None
         while inclusive_left <= dt and dt <= inclusive_right:
             year, month, day, hour = dt.year, dt.month, dt.day, dt.hour
@@ -1398,18 +1323,37 @@ class Zeus_Dataset(Dataset):
                 modulo = 24
             elif key == '5':
                 modulo = 24 * 30
+            elif key == 'dec':
+                h = dt.hour
+                dict = Snapshot.get_season_events(dt.year)
+                dt = dict['dec_solstice'].replace(hour=h)
+            elif key == 'mar':
+                h = dt.hour
+                dict = Snapshot.get_season_events(dt.year)
+                dt = dict['mar_equinox'].replace(hour=h)
+            elif key == 'jun':
+                h = dt.hour
+                dict = Snapshot.get_season_events(dt.year)
+                dt = dict['jun_solstice'].replace(hour=h)
+            elif key == 'sep':
+                h = dt.hour
+                dict = Snapshot.get_season_events(dt.year)
+                dt = dict['sep_equinox'].replace(hour=h)
             elif key == "quit":
                 print("Quitting...")
                 break
             elif key is None:
                 # No key pressed, continue to next iteration
                 continue
-        
-        # Cleanup
-        plt.ioff()
-        if _fig is not None:
-            plt.close(_fig)
 
+        finalize_for_show_array()
+        
+    #-------------------------------------------------
+    
+    def show_array_single(self, array, variable):
+        from modules.utils import show_array_single        
+        show_array_single(array, variable)
+        
     #----------------- Standardize --------------------
 
     def normalize_meteo(self, input, output):
@@ -2291,12 +2235,15 @@ if __name__ == "__main__":
     # print(ds.data_vars)
     # pass
 
+    # arr = np.load(config["soil_type_npy_path"])
+    # dataset.show_array_single(arr, "Soil Type")
+
 
     # inclusive_left = datetime(2025, 1, 1, 0)
     # inclusive_right = datetime(2025, 1, 2, 23)
 
-    inclusive_left = datetime(2018, 1, 1, 0)
-    inclusive_right = datetime(2025, 12, 31, 23)
+    inclusive_left = datetime(2018, 1, 1, 0, tzinfo=timezone.utc)
+    inclusive_right = datetime(2025, 12, 31, 23, tzinfo=timezone.utc)
 
     dataset.play_weather_snapshots(inclusive_left, inclusive_right, modulo=6)
 

@@ -5,6 +5,12 @@ import numpy as np
 from pathlib import Path
 import torch.backends.cudnn as cudnn
 
+import matplotlib.pyplot as plt
+import cartopy.crs as ccrs
+from datetime import timedelta, datetime
+import time
+import matplotlib.ticker as mticker
+
 
 class EMA():
     def __init__(self, beta):
@@ -185,3 +191,153 @@ def check_consistency(n, s):
     assert inc_l == dec_l[::-1]
     print(inc)
     print(dec)
+
+#---------------------------- show array -------------------------
+
+def initialize_for_show_array():
+    # Turn on interactive mode ONCE
+    plt.ion()    
+
+# Define global variables at the beginning of the function
+_fig = None
+_ax = None
+_im = None
+_cbar = None
+
+def finalize_for_show_array():
+    plt.ioff()
+    if _fig is not None:
+        plt.close(_fig)
+
+def show_array(arr, variable="", dt=datetime(2000,1,1,0), modulo=6):
+    global _fig, _ax, _im, _cbar
+    
+    # Create figure if it doesn't exist
+    if _fig is None:
+        print("Creating new figure...")
+        _fig = plt.figure(figsize=(10, 7))
+        _ax = plt.axes(projection=ccrs.PlateCarree())
+        
+        # Calculate the correct extent for your data
+        # Your data: (721, 1440) = (lat, lon)
+        # Latitude: -90 to +90 with 721 points
+        # Longitude: -180 to +180 with 1440 points
+        
+        # Calculate step sizes
+        lat_step = 180.0 / (arr.shape[0] - 1)  # From -90 to +90
+        lon_step = 360.0 / (arr.shape[1] - 1)  # From -180 to +180
+        
+        # Calculate extent
+        # imshow expects: [left, right, bottom, top]
+        left = -180.0
+        right = 180.0
+        bottom = -90.0
+        top = 90.0
+        
+        # Plot with correct extent
+        _im = _ax.imshow(arr,
+                        transform=ccrs.PlateCarree(),
+                        extent=[left, right, bottom, top],
+                        cmap='viridis',
+                        origin='lower')
+        
+        # Add boundaries
+        _ax.coastlines(resolution='110m', linewidth=0.5)
+        gl = _ax.gridlines(draw_labels=True, linewidth=0.7, color='gray', alpha=0.5, linestyle='--')
+        gl.xlocator = mticker.MultipleLocator(45)
+        gl.ylocator = mticker.MultipleLocator(45)
+        
+        # Add colorbar
+        _cbar = plt.colorbar(_im, ax=_ax)
+        _cbar.set_label(variable)
+        
+        # Set title
+        # _ax.set_title(f'{variable} | {dt.strftime("%Y-%m-%d %H")}, mod: {modulo}')
+        _ax.set_title(
+            f'{variable}, {dt.strftime("%Y-%m-%d %H")}, mod: {modulo}',
+            fontsize=16,
+            fontweight='bold',
+            color='#00008B',
+            fontfamily='DejaVu Sans'  # or 'Arial', 'Helvetica', etc.
+        )
+        
+        # Show window (non-blocking)
+        plt.show(block=False)
+        plt.pause(0.5)
+    
+    else:
+        # Update existing plot
+        _im.set_data(arr)
+        _im.set_clim(vmin=np.nanmin(arr), vmax=np.nanmax(arr))
+        
+        # Update labels
+        # _ax.set_title(f'{variable} | {dt.strftime("%Y-%m-%d %H")}, mod: {modulo}')
+        _ax.set_title(
+            f'{variable}, {dt.strftime("%Y-%m-%d %H")}, mod: {modulo}',
+            fontsize=16,
+            fontweight='bold',
+            color='#00008B',
+            fontfamily='DejaVu Sans'  # or 'Arial', 'Helvetica', etc.
+        )
+        
+        _cbar.set_label(variable)
+        
+        # Force redraw
+        _fig.canvas.draw_idle()
+        _fig.canvas.flush_events()
+    
+    # Small pause
+    plt.pause(0.001)
+    
+def show_array_single(arr, variable="", dt=datetime(2000,1,1,0), modulo=6):
+    _fig = plt.figure(figsize=(10, 7))
+    _ax = plt.axes(projection=ccrs.PlateCarree())
+    
+    # Calculate the correct extent for your data
+    # Your data: (721, 1440) = (lat, lon)
+    # Latitude: -90 to +90 with 721 points
+    # Longitude: -180 to +180 with 1440 points
+    
+    # Calculate step sizes
+    lat_step = 180.0 / (arr.shape[0] - 1)  # From -90 to +90
+    lon_step = 360.0 / (arr.shape[1] - 1)  # From -180 to +180
+    
+    # Calculate extent
+    # imshow expects: [left, right, bottom, top]
+    left = -180.0
+    right = 180.0
+    bottom = -90.0
+    top = 90.0
+    
+    # Plot with correct extent
+    _im = _ax.imshow(arr,
+                    transform=ccrs.PlateCarree(),
+                    extent=[left, right, bottom, top],
+                    cmap='viridis',
+                    origin='lower')
+    
+    # Add boundaries
+    _ax.coastlines(resolution='110m', linewidth=0.5)
+    gl = _ax.gridlines(draw_labels=True, linewidth=0.7, color='gray', alpha=0.5, linestyle='--')
+    gl.xlocator = mticker.MultipleLocator(45)
+    gl.ylocator = mticker.MultipleLocator(45)
+    
+    # Add colorbar
+    _cbar = plt.colorbar(_im, ax=_ax)
+    _cbar.set_label(variable)
+    
+    # Set title
+    # _ax.set_title(f'{variable} | {dt.strftime("%Y-%m-%d %H")}, mod: {modulo}')
+    _ax.set_title(
+        f'{variable}, {dt.strftime("%Y-%m-%d %H")}, mod: {modulo}',
+        fontsize=16,
+        fontweight='bold',
+        color='#00008B',
+        fontfamily='DejaVu Sans'  # or 'Arial', 'Helvetica', etc.
+    )
+    
+    # Show window (non-blocking)
+    plt.show()
+
+    if _fig is not None:
+        plt.close(_fig)
