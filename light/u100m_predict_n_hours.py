@@ -32,108 +32,198 @@ I need both code and physical explanation.
 
 import torch
 import math
-from datetime import datetime, timedelta
+from datetime import datetime
+from typing import Optional, Union
 import numpy as np
-
-import torch
-import math
-from datetime import datetime, timedelta
-import numpy as np
-
-import torch
-import math
-from datetime import datetime, timedelta
 
 class U100mPredictor:
     """
-    Predict u100 at time t+delta using physical principles
+    Predict u100 at time t+delta using physical principles.
+    GPU-optimized with automatic CPU conversion for compatibility.
     """
     
-    def __init__(self):
-        # Physical constants
-        self.R = 287.058  # Specific gas constant for dry air (J/(kg·K))
-        self.omega = 7.2921159e-5  # Earth's rotation rate (rad/s)
-        self.rho = 1.225  # Standard air density at sea level (kg/m³)
-        
-        # Jet stream parameters (empirical)
-        self.jet_lat_center = 45.0  # Typical jet stream latitude (degrees)
-        self.jet_width = 15.0  # Jet stream width (degrees)
-        self.jet_max_speed = 50.0  # Maximum jet stream speed (m/s)
-        
-        # Surface friction coefficient
-        self.cf = 0.001  # Drag coefficient over land
-        self.cf_sea = 0.0001  # Drag coefficient over sea
-        
-    def predict_u100m(self, meteo, geo_dense, geo_cat, tempo, 
-                     current_time_utc, delta_hours):
+    def __init__(self, device: Optional[str] = None, return_cpu: bool = True):
         """
-        Predict u100 at time t + delta_hours
+        Initialize the predictor.
         
         Args:
-            meteo: torch.Tensor shape (6, 721, 1440) - [t2m, tp, u100, v100, d2m, sp]
-            geo_dense: torch.Tensor shape (5, 721, 1440) - [orograph, sin_lat, cos_lat, sin_lon, cos_lon]
-            geo_cat: torch.Tensor shape (2, 721, 1440) - [land_sea_mask, soil_type]
-            tempo: torch.Tensor shape (4, 721, 1440) - [sin_orbit, cos_orbit, sin_zenit, cos_zenit]
+            device: Device to run computations on ('cuda', 'cpu', or None for auto-detection)
+            return_cpu: If True, automatically convert result to CPU numpy array
+        """
+        self.device = device if device else ('cuda' if torch.cuda.is_available() else 'cpu')
+        self.return_cpu = return_cpu
+        
+        # Initialize all constants on the correct device
+        self._setup_constants()
+        
+    def _setup_constants(self):
+        """Initialize all physical constants as tensors on the correct device."""
+        # Physical constants
+        self.R = torch.tensor(287.058, device=self.device)  # Specific gas constant for dry air (J/(kg·K))
+        self.omega = torch.tensor(7.2921159e-5, device=self.device)  # Earth's rotation rate (rad/s)
+        self.rho = torch.tensor(1.225, device=self.device)  # Standard air density at sea level (kg/m³)
+        
+        # Jet stream parameters (empirical)
+        self.jet_lat_center = torch.tensor(45.0, device=self.device)  # Typical jet stream latitude (degrees)
+        self.jet_width = torch.tensor(15.0, device=self.device)  # Jet stream width (degrees)
+        self.jet_max_speed = torch.tensor(50.0, device=self.device)  # Maximum jet stream speed (m/s)
+        
+        # Surface friction coefficient
+        self.cf = torch.tensor(0.001, device=self.device)  # Drag coefficient over land
+        self.cf_sea = torch.tensor(0.0001, device=self.device)  # Drag coefficient over sea
+        
+        # Mathematical constants
+        self.PI = torch.tensor(math.pi, device=self.device)
+        
+        # Effect weights
+        self.WEIGHT_PERSISTENCE = torch.tensor(0.4, device=self.device)
+        self.WEIGHT_JET = torch.tensor(0.3, device=self.device)
+        self.WEIGHT_PRESSURE = torch.tensor(0.15, device=self.device)
+        self.WEIGHT_THERMAL = torch.tensor(0.1, device=self.device)
+        self.WEIGHT_TOPO = torch.tensor(0.05, device=self.device)
+        
+        # Scaling factors
+        self.PRESSURE_SCALING = torch.tensor(0.3, device=self.device)
+        self.THERMAL_WIND_SCALING = torch.tensor(-0.02, device=self.device)
+        self.TOPO_SCALING = torch.tensor(-0.01, device=self.device)
+        self.TOPO_MOUNTAIN_BOOST = torch.tensor(2.0, device=self.device)
+        self.OCEAN_BOOST = torch.tensor(1.2, device=self.device)
+        self.LAT_FACTOR_MIN = torch.tensor(0.3, device=self.device)
+        
+        # Limits
+        self.WIND_MIN = torch.tensor(-80.0, device=self.device)
+        self.WIND_MAX = torch.tensor(80.0, device=self.device)
+        self.MOUNTAIN_THRESHOLD = torch.tensor(1000.0, device=self.device)
+        
+        # Seasonal parameters
+        self.SEASONAL_SHIFT_AMPLITUDE = torch.tensor(10.0, device=self.device)
+        self.SEASONAL_BLEND = torch.tensor(0.7, device=self.device)
+        
+        # Smoothing parameters
+        self.SMOOTHING_BLEND = torch.tensor(0.7, device=self.device)
+        
+        # Diurnal parameters
+        self.DIURNAL_AMPLITUDE = torch.tensor(5.0, device=self.device)
+        
+    def predict(self, meteo: torch.Tensor, geo_dense: torch.Tensor, 
+                geo_cat: torch.Tensor, tempo: torch.Tensor,
+                current_time_utc: datetime, delta_hours: int,
+                return_tensor: Optional[bool] = None) -> Union[torch.Tensor, np.ndarray]:
+        """
+        Predict u100 at time t + delta_hours.
+        
+        Args:
+            meteo: torch.Tensor shape (6, H, W) - [t2m, tp, u100, v100, d2m, sp]
+            geo_dense: torch.Tensor shape (5, H, W) - [orograph, sin_lat, cos_lat, sin_lon, cos_lon]
+            geo_cat: torch.Tensor shape (2, H, W) - [land_sea_mask, soil_type]
+            tempo: torch.Tensor shape (4, H, W) - [sin_orbit, cos_orbit, sin_zenit, cos_zenit]
             current_time_utc: datetime object
             delta_hours: int, hours to predict ahead (0, 1, ...)
+            return_tensor: If True, return torch.Tensor; if False, return numpy array.
+                          If None, use self.return_cpu
             
         Returns:
-            predicted_u100: torch.Tensor shape (721, 1440)
+            predicted_u100: torch.Tensor shape (H, W) or numpy array
         """
-        device = meteo.device
-        height, width = meteo.shape[1], meteo.shape[2]
+        # Ensure tensors are on the correct device
+        meteo = meteo.to(self.device)
+        geo_dense = geo_dense.to(self.device)
+        geo_cat = geo_cat.to(self.device)
+        tempo = tempo.to(self.device)
         
         # Extract individual components
         t2m = meteo[0]  # Temperature at 2m (K)
-        tp = meteo[1]   # Total precipitation (m water)
         current_u100 = meteo[2]  # Current u100
-        current_v100 = meteo[3]  # Current v100
-        d2m = meteo[4]  # Dew point at 2m (K)
-        sp = meteo[5]   # Surface pressure (Pa)
+        sp = meteo[5]  # Surface pressure (Pa)
         
         orograph = geo_dense[0]  # Topography (m)
         sin_lat = geo_dense[1]
         cos_lat = geo_dense[2]
-        sin_lon = geo_dense[3]
-        cos_lon = geo_dense[4]
         
         land_sea_mask = geo_cat[0]  # 0: sea, 1: land
-        soil_type = geo_cat[1]
         
-        sin_zenit = tempo[2]
         cos_zenit = tempo[3]
+        
+        height, width = t2m.shape
         
         # Convert trigonometric values back to angles for calculations
         lat_rad = torch.atan2(sin_lat, cos_lat)  # Latitude in radians
-        lon_rad = torch.atan2(sin_lon, cos_lon)  # Longitude in radians
         lat_deg = torch.rad2deg(lat_rad)  # Latitude in degrees
         
         # 1. Temperature tendency (solar heating effect)
         # Cosine of zenith angle indicates solar intensity
-        solar_factor = cos_zenit  # cos_zenit, 1 = overhead sun, 0 = horizon
         hour_of_day = (current_time_utc.hour + delta_hours) % 24
         
         # Create tensor for diurnal cycle calculation
         hour_tensor = torch.full((height, width), hour_of_day, 
-                                dtype=torch.float32, device=device)
-        diurnal_cycle = torch.sin(2 * torch.pi * (hour_tensor - 12) / 24) * 5.0  # ±5K variation
+                                dtype=torch.float32, device=self.device)
+        diurnal_cycle = torch.sin(2 * self.PI * (hour_tensor - 12) / 24) * self.DIURNAL_AMPLITUDE
         
         # Future temperature estimate
-        future_t2m = t2m + diurnal_cycle * solar_factor
+        future_t2m = t2m + diurnal_cycle * cos_zenit
         
         # 2. Jet stream influence (major upper-level wind feature)
-        # Jet stream follows sin²(latitude) * cos²(latitude) pattern
-        # Enhanced with Gaussian envelope for more realistic profile
-        lat_norm = (lat_deg - self.jet_lat_center) / self.jet_width
+        jet_strength = self._compute_jet_stream(lat_rad, lat_deg, current_time_utc)
         
-        # sin²(lat) * cos²(lat) = 0.25 * sin²(2*lat)
-        # This gives maximum at 45°, zero at 0° and 90°
+        # 3. Pressure gradient effect (simplified geostrophic wind)
+        pressure_gradient = self._compute_pressure_gradient(sp, lat_rad)
+        
+        # 4. Friction effects (surface drag)
+        time_decay = self._compute_friction_decay(land_sea_mask, delta_hours)
+        
+        # 5. Temperature gradient effect (thermal wind)
+        temp_gradient = self._compute_temperature_gradient(t2m)
+        
+        # 6. Topographic effects - wind channeling
+        topo_effect = self._compute_topographic_effect(orograph)
+        
+        # 7. Combine all effects with physically reasonable weights
+        predicted_u100 = (
+            # Persistence with friction
+            self.WEIGHT_PERSISTENCE * current_u100 * time_decay +
+            
+            # Jet stream influence
+            self.WEIGHT_JET * jet_strength +
+            
+            # Pressure gradient effect
+            self.WEIGHT_PRESSURE * pressure_gradient +
+            
+            # Thermal wind effect
+            self.WEIGHT_THERMAL * temp_gradient +
+            
+            # Topographic effect
+            self.WEIGHT_TOPO * topo_effect
+        )
+        
+        # 8. Apply smoothing and constraints
+        predicted_u100 = self._apply_physical_constraints(predicted_u100, lat_rad, land_sea_mask)
+        
+        return self._convert_result(predicted_u100, return_tensor)
+    
+    def _convert_result(self, result: torch.Tensor, return_tensor: Optional[bool]) -> Union[torch.Tensor, np.ndarray]:
+        """Convert result to appropriate format."""
+        if return_tensor is None:
+            return_tensor = not self.return_cpu
+        
+        if return_tensor:
+            return result
+        else:
+            # Convert to CPU numpy array
+            return result.cpu().numpy()
+    
+    def _compute_jet_stream(self, lat_rad: torch.Tensor, lat_deg: torch.Tensor, 
+                           current_time_utc: datetime) -> torch.Tensor:
+        """Compute jet stream strength with seasonal variation."""
+        # Base jet profile: sin²(lat) * cos²(lat) = 0.25 * sin²(2*lat)
+        lat_norm = (lat_deg - self.jet_lat_center) / self.jet_width
         jet_profile = 0.25 * torch.sin(2 * lat_rad)**2 * torch.exp(-lat_norm**2)
         jet_strength = self.jet_max_speed * jet_profile
         
         # Jet stream rotates with seasons
         day_of_year = current_time_utc.timetuple().tm_yday
-        seasonal_shift = 10.0 * torch.sin(torch.tensor(2 * torch.pi * (day_of_year - 80) / 365, device=device))
+        seasonal_shift = self.SEASONAL_SHIFT_AMPLITUDE * torch.sin(
+            torch.tensor(2 * math.pi * (day_of_year - 80) / 365, device=self.device)
+        )
         
         # Create shifted jet profile
         jet_lat_shifted = self.jet_lat_center + seasonal_shift
@@ -142,59 +232,15 @@ class U100mPredictor:
         jet_strength_seasonal = self.jet_max_speed * jet_profile_seasonal
         
         # Blend based on seasonality
-        jet_strength = 0.7 * jet_strength + 0.3 * jet_strength_seasonal
-        
-        # 3. Pressure gradient effect (simplified geostrophic wind)
-        # Use convolution to calculate pressure gradients more robustly
-        pressure_gradient = self.calculate_pressure_gradient(sp, lat_rad)
-        
-        # 4. Friction effects (surface drag)
-        # Sea has less friction than land
-        friction_coeff = land_sea_mask * self.cf + (1 - land_sea_mask) * self.cf_sea
-        
-        # Decay wind due to friction over time
-        time_decay = torch.exp(-friction_coeff * delta_hours)
-        
-        # 5. Temperature gradient effect (thermal wind)
-        temp_gradient = self.calculate_temperature_gradient(t2m, lat_rad)
-        
-        # 6. Topographic effects - wind channeling
-        topo_effect = self.calculate_topographic_effect(orograph, lat_rad)
-        
-        # 7. Combine all effects with physically reasonable weights
-        predicted_u100 = (
-            # Persistence with friction (40%)
-            0.4 * current_u100 * time_decay +
-            
-            # Jet stream influence (30%)
-            0.3 * jet_strength +
-            
-            # Pressure gradient effect (15%)
-            0.15 * pressure_gradient +
-            
-            # Thermal wind effect (10%)
-            0.1 * temp_gradient +
-            
-            # Topographic effect (5%)
-            0.05 * topo_effect
-        )
-        
-        # 8. Apply smoothing and constraints
-        predicted_u100 = self.apply_physical_constraints(predicted_u100, lat_rad, land_sea_mask)
-        
-        return predicted_u100
+        return self.SEASONAL_BLEND * jet_strength + (1 - self.SEASONAL_BLEND) * jet_strength_seasonal
     
-    def calculate_pressure_gradient(self, sp, lat_rad):
-        """Calculate simplified pressure gradient effect"""
+    def _compute_pressure_gradient(self, sp: torch.Tensor, lat_rad: torch.Tensor) -> torch.Tensor:
+        """Calculate simplified pressure gradient effect."""
         height, width = sp.shape
-        device = sp.device
-        
-        # Simple gradient using finite differences with proper boundary handling
-        # Use central differences in interior, forward/backward at boundaries
         
         # Initialize gradient tensors
-        grad_x = torch.zeros_like(sp)
-        grad_y = torch.zeros_like(sp)
+        grad_x = torch.zeros_like(sp, device=self.device)
+        grad_y = torch.zeros_like(sp, device=self.device)
         
         # Central differences for interior points
         grad_x[:, 1:-1] = (sp[:, 2:] - sp[:, :-2]) / 2.0
@@ -206,10 +252,6 @@ class U100mPredictor:
         grad_y[0, :] = sp[1, :] - sp[0, :]
         grad_y[-1, :] = sp[-1, :] - sp[-2, :]
         
-        # Convert to approximate geostrophic wind
-        # Geostrophic wind: u_g = - (1/(ρf)) * ∂p/∂y, v_g = (1/(ρf)) * ∂p/∂x
-        # We focus on u-component (zonal wind)
-        
         # Coriolis parameter (avoid division by zero near equator)
         f = 2 * self.omega * torch.sin(lat_rad)
         f = torch.where(torch.abs(f) < 1e-10, torch.sign(f) * 1e-10, f)
@@ -218,16 +260,19 @@ class U100mPredictor:
         u_geo = -grad_y / (self.rho * f)
         
         # Scale down since we're at 100m, not pure geostrophic level
-        return 0.3 * u_geo
+        return self.PRESSURE_SCALING * u_geo
     
-    def calculate_temperature_gradient(self, t2m, lat_rad):
-        """Calculate temperature gradient effect"""
+    def _compute_friction_decay(self, land_sea_mask: torch.Tensor, delta_hours: int) -> torch.Tensor:
+        """Compute wind decay due to surface friction."""
+        friction_coeff = land_sea_mask * self.cf + (1 - land_sea_mask) * self.cf_sea
+        return torch.exp(-friction_coeff * delta_hours)
+    
+    def _compute_temperature_gradient(self, t2m: torch.Tensor) -> torch.Tensor:
+        """Calculate temperature gradient effect."""
         height, width = t2m.shape
-        device = t2m.device
         
         # Calculate meridional temperature gradient (north-south)
-        # This drives thermal wind
-        grad_y = torch.zeros_like(t2m)
+        grad_y = torch.zeros_like(t2m, device=self.device)
         
         # Central differences for interior
         grad_y[1:-1, :] = (t2m[2:, :] - t2m[:-2, :]) / 2.0
@@ -237,61 +282,48 @@ class U100mPredictor:
         grad_y[-1, :] = t2m[-1, :] - t2m[-2, :]
         
         # Thermal wind: ∂u/∂z ∝ -∂T/∂y
-        # At 100m, we get some thermal wind effect
-        thermal_u = -0.02 * grad_y  # Simplified thermal wind scaling
-        
-        return thermal_u
+        return self.THERMAL_WIND_SCALING * grad_y
     
-    def calculate_topographic_effect(self, orograph, lat_rad):
-        """Calculate topographic influence on wind"""
-        height, width = orograph.shape
-        
+    def _compute_topographic_effect(self, orograph: torch.Tensor) -> torch.Tensor:
+        """Calculate topographic influence on wind."""
         # Calculate gradient of topography
         grad_y, grad_x = torch.gradient(orograph, dim=[0, 1])
         
-        # Wind tends to follow contours (along lines of constant elevation)
-        # and accelerate over ridges
-        topo_effect = torch.zeros_like(orograph)
-        
-        # Wind acceleration over ridges (positive gradient in wind direction)
-        # Wind deceleration in valleys
-        topo_effect = -0.01 * grad_y  # Simplified: wind slows when going uphill
+        # Wind deceleration when going uphill
+        topo_effect = self.TOPO_SCALING * grad_y
         
         # Amplify effect in mountainous regions
         orograph_mag = torch.abs(orograph)
-        mountain_mask = (orograph_mag > 1000).float()
-        topo_effect = topo_effect * (1.0 + 2.0 * mountain_mask)
+        mountain_mask = (orograph_mag > self.MOUNTAIN_THRESHOLD).float()
+        topo_effect = topo_effect * (1.0 + self.TOPO_MOUNTAIN_BOOST * mountain_mask)
         
         return topo_effect
     
-    def apply_physical_constraints(self, u100, lat_rad, land_sea_mask):
-        """Apply physical constraints to predicted wind"""
-        
+    def _apply_physical_constraints(self, u100: torch.Tensor, lat_rad: torch.Tensor, 
+                                   land_sea_mask: torch.Tensor) -> torch.Tensor:
+        """Apply physical constraints to predicted wind."""
         # 1. Apply smoothing to reduce noise
-        u_smoothed = self.smooth_wind(u100)
+        u_smoothed = self._smooth_wind(u100)
         
         # 2. Apply latitudinal constraints (weaker winds near poles)
         lat_factor = torch.cos(lat_rad)  # 1 at equator, 0 at poles
-        lat_factor = torch.clamp(lat_factor, 0.3, 1.0)  # Don't reduce too much
+        lat_factor = torch.clamp(lat_factor, self.LAT_FACTOR_MIN, 1.0)
         
-        # 3. Apply land/sea contrast
-        # Winds are typically stronger over ocean
-        ocean_boost = 1.0 + 0.2 * (1 - land_sea_mask)  # 20% stronger over ocean
+        # 3. Apply land/sea contrast (winds stronger over ocean)
+        ocean_boost = torch.where(land_sea_mask == 0, self.OCEAN_BOOST, 1.0)
         
         # Combine all constraints
         constrained_u = u_smoothed * lat_factor * ocean_boost
         
         # 4. Clamp to reasonable physical limits
-        constrained_u = torch.clamp(constrained_u, -80, 80)
-        
-        return constrained_u
+        return torch.clamp(constrained_u, self.WIND_MIN, self.WIND_MAX)
     
-    def smooth_wind(self, wind):
-        """Apply Gaussian-like smoothing to wind field"""
+    def _smooth_wind(self, wind: torch.Tensor) -> torch.Tensor:
+        """Apply Gaussian-like smoothing to wind field."""
         # Simple 3x3 smoothing kernel
         kernel = torch.tensor([[1, 2, 1],
                                [2, 4, 2],
-                               [1, 2, 1]], dtype=wind.dtype, device=wind.device) / 16.0
+                               [1, 2, 1]], dtype=wind.dtype, device=self.device) / 16.0
         
         # Apply convolution
         wind_4d = wind.unsqueeze(0).unsqueeze(0)
@@ -303,10 +335,16 @@ class U100mPredictor:
             padding=0
         ).squeeze()
         
-        return 0.7 * wind + 0.3 * smoothed
+        return self.SMOOTHING_BLEND * wind + (1 - self.SMOOTHING_BLEND) * smoothed
     
-    def get_physical_explanation(self):
-        """Return physical explanation of the prediction model"""
+    def to(self, device: str) -> 'U100mPredictor':
+        """Move the predictor to a different device."""
+        self.device = device
+        self._setup_constants()  # Re-initialize constants on new device
+        return self
+    
+    def get_physical_explanation(self) -> str:
+        """Return physical explanation of the prediction model."""
         explanation = """
         Physical Basis for U100 Prediction:
         
@@ -343,6 +381,12 @@ class U100mPredictor:
         - Physical limits: clamped to ±80 m/s
         - Boundary handling: proper finite differences
         
+        GPU OPTIMIZATIONS:
+        - All constants stored as device tensors
+        - Automatic device detection (CUDA if available)
+        - Optional CPU conversion for compatibility
+        - Vectorized operations for maximum speed
+        
         ASSUMPTIONS & SIMPLIFICATIONS:
         1. Linear superposition of effects
         2. Constant air density
@@ -353,42 +397,71 @@ class U100mPredictor:
         return explanation
 
 
-# Simple test function
-def test_predictor():
-    """Test the predictor with sample data"""
-    predictor = U100mPredictor()
+# Test function with GPU support
+def test_predictor_gpu():
+    """Test the predictor with GPU support."""
+    print("Testing U100mPredictor with GPU support")
+    print("=" * 60)
     
-    # Create dummy data with correct shapes
-    batch_size = 1
+    # Initialize predictor (auto-detects GPU if available)
+    predictor = U100mPredictor(return_cpu=True)  # Returns numpy arrays by default
+    print(f"Using device: {predictor.device}")
+    print(f"GPU available: {torch.cuda.is_available()}")
+    
+    if torch.cuda.is_available():
+        print(f"GPU name: {torch.cuda.get_device_name(0)}")
+    
+    # Create test data
     height, width = 721, 1440
     
-    # Create on CPU (can be moved to GPU if available)
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
-    # Create sample tensors
-    meteo = torch.randn(6, height, width, device=device)
-    geo_dense = torch.randn(5, height, width, device=device)
-    geo_cat = torch.randn(2, height, width, device=device)
-    tempo = torch.randn(4, height, width, device=device)
+    # Create on appropriate device (predictor will move data if needed)
+    meteo = torch.randn(6, height, width)
+    geo_dense = torch.randn(5, height, width)
+    geo_cat = torch.randn(2, height, width)
+    tempo = torch.randn(4, height, width)
     
     # Set some reasonable values
-    meteo[0] = 273.15 + 20 * torch.cos(torch.linspace(-90, 90, height, device=device)).unsqueeze(1)  # t2m
-    meteo[2] = 10 * torch.sin(torch.linspace(-90, 90, height, device=device)).unsqueeze(1)  # u100
+    lat = torch.linspace(-90, 90, height)
+    meteo[0] = 273.15 + 20 * torch.cos(lat * math.pi / 180.0).unsqueeze(1)  # t2m
+    meteo[2] = 10 * torch.sin(lat * math.pi / 180.0).unsqueeze(1)  # u100
     meteo[5] = 101325  # sp
     
-    # Current time
+    # Set land/ocean mask
+    land_sea_mask = (torch.abs(lat.unsqueeze(1)) < 60).float()
+    geo_cat[0] = land_sea_mask
+    
     current_time = datetime(2024, 1, 15, 12, 0, 0)
     
-    # Test prediction for different time horizons
+    # Warm up
+    for _ in range(2):
+        _ = predictor.predict(meteo, geo_dense, geo_cat, tempo, current_time, 6)
+    
+    # Test different prediction horizons
+    import time
+    
     for delta in [0, 1, 3, 6]:
         print(f"\nTesting delta = {delta} hours")
-        try:
-            pred = predictor.predict_u100m(meteo, geo_dense, geo_cat, tempo, 
-                                          current_time, delta)
-            print(f"Success! Prediction shape: {pred.shape}")
+        
+        start_time = time.perf_counter()
+        pred = predictor.predict(meteo, geo_dense, geo_cat, tempo, current_time, delta)
+        end_time = time.perf_counter()
+        
+        print(f"Success! Prediction time: {(end_time - start_time)*1000:.1f} ms")
+        print(f"Prediction type: {type(pred)}")
+        print(f"Prediction shape: {pred.shape}")
+        
+        if isinstance(pred, np.ndarray):
             print(f"Min: {pred.min():.2f}, Max: {pred.max():.2f}, Mean: {pred.mean():.2f}")
-        except Exception as e:
-            print(f"Error: {e}")
+        else:  # torch.Tensor
+            print(f"Min: {pred.min():.2f}, Max: {pred.max():.2f}, Mean: {pred.mean():.2f}")
+    
+    # Test with tensor return
+    print("\n" + "="*60)
+    print("Testing with tensor return:")
+    
+    pred_tensor = predictor.predict(meteo, geo_dense, geo_cat, tempo, current_time, 6, return_tensor=True)
+    print(f"Tensor type: {type(pred_tensor)}")
+    print(f"Tensor device: {pred_tensor.device}")
     
     # Print physical explanation
     print("\n" + "="*60)
@@ -396,5 +469,29 @@ def test_predictor():
     print("="*60)
 
 
+# Example of how to use in your existing code
+def example_integration():
+    """
+    Example showing how to integrate with your existing code.
+    """
+    # In your play_physical_prediction function:
+    # 1. Initialize predictor once (at module level or as class member)
+    u100m_predictor = U100mPredictor(return_cpu=True)  # Returns numpy arrays
+    
+    # 2. Make predictions
+    # pred = u100m_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, 
+    #                                ss_x.tempo, dt_x, delta_hours=modulo)
+    
+    # 3. Your visualization code should work since pred is numpy array
+    # show_array(arr1=arr_y, arr2=pred, ...)
+    
+    print("Integration example:")
+    print("1. Initialize predictor: u100m_predictor = U100mPredictor(return_cpu=True)")
+    print("2. Make predictions: pred = u100m_predictor.predict(...)")
+    print("3. Use in visualization: show_array(arr1=..., arr2=pred, ...)")
+    print("\nThe predictor automatically uses GPU if available and returns CPU numpy arrays.")
+
+
 if __name__ == "__main__":
-    test_predictor()
+    test_predictor_gpu()
+    example_integration()

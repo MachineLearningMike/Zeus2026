@@ -1423,7 +1423,7 @@ class Zeus_Dataset(Dataset):
                     if variable == "t2m":
                         pred = t2m_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, dt_x, delta_hours=modulo)
                     elif variable == "u100m":
-                        pred = u100m_predictor.predict_u100m(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, dt_x, delta_hours=modulo)
+                        pred = u100m_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, dt_x, delta_hours=modulo)
                     e = time.time()
                     # pred = ss_x.meteo[0].numpy() works   # array_x[0].numpy works
                 
