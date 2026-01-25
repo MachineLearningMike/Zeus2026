@@ -227,47 +227,8 @@ def show_array(arr1, arr2=None, variable1="", variable2="", dt=datetime(2000,1,1
     """
     global _fig, _ax1, _ax2, _im1, _im2, _cbar1, _cbar2
     
-    # --- Data Preparation Function ---
-    def prepare_array(arr, name="array"):
-        if arr is None:
-            return None
-            
-        # Check if already numeric
-        if arr.dtype.kind in ['i', 'f', 'c']:  # Integer, float, complex
-            return arr.astype(np.float32)
-        
-        # Check if boolean
-        if arr.dtype.kind == 'b':
-            return arr.astype(np.float32)
-        
-        # Handle string/object arrays
-        if arr.dtype.kind in ['U', 'O', 'S']:  # String types
-            try:
-                # Try direct conversion
-                return arr.astype(np.float32)
-            except (ValueError, TypeError):
-                # Try with error handling
-                arr_float = np.zeros_like(arr, dtype=np.float32)
-                for i in range(arr.shape[0]):
-                    for j in range(arr.shape[1]):
-                        try:
-                            val = float(arr[i, j])
-                            arr_float[i, j] = val
-                        except:
-                            arr_float[i, j] = np.nan
-                # Replace NaN with 0 for display
-                arr_float = np.nan_to_num(arr_float, nan=0.0)
-                return arr_float
-        
-        # For any other type
-        try:
-            return np.array(arr, dtype=np.float32)
-        except:
-            return np.zeros_like(arr, dtype=np.float32)
-    
-    # Prepare arrays
-    arr1_plot = prepare_array(arr1, "arr1")
-    arr2_plot = prepare_array(arr2, "arr2") if arr2 is not None else None
+    arr1_plot = arr1
+    arr2_plot = arr2
     
     # Determine if showing one or two arrays
     show_two = arr2_plot is not None

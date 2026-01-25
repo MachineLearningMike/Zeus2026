@@ -1352,6 +1352,7 @@ class Zeus_Dataset(Dataset):
     def play_physical_prediction(self, inclusive_left, inclusive_right, modulo):
             
         from modules.utils import show_array, initialize_for_show_array, finalize_for_show_array
+        from light.t2m_predict_6_hours import ultra_fast_t2m_6hr_prediction
     
         def get_key():
             """
@@ -1404,19 +1405,18 @@ class Zeus_Dataset(Dataset):
                 old_path = file_path
 
             variable = self.pm.meteo_variables[var_id]
-            arr = dict_data[variable]  # (C, H, W)
+            arr_y = dict_data[variable]  # (C, H, W)
 
+            pred = None
             dt_x = dt - timedelta(hours=6)
             if inclusive_left <= dt_x and dt_x <= inclusive_right:
-                array_x = self.load_decode_get_array_for_variables(dt_x, modulo=6, variables=self.pm.meteo_variables)
-                ss = Snapshot(dt_x.year, dt_x.month, dt_x.day, dt_x.hour, meteo=array_x, meteo_unnormal=None)
+                array_x = torch.from_numpy(self.load_decode_get_array_for_variables(dt_x, modulo=6, variables=self.pm.meteo_variables))
+                ss_x = Snapshot(dt_x.year, dt_x.month, dt_x.day, dt_x.hour, meteo=array_x, meteo_unnormal=None)
             
+                pred = ultra_fast_t2m_6hr_prediction(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, dt_x, 6).numpy()
+                pred = ss_x.meteo[0].numpy()    # array_x[0].numpy works
             
-
-            
-            
-            
-            show_array(arr1=arr, arr2=None, variable1=variable, variable2="", dt=datetime(2000,1,1,0), modulo=0)
+            show_array(arr1=arr_y, arr2=pred, variable1=variable, variable2="", dt=dt, modulo=6)
             # Wait for key input
             key = None
             start_time = time.time()

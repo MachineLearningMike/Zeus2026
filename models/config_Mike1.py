@@ -73,7 +73,7 @@ config = {
     "pair_not_single_snapshot": True,
     "group_normalize": False,           # False for light version
     
-    "geo_dense_variables": ["orograph", "sin_lat", "sin_lon", "cos_lon"],
+    "geo_dense_variables": ["orograph", "sin_lat", "cos_lat", "sin_lon", "cos_lon"],
     "geo_cat_variables": ["land_sea_mask", "soil_type"],
     "tempo_variables": ["sin_orbit", "cos_orbit", "sin_zenit", "cos_zenit"], # ["sin_orbit", "cos_orbit", "sin_solor", "cos_solar"],
 }
@@ -168,7 +168,7 @@ if platform.system() == "Windows":
     config["data_limit"] = 12
     config["dim_to_layerFFN_dim"] = 4
     
-    config["factor10"] = 2  # 
+    config["factor10"] = 10  # 
     config['nRawStepsPerBatch'] = 1
     
     # shared_model_params['nHeads'] = 4

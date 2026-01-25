@@ -538,6 +538,24 @@ class Geo_Tempo():
         tensor = torch.stack([torch.sin(lat_rad), torch.sin(lon_rad), torch.cos(lon_rad)], dim=0)
         return tensor        
 
+    def sin_cos_lat_tensor_era5():
+        
+        lat_lon, _, _ = Geo_Tempo.lat_lon_grid_tensor_era5_721()  # shape (2, H, W)
+        
+        lat_rad = torch.deg2rad(lat_lon[0])
+
+        tensor = torch.stack([torch.sin(lat_rad), torch.cos(lat_rad)], dim=0)
+        return tensor  
+    
+    def sin_cos_lon_tensor_era5():
+        
+        lat_lon, _, _ = Geo_Tempo.lat_lon_grid_tensor_era5_721()  # shape (2, H, W)
+        
+        lon_rad = torch.deg2rad(lat_lon[1])
+
+        tensor = torch.stack([torch.sin(lon_rad), torch.cos(lon_rad)], dim=0)
+        return tensor  
+
 Geo_Tempo.lat_lon_tensor_721_1440, Geo_Tempo.lat_tensor_721, Geo_Tempo.lon_tensor_1440 = Geo_Tempo.lat_lon_grid_tensor_era5_721()
 
 if __name__ == "__main__":

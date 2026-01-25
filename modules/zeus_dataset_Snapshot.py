@@ -32,7 +32,7 @@ class Snapshot:
     factor10 = 10
     meteo_dims = len(VARIABLE_NAME_LIST_UNCHANGEABLE)
        
-    geo_dense_variables = ["orograph", "sin_lat", "sin_lon", "cos_lon"]
+    geo_dense_variables = ["orograph", "sin_lat", "cos_lat", "sin_lon", "cos_lon"]
     geo_cat_variables = ["land_sea_mask", "soil_type"]
     tempo_variables = ["sin_orbit", "cos_orbit", "sin_zenit", "cos_zenit"]
 
@@ -51,7 +51,7 @@ class Snapshot:
     cos_lat_sin_lon = None
     
     def set_original_settings(factor10=10, increasing=True, packed_levels=7, device='cpu',
-        geo_dense_variables = ["orograph", "sin_lat", "sin_lon", "cos_lon"],
+        geo_dense_variables = ["orograph", "sin_lat", "cos_lat", "sin_lon", "cos_lon"],
         geo_cat_variables = ["land_sea_mask", "soil_type"],
         tempo_variables = ["sin_orbit", "cos_orbit", "sin_zenit", "cos_zenit"],                            
         ):
@@ -120,12 +120,12 @@ class Snapshot:
         # - dataset: (n, 721, 1440)
         # - prediction: (n, 720/10*factor10, 1440/10*factor10) = (n, exp_h, exp_w)
         if meteo is None:
-            _meteo_tensor = torch.rand(Snapshot.meteo_dims, exp_h, exp_w) - 0.5     # placeholder for tests.
+            meteo_tensor = torch.rand(Snapshot.meteo_dims, exp_h, exp_w) - 0.5     # placeholder for tests.
         else:
-            meteo = Snapshot.crop_tensor(meteo, (Snapshot.original_720_h, Snapshot.original_1440_w))
+            meteo_tensor = Snapshot.crop_tensor(meteo, (Snapshot.original_720_h, Snapshot.original_1440_w))
             if Snapshot.factor10 != 10:
-                meteo = Snapshot.resize_continuous_bilinear_channel_wise_cylindric_for_export(meteo)
-        self.meteo = _meteo_tensor
+                meteo_tensor = Snapshot.resize_continuous_bilinear_channel_wise_cylindric_for_export(meteo_tensor)
+        self.meteo = meteo_tensor
 
         #--------------- meteo_unnormalized -------------
         # meteo_unnormal, if not None, comes from dataset: (n, 721, 1440)
@@ -218,7 +218,8 @@ class Snapshot:
         file_stack = torch.from_numpy(file_stack)  # shape: (n, final_H, final_W)
 
         #-------------------- dense, lat lon ------------------
-        geo_sin_lat_sin_cos_lon_tensor = Geo_Tempo.sin_lat_sin_cos_lon_tensor_era5() # (3, final_H, final_W)
+        sin_cos_lat_tensor_era5_tensor = Geo_Tempo.sin_cos_lat_tensor_era5()
+        sin_cos_lon_tensor_era5_tensor = Geo_Tempo.sin_cos_lon_tensor_era5()
         
         def select(name):
             tensor = None        
@@ -227,11 +228,13 @@ class Snapshot:
                 while name not in dense_npy_paths[idx]: idx += 1
                 tensor = file_stack[idx]
             elif name == "sin_lat":
-                tensor = geo_sin_lat_sin_cos_lon_tensor[0]
+                tensor = sin_cos_lat_tensor_era5_tensor[0]
+            elif name == "cos_lat":
+                tensor = sin_cos_lat_tensor_era5_tensor[1]
             elif name == "sin_lon":
-                tensor = geo_sin_lat_sin_cos_lon_tensor[1]
+                tensor = sin_cos_lon_tensor_era5_tensor[0]
             elif name == "cos_lon":
-                tensor = geo_sin_lat_sin_cos_lon_tensor[2]
+                tensor = sin_cos_lon_tensor_era5_tensor[1]
             return tensor
 
         tensor_list = [select(name) for name in variables]
