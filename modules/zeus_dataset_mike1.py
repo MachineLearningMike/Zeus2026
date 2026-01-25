@@ -1288,8 +1288,8 @@ class Zeus_Dataset(Dataset):
                 variable = self.pm.meteo_variables[var_id]
                 arr_y = dict_data[variable]  # (C, H, W)
 
-                # Display the array
-                show_array(arr1=arr_y, arr2=None, variable1=variable, variable2="", dt=dt, modulo=modulo)
+            # Display the array
+            show_array(arr1=arr_y, arr2=None, variable1=variable, variable2="", dt=dt, modulo=modulo)
             
             # Wait for key input
             key = None
@@ -1425,19 +1425,23 @@ class Zeus_Dataset(Dataset):
                     e = time.time()
                     # pred = ss_x.meteo[0].numpy() works   # array_x[0].numpy works
                 
-                show_array(arr1=arr_y, arr2=pred, variable1=variable, variable2=f"time: {e-s:.5f}", dt=dt, modulo=modulo)
+            show_array(arr1=arr_y, arr2=pred, variable1=variable, variable2=f"time: {e-s:.5f}", dt=dt, modulo=modulo)
             
             
             # Wait for key input
             key = None
             start_time = time.time()
-            while key is None and (time.time() - start_time < 0.5):
+            while key is None and (time.time() - start_time < 1.0):
                 key = get_key()
                 if key is None:
                     time.sleep(0.1)  # Small sleep to prevent CPU overuse
             
             # Process key
-            key_stroked = True
+            if key is None:
+                key_stroked = False
+                continue
+            else:
+                 key_stroked = True
             
             if key == "up": 
                 var_id += 1
