@@ -222,10 +222,10 @@ def finalize_for_show_array():
 
 def show_array(arr1, arr2=None, variable1="", variable2="", dt=datetime(2000,1,1,0), modulo=6):
     """
-    Display one or two arrays side-by-side.
+    Display one or two arrays side-by-side with shared colorbar for two-panel plots.
     Automatically handles string-to-float conversion.
     """
-    global _fig, _ax1, _ax2, _im1, _im2, _cbar1, _cbar2
+    global _fig, _ax1, _ax2, _im1, _im2, _cbar_shared
     
     arr1_plot = arr1
     arr2_plot = arr2
@@ -233,26 +233,48 @@ def show_array(arr1, arr2=None, variable1="", variable2="", dt=datetime(2000,1,1
     # Determine if showing one or two arrays
     show_two = arr2_plot is not None
     
+    # Calculate color ranges
+    if show_two:
+        # Shared color scale for both arrays
+        vmin = min(np.nanmin(arr1_plot), np.nanmin(arr2_plot))
+        vmax = max(np.nanmax(arr1_plot), np.nanmax(arr2_plot))
+    else:
+        # Single array color scale
+        vmin, vmax = np.nanmin(arr1_plot), np.nanmax(arr1_plot)
+    
     # Create figure if it doesn't exist
     if _fig is None:
         # Create figure with appropriate layout
         if show_two:
-            _fig, (_ax1, _ax2) = plt.subplots(1, 2, figsize=(16, 7), 
-                                             subplot_kw={'projection': ccrs.PlateCarree()})
+            # Create figure with GridSpec for shared colorbar
+            _fig = plt.figure(figsize=(16, 7))
+            gs = plt.GridSpec(1, 3, width_ratios=[1, 1, 0.05], wspace=0.1)
+            _ax1 = _fig.add_subplot(gs[0], projection=ccrs.PlateCarree())
+            _ax2 = _fig.add_subplot(gs[1], projection=ccrs.PlateCarree())
+            cbar_ax = _fig.add_subplot(gs[2])
         else:
             _fig, _ax1 = plt.subplots(1, 1, figsize=(10, 7),
                                      subplot_kw={'projection': ccrs.PlateCarree()})
             _ax2 = None
+            cbar_ax = None
         
         # Set extent for your data (ERA5 grid)
         left, right, bottom, top = -180.0, 180.0, -90.0, 90.0
         
         # --- Plot First Array ---
-        _im1 = _ax1.imshow(arr1_plot,
-                          transform=ccrs.PlateCarree(),
-                          extent=[left, right, bottom, top],
-                          cmap='viridis',
-                          origin='lower')
+        if show_two:
+            _im1 = _ax1.imshow(arr1_plot,
+                              transform=ccrs.PlateCarree(),
+                              extent=[left, right, bottom, top],
+                              cmap='viridis',
+                              origin='lower',
+                              vmin=vmin, vmax=vmax)
+        else:
+            _im1 = _ax1.imshow(arr1_plot,
+                              transform=ccrs.PlateCarree(),
+                              extent=[left, right, bottom, top],
+                              cmap='viridis',
+                              origin='lower')
         
         # Configure first subplot
         _ax1.coastlines(resolution='110m', linewidth=0.5, color='black', alpha=0.7)
@@ -263,17 +285,14 @@ def show_array(arr1, arr2=None, variable1="", variable2="", dt=datetime(2000,1,1
         gl1.top_labels = False
         gl1.right_labels = False
         
-        # Add colorbar for first plot
-        _cbar1 = plt.colorbar(_im1, ax=_ax1, orientation='vertical', pad=0.03, shrink=0.9)
-        _cbar1.set_label(variable1, fontsize=12)
-        
         # --- Plot Second Array if provided ---
         if show_two:
             _im2 = _ax2.imshow(arr2_plot,
                               transform=ccrs.PlateCarree(),
                               extent=[left, right, bottom, top],
                               cmap='viridis',
-                              origin='lower')
+                              origin='lower',
+                              vmin=vmin, vmax=vmax)
             
             # Configure second subplot
             _ax2.coastlines(resolution='110m', linewidth=0.5, color='black', alpha=0.7)
@@ -285,68 +304,83 @@ def show_array(arr1, arr2=None, variable1="", variable2="", dt=datetime(2000,1,1
             gl2.right_labels = False
             gl2.left_labels = False  # Only show labels on left plot
             
-            # Add colorbar for second plot
-            _cbar2 = plt.colorbar(_im2, ax=_ax2, orientation='vertical', pad=0.03, shrink=0.9)
-            _cbar2.set_label(variable2, fontsize=12)
+            # Add shared colorbar for two-panel plot
+            _cbar_shared = plt.colorbar(_im1, cax=cbar_ax, orientation='vertical')
+            _cbar_shared.set_label(f'{variable1} / {variable2}', fontsize=12)
             
             # Set title for two-panel figure
             _fig.suptitle(f'{variable1} vs {variable2} | {dt.strftime("%Y-%m-%d %H:%M")} UTC | Mod: {modulo}',
                          fontsize=14, fontweight='bold', color='#00008B', y=0.98)
         else:
+            # Add colorbar for single plot
+            _cbar_shared = plt.colorbar(_im1, ax=_ax1, orientation='vertical', pad=0.03, shrink=0.9)
+            _cbar_shared.set_label(variable1, fontsize=12)
+            
             # Set title for single plot
             _ax1.set_title(f'{variable1} | {dt.strftime("%Y-%m-%d %H:%M")} UTC | Mod: {modulo}',
                           fontsize=14, fontweight='bold', color='#00008B', pad=20)
         
         # Adjust layout
-        plt.tight_layout(rect=[0, 0, 1, 0.96] if show_two else None)
+        plt.tight_layout(rect=[0, 0, 0.95, 0.96] if show_two else None)
         
         # Show window (non-blocking)
         plt.show(block=False)
-        plt.pause(0.5)
+        plt.pause(0.001)
     
     else:
         # --- Update Existing Plot ---
         
-        # Update first array
-        _im1.set_data(arr1_plot)
-        vmin1, vmax1 = np.nanmin(arr1_plot), np.nanmax(arr1_plot)
-        if not np.isclose(vmin1, vmax1, atol=1e-6):  # Only update if range is valid
-            _im1.set_clim(vmin1, vmax1)
-        _cbar1.set_label(variable1, fontsize=12)
-        _cbar1.update_normal(_im1)
-        
-        # Update second array if it exists and arr2 is provided
-        if show_two and _im2 is not None:
-            _im2.set_data(arr2_plot)
-            vmin2, vmax2 = np.nanmin(arr2_plot), np.nanmax(arr2_plot)
-            if not np.isclose(vmin2, vmax2, atol=1e-6):
-                _im2.set_clim(vmin2, vmax2)
-            _cbar2.set_label(variable2, fontsize=12)
-            _cbar2.update_normal(_im2)
-            
-            # Update suptitle for two-panel figure
-            _fig.suptitle(f'{variable1} vs {variable2} | {dt.strftime("%Y-%m-%d %H:%M")} UTC | Mod: {modulo}',
-                         fontsize=14, fontweight='bold', color='#00008B', y=0.98)
-        
-        elif show_two and _im2 is None:
-            # We need to switch from single to dual plot - recreate figure
+        # Check if plot structure needs to change (single vs dual)
+        current_show_two = _ax2 is not None and _im2 is not None
+        if show_two != current_show_two:
+            # Structure changed, recreate figure
             plt.close(_fig)
             _fig = None
+            _ax1 = _ax2 = None
+            _im1 = _im2 = None
+            _cbar_shared = None
             # Recursive call with new figure
             show_array(arr1_plot, arr2_plot, variable1, variable2, dt, modulo)
             return
         
-        elif not show_two and _im2 is not None:
-            # We need to switch from dual to single plot - recreate figure
-            plt.close(_fig)
-            _fig = None
-            show_array(arr1_plot, variable1=variable1, dt=dt, modulo=modulo)
-            return
+        # Update first array
+        _im1.set_data(arr1_plot)
         
+        # Update color limits
+        if show_two:
+            # Update shared color range
+            vmin = min(np.nanmin(arr1_plot), np.nanmin(arr2_plot))
+            vmax = max(np.nanmax(arr1_plot), np.nanmax(arr2_plot))
+            _im1.set_clim(vmin, vmax)
+            
+            # Update second array
+            if _im2 is not None:
+                _im2.set_data(arr2_plot)
+                _im2.set_clim(vmin, vmax)
+            
+            # Update shared colorbar
+            if _cbar_shared is not None:
+                _cbar_shared.set_label(f'{variable1} / {variable2}', fontsize=12)
+                _cbar_shared.update_normal(_im1)
+            
+            # Update suptitle for two-panel figure
+            if hasattr(_fig, 'suptitle'):
+                _fig.suptitle(f'{variable1} vs {variable2} | {dt.strftime("%Y-%m-%d %H:%M")} UTC | Mod: {modulo}',
+                             fontsize=14, fontweight='bold', color='#00008B', y=0.98)
         else:
-            # Single plot title update
-            _ax1.set_title(f'{variable1} | {dt.strftime("%Y-%m-%d %H:%M")} UTC | Mod: {modulo}',
-                          fontsize=14, fontweight='bold', color='#00008B', pad=20)
+            # Update single array color range
+            vmin, vmax = np.nanmin(arr1_plot), np.nanmax(arr1_plot)
+            _im1.set_clim(vmin, vmax)
+            
+            # Update colorbar
+            if _cbar_shared is not None:
+                _cbar_shared.set_label(variable1, fontsize=12)
+                _cbar_shared.update_normal(_im1)
+            
+            # Update title for single plot
+            if _ax1 is not None:
+                _ax1.set_title(f'{variable1} | {dt.strftime("%Y-%m-%d %H:%M")} UTC | Mod: {modulo}',
+                              fontsize=14, fontweight='bold', color='#00008B', pad=20)
         
         # Force redraw
         _fig.canvas.draw_idle()

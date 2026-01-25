@@ -38,6 +38,7 @@ def fast_physics_t2m_prediction(meteo, geo_dense, geo_cat, geo_tempo,
                                time_t_utc, delta_hours):
     """
     Fast physics-based temperature prediction for any delta hours (0-12).
+    Oceans are much less sensitive to sunshine than land.
     """
     # Validate delta
     delta_hours = max(0, min(12, delta_hours))
@@ -72,274 +73,354 @@ def fast_physics_t2m_prediction(meteo, geo_dense, geo_cat, geo_tempo,
     # --- CONSTANTS ---
     SOLAR_CONST = 1361.0      # Solar constant (W/m²)
     SIGMA = 5.67e-8          # Stefan-Boltzmann (W/m²K⁴)
-    HOURS_TO_RAD = torch.tensor(np.radians(15.0), device=device)
+    HOURS_TO_RAD = torch.deg2rad(torch.tensor(15.0, device=device))
     STD_PRESSURE = 101325.0   # Standard pressure (Pa)
     g = 9.80665              # Gravity (m/s²)
     
-    # Convert delta_hours to tensor for torch operations
+    # Convert delta_hours to tensor
     delta_hours_tensor = torch.tensor(delta_hours, device=device, dtype=torch.float32)
     
     # Convert geopotential to height (m)
     orog_height = geopot / g
     
-    # --- 1. TIME-DEPENDENT SCALING FACTORS ---
-    # Physical processes scale differently with time
-    # Linear scaling for most processes
-    time_factor = delta_hours_tensor / 6.0  # Normalize to 6-hour reference
+    # --- 1. TIME SCALING ---
+    time_factor = delta_hours_tensor / 6.0
+    time_factor = torch.clamp(time_factor, 0.0, 1.0)
     
-    # Some processes are non-linear with time
-    diurnal_factor = torch.minimum(delta_hours_tensor / 12.0, torch.tensor(1.0, device=device))
-    advection_factor = delta_hours_tensor / 6.0
-    rain_factor = 1.0 - torch.exp(-delta_hours_tensor / 3.0)  # Fixed: use tensor
-    
-    # --- 2. SURFACE PROPERTIES ---
-    # Soil thermal properties
-    soil_props = torch.tensor([
-        # HeatCap(J/m²K), Albedo, Response, MoistureFactor
-        [4.18e6, 0.06, 0.6, 0.1],   # 0: Ocean/Lake
-        [1.2e6,  0.25, 1.5, 1.8],   # 1: Coarse (sand)
-        [1.6e6,  0.20, 1.2, 1.4],   # 2: Medium
-        [2.0e6,  0.18, 1.0, 1.2],   # 3: Medium Fine
-        [2.4e6,  0.16, 0.8, 1.0],   # 4: Fine
-        [2.8e6,  0.14, 0.7, 0.8],   # 5: Very Fine
-        [3.0e6,  0.12, 0.6, 0.6],   # 6: Organic
-        [3.2e6,  0.10, 0.5, 0.4]    # 7: Tropical Organic
-    ], device=device)
-    
-    soil_idx = soil_type.long()
-    C_grid = soil_props[soil_idx, 0]      # Heat capacity
-    albedo_grid = soil_props[soil_idx, 1] # Albedo
-    resp_grid = soil_props[soil_idx, 2]   # Response factor
-    moist_fac = soil_props[soil_idx, 3]   # Moisture factor
-    
-    # Ocean override
     is_ocean = (land_mask == 0)
-    C_grid[is_ocean] = 4.18e6
-    albedo_grid[is_ocean] = 0.06
-    resp_grid[is_ocean] = 0.6
+    is_land = (land_mask == 1)
+    
+    # --- 2. SURFACE PROPERTIES - OCEANS MUCH MORE STABLE ---
+    # Oceans have much higher heat capacity and lower response
+    C_land = 1.8e6      # Land heat capacity
+    C_ocean = 5.0e6     # Ocean: HIGHER heat capacity (more stable)
+    
+    albedo_land = 0.18  # Land albedo
+    albedo_ocean = 0.08 # Ocean albedo (slightly higher than before)
+    
+    response_land = 1.8    # Land: fast response
+    response_ocean = 0.15  # Ocean: VERY SLOW response (reduced from 0.4)
+    
+    C_grid = torch.where(is_land, C_land, C_ocean)
+    albedo_grid = torch.where(is_land, albedo_land, albedo_ocean)
+    resp_grid = torch.where(is_land, response_land, response_ocean)
     
     # --- 3. HUMIDITY & CLOUDS ---
-    T_diff = torch.clamp(T0 - Td, min=0.1)  # Temperature-dewpoint spread (K)
-    RH = torch.exp(-0.07 * T_diff)          # Relative humidity approx
-    cloud_cover = torch.clamp(1.5 * RH**3 - 0.5, 0.0, 1.0)
+    T_diff = torch.clamp(T0 - Td, min=0.1)
+    RH = torch.exp(-0.05 * T_diff)
+    cloud_cover = torch.clamp(1.0 * RH**2, 0.0, 1.0)
     
-    # --- 4. SOLAR GEOMETRY AT t+delta ---
-    # Get solar declination from orbital angle
+    # --- 4. SOLAR GEOMETRY ---
     orbital_rad = torch.atan2(sin_orbit, cos_orbit)
-    delta_rad = orbital_rad - torch.tensor(np.radians(270.0), device=device)
-    sin_delta = torch.sin(delta_rad)
-    cos_delta = torch.cos(delta_rad)
     
-    # Current hour angle from zenith at time t
-    cos_h0 = (cos_z0 - sin_lat * sin_delta) / torch.clamp(cos_lat * cos_delta, min=1e-6)
-    cos_h0 = torch.clamp(cos_h0, -1.0, 1.0)
-    h0_rad = torch.acos(cos_h0)
+    # Solar declination
+    declination_rad = torch.deg2rad(torch.tensor(23.44, device=device)) * torch.sin(orbital_rad)
+    sin_delta = torch.sin(declination_rad)
+    cos_delta = torch.cos(declination_rad)
     
-    # Determine morning/afternoon
+    lat_rad = torch.asin(sin_lat)
     lon_rad = torch.atan2(sin_lon, cos_lon)
-    lon_deg = torch.rad2deg(lon_rad)
-    local_hour = (12 + lon_deg/15.0) % 24
-    is_afternoon = local_hour > 12
-    h0_rad = torch.where(is_afternoon, -h0_rad, h0_rad)
     
-    # Hour angle at t+delta
-    h_delta_rad = h0_rad + HOURS_TO_RAD * delta_hours_tensor
+    # CURRENT local solar time
+    UTC_hour = time_t_utc.hour + time_t_utc.minute/60.0
+    local_solar_current = (UTC_hour + torch.rad2deg(lon_rad)/15.0) % 24
     
-    # Zenith at t+delta
-    cos_z_delta = sin_lat * sin_delta + cos_lat * cos_delta * torch.cos(h_delta_rad)
-    cos_z_delta = torch.clamp(cos_z_delta, -1.0, 1.0)
+    # FUTURE local solar time
+    local_solar_future = (local_solar_current + delta_hours) % 24
     
-    # Average solar radiation over the period
-    I0 = SOLAR_CONST * 0.75 * torch.clamp(cos_z0, min=0.0)
-    I_delta = SOLAR_CONST * 0.75 * torch.clamp(cos_z_delta, min=0.0)
+    # Solar hour angle at FUTURE time
+    hour_angle_future = torch.deg2rad(15.0 * (local_solar_future - 12.0))
     
-    # Time-weighted average (more weight to later times for longer deltas)
-    weight = 0.3 + 0.7 * torch.minimum(delta_hours_tensor / 6.0, torch.tensor(1.0, device=device))
-    I_avg = (1 - weight) * I0 + weight * I_delta
+    # Solar zenith at FUTURE time
+    cos_z_future = sin_lat * sin_delta + cos_lat * cos_delta * torch.cos(hour_angle_future)
+    cos_z_future = torch.clamp(cos_z_future, 0.0, 1.0)
     
-    # Cloud reduction
-    cloud_reduction = 1.0 - 0.7 * cloud_cover
-    I_avg = I_avg * cloud_reduction
+    # Solar radiation at FUTURE time
+    I_future = SOLAR_CONST * 0.75 * cos_z_future
+    cloud_reduction = 1.0 - 0.6 * cloud_cover
+    I_future = I_future * cloud_reduction
     
-    # --- 5. DIURNAL HEATING/COOLING ---
-    T0_K = T0  # Already in K
+    # Day/night at FUTURE time
+    is_day_future = I_future > 20.0
+    is_night_future = ~is_day_future
     
-    # Absorbed solar (depends on time of day)
-    absorbed = (1.0 - albedo_grid) * I_avg
+    # --- 5. TIME PERIOD MASKS ---
+    # Pre-dawn hours (3 AM - 6 AM): coldest time
+    pre_dawn = (local_solar_future >= 3) & (local_solar_future < 6)
     
-    # Outgoing longwave (clouds trap at night)
-    is_night = I_avg < 20
-    cloud_trapping = 1.0 + 0.4 * cloud_cover * is_night
-    emitted = SIGMA * 0.9 * (T0_K ** 4) / cloud_trapping
+    # Early night (6 PM - 9 PM): rapid cooling (land only)
+    early_night = (local_solar_future >= 18) & (local_solar_future < 21)
     
-    # Sensible heat flux (depends on time)
-    sensible = 10.0 * resp_grid * (1.5 * diurnal_factor)
+    # Late night (9 PM - 3 AM): gradual cooling
+    late_night = (local_solar_future >= 21) | (local_solar_future < 3)
     
-    # Net energy flux
-    Q_net = absorbed - emitted - sensible
-    Q_net = torch.clamp(Q_net, -200, 400)
+    # Morning (6 AM - 9 AM): warming begins
+    morning = (local_solar_future >= 6) & (local_solar_future < 9)
     
-    # Temperature change (scales with delta)
+    # Midday (9 AM - 3 PM): strong warming (land only)
+    midday = (local_solar_future >= 9) & (local_solar_future < 15)
+    
+    # Afternoon (3 PM - 6 PM): transition
+    afternoon = (local_solar_future >= 15) & (local_solar_future < 18)
+    
+    # --- 6. DIURNAL CYCLE - OCEANS MUCH FLATTER ---
+    diurnal_adjustment = torch.zeros_like(T0)
+    
+    # --- 6a. NIGHTTIME ---
+    # Pre-dawn (3-6 AM): Land cools, ocean very stable
+    if torch.any(pre_dawn):
+        land_pre_dawn = pre_dawn & is_land
+        ocean_pre_dawn = pre_dawn & is_ocean
+        
+        # Land: slight cooling
+        pre_dawn_factor = (local_solar_future - 3) / 3.0
+        land_cooling = -0.4 * pre_dawn_factor * (1.0 - cloud_cover)
+        diurnal_adjustment[land_pre_dawn] = land_cooling[land_pre_dawn]
+        
+        # Ocean: VERY minimal change (±0.05K)
+        ocean_cooling = -0.05 * pre_dawn_factor * (1.0 - cloud_cover)
+        diurnal_adjustment[ocean_pre_dawn] = ocean_cooling[ocean_pre_dawn]
+    
+    # Early night (6-9 PM): Land cools rapidly, ocean barely changes
+    if torch.any(early_night):
+        land_early_night = early_night & is_land
+        ocean_early_night = early_night & is_ocean
+        
+        hours_after = local_solar_future - 18
+        cooling_factor = hours_after / 3.0
+        
+        # Land: -2K by 9 PM
+        land_cooling = -2.0 * cooling_factor * (1.0 - cloud_cover)
+        diurnal_adjustment[land_early_night] = land_cooling[land_early_night]
+        
+        # Ocean: barely changes (-0.3K max)
+        ocean_cooling = -0.3 * cooling_factor * (1.0 - cloud_cover)
+        diurnal_adjustment[ocean_early_night] = ocean_cooling[ocean_early_night]
+    
+    # Late night (9 PM - 3 AM): Land continues cooling, ocean stable
+    if torch.any(late_night):
+        land_late_night = late_night & is_land
+        ocean_late_night = late_night & is_ocean
+        
+        night_factor = torch.where(
+            local_solar_future >= 21,
+            (local_solar_future - 21) / 3.0,
+            (local_solar_future + 3) / 6.0
+        )
+        
+        # Land: -1.2K additional cooling
+        land_cooling = -1.2 * night_factor * (1.0 - cloud_cover)
+        diurnal_adjustment[land_late_night] = land_cooling[land_late_night]
+        
+        # Ocean: barely changes (-0.2K max)
+        ocean_cooling = -0.2 * night_factor * (1.0 - cloud_cover)
+        diurnal_adjustment[ocean_late_night] = ocean_cooling[ocean_late_night]
+    
+    # --- 6b. DAYTIME - BIG DIFFERENCE BETWEEN LAND AND OCEAN ---
+    # Morning (6-9 AM): Land warms quickly, ocean slowly
+    if torch.any(morning):
+        land_morning = morning & is_land
+        ocean_morning = morning & is_ocean
+        
+        hours_after_sunrise = local_solar_future - 6
+        warming_factor = hours_after_sunrise / 3.0
+        
+        # Land: +3.5K by 9 AM
+        land_warming = 3.5 * warming_factor
+        diurnal_adjustment[land_morning] = land_warming[land_morning]
+        
+        # Ocean: +0.6K by 9 AM (very slow)
+        ocean_warming = 0.6 * warming_factor
+        diurnal_adjustment[ocean_morning] = ocean_warming[ocean_morning]
+    
+    # Midday (9 AM - 3 PM): Land warms strongly, ocean slightly
+    if torch.any(midday):
+        land_midday = midday & is_land
+        ocean_midday = midday & is_ocean
+        
+        hours_from_noon = torch.abs(local_solar_future - 12.0)
+        warming_factor = 1.0 - (hours_from_noon / 3.0) ** 2
+        
+        # Land: +5K peak at noon
+        land_warming = 5.0 * warming_factor
+        diurnal_adjustment[land_midday] = land_warming[land_midday]
+        
+        # Ocean: +1K peak at noon (much smaller)
+        ocean_warming = 1.0 * warming_factor
+        diurnal_adjustment[ocean_midday] = ocean_warming[ocean_midday]
+    
+    # Afternoon (3-6 PM): Land transitions to cooling, ocean stable
+    if torch.any(afternoon):
+        land_afternoon = afternoon & is_land
+        ocean_afternoon = afternoon & is_ocean
+        
+        hours_after_3pm = local_solar_future - 15
+        transition_factor = 1.0 - hours_after_3pm / 3.0
+        
+        # Land: +1.5K at 3 PM, cooling to 0 by 6 PM
+        land_effect = 1.5 * transition_factor
+        diurnal_adjustment[land_afternoon] = land_effect[land_afternoon]
+        
+        # Ocean: +0.3K at 3 PM, stable
+        ocean_effect = 0.3 * transition_factor
+        diurnal_adjustment[ocean_afternoon] = ocean_effect[ocean_afternoon]
+    
+    # Scale diurnal adjustment by time factor
+    diurnal_adjustment = diurnal_adjustment * time_factor
+    
+    # --- 7. SOLAR RADIATION EFFECT - OCEANS MUCH LESS SENSITIVE ---
+    # Solar heating - oceans respond much less
+    solar_heating_land = 6.0 * cos_z_future * time_factor  # Land: strong
+    solar_heating_ocean = 1.0 * cos_z_future * time_factor  # Ocean: weak
+    solar_heating = torch.where(is_land, solar_heating_land, solar_heating_ocean)
+    
+    # NO solar heating at night
+    solar_heating = torch.where(is_day_future, solar_heating, 0.0)
+    
+    # Radiative cooling - oceans cool less
+    radiative_cooling_land = -1.8 * (1.0 - cos_z_future) * time_factor * (1.0 - cloud_cover)
+    radiative_cooling_ocean = -0.4 * (1.0 - cos_z_future) * time_factor * (1.0 - cloud_cover)
+    radiative_cooling = torch.where(is_land, radiative_cooling_land, radiative_cooling_ocean)
+    
+    # Only at night
+    radiative_cooling = torch.where(is_night_future, radiative_cooling, 0.0)
+    
+    # Combine
+    delta_T_solar = solar_heating + radiative_cooling
+    
+    # --- 8. ENERGY BALANCE - OCEANS HAVE SMALLER NET ENERGY ---
+    # Daytime net heating
+    Q_day_land = 50.0 * cos_z_future - 25.0  # Land: large positive
+    Q_day_ocean = 15.0 * cos_z_future - 10.0  # Ocean: small positive
+    Q_day = torch.where(is_land, Q_day_land, Q_day_ocean)
+    
+    # Nighttime net cooling
+    Q_night_land = -30.0 * (1.0 - cos_z_future)  # Land: strong cooling
+    Q_night_ocean = -8.0 * (1.0 - cos_z_future)  # Ocean: mild cooling
+    Q_night = torch.where(is_land, Q_night_land, Q_night_ocean)
+    
+    # Combine
+    Q_simple = torch.where(is_day_future, Q_day, Q_night)
+    Q_simple = torch.clamp(Q_simple, -25.0, 55.0)  # Smaller range for ocean
+    
     delta_t_sec = delta_hours_tensor * 3600
-    delta_T_diurnal = (Q_net * delta_t_sec) / C_grid
-    delta_T_diurnal = delta_T_diurnal * resp_grid * diurnal_factor
+    delta_T_energy = (Q_simple * delta_t_sec) / C_grid
+    delta_T_energy = delta_T_energy * resp_grid * time_factor
     
-    # --- 6. WIND ADVECTION (scales linearly with time) ---
-    dx = 27830 * cos_lat  # 0.25° at equator (m)
+    # --- 9. ADVECTION - OCEANS MAY HAVE SLIGHTLY MORE ADVECTION ---
+    dx = 27830 * cos_lat
     dy = 27830 * torch.ones_like(cos_lat)
     
-    # Temperature gradients
     dT_dx = (torch.roll(T0, -1, dims=1) - torch.roll(T0, 1, dims=1)) / (2 * dx)
     dT_dy = (torch.roll(T0, -1, dims=0) - torch.roll(T0, 1, dims=0)) / (2 * dy)
     
-    # Fix edges
     dT_dx[:, 0] = dT_dx[:, 1]
     dT_dx[:, -1] = dT_dx[:, -2]
     dT_dy[0, :] = dT_dy[1, :]
     dT_dy[-1, :] = dT_dy[-2, :]
     
-    # Advective change (scales with delta)
     advection = -(U * dT_dx + V * dT_dy)
-    delta_T_adv = advection * delta_t_sec
+    # Oceans can have slightly more advection (ocean currents)
+    advection_factor = torch.where(is_land, 0.08, 0.12)
+    delta_T_adv = advection * delta_t_sec * time_factor * advection_factor
     
-    # --- 7. JET-STREAM ENHANCEMENT ---
-    # sin²φ cos²φ peaks at 30°, 60° latitude
-    jet_strength = 4.0 * (sin_lat**2) * (cos_lat**2)
+    # --- 10. COMBINE ALL EFFECTS ---
+    delta_T_total = diurnal_adjustment + delta_T_solar + delta_T_energy + delta_T_adv
     
-    # Enhanced advection in jet regions (stronger for longer times)
-    jet_factor = 1.0 + 0.5 * jet_strength * torch.sqrt(advection_factor)
-    delta_T_adv = delta_T_adv * jet_factor
+    # --- 11. STRICT RATE LIMITS - OCEANS VERY STABLE ---
+    # Land: larger changes allowed
+    max_warming_land = 10.0 * time_factor
+    max_cooling_land = -8.0 * time_factor
     
-    # Poleward heat transport (scales with time)
-    lat_rad = torch.asin(sin_lat)
-    lat_deg = torch.rad2deg(lat_rad)
-    delta_T_jet = 0.15 * jet_strength * torch.sign(lat_deg) * time_factor
+    # Ocean: very small changes allowed
+    max_warming_ocean = 3.0 * time_factor  # Reduced from 5.0
+    max_cooling_ocean = -2.0 * time_factor  # Reduced from -3.0
     
-    # --- 8. PRECIPITATION EFFECTS ---
-    # ERA5 tp is accumulated over previous 6 hours
-    # Effect decays with time
-    precip_m = precip
+    max_warming = torch.where(is_land, max_warming_land, max_warming_ocean)
+    max_cooling = torch.where(is_land, max_cooling_land, max_cooling_ocean)
     
-    # Rain cooling (effect decays)
-    rain_cooling = -3.0 * torch.tanh(precip_m * 100) * rain_factor
-    is_snow = T0 < 273.15
-    rain_cooling[is_snow] = -1.0 * torch.tanh(precip_m[is_snow] * 100) * rain_factor
-    delta_T_rain = rain_cooling * resp_grid
-    
-    # --- 9. PRESSURE EFFECTS ---
-    # Low pressure → cooling tendency
-    P_dev = (Psfc - STD_PRESSURE) / 1000.0  # kPa deviation
-    delta_T_pressure = -0.1 * P_dev * time_factor
-    
-    # --- 10. OROGRAPHY EFFECTS ---
-    # Wind blowing uphill/downhill
-    grad_orog_x = (torch.roll(orog_height, -1, dims=1) - torch.roll(orog_height, 1, dims=1)) / (2 * dx)
-    grad_orog_y = (torch.roll(orog_height, -1, dims=0) - torch.roll(orog_height, 1, dims=0)) / (2 * dy)
-    
-    orog_effect = -(U * grad_orog_x + V * grad_orog_y) * 0.0065  # K/s per m/s
-    delta_T_orog = orog_effect * delta_t_sec
-    
-    # --- 11. COMBINE ALL EFFECTS ---
-    delta_T_total = (delta_T_diurnal + delta_T_adv + delta_T_jet + 
-                     delta_T_rain + delta_T_pressure + delta_T_orog)
-    
-    # Rate limiting based on surface type and time
-    max_change = 12.0 * resp_grid * torch.sqrt(time_factor)  # Square root scaling
-    delta_T_total = torch.clamp(delta_T_total, -max_change, max_change)
-    
-    T_delta_pred = T0 + delta_T_total
-    
-    # --- 12. PHYSICAL CONSTRAINTS ---
-    T_delta_pred = torch.clamp(T_delta_pred, 200.0, 330.0)  # Realistic Earth bounds
-    
-    # Ocean stability (very slow changes, especially for short deltas)
-    ocean_damping = 0.8 + 0.2 * (1.0 - torch.exp(-delta_hours_tensor / 6.0))
-    T_delta_pred[is_ocean] = (ocean_damping * T_delta_pred[is_ocean] + 
-                             (1 - ocean_damping) * T0[is_ocean])
-    
-    # Desert extremes
-    desert_mask = (soil_type == 1) & (T_diff > 5.0) & (land_mask == 1)
-    desert_max = 15.0 * torch.sqrt(time_factor)  # Square root scaling
-    T_delta_pred[desert_mask] = torch.clamp(T_delta_pred[desert_mask],
-                                           T0[desert_mask] - desert_max,
-                                           T0[desert_mask] + desert_max)
-    
-    # --- 13. TIME-DEPENDENT DIURNAL CORRECTIONS ---
-    solar_hour = (torch.rad2deg(h0_rad) / 15.0 + 12.0) % 24
-    
-    # Morning warming effect (stronger for longer deltas)
-    morning = (solar_hour >= 6) & (solar_hour < 10) & (cloud_cover < 0.5)
-    morning_strength = 2.0 * torch.minimum(delta_hours_tensor / 6.0, torch.tensor(1.0, device=device))
-    T_delta_pred[morning] += morning_strength * resp_grid[morning]
-    
-    # Afternoon cooling
-    afternoon = (solar_hour >= 14) & (solar_hour < 18)
-    afternoon_strength = 1.0 * torch.minimum(delta_hours_tensor / 6.0, torch.tensor(1.0, device=device))
-    T_delta_pred[afternoon] -= afternoon_strength * resp_grid[afternoon]
-    
-    # Polar night cooling (accumulates with time)
-    polar_night = (I_avg < 5) & (torch.abs(lat_deg) > 60)
-    polar_strength = 3.0 * time_factor
-    T_delta_pred[polar_night] -= polar_strength * resp_grid[polar_night]
-    
-    # --- 14. TIME-DEPENDENT SMOOTHING ---
-    # More smoothing for longer forecasts
-    smoothing = torch.minimum(delta_hours_tensor / 12.0, torch.tensor(0.7, device=device))
-    
-    if smoothing.item() > 0:
-        # Simple 3x3 weighted average
-        kernel = torch.tensor([[0.25, 0.5, 0.25],
-                              [0.5,  1.0, 0.5],
-                              [0.25, 0.5, 0.25]], device=device) / 4.0
+    # Special pre-dawn limits
+    if torch.any(pre_dawn):
+        # Pre-dawn: even stricter for oceans
+        max_pre_dawn_warming = torch.where(is_land[pre_dawn], 0.1, 0.05) * time_factor
+        pre_dawn_max_cooling = max_cooling[pre_dawn]
         
-        T_smooth = torch.zeros_like(T_delta_pred)
-        
-        # Apply convolution
-        for i in range(1, H-1):
-            for j in range(1, W-1):
-                patch = T_delta_pred[i-1:i+2, j-1:j+2]
-                T_smooth[i, j] = torch.sum(patch * kernel)
-        
-        # Blend with original based on smoothing factor
-        T_delta_pred = (1 - smoothing) * T_delta_pred + smoothing * T_smooth
-        
-        # Keep edges
-        T_delta_pred[0, :] = T0[0, :] * (1 - smoothing) + T_smooth[0, :] * smoothing
-        T_delta_pred[-1, :] = T0[-1, :] * (1 - smoothing) + T_smooth[-1, :] * smoothing
-        T_delta_pred[:, 0] = T0[:, 0] * (1 - smoothing) + T_smooth[:, 0] * smoothing
-        T_delta_pred[:, -1] = T0[:, -1] * (1 - smoothing) + T_smooth[:, -1] * smoothing
+        delta_T_total[pre_dawn] = torch.clamp(
+            delta_T_total[pre_dawn], 
+            pre_dawn_max_cooling, 
+            max_pre_dawn_warming
+        )
     
-        T_pred = T_delta_pred
+    # Apply general rate limits
+    delta_T_total = torch.clamp(delta_T_total, max_cooling, max_warming)
     
-        # Empirical bias correction based on ERA5 statistics
-        T0 = meteo[0]  # Current temperature
+    T_pred = T0 + delta_T_total
+    
+    # --- 12. OCEAN STABILIZATION - STRONGER ---
+    # Oceans are very stable - damp changes heavily
+    ocean_damping = 0.95  # Increased from 0.92
+    T_pred[is_ocean] = (ocean_damping * T_pred[is_ocean] + 
+                       (1 - ocean_damping) * T0[is_ocean])
+    
+    # For land, also apply some damping but less
+    land_damping = 0.85
+    T_pred[is_land] = (land_damping * T_pred[is_land] + 
+                      (1 - land_damping) * T0[is_land])
+    
+    # --- 13. SPATIAL SMOOTHING ---
+    smoothing = 0.25  # Increased smoothing for more realistic fields
+    
+    kernel = torch.ones(3, 3, device=device) / 9.0
+    
+    T_smooth = torch.zeros_like(T_pred)
+    for i in range(1, H-1):
+        for j in range(1, W-1):
+            patch = T_pred[i-1:i+2, j-1:j+2]
+            T_smooth[i, j] = torch.sum(patch * kernel)
+    
+    T_smooth[0, :] = T_pred[0, :]
+    T_smooth[-1, :] = T_pred[-1, :]
+    T_smooth[:, 0] = T_pred[:, 0]
+    T_smooth[:, -1] = T_pred[:, -1]
+    
+    T_pred = (1 - smoothing) * T_pred + smoothing * T_smooth
+    
+    # --- 14. TEMPERATURE RANGE ---
+    T_pred = torch.clamp(T_pred, 240.0, 310.0)
+    
+    # Don't go below dew point
+    min_T = Td - 3.0
+    T_pred = torch.maximum(T_pred, min_T)
+    
+    # --- 15. FINAL ADJUSTMENTS ---
+    global_adjust = -0.1 * time_factor
+    # Land gets slight warm bias, ocean gets slight cool bias
+    land_adjust = torch.where(is_land, 0.1 * time_factor, -0.05 * time_factor)
+    humid_adjust = -0.05 * RH
+    
+    total_adjust = global_adjust + land_adjust + humid_adjust
+    T_final = T_pred + total_adjust
+    
+    # Final bounds
+    T_final = torch.clamp(T_final, 240.0, 310.0)
+    
+    # --- 16. DEBUG: Check land vs ocean sensitivity ---
+    if delta_hours == 6:
+        # Compare land and ocean daytime warming
+        land_day = is_land & is_day_future
+        ocean_day = is_ocean & is_day_future
         
-        # 1. Global cooling bias (your model is too warm)
-        global_cooling = -1.5 * (delta_hours / 6.0)  # -1.5K bias for 6h forecast
-        
-        # 2. Extra cooling for daytime (solar overestimated)
-        sin_z0 = geo_tempo[2]
-        cos_z0 = geo_tempo[3]
-        is_day = cos_z0 > 0.1
-        daytime_cooling = torch.where(is_day, -0.5, 0.0)
-        
-        # 3. Extra cooling over land (evaporation missing)
-        land_mask = geo_cat[0]
-        land_cooling = torch.where(land_mask == 1, -0.3, 0.0)
-        
-        # 4. Extra cooling when humid (clouds missing)
-        Td = meteo[4]
-        T_diff = torch.clamp(T0 - Td, min=0.1)
-        RH = torch.exp(-0.07 * T_diff)
-        humid_cooling = -0.4 * RH  # More cooling when humid (clouds)
-        
-        # Combine biases
-        total_bias = global_cooling + daytime_cooling + land_cooling + humid_cooling
-        
-        # Apply bias correction
-        T_corrected = T_pred + total_bias
-        
-        # Keep within bounds
-        T_corrected = torch.clamp(T_corrected, 200.0, 330.0)
-        
-        return T_corrected
+        if torch.any(land_day) and torch.any(ocean_day):
+            avg_land_warming = torch.mean(T_final[land_day] - T0[land_day]).item()
+            avg_ocean_warming = torch.mean(T_final[ocean_day] - T0[ocean_day]).item()
+            avg_land_cos_z = torch.mean(cos_z_future[land_day]).item()
+            avg_ocean_cos_z = torch.mean(cos_z_future[ocean_day]).item()
+            
+            print(f"6h forecast - Daytime sensitivity:")
+            print(f"  Land: ΔT={avg_land_warming:.2f}K (cos_z={avg_land_cos_z:.2f})")
+            print(f"  Ocean: ΔT={avg_ocean_warming:.2f}K (cos_z={avg_ocean_cos_z:.2f})")
+            if avg_land_cos_z > 0.1 and avg_ocean_cos_z > 0.1:
+                sensitivity_ratio = avg_land_warming / max(avg_ocean_warming, 0.1)
+                print(f"  Land is {sensitivity_ratio:.1f}x more sensitive to sunshine")
+    
+    return T_final
