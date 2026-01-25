@@ -194,150 +194,297 @@ def check_consistency(n, s):
 
 #---------------------------- show array -------------------------
 
-def initialize_for_show_array():
-    # Turn on interactive mode ONCE
-    plt.ion()    
+import matplotlib.pyplot as plt
+import cartopy.crs as ccrs
+import matplotlib.ticker as mticker
+import numpy as np
+from datetime import datetime
 
-# Define global variables at the beginning of the function
-_fig = None
-_ax = None
-_im = None
-_cbar = None
+def initialize_for_show_array():
+    """Turn on interactive mode and create figure with two subplots."""
+    plt.ion()
+    
+    # Define global variables
+    global _fig, _ax1, _ax2, _im1, _im2, _cbar1, _cbar2
+    _fig = None
+    _ax1 = None
+    _ax2 = None
+    _im1 = None
+    _im2 = None
+    _cbar1 = None
+    _cbar2 = None
 
 def finalize_for_show_array():
+    """Turn off interactive mode and close figure."""
     plt.ioff()
     if _fig is not None:
         plt.close(_fig)
 
-def show_array(arr, variable="", dt=datetime(2000,1,1,0), modulo=6):
-    global _fig, _ax, _im, _cbar
+def show_array(arr1, arr2=None, variable1="", variable2="", dt=datetime(2000,1,1,0), modulo=6):
+    """
+    Display one or two arrays side-by-side.
+    Automatically handles string-to-float conversion.
+    """
+    global _fig, _ax1, _ax2, _im1, _im2, _cbar1, _cbar2
+    
+    # --- Data Preparation Function ---
+    def prepare_array(arr, name="array"):
+        if arr is None:
+            return None
+            
+        # Check if already numeric
+        if arr.dtype.kind in ['i', 'f', 'c']:  # Integer, float, complex
+            return arr.astype(np.float32)
+        
+        # Check if boolean
+        if arr.dtype.kind == 'b':
+            return arr.astype(np.float32)
+        
+        # Handle string/object arrays
+        if arr.dtype.kind in ['U', 'O', 'S']:  # String types
+            try:
+                # Try direct conversion
+                return arr.astype(np.float32)
+            except (ValueError, TypeError):
+                # Try with error handling
+                arr_float = np.zeros_like(arr, dtype=np.float32)
+                for i in range(arr.shape[0]):
+                    for j in range(arr.shape[1]):
+                        try:
+                            val = float(arr[i, j])
+                            arr_float[i, j] = val
+                        except:
+                            arr_float[i, j] = np.nan
+                # Replace NaN with 0 for display
+                arr_float = np.nan_to_num(arr_float, nan=0.0)
+                return arr_float
+        
+        # For any other type
+        try:
+            return np.array(arr, dtype=np.float32)
+        except:
+            return np.zeros_like(arr, dtype=np.float32)
+    
+    # Prepare arrays
+    arr1_plot = prepare_array(arr1, "arr1")
+    arr2_plot = prepare_array(arr2, "arr2") if arr2 is not None else None
+    
+    # Determine if showing one or two arrays
+    show_two = arr2_plot is not None
     
     # Create figure if it doesn't exist
     if _fig is None:
-        print("Creating new figure...")
-        _fig = plt.figure(figsize=(10, 7))
-        _ax = plt.axes(projection=ccrs.PlateCarree())
+        # Create figure with appropriate layout
+        if show_two:
+            _fig, (_ax1, _ax2) = plt.subplots(1, 2, figsize=(16, 7), 
+                                             subplot_kw={'projection': ccrs.PlateCarree()})
+        else:
+            _fig, _ax1 = plt.subplots(1, 1, figsize=(10, 7),
+                                     subplot_kw={'projection': ccrs.PlateCarree()})
+            _ax2 = None
         
-        # Calculate the correct extent for your data
-        # Your data: (721, 1440) = (lat, lon)
-        # Latitude: -90 to +90 with 721 points
-        # Longitude: -180 to +180 with 1440 points
+        # Set extent for your data (ERA5 grid)
+        left, right, bottom, top = -180.0, 180.0, -90.0, 90.0
         
-        # Calculate step sizes
-        lat_step = 180.0 / (arr.shape[0] - 1)  # From -90 to +90
-        lon_step = 360.0 / (arr.shape[1] - 1)  # From -180 to +180
+        # --- Plot First Array ---
+        _im1 = _ax1.imshow(arr1_plot,
+                          transform=ccrs.PlateCarree(),
+                          extent=[left, right, bottom, top],
+                          cmap='viridis',
+                          origin='lower')
         
-        # Calculate extent
-        # imshow expects: [left, right, bottom, top]
-        left = -180.0
-        right = 180.0
-        bottom = -90.0
-        top = 90.0
+        # Configure first subplot
+        _ax1.coastlines(resolution='110m', linewidth=0.5, color='black', alpha=0.7)
+        gl1 = _ax1.gridlines(draw_labels=True, linewidth=0.7, color='gray', 
+                           alpha=0.5, linestyle='--')
+        gl1.xlocator = mticker.MultipleLocator(45)
+        gl1.ylocator = mticker.MultipleLocator(45)
+        gl1.top_labels = False
+        gl1.right_labels = False
         
-        # Plot with correct extent
-        _im = _ax.imshow(arr,
-                        transform=ccrs.PlateCarree(),
-                        extent=[left, right, bottom, top],
-                        cmap='viridis',
-                        origin='lower')
+        # Add colorbar for first plot
+        _cbar1 = plt.colorbar(_im1, ax=_ax1, orientation='vertical', pad=0.03, shrink=0.9)
+        _cbar1.set_label(variable1, fontsize=12)
         
-        # Add boundaries
-        _ax.coastlines(resolution='110m', linewidth=0.5)
-        gl = _ax.gridlines(draw_labels=True, linewidth=0.7, color='gray', alpha=0.5, linestyle='--')
-        gl.xlocator = mticker.MultipleLocator(45)
-        gl.ylocator = mticker.MultipleLocator(45)
+        # --- Plot Second Array if provided ---
+        if show_two:
+            _im2 = _ax2.imshow(arr2_plot,
+                              transform=ccrs.PlateCarree(),
+                              extent=[left, right, bottom, top],
+                              cmap='viridis',
+                              origin='lower')
+            
+            # Configure second subplot
+            _ax2.coastlines(resolution='110m', linewidth=0.5, color='black', alpha=0.7)
+            gl2 = _ax2.gridlines(draw_labels=True, linewidth=0.7, color='gray',
+                               alpha=0.5, linestyle='--')
+            gl2.xlocator = mticker.MultipleLocator(45)
+            gl2.ylocator = mticker.MultipleLocator(45)
+            gl2.top_labels = False
+            gl2.right_labels = False
+            gl2.left_labels = False  # Only show labels on left plot
+            
+            # Add colorbar for second plot
+            _cbar2 = plt.colorbar(_im2, ax=_ax2, orientation='vertical', pad=0.03, shrink=0.9)
+            _cbar2.set_label(variable2, fontsize=12)
+            
+            # Set title for two-panel figure
+            _fig.suptitle(f'{variable1} vs {variable2} | {dt.strftime("%Y-%m-%d %H:%M")} UTC | Mod: {modulo}',
+                         fontsize=14, fontweight='bold', color='#00008B', y=0.98)
+        else:
+            # Set title for single plot
+            _ax1.set_title(f'{variable1} | {dt.strftime("%Y-%m-%d %H:%M")} UTC | Mod: {modulo}',
+                          fontsize=14, fontweight='bold', color='#00008B', pad=20)
         
-        # Add colorbar
-        _cbar = plt.colorbar(_im, ax=_ax)
-        _cbar.set_label(variable)
-        
-        # Set title
-        # _ax.set_title(f'{variable} | {dt.strftime("%Y-%m-%d %H")}, mod: {modulo}')
-        _ax.set_title(
-            f'{variable}, {dt.strftime("%Y-%m-%d %H")}, mod: {modulo}',
-            fontsize=16,
-            fontweight='bold',
-            color='#00008B',
-            fontfamily='DejaVu Sans'  # or 'Arial', 'Helvetica', etc.
-        )
+        # Adjust layout
+        plt.tight_layout(rect=[0, 0, 1, 0.96] if show_two else None)
         
         # Show window (non-blocking)
         plt.show(block=False)
         plt.pause(0.5)
     
     else:
-        # Update existing plot
-        _im.set_data(arr)
-        _im.set_clim(vmin=np.nanmin(arr), vmax=np.nanmax(arr))
+        # --- Update Existing Plot ---
         
-        # Update labels
-        # _ax.set_title(f'{variable} | {dt.strftime("%Y-%m-%d %H")}, mod: {modulo}')
-        _ax.set_title(
-            f'{variable}, {dt.strftime("%Y-%m-%d %H")}, mod: {modulo}',
-            fontsize=16,
-            fontweight='bold',
-            color='#00008B',
-            fontfamily='DejaVu Sans'  # or 'Arial', 'Helvetica', etc.
-        )
+        # Update first array
+        _im1.set_data(arr1_plot)
+        vmin1, vmax1 = np.nanmin(arr1_plot), np.nanmax(arr1_plot)
+        if not np.isclose(vmin1, vmax1, atol=1e-6):  # Only update if range is valid
+            _im1.set_clim(vmin1, vmax1)
+        _cbar1.set_label(variable1, fontsize=12)
+        _cbar1.update_normal(_im1)
         
-        _cbar.set_label(variable)
+        # Update second array if it exists and arr2 is provided
+        if show_two and _im2 is not None:
+            _im2.set_data(arr2_plot)
+            vmin2, vmax2 = np.nanmin(arr2_plot), np.nanmax(arr2_plot)
+            if not np.isclose(vmin2, vmax2, atol=1e-6):
+                _im2.set_clim(vmin2, vmax2)
+            _cbar2.set_label(variable2, fontsize=12)
+            _cbar2.update_normal(_im2)
+            
+            # Update suptitle for two-panel figure
+            _fig.suptitle(f'{variable1} vs {variable2} | {dt.strftime("%Y-%m-%d %H:%M")} UTC | Mod: {modulo}',
+                         fontsize=14, fontweight='bold', color='#00008B', y=0.98)
+        
+        elif show_two and _im2 is None:
+            # We need to switch from single to dual plot - recreate figure
+            plt.close(_fig)
+            _fig = None
+            # Recursive call with new figure
+            show_array(arr1_plot, arr2_plot, variable1, variable2, dt, modulo)
+            return
+        
+        elif not show_two and _im2 is not None:
+            # We need to switch from dual to single plot - recreate figure
+            plt.close(_fig)
+            _fig = None
+            show_array(arr1_plot, variable1=variable1, dt=dt, modulo=modulo)
+            return
+        
+        else:
+            # Single plot title update
+            _ax1.set_title(f'{variable1} | {dt.strftime("%Y-%m-%d %H:%M")} UTC | Mod: {modulo}',
+                          fontsize=14, fontweight='bold', color='#00008B', pad=20)
         
         # Force redraw
         _fig.canvas.draw_idle()
         _fig.canvas.flush_events()
     
-    # Small pause
+    # Small pause for UI responsiveness
     plt.pause(0.001)
+
+
+def show_array_single(arr1, arr2=None, variable1="", variable2="", dt=datetime(2000,1,1,0), modulo=6):
+    """
+    Show one or two arrays in a standalone figure.
+    """
+    # Prepare arrays (using the same function as above)
+    def prepare_array(arr):
+        if arr is None:
+            return None
+        if arr.dtype.kind in ['i', 'f', 'c', 'b']:
+            return arr.astype(np.float32)
+        if arr.dtype.kind in ['U', 'O', 'S']:
+            try:
+                return arr.astype(np.float32)
+            except:
+                arr_float = np.zeros_like(arr, dtype=np.float32)
+                for i in range(arr.shape[0]):
+                    for j in range(arr.shape[1]):
+                        try:
+                            arr_float[i, j] = float(arr[i, j])
+                        except:
+                            arr_float[i, j] = np.nan
+                return np.nan_to_num(arr_float, nan=0.0)
+        return np.array(arr, dtype=np.float32)
     
-def show_array_single(arr, variable="", dt=datetime(2000,1,1,0), modulo=6):
-    _fig = plt.figure(figsize=(10, 7))
-    _ax = plt.axes(projection=ccrs.PlateCarree())
+    arr1_plot = prepare_array(arr1)
+    arr2_plot = prepare_array(arr2) if arr2 is not None else None
     
-    # Calculate the correct extent for your data
-    # Your data: (721, 1440) = (lat, lon)
-    # Latitude: -90 to +90 with 721 points
-    # Longitude: -180 to +180 with 1440 points
+    show_two = arr2_plot is not None
     
-    # Calculate step sizes
-    lat_step = 180.0 / (arr.shape[0] - 1)  # From -90 to +90
-    lon_step = 360.0 / (arr.shape[1] - 1)  # From -180 to +180
+    # Create figure
+    if show_two:
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7),
+                                      subplot_kw={'projection': ccrs.PlateCarree()})
+    else:
+        fig, ax1 = plt.subplots(1, 1, figsize=(10, 7),
+                               subplot_kw={'projection': ccrs.PlateCarree()})
+        ax2 = None
     
-    # Calculate extent
-    # imshow expects: [left, right, bottom, top]
-    left = -180.0
-    right = 180.0
-    bottom = -90.0
-    top = 90.0
+    # Set extent
+    left, right, bottom, top = -180.0, 180.0, -90.0, 90.0
     
-    # Plot with correct extent
-    _im = _ax.imshow(arr,
+    # Plot first array
+    im1 = ax1.imshow(arr1_plot,
                     transform=ccrs.PlateCarree(),
                     extent=[left, right, bottom, top],
                     cmap='viridis',
                     origin='lower')
     
-    # Add boundaries
-    _ax.coastlines(resolution='110m', linewidth=0.5)
-    gl = _ax.gridlines(draw_labels=True, linewidth=0.7, color='gray', alpha=0.5, linestyle='--')
-    gl.xlocator = mticker.MultipleLocator(45)
-    gl.ylocator = mticker.MultipleLocator(45)
+    # Configure first plot
+    ax1.coastlines(resolution='110m', linewidth=0.5, color='black', alpha=0.7)
+    gl1 = ax1.gridlines(draw_labels=True, linewidth=0.7, color='gray',
+                       alpha=0.5, linestyle='--')
+    gl1.xlocator = mticker.MultipleLocator(45)
+    gl1.ylocator = mticker.MultipleLocator(45)
+    gl1.top_labels = False
+    gl1.right_labels = False
     
-    # Add colorbar
-    _cbar = plt.colorbar(_im, ax=_ax)
-    _cbar.set_label(variable)
+    # Colorbar for first plot
+    cbar1 = plt.colorbar(im1, ax=ax1, orientation='vertical', pad=0.03, shrink=0.9)
+    cbar1.set_label(variable1, fontsize=12)
     
-    # Set title
-    # _ax.set_title(f'{variable} | {dt.strftime("%Y-%m-%d %H")}, mod: {modulo}')
-    _ax.set_title(
-        f'{variable}, {dt.strftime("%Y-%m-%d %H")}, mod: {modulo}',
-        fontsize=16,
-        fontweight='bold',
-        color='#00008B',
-        fontfamily='DejaVu Sans'  # or 'Arial', 'Helvetica', etc.
-    )
+    # Plot second array if provided
+    if show_two:
+        im2 = ax2.imshow(arr2_plot,
+                        transform=ccrs.PlateCarree(),
+                        extent=[left, right, bottom, top],
+                        cmap='viridis',
+                        origin='lower')
+        
+        # Configure second plot
+        ax2.coastlines(resolution='110m', linewidth=0.5, color='black', alpha=0.7)
+        gl2 = ax2.gridlines(draw_labels=True, linewidth=0.7, color='gray',
+                           alpha=0.5, linestyle='--')
+        gl2.xlocator = mticker.MultipleLocator(45)
+        gl2.ylocator = mticker.MultipleLocator(45)
+        gl2.top_labels = False
+        gl2.right_labels = False
+        gl2.left_labels = False
+        
+        # Colorbar for second plot
+        cbar2 = plt.colorbar(im2, ax=ax2, orientation='vertical', pad=0.03, shrink=0.9)
+        cbar2.set_label(variable2, fontsize=12)
+        
+        # Title for two-panel figure
+        fig.suptitle(f'{variable1} vs {variable2} | {dt.strftime("%Y-%m-%d %H:%M")} UTC | Mod: {modulo}',
+                    fontsize=14, fontweight='bold', color='#00008B', y=0.98)
+    else:
+        # Title for single plot
+        ax1.set_title(f'{variable1} | {dt.strftime("%Y-%m-%d %H:%M")} UTC | Mod: {modulo}',
+                     fontsize=14, fontweight='bold', color='#00008B', pad=20)
     
-    # Show window (non-blocking)
+    plt.tight_layout(rect=[0, 0, 1, 0.96] if show_two else None)
     plt.show()
-
-    if _fig is not None:
-        plt.close(_fig)

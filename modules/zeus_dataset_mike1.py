@@ -1290,8 +1290,8 @@ class Zeus_Dataset(Dataset):
             arr = dict_data[variable]  # (C, H, W)
 
             # Display the array
-            show_array(arr, variable, dt, modulo)
             
+            show_array(arr1=arr, arr2=None, variable1=variable, variable2="", dt=datetime(2000,1,1,0), modulo=0)
             # Wait for key input
             key = None
             start_time = time.time()
@@ -1352,7 +1352,7 @@ class Zeus_Dataset(Dataset):
     
     def show_array_single(self, array, variable):
         from modules.utils import show_array_single        
-        show_array_single(array, variable)
+        show_array_single(arr1=array, arr2=None, variable1=variable, variable2="", dt=datetime(2000,1,1,0), modulo=0)
         
     #----------------- Standardize --------------------
 
