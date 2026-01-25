@@ -171,7 +171,7 @@ class Snapshot:
         dt_utc = datetime(self.year, self.month, self.day, self.hour, tzinfo=timezone.utc)
         sin_cos_earth_orbit_angle_tensor_era5 = Geo_Tempo.sin_cos_earth_orbit_angle_tensor_era5(dt_utc)
         # sin_cos_true_solar_hours_tensor_era5 = Geo_Tempo.sin_cos_true_solar_hours_tensor_era5(dt_utc)
-        sin_cos_zenit_tensor_era5 = Geo_Tempo.get_zenith_angle_faster(dt_utc)
+        sin_cos_zenit_tensor_era5 = Geo_Tempo.sin_cos_zeith_angle_tensor_era5(dt_utc)
         
         def select(name):
             tensor = None        
