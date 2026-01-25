@@ -405,22 +405,22 @@ def fast_physics_t2m_prediction(meteo, geo_dense, geo_cat, geo_tempo,
     T_final = torch.clamp(T_final, 240.0, 310.0)
     
     # --- 16. DEBUG: Check land vs ocean sensitivity ---
-    if delta_hours == 6:
-        # Compare land and ocean daytime warming
-        land_day = is_land & is_day_future
-        ocean_day = is_ocean & is_day_future
+    # if delta_hours == 6:
+    #     # Compare land and ocean daytime warming
+    #     land_day = is_land & is_day_future
+    #     ocean_day = is_ocean & is_day_future
         
-        if torch.any(land_day) and torch.any(ocean_day):
-            avg_land_warming = torch.mean(T_final[land_day] - T0[land_day]).item()
-            avg_ocean_warming = torch.mean(T_final[ocean_day] - T0[ocean_day]).item()
-            avg_land_cos_z = torch.mean(cos_z_future[land_day]).item()
-            avg_ocean_cos_z = torch.mean(cos_z_future[ocean_day]).item()
+    #     if torch.any(land_day) and torch.any(ocean_day):
+    #         avg_land_warming = torch.mean(T_final[land_day] - T0[land_day]).item()
+    #         avg_ocean_warming = torch.mean(T_final[ocean_day] - T0[ocean_day]).item()
+    #         avg_land_cos_z = torch.mean(cos_z_future[land_day]).item()
+    #         avg_ocean_cos_z = torch.mean(cos_z_future[ocean_day]).item()
             
-            print(f"6h forecast - Daytime sensitivity:")
-            print(f"  Land: ΔT={avg_land_warming:.2f}K (cos_z={avg_land_cos_z:.2f})")
-            print(f"  Ocean: ΔT={avg_ocean_warming:.2f}K (cos_z={avg_ocean_cos_z:.2f})")
-            if avg_land_cos_z > 0.1 and avg_ocean_cos_z > 0.1:
-                sensitivity_ratio = avg_land_warming / max(avg_ocean_warming, 0.1)
-                print(f"  Land is {sensitivity_ratio:.1f}x more sensitive to sunshine")
+    #         print(f"6h forecast - Daytime sensitivity:")
+    #         print(f"  Land: ΔT={avg_land_warming:.2f}K (cos_z={avg_land_cos_z:.2f})")
+    #         print(f"  Ocean: ΔT={avg_ocean_warming:.2f}K (cos_z={avg_ocean_cos_z:.2f})")
+    #         if avg_land_cos_z > 0.1 and avg_ocean_cos_z > 0.1:
+    #             sensitivity_ratio = avg_land_warming / max(avg_ocean_warming, 0.1)
+    #             print(f"  Land is {sensitivity_ratio:.1f}x more sensitive to sunshine")
     
     return T_final
