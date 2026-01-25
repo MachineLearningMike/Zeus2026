@@ -1426,7 +1426,7 @@ class Zeus_Dataset(Dataset):
                     e = time.time()
                     # pred = ss_x.meteo[0].numpy() works   # array_x[0].numpy works
                 
-                show_array(arr1=arr_y, arr2=pred, variable1=variable, variable2=f"time: {e-s:.3f}", dt=dt, modulo=modulo)
+                show_array(arr1=arr_y, arr2=pred, variable1=variable, variable2=f"time: {e-s:.5f}", dt=dt, modulo=modulo)
             
             
             # Wait for key input
