@@ -1279,9 +1279,8 @@ class Zeus_Dataset(Dataset):
                 
         old_path = None
         while inclusive_left <= dt and dt <= inclusive_right:
-            year, month, day, hour = dt.year, dt.month, dt.day, dt.hour
 
-            file_path = self.get_file_path_npz(year, month, day, hour, modulo)
+            file_path = self.get_file_path_npz(dt.year, dt.month, dt.day, dt.hour, modulo)
             if file_path != old_path:
                 dict_data = load_and_decode(file_path)
                 old_path = file_path
@@ -1347,6 +1346,133 @@ class Zeus_Dataset(Dataset):
                 continue
 
         finalize_for_show_array()
+        
+    #-------------------------- play_physical_prediction -----------------------
+    
+    def play_physical_prediction(self, inclusive_left, inclusive_right, modulo):
+            
+        from modules.utils import show_array, initialize_for_show_array, finalize_for_show_array
+    
+        def get_key():
+            """
+            Get the most recent key press without buffering.
+            Returns None if no key is currently pressed.
+            """
+            import keyboard
+            import time
+            
+            # Check all keys we care about
+            keys_to_check = {
+                'up': 'up',
+                'down': 'down', 
+                'left': 'left',
+                'right': 'right',
+                '1': '1',
+                '2': '2',
+                '3': '3',
+                '4': '4',
+                '5': '5',
+                '6': 'dec',
+                '7': 'mar',
+                '8': 'jun',
+                '9': 'sep',
+                'esc': 'quit',
+            }
+            
+            # Check if any key is currently pressed
+            for key, action in keys_to_check.items():
+                if keyboard.is_pressed(key):
+                    # Wait for key release to ensure we don't get multiple triggers
+                    while keyboard.is_pressed(key):
+                        time.sleep(0.01)
+                    return action
+            
+            return None
+        
+        initialize_for_show_array()
+        
+        # Main loop -----------------------------------------------------------------------------
+        var_id = 0
+        dt = inclusive_left
+                
+        old_path = None
+        while inclusive_left <= dt and dt <= inclusive_right:
+
+            file_path = self.get_file_path_npz(dt.year, dt.month, dt.day, dt.hour, modulo)
+            if file_path != old_path:
+                dict_data = load_and_decode(file_path)
+                old_path = file_path
+
+            variable = self.pm.meteo_variables[var_id]
+            arr = dict_data[variable]  # (C, H, W)
+
+            dt_x = dt - timedelta(hours=6)
+            if inclusive_left <= dt_x and dt_x <= inclusive_right:
+                array_x = self.load_decode_get_array_for_variables(dt_x, modulo=6, variables=self.pm.meteo_variables)
+                ss = Snapshot(dt_x.year, dt_x.month, dt_x.day, dt_x.hour, meteo=array_x, meteo_unnormal=None)
+            
+            
+
+            
+            
+            
+            show_array(arr1=arr, arr2=None, variable1=variable, variable2="", dt=datetime(2000,1,1,0), modulo=0)
+            # Wait for key input
+            key = None
+            start_time = time.time()
+            
+            # Poll for key for up to 0.5 seconds
+            while key is None and (time.time() - start_time < 0.5):
+                key = get_key()
+                if key is None:
+                    time.sleep(0.05)  # Small sleep to prevent CPU overuse
+            
+            # Process key
+            if key == "up": 
+                var_id += 1
+                var_id = 0 if var_id >= len(self.pm.meteo_variables) else var_id
+            elif key == "down": 
+                var_id -= 1
+                var_id = len(self.pm.meteo_variables) - 1 if var_id < 0 else var_id
+            elif key == "left": 
+                dt = dt - timedelta(hours=modulo)
+            elif key == "right": 
+                dt = dt + timedelta(hours=modulo)
+            elif key == '1':
+                modulo = 1
+            elif key == '2':
+                modulo = 6
+            elif key == '3':
+                modulo = 12
+            elif key == '4':
+                modulo = 24
+            elif key == '5':
+                modulo = 24 * 30
+            elif key == 'dec':
+                h = dt.hour
+                dict = Snapshot.get_season_events(dt.year)
+                dt = dict['dec_solstice'].replace(hour=h)
+            elif key == 'mar':
+                h = dt.hour
+                dict = Snapshot.get_season_events(dt.year)
+                dt = dict['mar_equinox'].replace(hour=h)
+            elif key == 'jun':
+                h = dt.hour
+                dict = Snapshot.get_season_events(dt.year)
+                dt = dict['jun_solstice'].replace(hour=h)
+            elif key == 'sep':
+                h = dt.hour
+                dict = Snapshot.get_season_events(dt.year)
+                dt = dict['sep_equinox'].replace(hour=h)
+            elif key == "quit":
+                print("Quitting...")
+                break
+            elif key is None:
+                # No key pressed, continue to next iteration
+                continue
+
+        finalize_for_show_array()
+    
         
     #-------------------------------------------------
     
@@ -2245,7 +2371,9 @@ if __name__ == "__main__":
     inclusive_left = datetime(2018, 1, 1, 0, tzinfo=timezone.utc)
     inclusive_right = datetime(2025, 12, 31, 23, tzinfo=timezone.utc)
 
-    dataset.play_weather_snapshots(inclusive_left, inclusive_right, modulo=6)
+    # dataset.play_weather_snapshots(inclusive_left, inclusive_right, modulo=6)
+
+    dataset.play_physical_prediction(inclusive_left, inclusive_right, modulo=6)
 
     # dataset.download_meteo_variables(
     #     variables=VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map = var_name_map,
