@@ -1354,7 +1354,8 @@ class Zeus_Dataset(Dataset):
     def play_physical_prediction(self, inclusive_left, inclusive_right, modulo):
             
         from modules.utils import show_array, initialize_for_show_array, finalize_for_show_array
-        from light.t2m_predict_6_hours import fast_physics_t2m_prediction
+        from light.t2m_predict_n_hours import fast_physics_t2m_prediction
+        from light.u100m_predict_n_hours import U100mPredictor
     
         def get_key():
             """
@@ -1394,6 +1395,8 @@ class Zeus_Dataset(Dataset):
         
         initialize_for_show_array()
         
+        u100m_predictor = U100mPredictor()
+        
         # Main loop -----------------------------------------------------------------------------
         var_id = 0
         dt = inclusive_left
@@ -1416,7 +1419,10 @@ class Zeus_Dataset(Dataset):
                     ss_x = Snapshot(dt_x.year, dt_x.month, dt_x.day, dt_x.hour, meteo=meteo_x, meteo_unnormal=None)
                 
                     s = time.time()
-                    pred = fast_physics_t2m_prediction(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, dt_x, delta_hours=modulo)
+                    if variable == "t2m":
+                        pred = fast_physics_t2m_prediction(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, dt_x, delta_hours=modulo)
+                    elif variable == "u100m":
+                        pred = u100m_predictor.predict_u100m(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, dt_x, delta_hours=modulo)
                     e = time.time()
                     # pred = ss_x.meteo[0].numpy() works   # array_x[0].numpy works
                 
@@ -2379,7 +2385,7 @@ if __name__ == "__main__":
     inclusive_left = datetime(2018, 1, 1, 0, tzinfo=timezone.utc)
     inclusive_right = datetime(2025, 12, 31, 23, tzinfo=timezone.utc)
 
-    dataset.play_weather_snapshots(inclusive_left, inclusive_right, modulo=6)
+    # dataset.play_weather_snapshots(inclusive_left, inclusive_right, modulo=6)
 
     dataset.play_physical_prediction(inclusive_left, inclusive_right, modulo=6)
 
