@@ -1396,12 +1396,13 @@ class Zeus_Dataset(Dataset):
                 if inclusive_left <= dt_x and dt_x <= inclusive_right:
                     meteo_x = torch.from_numpy(self.load_decode_get_array_for_variables(dt_x, modulo=modulo, variables=self.pm.meteo_variables))
                     ss_x = Snapshot(dt_x.year, dt_x.month, dt_x.day, dt_x.hour, meteo=meteo_x, meteo_unnormal=None)
+                    ss_y = Snapshot(dt.year, dt.month, dt.day, dt.hour, meteo=None, meteo_unnormal=None)
                 
                     s = time.time()
                     if variable == "t2m":
-                        pred = t2m_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, dt_x, delta_hours=modulo)
+                        pred = t2m_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, dt_x, ss_y.tempo, delta_hours=modulo)
                     elif variable == "u100m":
-                        pred = u100m_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, dt_x, delta_hours=modulo)
+                        pred = u100m_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, dt_x, ss_y.tempo, delta_hours=modulo)
                     e = time.time()
                     # pred = ss_x.meteo[0].numpy() works   # array_x[0].numpy works
                 

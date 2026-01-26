@@ -97,17 +97,32 @@ class U100mPredictor:
         self.COASTAL_BLEND_WIDTH = torch.tensor(3.0, device=self.device)
         
     def predict(self, meteo: torch.Tensor, geo_dense: torch.Tensor, 
-                geo_cat: torch.Tensor, tempo: torch.Tensor,
-                current_time_utc: datetime, delta_hours: int,
-                return_tensor: Optional[bool] = None) -> Union[torch.Tensor, np.ndarray]:
+                geo_cat: torch.Tensor, geo_tempo: torch.Tensor,
+                current_dt: datetime, geo_cat_f: torch.Tensor, 
+                delta_hours: int, return_tensor: Optional[bool] = None) -> Union[torch.Tensor, np.ndarray]:
         """
         SIMPLIFIED PREDICTION: Focus on persistence with minimal polar effects.
+        
+        Args:
+            meteo: torch.Tensor shape (C, H, W) - meteorological variables
+            geo_dense: torch.Tensor shape (C_geo, H, W) - dense geographical features
+            geo_cat: torch.Tensor shape (C_cat, H, W) - categorical geographical features (current)
+            geo_tempo: torch.Tensor shape (C_temp, H, W) - temporal features
+            current_dt: datetime object for current time
+            geo_cat_f: torch.Tensor shape (C_cat, H, W) - categorical geo features (future)
+            delta_hours: int, hours to predict ahead (0-12)
+            return_tensor: If True, return torch.Tensor; if False, return numpy array.
+                          If None, use self.return_cpu
+            
+        Returns:
+            predicted_u100m: torch.Tensor shape (H, W) or numpy array
         """
         # Move to device
         meteo = meteo.to(self.device)
         geo_dense = geo_dense.to(self.device)
         geo_cat = geo_cat.to(self.device)
-        tempo = tempo.to(self.device)
+        geo_tempo = geo_tempo.to(self.device)
+        geo_cat_f = geo_cat_f.to(self.device)
         
         # Extract components
         t2m = meteo[0]
@@ -148,7 +163,7 @@ class U100mPredictor:
         persistence = current_u100 * time_decay
         
         # 3. Minimal other effects (10% total)
-        jet_strength = self._compute_jet_stream(lat_rad, lat_deg, current_time_utc) * 0.05
+        jet_strength = self._compute_jet_stream(lat_rad, lat_deg, current_dt) * 0.05
         pressure_gradient = self._compute_pressure_gradient(sp, lat_rad) * 0.03
         temp_gradient = self._compute_temperature_gradient(t2m) * 0.01
         topo_effect = self._compute_minimal_topo_effect(orograph, polar_mask) * 0.01
@@ -162,10 +177,14 @@ class U100mPredictor:
             antarctica_mask, greenland_mask, greenland_north_mask, greenland_mid_mask
         )
         
-        # 6. Final smoothing
+        # 6. Apply stabilization using future land-sea mask
+        land_sea_mask_future = geo_cat_f[0]
+        predicted_u100 = self._apply_stabilization(predicted_u100, current_u100, land_sea_mask_future)
+        
+        # 7. Final smoothing
         predicted_u100 = self._minimal_smoothing(predicted_u100)
         
-        # 7. Final clamp
+        # 8. Final clamp
         predicted_u100 = torch.clamp(predicted_u100, self.WIND_MIN, self.WIND_MAX)
         
         return self._convert_result(predicted_u100, return_tensor)
@@ -287,6 +306,20 @@ class U100mPredictor:
                                    result)
         
         return result
+    
+    def _apply_stabilization(self, predicted_wind: torch.Tensor, 
+                            current_wind: torch.Tensor,
+                            land_sea_mask_future: torch.Tensor) -> torch.Tensor:
+        """
+        Apply stabilization using future land-sea mask.
+        Land: 85% persistence, Ocean: 95% persistence.
+        """
+        land_damping = torch.tensor(0.85, device=self.device)
+        ocean_damping = torch.tensor(0.95, device=self.device)
+        
+        damping = torch.where(land_sea_mask_future > 0.5, land_damping, ocean_damping)
+        
+        return damping * predicted_wind + (1 - damping) * current_wind
     
     def _compute_pressure_gradient(self, sp: torch.Tensor, lat_rad: torch.Tensor) -> torch.Tensor:
         """Compute pressure gradient."""

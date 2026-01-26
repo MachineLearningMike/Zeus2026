@@ -226,7 +226,7 @@ def show_two_arrays(arr1, arr2=None, variable1="", variable2="", dt=datetime(200
     Display one or two arrays side-by-side with shared colorbar for two-panel plots.
     If two arrays are provided, also show their difference in a third panel on the lower row.
     Top panels share a colorbar, bottom difference panel has its own colorbar with same colormap.
-    Each panel title includes mean and standard deviation on the same line.
+    Each panel title includes array number, mean and standard deviation on the same line.
     """
     global _fig, _ax1, _ax2, _ax3, _im1, _im2, _im3, _cbar_top, _cbar_bottom
     
@@ -241,14 +241,15 @@ def show_two_arrays(arr1, arr2=None, variable1="", variable2="", dt=datetime(200
         arr1_resized, arr2_resized = arr1_resized[0], arr2_resized[0]
         print(f"Resized to: {arr1_resized.shape}")
         
-        # Calculate difference with resized arrays
-        diff_plot = arr1_resized - arr2_resized
+        # Calculate difference with resized arrays (Array 2 - Array 1)
+        diff_plot = arr2_resized - arr1_resized
         
         # Use resized arrays for display
         arr1_plot = arr1_resized
         arr2_plot = arr2_resized
     elif show_two:
         # Arrays already have same shape
+        # Calculate Array 2 - Array 1 for consistency with label
         diff_plot = arr2 - arr1
         arr1_plot = arr1
         arr2_plot = arr2
@@ -259,24 +260,25 @@ def show_two_arrays(arr1, arr2=None, variable1="", variable2="", dt=datetime(200
         diff_plot = None
     
     # Calculate statistics for titles (on same line)
-    def get_stats_title(base_title, arr):
-        """Create title with mean and std statistics on same line."""
+    def get_stats_title(array_label, base_title, arr):
+        """Create title with array label, mean and std statistics on same line."""
         if arr is None:
             return base_title
         
         mean_val = np.nanmean(arr)
         std_val = np.nanstd(arr)
         
-        # Format with 2 decimal places for cleaner display
-        title = f"{base_title} (μ={mean_val:.2f}, σ={std_val:.2f})"
+        # Format with array label and 2 decimal places for cleaner display
+        title = f"Array {array_label}: {base_title} (μ={mean_val:.2f}, σ={std_val:.2f})"
         return title
     
-    # Create titles with statistics
-    title1 = get_stats_title(variable1, arr1_plot)
+    # Create titles with statistics and array numbers
+    title1 = get_stats_title(1, variable1, arr1_plot)
     if show_two or show_three:
-        title2 = get_stats_title(variable2, arr2_plot)
+        title2 = get_stats_title(2, variable2, arr2_plot)
     if show_three:
-        title3 = get_stats_title(f'{variable1} - {variable2}', diff_plot)
+        # Show Array 2 - Array 1 in the title to match the calculation
+        title3 = get_stats_title("2 - 1", f'{variable2} - {variable1}', diff_plot)
     
     # Calculate color ranges
     if show_three:
@@ -486,12 +488,12 @@ def show_two_arrays(arr1, arr2=None, variable1="", variable2="", dt=datetime(200
             _im3.set_data(diff_plot)
             _im3.set_clim(vmin_diff, vmax_diff)
         
-        # Update titles with current statistics
-        title1 = get_stats_title(variable1, arr1_plot)
+        # Update titles with current statistics and array numbers
+        title1 = get_stats_title(1, variable1, arr1_plot)
         if show_two or show_three:
-            title2 = get_stats_title(variable2, arr2_plot)
+            title2 = get_stats_title(2, variable2, arr2_plot)
         if show_three:
-            title3 = get_stats_title(f'{variable1} - {variable2}', diff_plot)
+            title3 = get_stats_title("2 - 1", f'{variable2} - {variable1}', diff_plot)
         
         _ax1.set_title(title1, fontsize=10, fontweight='bold', pad=6)
         if show_two or show_three:
