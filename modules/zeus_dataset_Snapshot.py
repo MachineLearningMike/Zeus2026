@@ -34,7 +34,7 @@ class Snapshot:
        
     geo_dense_variables = ["orograph", "sin_lat", "cos_lat", "sin_lon", "cos_lon"]
     geo_cat_variables = ["land_sea_mask", "soil_type"]
-    tempo_variables = ["sin_orbit", "cos_orbit", "sin_zenit", "cos_zenit"]
+    tempo_variables = ["sin_orbit", "cos_orbit", "sin_zenith", "cos_zenith"]
 
     tempo_dims = len(tempo_variables)    
     geo_dense_dims = len(geo_dense_variables)    
@@ -53,7 +53,7 @@ class Snapshot:
     def set_original_settings(factor10=10, increasing=True, packed_levels=7, device='cpu',
         geo_dense_variables = ["orograph", "sin_lat", "cos_lat", "sin_lon", "cos_lon"],
         geo_cat_variables = ["land_sea_mask", "soil_type"],
-        tempo_variables = ["sin_orbit", "cos_orbit", "sin_zenit", "cos_zenit"],                            
+        tempo_variables = ["sin_orbit", "cos_orbit", "sin_zenith", "cos_zenith"],                            
         ):
         Snapshot.factor10 = factor10
         Snapshot.meteo_dims = len(VARIABLE_NAME_LIST_UNCHANGEABLE)
@@ -171,7 +171,7 @@ class Snapshot:
         dt_utc = datetime(self.year, self.month, self.day, self.hour, tzinfo=timezone.utc)
         sin_cos_earth_orbit_angle_tensor_era5 = Geo_Tempo.sin_cos_earth_orbit_angle_tensor_era5(dt_utc)
         # sin_cos_true_solar_hours_tensor_era5 = Geo_Tempo.sin_cos_true_solar_hours_tensor_era5(dt_utc)
-        sin_cos_zenit_tensor_era5 = Geo_Tempo.sin_cos_zeith_angle_tensor_era5(dt_utc)
+        sin_cos_zenith_tensor_era5 = Geo_Tempo.sin_cos_zeith_angle_tensor_era5(dt_utc)
         
         def select(name):
             tensor = None        
@@ -179,10 +179,10 @@ class Snapshot:
                 tensor = sin_cos_earth_orbit_angle_tensor_era5[0]
             elif name == "cos_orbit":
                 tensor = sin_cos_earth_orbit_angle_tensor_era5[1]
-            elif name == "sin_zenit":
-                tensor = sin_cos_zenit_tensor_era5[0]
-            elif name == "cos_zenit":
-                tensor = sin_cos_zenit_tensor_era5[1]
+            elif name == "sin_zenith":
+                tensor = sin_cos_zenith_tensor_era5[0]
+            elif name == "cos_zenith":
+                tensor = sin_cos_zenith_tensor_era5[1]
             return tensor
 
         tensor_list = [select(name) for name in variables]
@@ -574,9 +574,9 @@ if __name__ == "__main__":
 
     import time
     s = time.time()
-    zenith = Geo_Tempo.get_zenith_angle_faster(dt_utc = datetime.now(timezone.utc))
+    zenithh = Geo_Tempo.get_zenithh_angle_faster(dt_utc = datetime.now(timezone.utc))
     e = time.time()
-    show_on_map(zenith.numpy(), title=f"Zenith angle now. time taken: {e-s}")
+    show_on_map(zenithh.numpy(), title=f"zenithh angle now. time taken: {e-s}")
 
     #------------- geo_cat, 2 -----------------
     # print(Snapshot.delevel_plan)

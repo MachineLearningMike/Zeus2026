@@ -5,7 +5,7 @@ Now we have input maps at any given time t. They are:
     meteo = torch.stack([t2m, tp, u100, v100, d2m, sp], dim=0), where all components are of shape (721, 1440) in lat and lon,
     geo_dense = torch.stack([orograph, sin_lat, cos_lat, sin_lon, cos_lon], dim=0),
     geo_cat = torch.stack([land_sea_mask, soil_type], dim=0),
-    geo_tempo = torch.stack([sin_orbit, cos_orbit, sin_zenit, cos_zenit], dim=0).
+    geo_tempo = torch.stack([sin_orbit, cos_orbit, sin_zenith, cos_zenith], dim=0).
 
 t2m, tp, u100, v100, d2m, sp, orograph, and land_sea_mask are from ERA5 and have units defined by ERA5.
 The units are: temperature K, water m, m/s, m/s, temperature K, and Pa, respectively.
@@ -116,7 +116,7 @@ class U100mPredictor:
             meteo: torch.Tensor shape (6, H, W) - [t2m, tp, u100, v100, d2m, sp]
             geo_dense: torch.Tensor shape (5, H, W) - [orograph, sin_lat, cos_lat, sin_lon, cos_lon]
             geo_cat: torch.Tensor shape (2, H, W) - [land_sea_mask, soil_type]
-            tempo: torch.Tensor shape (4, H, W) - [sin_orbit, cos_orbit, sin_zenit, cos_zenit]
+            tempo: torch.Tensor shape (4, H, W) - [sin_orbit, cos_orbit, sin_zenith, cos_zenith]
             current_time_utc: datetime object
             delta_hours: int, hours to predict ahead (0, 1, ...)
             return_tensor: If True, return torch.Tensor; if False, return numpy array.
@@ -142,7 +142,7 @@ class U100mPredictor:
         
         land_sea_mask = geo_cat[0]  # 0: sea, 1: land
         
-        cos_zenit = tempo[3]
+        cos_zenith = tempo[3]
         
         height, width = t2m.shape
         

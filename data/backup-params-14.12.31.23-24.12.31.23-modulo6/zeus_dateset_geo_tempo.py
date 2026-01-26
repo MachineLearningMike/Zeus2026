@@ -159,13 +159,13 @@ class Geo_Tempo():
         sin_cos = torch.stack([sin_earth_orbit_angle_tensor, cos_earth_orbit_angle_tensor], dim=0)
         return sin_cos
     
-    def zenith_angle(dt_utc, lat, lon):
+    def zenithh_angle(dt_utc, lat, lon):
         # If naive datetime, treat as UTC
         if dt_utc.tzinfo is None:
             dt_utc = dt_utc.replace(tzinfo=timezone.utc)
         
         solpos = pvlib.solarposition.get_solarposition(pd.Timestamp(dt_utc), lat, lon)
-        return solpos['zenith'].item()
+        return solpos['zenithh'].item()
 
     def equation_of_time_minutes(doy):
         B = math.radians(360.0 * (doy - 81) / 364.0)
@@ -404,7 +404,7 @@ if __name__ == "__main__":
     print("utc now: ", dt_utc)
     
     oribtal_angle = Geo_Tempo.earth_orbit_angle(dt_utc)
-    zeith_anglee = Geo_Tempo.zenith_angle(dt_utc, lat=lat_py, lon=lon_py)
+    zeith_anglee = Geo_Tempo.zenithh_angle(dt_utc, lat=lat_py, lon=lon_py)
     true_solar_h = Geo_Tempo.utc_to_true_solar_hour(dt_utc, lon=lon_py)
     mean_solar_h = Geo_Tempo.utc_to_mean_solar_hour(dt_utc, lon=lon_py)
     true_solar_ts = Geo_Tempo.utc_to_true_solar_timestamp(dt_utc, lon=lon_py)
@@ -416,7 +416,7 @@ if __name__ == "__main__":
         return str(h).zfill(2) + ":" + str(m).zfill(2) + ":" + str(s)
             
     print("-----------------------------------------------------------")
-    print(f"orbital_angle: {oribtal_angle}, zenith_angle: {zeith_anglee},\ntrue_solar_h: {f2h(true_solar_h)}, mean_solar_h: {f2h(mean_solar_h)}, true_solar_ts: {true_solar_ts}")
+    print(f"orbital_angle: {oribtal_angle}, zenithh_angle: {zeith_anglee},\ntrue_solar_h: {f2h(true_solar_h)}, mean_solar_h: {f2h(mean_solar_h)}, true_solar_ts: {true_solar_ts}")
     
     
     loops = 10

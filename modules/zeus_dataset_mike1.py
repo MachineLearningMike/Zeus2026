@@ -1245,19 +1245,9 @@ class Zeus_Dataset(Dataset):
             
             # Check all keys we care about
             keys_to_check = {
-                'up': 'up',
-                'down': 'down', 
-                'left': 'left',
-                'right': 'right',
-                '1': '1',
-                '2': '2',
-                '3': '3',
-                '4': '4',
-                '5': '5',
-                '6': 'dec',
-                '7': 'mar',
-                '8': 'jun',
-                '9': 'sep',
+                'up': 'up', 'down': 'down', 'left': 'left', 'right': 'right',
+                '1': '1', '2': '2', '3': '3', '4': '4', '5': '5',
+                '6': 'dec', '7': 'mar', '8': 'jun', '9': 'sep',
                 'esc': 'quit',
             }
             
@@ -1365,19 +1355,9 @@ class Zeus_Dataset(Dataset):
             
             # Check all keys we care about
             keys_to_check = {
-                'up': 'up',
-                'down': 'down', 
-                'left': 'left',
-                'right': 'right',
-                '1': '1',
-                '2': '2',
-                '3': '3',
-                '4': '4',
-                '5': '5',
-                '6': 'dec',
-                '7': 'mar',
-                '8': 'jun',
-                '9': 'sep',
+                'up': 'up', 'down': 'down', 'left': 'left', 'right': 'right',
+                '1': '1', '2': '2', '3': '3', '4': '4', '5': '5',
+                '6': 'dec', '7': 'mar', '8': 'jun', '9': 'sep',
                 'esc': 'quit',
             }
             

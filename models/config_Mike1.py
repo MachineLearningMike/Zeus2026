@@ -75,7 +75,7 @@ config = {
     
     "geo_dense_variables": ["orograph", "sin_lat", "cos_lat", "sin_lon", "cos_lon"],
     "geo_cat_variables": ["land_sea_mask", "soil_type"],
-    "tempo_variables": ["sin_orbit", "cos_orbit", "sin_zenit", "cos_zenit"], # ["sin_orbit", "cos_orbit", "sin_solor", "cos_solar"],
+    "tempo_variables": ["sin_orbit", "cos_orbit", "sin_zenith", "cos_zenith"], # ["sin_orbit", "cos_orbit", "sin_solor", "cos_solar"],
 }
 
 

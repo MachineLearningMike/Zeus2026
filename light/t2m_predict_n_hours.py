@@ -5,7 +5,7 @@ Now we have input maps at any given time t. They are:
     meteo = torch.stack([t2m, tp, u100, v100, d2m, sp], dim=0), where all components are of shape (721, 1440) in lat and lon,
     geo_dense = torch.stack([orograph, sin_lat, cos_lat, sin_lon, cos_lon], dim=0),
     geo_cat = torch.stack([land_sea_mask, soil_type], dim=0),
-    geo_tempo = torch.stack([sin_orbit, cos_orbit, sin_zenit, cos_zenit], dim=0).
+    geo_tempo = torch.stack([sin_orbit, cos_orbit, sin_zenith, cos_zenith], dim=0).
 
 t2m, tp, u100, v100, d2m, sp, orograph, and land_sea_mask are from ERA5 and have units defined by ERA5.
 The units are: temperature K, water m, m/s, m/s, temperature K, and Pa, respectively.
@@ -166,7 +166,7 @@ class FastPhysicsT2MPredictor:
             meteo: torch.Tensor shape (6, H, W) - [t2m, tp, u100, v100, d2m, sp]
             geo_dense: torch.Tensor shape (5, H, W) - [orograph, sin_lat, cos_lat, sin_lon, cos_lon]
             geo_cat: torch.Tensor shape (2, H, W) - [land_sea_mask, soil_type]
-            geo_tempo: torch.Tensor shape (4, H, W) - [sin_orbit, cos_orbit, sin_zenit, cos_zenit]
+            geo_tempo: torch.Tensor shape (4, H, W) - [sin_orbit, cos_orbit, sin_zenith, cos_zenith]
             time_t_utc: datetime object for time t
             delta_hours: int, hours to predict ahead (0-12)
             return_tensor: If True, return torch.Tensor; if False, return numpy array.
@@ -306,7 +306,7 @@ class FastPhysicsT2MPredictor:
         local_solar_current = (UTC_hour + torch.rad2deg(lon_rad)/15.0) % 24
         local_solar_future = (local_solar_current + delta_hours) % 24
         
-        # Solar hour angle and zenith at future time
+        # Solar hour angle and zenithh at future time
         hour_angle_future = self.HOURS_TO_RAD * (local_solar_future - 12.0)
         cos_z_future = sin_lat * sin_delta + cos_lat * cos_delta * torch.cos(hour_angle_future)
         cos_z_future = torch.clamp(cos_z_future, 0.0, 1.0)
@@ -594,10 +594,10 @@ class FastPhysicsT2MPredictor:
            - Afternoon: +1.5K / +0.3K
         
         3. Solar Radiation:
-           - Land solar heating: 6.0 * cos(zenith)
-           - Ocean solar heating: 1.0 * cos(zenith)
-           - Land radiative cooling: -1.8 * (1-cos(zenith))
-           - Ocean radiative cooling: -0.4 * (1-cos(zenith))
+           - Land solar heating: 6.0 * cos(zenithh)
+           - Ocean solar heating: 1.0 * cos(zenithh)
+           - Land radiative cooling: -1.8 * (1-cos(zenithh))
+           - Ocean radiative cooling: -0.4 * (1-cos(zenithh))
         
         4. Rate Limits (max ΔT per 6h):
            - Land warming: +10K, cooling: -8K
