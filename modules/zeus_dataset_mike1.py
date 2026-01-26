@@ -1475,6 +1475,13 @@ class Zeus_Dataset(Dataset):
         from modules.utils import show_array_single        
         show_array_single(arr1=array, arr2=None, variable1=variable, variable2="", dt=datetime(2000,1,1,0), modulo=0)
         
+    def show_array_double(self, arr1, arr2=None, variable1="", variable2="", dt=datetime(2000,1,1,0), modulo=0, duration=10):
+        from modules.utils import initialize_for_show_array, show_array, finalize_for_show_array        
+        initialize_for_show_array()
+        show_array(arr1=arr1, arr2=arr2, variable1=variable1, variable2=variable2, dt=dt, modulo=modulo)
+        time.sleep(duration)
+        finalize_for_show_array()
+
     #----------------- Standardize --------------------
 
     def normalize_meteo(self, input, output):
@@ -2356,8 +2363,15 @@ if __name__ == "__main__":
     # print(ds.data_vars)
     # pass
 
-    # arr = np.load(config["soil_type_npy_path"])
-    # dataset.show_array_single(arr, "Soil Type")
+
+    # # arr = np.load(config["soil_type_npy_path"])
+    # Snapshot.set_original_settings(factor10=10)
+    # ss = Snapshot(2000,1,1,0, None, None)
+    # arr1 = ss.geo_cat[0]
+    # Snapshot.set_original_settings(factor10=2)
+    # ss = Snapshot(2000,1,1,0, None, None)
+    # arr2 = ss.geo_cat[0]
+    # dataset.show_array_double(arr1, arr2, "Soil type", duration=15)
 
 
     # inclusive_left = datetime(2025, 1, 1, 0)

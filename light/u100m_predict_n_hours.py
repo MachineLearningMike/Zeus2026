@@ -39,119 +39,116 @@ import numpy as np
 class U100mPredictor:
     """
     Predict u100 at time t+delta using physical principles.
-    Based on research: mid-latitude winds stronger, more variability.
-    With fixes for stuck high-value land points.
+    Fixed polar katabatic wind patterns.
     """
     
     def __init__(self, device: Optional[str] = None, return_cpu: bool = True):
-        """
-        Initialize the predictor.
-        
-        Args:
-            device: Device to run computations on ('cuda', 'cpu', or None for auto-detection)
-            return_cpu: If True, automatically convert result to CPU numpy array
-        """
         self.device = device if device else ('cuda' if torch.cuda.is_available() else 'cpu')
         self.return_cpu = return_cpu
-        
-        # Initialize all constants on the correct device
         self._setup_constants()
         
+        self.TOPO_SCALING = torch.tensor(-0.0005, device=self.device)  # Further reduced
+        # Stronger katabatic corrections
+        self.KATABATIC_REDUCTION = torch.tensor(0.2, device=self.device)  # 80% reduction
+        self.GREENLAND_NORTH_CORRECTION = torch.tensor(0.7, device=self.device)  # Stronger reverse
+        self.GREENLAND_MID_CORRECTION = torch.tensor(-0.5, device=self.device)  # Stronger reduction
+        
+        # RADICALLY REDUCE topographic weight
+        self.WEIGHT_TOPO = torch.tensor(0.01, device=self.device)  # Only 1% weight
+        
+        # Increase persistence weight
+        self.WEIGHT_PERSISTENCE = torch.tensor(0.70, device=self.device)
+        
+        # Reduce pressure weight to compensate
+        self.WEIGHT_PRESSURE = torch.tensor(0.10, device=self.device)
+        
+        # Make topographic scaling TINY
+        self.TOPO_SCALING = torch.tensor(-0.0001, device=self.device)  # Almost zero
+        
+        # Add these new parameters for strip removal:
+        self.STRIP_REDUCTION = torch.tensor(0.3, device=self.device)
+        self.STRIP_SMOOTHING = torch.tensor(0.4, device=self.device)
+        self.COASTAL_BLEND_WIDTH = torch.tensor(3.0, device=self.device)
+        
+        # More aggressive polar limits
+        self.POLAR_COASTAL_LIMIT = torch.tensor(12.0, device=self.device)
+        
+        # **SIMPLIFIED WEIGHTS**
+        self.WEIGHT_PERSISTENCE = torch.tensor(0.90, device=self.device)  # 90% persistence
+        self.WEIGHT_JET = torch.tensor(0.05, device=self.device)
+        self.WEIGHT_PRESSURE = torch.tensor(0.03, device=self.device)
+        self.WEIGHT_THERMAL = torch.tensor(0.01, device=self.device)
+        self.WEIGHT_TOPO = torch.tensor(0.01, device=self.device)  # Only 1%
+        
+        # **TINY topographic scaling**
+        self.TOPO_SCALING = torch.tensor(-0.00001, device=self.device)  # Almost zero
+        
+        # **Stricter polar limits**
+        self.POLAR_COASTAL_LIMIT = torch.tensor(8.0, device=self.device)
+        
     def _setup_constants(self):
-        """Initialize all physical constants as tensors on the correct device."""
+        """Initialize all physical constants."""
         # Physical constants
         self.R = torch.tensor(287.058, device=self.device)
         self.omega = torch.tensor(7.2921159e-5, device=self.device)
         self.rho = torch.tensor(1.225, device=self.device)
         
-        # Jet stream parameters - Based on research
+        # Jet stream parameters
         self.jet_lat_center = torch.tensor(45.0, device=self.device)
         self.jet_width = torch.tensor(10.0, device=self.device)
         self.jet_max_speed = torch.tensor(25.0, device=self.device)
         
-        # Surface friction - Increased over land to prevent stuck high values
-        self.cf = torch.tensor(0.003, device=self.device)  # Increased from 0.002
-        self.cf_sea = torch.tensor(0.0003, device=self.device)
+        # Friction coefficients
+        self.cf_land = torch.tensor(0.0035, device=self.device)
+        self.cf_sea = torch.tensor(0.00025, device=self.device)
+        self.cf_ice = torch.tensor(0.0045, device=self.device)  # Higher for ice
         
-        # Mathematical constants
-        self.PI = torch.tensor(math.pi, device=self.device)
-        
-        # Effect weights - Adjusted to reduce persistence in problem areas
-        self.WEIGHT_PERSISTENCE = torch.tensor(0.55, device=self.device)
+        # Effect weights
+        self.WEIGHT_PERSISTENCE = torch.tensor(0.50, device=self.device)  # Reduced
         self.WEIGHT_JET = torch.tensor(0.25, device=self.device)
-        self.WEIGHT_PRESSURE = torch.tensor(0.12, device=self.device)
+        self.WEIGHT_PRESSURE = torch.tensor(0.15, device=self.device)
         self.WEIGHT_THERMAL = torch.tensor(0.05, device=self.device)
-        self.WEIGHT_TOPO = torch.tensor(0.03, device=self.device)
+        self.WEIGHT_TOPO = torch.tensor(0.05, device=self.device)
         
-        # Scaling factors - Reduced for problematic land areas
-        self.PRESSURE_SCALING = torch.tensor(0.20, device=self.device)
-        self.THERMAL_WIND_SCALING = torch.tensor(-0.012, device=self.device)
-        self.TOPO_SCALING = torch.tensor(-0.004, device=self.device)  # Reduced from -0.006
-        self.TOPO_MOUNTAIN_BOOST = torch.tensor(1.5, device=self.device)  # Reduced from 1.8
-        self.OCEAN_BOOST = torch.tensor(1.12, device=self.device)
+        # Scaling factors - REDUCED for polar regions
+        self.PRESSURE_SCALING = torch.tensor(0.12, device=self.device)
+        self.THERMAL_WIND_SCALING = torch.tensor(-0.006, device=self.device)
+        self.TOPO_SCALING = torch.tensor(-0.001, device=self.device)  # Greatly reduced
         
-        # Latitudinal factor
-        self.LAT_FACTOR_MIN = torch.tensor(0.5, device=self.device)
+        # Limits - TIGHTER for polar regions
+        self.WIND_MIN = torch.tensor(-40.0, device=self.device)
+        self.WIND_MAX = torch.tensor(40.0, device=self.device)
+        self.POLAR_COASTAL_LIMIT = torch.tensor(20.0, device=self.device)  # Strict limit
         
-        # Limits - Tighter for land areas
-        self.WIND_MIN = torch.tensor(-45.0, device=self.device)
-        self.WIND_MAX = torch.tensor(45.0, device=self.device)
-        self.LAND_WIND_MAX = torch.tensor(35.0, device=self.device)  # Stricter limit for land
-        self.MOUNTAIN_THRESHOLD = torch.tensor(1500.0, device=self.device)  # Increased threshold
+        # Smoothing
+        self.FINAL_SMOOTHING = torch.tensor(0.15, device=self.device)
         
-        # Seasonal parameters
-        self.SEASONAL_SHIFT_AMPLITUDE = torch.tensor(6.0, device=self.device)
-        self.SEASONAL_BLEND = torch.tensor(0.75, device=self.device)
+        # Polar region thresholds
+        self.ANTARCTICA_LAT = torch.tensor(-60.0, device=self.device)
+        self.GREENLAND_LAT_MIN = torch.tensor(60.0, device=self.device)
+        self.GREENLAND_LAT_MAX = torch.tensor(85.0, device=self.device)
+        self.GREENLAND_LON_MIN = torch.tensor(-50.0, device=self.device)
+        self.GREENLAND_LON_MAX = torch.tensor(-20.0, device=self.device)
         
-        # Smoothing parameters
-        self.SMOOTHING_BLEND = torch.tensor(0.7, device=self.device)
-        
-        # Diurnal parameters
-        self.DIURNAL_AMPLITUDE = torch.tensor(2.0, device=self.device)
-        
-        # Normalization
-        self.TARGET_MEAN = torch.tensor(6.0, device=self.device)
-        self.TARGET_STD = torch.tensor(10.0, device=self.device)
-        
-        # Research-based amplification factors
-        self.MIDLAT_AMPLIFICATION = torch.tensor(1.3, device=self.device)
-        self.OCEAN_AMPLIFICATION = torch.tensor(1.15, device=self.device)
-        
-        # Variability parameters
-        self.TURBULENCE_SCALE = torch.tensor(0.1, device=self.device)
-        
-        # NEW: Stuck value detection and correction
-        self.STUCK_THRESHOLD = torch.tensor(30.0, device=self.device)  # Winds > 30 m/s suspicious over land
-        self.STUCK_CORRECTION_FACTOR = torch.tensor(0.7, device=self.device)  # Reduce stuck values by 30%
-        self.MIN_FRICTION_DECAY = torch.tensor(0.5, device=self.device)  # Ensure decay even on land
+        # NEW: Katabatic wind correction factors
+        self.KATABATIC_REDUCTION = torch.tensor(0.3, device=self.device)  # 70% reduction
+        self.GREENLAND_NORTH_CORRECTION = torch.tensor(0.5, device=self.device)  # Reverse sign for north Greenland
+        self.GREENLAND_MID_CORRECTION = torch.tensor(-0.3, device=self.device)  # Reduce middle Greenland
         
     def predict(self, meteo: torch.Tensor, geo_dense: torch.Tensor, 
                 geo_cat: torch.Tensor, tempo: torch.Tensor,
                 current_time_utc: datetime, delta_hours: int,
                 return_tensor: Optional[bool] = None) -> Union[torch.Tensor, np.ndarray]:
         """
-        Predict u100 at time t + delta_hours.
-        
-        Args:
-            meteo: torch.Tensor shape (6, H, W) - [t2m, tp, u100, v100, d2m, sp]
-            geo_dense: torch.Tensor shape (5, H, W) - [orograph, sin_lat, cos_lat, sin_lon, cos_lon]
-            geo_cat: torch.Tensor shape (2, H, W) - [land_sea_mask, soil_type]
-            tempo: torch.Tensor shape (4, H, W) - [sin_orbit, cos_orbit, sin_zenit, cos_zenit]
-            current_time_utc: datetime object
-            delta_hours: int, hours to predict ahead (0, 1, ...)
-            return_tensor: If True, return torch.Tensor; if False, return numpy array.
-                          If None, use self.return_cpu
-            
-        Returns:
-            predicted_u100: torch.Tensor shape (H, W) or numpy array
+        SIMPLIFIED PREDICTION: Focus on persistence with minimal polar effects.
         """
-        # Ensure tensors are on the correct device
+        # Move to device
         meteo = meteo.to(self.device)
         geo_dense = geo_dense.to(self.device)
         geo_cat = geo_cat.to(self.device)
         tempo = tempo.to(self.device)
         
-        # Extract individual components
+        # Extract components
         t2m = meteo[0]
         current_u100 = meteo[2]
         sp = meteo[5]
@@ -159,12 +156,14 @@ class U100mPredictor:
         orograph = geo_dense[0]
         sin_lat = geo_dense[1]
         cos_lat = geo_dense[2]
+        sin_lon = geo_dense[3]
+        cos_lon = geo_dense[4]
         
         land_sea_mask = geo_cat[0]
         
         height, width = t2m.shape
         
-        # Stable latitude calculation
+        # Calculate latitude and longitude
         cos_lat_clamped = torch.clamp(cos_lat, -0.9999, 0.9999)
         lat_rad = torch.where(
             cos_lat_clamped > 0.5,
@@ -174,345 +173,811 @@ class U100mPredictor:
         lat_rad = torch.remainder(lat_rad + math.pi, 2 * math.pi) - math.pi
         lat_deg = torch.rad2deg(lat_rad)
         
-        # 1. Jet stream influence
-        jet_strength = self._compute_research_jet_stream(lat_rad, lat_deg, current_time_utc)
+        lon_rad = torch.atan2(sin_lon, cos_lon)
+        lon_deg = torch.rad2deg(lon_rad)
         
-        # 2. Pressure gradient effect
-        pressure_gradient = self._compute_research_pressure_gradient(sp, lat_rad)
+        # 1. Identify polar regions
+        antarctica_mask, greenland_mask, greenland_north_mask, greenland_mid_mask = \
+            self._identify_polar_regions(lat_deg, lon_deg, orograph)
         
-        # 3. Friction effects with enhanced land decay
-        time_decay = self._compute_enhanced_friction_decay(land_sea_mask, delta_hours, current_u100)
+        polar_mask = antarctica_mask | greenland_mask
         
-        # 4. Temperature gradient effect
-        temp_gradient = self._compute_research_temperature_gradient(t2m, lat_rad)
+        # **SIMPLIFIED APPROACH: 90% persistence, 10% other effects**
         
-        # 5. Topographic effects with safety limits
-        topo_effect = self._compute_safe_topographic_effect(orograph, lat_rad, land_sea_mask)
+        # 2. Strong persistence (90% weight)
+        time_decay = self._compute_simple_friction_decay(land_sea_mask, delta_hours, polar_mask)
+        persistence = current_u100 * time_decay
         
-        # 6. Scale current wind with stuck value detection
-        current_scaled = self._safe_scaling(current_u100, lat_rad, land_sea_mask)
+        # 3. Minimal other effects (10% total)
+        jet_strength = self._compute_jet_stream(lat_rad, lat_deg, current_time_utc) * 0.05
+        pressure_gradient = self._compute_pressure_gradient(sp, lat_rad) * 0.03
+        temp_gradient = self._compute_temperature_gradient(t2m) * 0.01
+        topo_effect = self._compute_minimal_topo_effect(orograph, polar_mask) * 0.01
         
-        # 7. Combine with weights
-        combined = (
-            self.WEIGHT_PERSISTENCE * current_scaled * time_decay +
-            self.WEIGHT_JET * jet_strength +
-            self.WEIGHT_PRESSURE * pressure_gradient +
-            self.WEIGHT_THERMAL * temp_gradient +
-            self.WEIGHT_TOPO * topo_effect
+        # 4. Combine (90% persistence, 10% other)
+        combined = persistence * 0.9 + (jet_strength + pressure_gradient + temp_gradient + topo_effect) * 0.1
+        
+        # 5. Apply POLAR HARD LIMITS (not corrections - just limits)
+        predicted_u100 = self._apply_polar_hard_limits_only(
+            combined, lat_deg, lon_deg,
+            antarctica_mask, greenland_mask, greenland_north_mask, greenland_mid_mask
         )
         
-        # 8. Apply mid-latitude amplification
-        combined = self._apply_midlatitude_amplification(combined, lat_rad)
+        # 6. Final smoothing
+        predicted_u100 = self._minimal_smoothing(predicted_u100)
         
-        # 9. Add variability (reduced in high-wind land areas)
-        combined = self._add_safe_variability(combined, lat_rad, land_sea_mask, current_u100)
-        
-        # 10. Apply constraints with land-specific limits
-        predicted_u100 = self._apply_land_specific_constraints(combined, lat_rad, land_sea_mask)
-        
-        # 11. Detect and correct stuck high values
-        predicted_u100 = self._correct_stuck_values(predicted_u100, current_u100, land_sea_mask, delta_hours)
-        
-        # 12. Final light smoothing
-        predicted_u100 = self._light_smoothing(predicted_u100)
+        # 7. Final clamp
+        predicted_u100 = torch.clamp(predicted_u100, self.WIND_MIN, self.WIND_MAX)
         
         return self._convert_result(predicted_u100, return_tensor)
-    
-    def _safe_scaling(self, wind: torch.Tensor, lat_rad: torch.Tensor, 
-                     land_sea_mask: torch.Tensor) -> torch.Tensor:
-        """
-        Scale wind with safety checks for land areas.
-        Reduces scaling for suspiciously high land values.
-        """
-        current_mean = torch.mean(wind)
-        current_std = torch.std(wind)
+
+    def _compute_simple_friction_decay(self, land_sea_mask: torch.Tensor, 
+                                    delta_hours: int,
+                                    polar_mask: torch.Tensor) -> torch.Tensor:
+        """Simple friction decay with polar adjustments."""
+        # Base decay
+        decay = torch.exp(-self.cf_sea * delta_hours)  # Use sea value as base
         
-        lat_factor = torch.abs(torch.sin(lat_rad))
-        variability_factor = 1.0 + 0.5 * lat_factor
+        # Land has faster decay
+        land_decay = torch.exp(-self.cf_land * delta_hours)
+        decay = torch.where(land_sea_mask > 0.5, land_decay, decay)
         
-        # Identify suspicious high land values
-        high_land_winds = (wind > self.STUCK_THRESHOLD) & (land_sea_mask > 0.5)
+        # Polar regions: slower decay (more persistence)
+        polar_decay = torch.exp(-self.cf_sea * delta_hours * 0.5)  # 50% slower decay
+        decay = torch.where(polar_mask, polar_decay, decay)
         
-        if current_std > 1e-6:
-            normalized = (wind - current_mean) / current_std
+        # Ensure reasonable bounds
+        decay = torch.clamp(decay, torch.tensor(0.3, device=self.device), torch.tensor(1.0, device=self.device))
+        
+        return decay
+
+    def _compute_minimal_topo_effect(self, orograph: torch.Tensor, polar_mask: torch.Tensor) -> torch.Tensor:
+        """Minimal topographic effect - mostly zeros."""
+        # ZERO in polar regions
+        effect = torch.zeros_like(orograph, device=self.device)
+        
+        # Very small effect elsewhere
+        non_polar = ~polar_mask
+        if torch.any(non_polar):
+            # Tiny gradient using large kernel (smooth)
+            kernel = torch.tensor([[0, 0.1, 0],
+                                [0.1, 0, 0.1],
+                                [0, 0.1, 0]], device=self.device, dtype=orograph.dtype) * 0.1
             
-            # Reduce scaling for high land winds
-            land_reduction = torch.where(high_land_winds, 
-                                        self.STUCK_CORRECTION_FACTOR, 
-                                        torch.tensor(1.0, device=self.device))
+            orograph_4d = orograph.unsqueeze(0).unsqueeze(0)
+            kernel_4d = kernel.unsqueeze(0).unsqueeze(0)
             
-            scaled = normalized * (self.TARGET_STD * variability_factor * land_reduction) + self.TARGET_MEAN
-            return scaled
-        else:
-            return wind
-    
-    def _compute_enhanced_friction_decay(self, land_sea_mask: torch.Tensor, 
-                                        delta_hours: int,
-                                        current_wind: torch.Tensor) -> torch.Tensor:
-        """
-        Compute friction decay with enhanced decay for high land winds.
-        """
-        # Base friction coefficients
-        friction_coeff = land_sea_mask * self.cf + (1 - land_sea_mask) * self.cf_sea
-        
-        # Enhanced decay for high winds over land (wind mixing increases dissipation)
-        wind_speed = torch.abs(current_wind)
-        wind_enhancement = 1.0 + 0.5 * torch.tanh(wind_speed / 20.0)  # More decay for high winds
-        
-        # Apply enhancement primarily over land
-        wind_enhancement = 1.0 + land_sea_mask * (wind_enhancement - 1.0)
-        
-        decay = torch.exp(-friction_coeff * wind_enhancement * delta_hours)
-        
-        # Minimum decay to prevent stuck values
-        min_decay_land = torch.tensor(0.5, device=self.device)  # Increased minimum
-        min_decay_ocean = torch.tensor(0.6, device=self.device)
-        min_decay = torch.where(land_sea_mask > 0.5, min_decay_land, min_decay_ocean)
-        
-        max_decay = torch.tensor(1.0, device=self.device)
-        
-        return torch.clamp(decay, min_decay, max_decay)
-    
-    def _compute_safe_topographic_effect(self, orograph: torch.Tensor, 
-                                        lat_rad: torch.Tensor,
-                                        land_sea_mask: torch.Tensor) -> torch.Tensor:
-        """
-        Compute topographic effects with safety limits.
-        Strongly reduced in problematic areas.
-        """
-        height, width = orograph.shape
-        
-        kernel_y = torch.tensor([[0, -0.15, 0, 0.15, 0],
-                                 [0, -0.3, 0, 0.3, 0],
-                                 [0, -0.4, 0, 0.4, 0],
-                                 [0, -0.3, 0, 0.3, 0],
-                                 [0, -0.15, 0, 0.15, 0]], 
-                                dtype=orograph.dtype, device=self.device) / 2.0
-        
-        orograph_4d = orograph.unsqueeze(0).unsqueeze(0)
-        kernel_y_4d = kernel_y.unsqueeze(0).unsqueeze(0)
-        
-        grad_y = torch.nn.functional.conv2d(
-            torch.nn.functional.pad(orograph_4d, (2, 2, 2, 2), mode='replicate'),
-            kernel_y_4d,
-            padding=0
-        ).squeeze()
-        
-        # Base topographic effect
-        topo_effect = self.TOPO_SCALING * grad_y * 0.01
-        
-        # Mountain mask with higher threshold
-        mountain_mask = (orograph > self.MOUNTAIN_THRESHOLD).float()
-        
-        # Reduce mountain effect on steep slopes that might cause problems
-        # FIXED: Use torch.quantile instead of torch.percentile
-        slope = torch.abs(grad_y)
-        
-        # Calculate 95th percentile using torch.quantile if available, otherwise approximate
-        try:
-            # Try torch.quantile (available in newer PyTorch)
-            slope_95th = torch.quantile(slope.flatten(), 0.95)
-        except AttributeError:
-            # Fallback: sort and take approximate 95th percentile
-            sorted_slope = torch.sort(slope.flatten())[0]
-            idx_95 = int(0.95 * len(sorted_slope))
-            slope_95th = sorted_slope[idx_95]
-        
-        steep_slope_mask = (slope > slope_95th).float()
-        
-        # Combine masks: only apply boost to mountains that aren't too steep
-        safe_mountain_mask = mountain_mask * (1.0 - steep_slope_mask * 0.8)
-        
-        mountain_smooth = self._adaptive_smoothing(safe_mountain_mask, preserve_edges=True)
-        mountain_amplitude = 1.0 + self.TOPO_MOUNTAIN_BOOST * mountain_smooth
-        
-        # Further reduce effect on land
-        land_reduction = torch.where(land_sea_mask > 0.5, 
-                                    torch.tensor(0.7, device=self.device),  # 30% reduction on land
-                                    torch.tensor(1.0, device=self.device))
-        
-        return topo_effect * mountain_amplitude * land_reduction
-    
-    def _add_safe_variability(self, wind: torch.Tensor, lat_rad: torch.Tensor,
-                             land_sea_mask: torch.Tensor, current_wind: torch.Tensor) -> torch.Tensor:
-        """
-        Add variability with reduced amplitude in high-wind land areas.
-        """
-        lat_factor = torch.abs(torch.sin(2 * lat_rad))
-        height, width = wind.shape
-        
-        # Set seed for reproducibility
-        torch.manual_seed(42)
-        
-        # Generate multi-scale noise patterns
-        noise = torch.zeros(height, width, device=self.device)
-        
-        # Add different scale patterns
-        scales = [16, 8, 4, 2]
-        weights = [0.4, 0.3, 0.2, 0.1]
-        
-        for scale, weight in zip(scales, weights):
-            # Create noise at this scale
-            h_small = max(2, height // scale)
-            w_small = max(2, width // scale)
-            
-            scale_noise = torch.randn(h_small, w_small, device=self.device)
-            
-            # Interpolate to full size
-            scale_noise_full = torch.nn.functional.interpolate(
-                scale_noise.unsqueeze(0).unsqueeze(0),
-                size=(height, width),
-                mode='bilinear',
-                align_corners=False
+            grad = torch.nn.functional.conv2d(
+                torch.nn.functional.pad(orograph_4d, (1, 1, 1, 1), mode='replicate'),
+                kernel_4d,
+                padding=0
             ).squeeze()
             
-            # Add to total noise
-            noise += weight * scale_noise_full
+            effect = torch.where(non_polar, grad * 0.001, effect)  # Very small scaling
         
-        # Normalize noise
-        if torch.std(noise) > 1e-6:
-            noise = noise / torch.std(noise)
+        return effect
+
+    def _apply_polar_hard_limits_only(self, wind: torch.Tensor,
+                                    lat_deg: torch.Tensor, lon_deg: torch.Tensor,
+                                    antarctica_mask: torch.Tensor,
+                                    greenland_mask: torch.Tensor,
+                                    greenland_north_mask: torch.Tensor,
+                                    greenland_mid_mask: torch.Tensor) -> torch.Tensor:
+        """
+        Apply ONLY hard limits - no complex corrections.
+        """
+        result = wind.clone()
         
-        # Scale by latitudinal factor
-        variability = noise * lat_factor
+        # Antarctica: Strict limits
+        if torch.any(antarctica_mask):
+            result = torch.where(antarctica_mask,
+                            torch.clamp(result, 
+                                        torch.tensor(-8.0, device=self.device),
+                                        torch.tensor(8.0, device=self.device)),
+                            result)
         
-        # Reduce variability in high-wind land areas (where winds might be stuck)
-        wind_speed = torch.abs(current_wind)
-        high_wind_land = (wind_speed > self.STUCK_THRESHOLD) & (land_sea_mask > 0.5)
-        variability_reduction = torch.where(high_wind_land, 
-                                           torch.tensor(0.3, device=self.device),  # 70% reduction
-                                           torch.tensor(1.0, device=self.device))
+        # Greenland: Regional limits
+        if torch.any(greenland_mask):
+            # North Greenland
+            if torch.any(greenland_north_mask):
+                result = torch.where(greenland_north_mask,
+                                torch.clamp(result,
+                                            torch.tensor(-5.0, device=self.device),
+                                            torch.tensor(10.0, device=self.device)),
+                                result)
+            
+            # Middle Greenland
+            if torch.any(greenland_mid_mask):
+                result = torch.where(greenland_mid_mask,
+                                torch.clamp(result,
+                                            torch.tensor(-8.0, device=self.device),
+                                            torch.tensor(8.0, device=self.device)),
+                                result)
+            
+            # Rest of Greenland
+            rest_greenland = greenland_mask & ~greenland_north_mask & ~greenland_mid_mask
+            if torch.any(rest_greenland):
+                result = torch.where(rest_greenland,
+                                torch.clamp(result,
+                                            torch.tensor(-10.0, device=self.device),
+                                            torch.tensor(10.0, device=self.device)),
+                                result)
         
-        variability = variability * variability_reduction
-        
-        # More variability over land (but less in high-wind areas)
-        land_variability_factor = 1.0 + 0.3 * land_sea_mask  # Reduced from 0.5
-        variability = variability * land_variability_factor
-        
-        # Scale by wind magnitude (but cap it)
-        wind_magnitude = torch.abs(wind)
-        variability_scale = 0.3 + 0.7 * torch.tanh(wind_magnitude / 15.0)
-        
-        # Apply final scaling
-        variability = variability * variability_scale * self.TURBULENCE_SCALE * 8.0
-        
-        return wind + variability
+        return result
     
-    def _apply_land_specific_constraints(self, wind: torch.Tensor, lat_rad: torch.Tensor,
-                                        land_sea_mask: torch.Tensor) -> torch.Tensor:
+    def _identify_polar_regions(self, lat_deg: torch.Tensor, lon_deg: torch.Tensor,
+                            orograph: torch.Tensor) -> tuple:
         """
-        Apply constraints with stricter limits for land areas.
+        Identify polar regions with sub-regions.
         """
-        lat_abs = torch.abs(lat_rad)
+        # Antarctica
+        antarctica_mask = (lat_deg < self.ANTARCTICA_LAT) & (orograph > 500)
         
-        comp1 = torch.cos(lat_abs)**2
-        comp2 = torch.sin(2 * lat_abs)**2
-        lat_factor = 0.3 * comp1 + 0.7 * comp2
-        lat_factor = torch.clamp(lat_factor, self.LAT_FACTOR_MIN, 1.0)
+        # Greenland main mask
+        greenland_lat = (lat_deg > self.GREENLAND_LAT_MIN) & (lat_deg < self.GREENLAND_LAT_MAX)
+        greenland_lon = (lon_deg > self.GREENLAND_LON_MIN) & (lon_deg < self.GREENLAND_LON_MAX)
+        greenland_mask = greenland_lat & greenland_lon & (orograph > 500)
         
-        ocean_factor = torch.where(land_sea_mask == 0, 
-                                  self.OCEAN_AMPLIFICATION, 
-                                  torch.tensor(1.0, device=self.device))
+        # North Greenland (problem area: too negative winds)
+        greenland_north_mask = greenland_mask & (lat_deg > 75.0)
         
-        constrained = wind * lat_factor * ocean_factor
+        # Middle Greenland coasts (problem area: too positive winds)
+        # Eastern coast roughly at lon > -30, western coast lon < -40
+        greenland_mid_lat = (lat_deg > 65.0) & (lat_deg < 75.0)
+        greenland_east_coast = greenland_mid_lat & (lon_deg > -30.0) & (lon_deg < -20.0)
+        greenland_west_coast = greenland_mid_lat & (lon_deg > -50.0) & (lon_deg < -40.0)
+        greenland_mid_mask = (greenland_east_coast | greenland_west_coast) & greenland_mask
         
-        # Apply land-specific maximum
-        max_limit = torch.where(land_sea_mask > 0.5, 
-                               self.LAND_WIND_MAX, 
-                               self.WIND_MAX)
-        
-        return torch.clamp(constrained, self.WIND_MIN, max_limit)
-    
-    def _correct_stuck_values(self, predicted: torch.Tensor, current: torch.Tensor,
-                             land_sea_mask: torch.Tensor, delta_hours: int) -> torch.Tensor:
+        return antarctica_mask, greenland_mask, greenland_north_mask, greenland_mid_mask
+
+    def _apply_direct_hard_limits(self, wind: torch.Tensor,
+                                lat_deg: torch.Tensor, lon_deg: torch.Tensor,
+                                antarctica_mask: torch.Tensor,
+                                greenland_mask: torch.Tensor) -> torch.Tensor:
         """
-        Detect and correct stuck high values in land areas.
+        DIRECT HARD LIMITS for problem areas.
         """
-        # Identify potential stuck values:
-        # 1. High winds over land
-        # 2. Not changing much from current (persistent)
-        # 3. Possibly in mountainous regions
+        result = wind.clone()
         
-        wind_diff = torch.abs(predicted - current)
-        is_high_land = (torch.abs(current) > self.STUCK_THRESHOLD) & (land_sea_mask > 0.5)
-        is_persistent = wind_diff < 2.0  # Not changing much
+        # 1. ANTARCTICA COASTAL: Cap at ±10 m/s
+        if torch.any(antarctica_mask):
+            ant_coastal = self._get_coastal_mask(antarctica_mask)
+            if torch.any(ant_coastal):
+                result = torch.where(ant_coastal,
+                                torch.clamp(result, 
+                                            torch.tensor(-10.0, device=self.device),
+                                            torch.tensor(10.0, device=self.device)),
+                                result)
         
-        stuck_mask = is_high_land & is_persistent
+        # 2. NORTH GREENLAND: Force eastward (positive) bias
+        if torch.any(greenland_mask):
+            north_greenland = greenland_mask & (lat_deg > 75.0)
+            if torch.any(north_greenland):
+                # Force minimum of -5 m/s (less westward)
+                result = torch.where(north_greenland,
+                                torch.maximum(result, torch.tensor(-5.0, device=self.device)),
+                                result)
+                # Force maximum of +15 m/s
+                result = torch.where(north_greenland,
+                                torch.minimum(result, torch.tensor(15.0, device=self.device)),
+                                result)
         
-        if torch.any(stuck_mask):
-            # Count stuck pixels for debugging
-            num_stuck = torch.sum(stuck_mask).item()
-            if num_stuck > 0:
-                print(f"Detected {num_stuck} potentially stuck land pixels")
-                
-                # Apply correction: blend towards climatology
-                # Use stronger correction for longer forecast times
-                correction_strength = 0.3 + 0.2 * min(delta_hours / 24.0, 1.0)
-                
-                # Create correction field
-                correction = torch.ones_like(predicted)
-                correction[stuck_mask] = 1.0 - correction_strength
-                
-                # Also blend with neighboring values
-                predicted_corrected = predicted * correction
-                
-                # Apply additional smoothing to stuck areas
-                if torch.any(stuck_mask):
-                    predicted_corrected = self._smooth_stuck_areas(predicted_corrected, stuck_mask)
-                
-                return predicted_corrected
+        # 3. MIDDLE GREENLAND COASTS: Cap at ±8 m/s
+        if torch.any(greenland_mask):
+            mid_greenland = greenland_mask & (lat_deg > 65.0) & (lat_deg <= 75.0)
+            if torch.any(mid_greenland):
+                result = torch.where(mid_greenland,
+                                torch.clamp(result,
+                                            torch.tensor(-8.0, device=self.device),
+                                            torch.tensor(8.0, device=self.device)),
+                                result)
         
-        return predicted
-    
-    def _smooth_stuck_areas(self, wind: torch.Tensor, stuck_mask: torch.Tensor) -> torch.Tensor:
-        """
-        Apply extra smoothing to areas with stuck values.
-        """
-        # Create a mask for smoothing (include stuck areas and immediate neighbors)
-        kernel = torch.tensor([[1, 1, 1],
-                               [1, 1, 1],
-                               [1, 1, 1]], dtype=wind.dtype, device=self.device) / 9.0
+        return result
+
+    def _get_coastal_mask(self, mask: torch.Tensor) -> torch.Tensor:
+        """Get coastal areas of a mask."""
+        kernel = torch.tensor([[0, 1, 0],
+                            [1, 0, 1],
+                            [0, 1, 0]], dtype=torch.float32, device=self.device) / 4.0
         
-        mask_4d = stuck_mask.unsqueeze(0).unsqueeze(0).float()
+        mask_4d = mask.float().unsqueeze(0).unsqueeze(0)
         kernel_4d = kernel.unsqueeze(0).unsqueeze(0)
         
-        # Expand mask to include neighbors
-        expanded_mask = torch.nn.functional.conv2d(
+        smoothed = torch.nn.functional.conv2d(
             torch.nn.functional.pad(mask_4d, (1, 1, 1, 1), mode='replicate'),
             kernel_4d,
             padding=0
         ).squeeze()
         
-        smoothing_mask = (expanded_mask > 0.1).float()
+        # Coastal zone: where mask is 1 but neighbors average < 0.8
+        coastal = mask & (smoothed < 0.8)
+        return coastal
+    
+    def _compute_polar_corrected_topographic_effect(self, orograph: torch.Tensor,
+                                                lat_deg: torch.Tensor, lon_deg: torch.Tensor,
+                                                antarctica_mask: torch.Tensor,
+                                                greenland_mask: torch.Tensor,
+                                                greenland_north_mask: torch.Tensor,
+                                                greenland_mid_mask: torch.Tensor) -> torch.Tensor:
+        """
+        ZERO topographic effect in polar regions - use climatology instead.
+        """
+        height, width = orograph.shape
         
-        if torch.any(smoothing_mask):
-            # Apply strong smoothing to problematic areas
-            wind_4d = wind.unsqueeze(0).unsqueeze(0)
+        # **CRITICAL CHANGE**: Compute topographic effect ONLY for non-polar regions
+        polar_mask = antarctica_mask | greenland_mask
+        non_polar_mask = ~polar_mask
+        
+        # Initialize with zeros
+        base_effect = torch.zeros_like(orograph, device=self.device, dtype=orograph.dtype)
+        
+        # Only compute slopes for NON-POLAR regions
+        if torch.any(non_polar_mask):
+            # Extract non-polar region
+            # We need to compute slope on the whole field but mask it later
+            kernel_y = torch.tensor([[0, -0.5, 0],
+                                    [0, 0, 0],
+                                    [0, 0.5, 0]], dtype=orograph.dtype, device=self.device)
             
-            # Smoothing kernel
-            smooth_kernel = torch.tensor([[1, 2, 1],
-                                          [2, 4, 2],
-                                          [1, 2, 1]], dtype=wind.dtype, device=self.device) / 16.0
-            smooth_kernel_4d = smooth_kernel.unsqueeze(0).unsqueeze(0)
+            kernel_x = torch.tensor([[0, 0, 0],
+                                    [-0.5, 0, 0.5],
+                                    [0, 0, 0]], dtype=orograph.dtype, device=self.device)
             
-            smoothed = torch.nn.functional.conv2d(
-                torch.nn.functional.pad(wind_4d, (1, 1, 1, 1), mode='replicate'),
-                smooth_kernel_4d,
+            orograph_4d = orograph.unsqueeze(0).unsqueeze(0)
+            kernel_y_4d = kernel_y.unsqueeze(0).unsqueeze(0)
+            kernel_x_4d = kernel_x.unsqueeze(0).unsqueeze(0)
+            
+            slope_y = torch.nn.functional.conv2d(
+                torch.nn.functional.pad(orograph_4d, (1, 1, 1, 1), mode='replicate'),
+                kernel_y_4d,
                 padding=0
             ).squeeze()
             
-            # Blend: strong smoothing in stuck areas, none elsewhere
-            blend_factor = smoothing_mask * 0.8  # 80% smoothing in problem areas
-            wind = wind * (1 - blend_factor) + smoothed * blend_factor
+            slope_x = torch.nn.functional.conv2d(
+                torch.nn.functional.pad(orograph_4d, (1, 1, 1, 1), mode='replicate'),
+                kernel_x_4d,
+                padding=0
+            ).squeeze()
+            
+            # Compute effect only for non-polar
+            non_polar_effect = self.TOPO_SCALING * (slope_y * 0.7 + slope_x * 0.3) * 0.01
+            base_effect = torch.where(non_polar_mask, non_polar_effect, base_effect)
+        
+        # **POLAR REGIONS: Use fixed climatological values (NO SLOPE CALCULATION)**
+        
+        # ANTARCTICA: Use smooth longitude-based pattern
+        if torch.any(antarctica_mask):
+            # Smooth eastward flow with coastal variations
+            # Based on observed Antarctic near-surface wind climatology
+            
+            # Create smooth longitude gradient (eastward increases with longitude)
+            lon_norm = (lon_deg + 180.0) / 360.0  # 0 to 1
+            ant_base = torch.sin(lon_norm * 2 * math.pi) * 2.0  # ±2 m/s
+            
+            # Coastal enhancement (smooth)
+            ant_coastal = self._get_smooth_coastal_mask(antarctica_mask, width=3)
+            ant_coastal_effect = torch.sin(lon_norm * math.pi) * 1.0  # Additional ±1 m/s
+            
+            # Combine
+            ant_pattern = ant_base + ant_coastal * ant_coastal_effect
+            
+            # Apply with smooth transition
+            ant_transition = self._create_smooth_transition_mask(antarctica_mask, width=5)
+            base_effect = base_effect * (1.0 - ant_transition) + ant_pattern * ant_transition
+        
+        # GREENLAND: Fixed regional patterns
+        if torch.any(greenland_mask):
+            greenland_transition = self._create_smooth_transition_mask(greenland_mask, width=5)
+            
+            # Create smooth latitudinal gradient
+            lat_norm = (lat_deg - 60.0) / (85.0 - 60.0)  # 0 to 1 from south to north
+            lat_norm = torch.clamp(lat_norm, 0.0, 1.0)
+            
+            # Base pattern: slightly eastward overall
+            greenland_base = torch.ones_like(lat_deg) * 1.5  # +1.5 m/s eastward
+            
+            # North Greenland: stronger eastward
+            if torch.any(greenland_north_mask):
+                north_transition = self._create_smooth_transition_mask(greenland_north_mask, width=3)
+                north_enhancement = torch.ones_like(lat_deg) * 2.0  # Additional +2 m/s
+                greenland_base = greenland_base + north_enhancement * north_transition
+            
+            # Middle coasts: reduce eastward
+            if torch.any(greenland_mid_mask):
+                mid_transition = self._create_smooth_transition_mask(greenland_mid_mask, width=3)
+                mid_reduction = torch.where(lon_deg < -40.0, 
+                                        torch.tensor(-3.0, device=self.device),  # West coast
+                                        torch.tensor(-1.0, device=self.device))  # East coast
+                greenland_base = greenland_base + mid_reduction * mid_transition
+            
+            # Apply Greenland pattern
+            base_effect = base_effect * (1.0 - greenland_transition) + greenland_base * greenland_transition
+        
+        # **FINAL SMOOTHING** to ensure no strips
+        base_effect = self._apply_heavy_smoothing(base_effect, polar_mask)
+        
+        return base_effect
+
+    def _get_smooth_coastal_mask(self, mask: torch.Tensor, width: int = 3) -> torch.Tensor:
+        """Get smooth coastal mask using distance transform approximation."""
+        # Use multiple convolutions to create smooth coastal gradient
+        coastal_mask = torch.zeros_like(mask, dtype=torch.float32)
+        
+        for w in range(1, width + 1):
+            kernel_size = 2 * w + 1
+            kernel = torch.ones(kernel_size, kernel_size, device=self.device) / (kernel_size * kernel_size)
+            
+            mask_4d = mask.float().unsqueeze(0).unsqueeze(0)
+            kernel_4d = kernel.unsqueeze(0).unsqueeze(0)
+            
+            pad_size = kernel_size // 2
+            smoothed = torch.nn.functional.conv2d(
+                torch.nn.functional.pad(mask_4d, (pad_size, pad_size, pad_size, pad_size), mode='replicate'),
+                kernel_4d,
+                padding=0
+            ).squeeze()
+            
+            # Coastal is where smoothed is between thresholds
+            coastal = (smoothed > 0.3) & (smoothed < 0.7) & mask
+            coastal_mask = coastal_mask + coastal.float() * (1.0 / width)
+        
+        return coastal_mask
+
+    def _apply_heavy_smoothing(self, tensor: torch.Tensor, polar_mask: torch.Tensor) -> torch.Tensor:
+        """Apply heavy smoothing specifically to polar regions."""
+        result = tensor.clone()
+        
+        if torch.any(polar_mask):
+            # Apply different smoothing inside vs outside polar regions
+            
+            # Outside polar: light smoothing
+            outside_polar = ~polar_mask
+            if torch.any(outside_polar):
+                # Light 3x3 smoothing for non-polar
+                kernel_light = torch.tensor([[1, 2, 1],
+                                            [2, 4, 2],
+                                            [1, 2, 1]], device=self.device, dtype=tensor.dtype) / 16.0
+                
+                tensor_4d = tensor.unsqueeze(0).unsqueeze(0)
+                kernel_4d = kernel_light.unsqueeze(0).unsqueeze(0)
+                
+                smoothed = torch.nn.functional.conv2d(
+                    torch.nn.functional.pad(tensor_4d, (1, 1, 1, 1), mode='replicate'),
+                    kernel_4d,
+                    padding=0
+                ).squeeze()
+                
+                # Apply only to outside polar
+                result = torch.where(outside_polar, smoothed, result)
+            
+            # Inside polar: VERY heavy smoothing
+            # Create 5x5 Gaussian kernel
+            x = torch.arange(5, device=self.device) - 2
+            y = torch.arange(5, device=self.device) - 2
+            xx, yy = torch.meshgrid(x, y, indexing='ij')
+            kernel_heavy = torch.exp(-(xx**2 + yy**2) / 2.0)
+            kernel_heavy = kernel_heavy / torch.sum(kernel_heavy)
+            
+            tensor_4d = tensor.unsqueeze(0).unsqueeze(0)
+            kernel_4d = kernel_heavy.unsqueeze(0).unsqueeze(0)
+            
+            smoothed_heavy = torch.nn.functional.conv2d(
+                torch.nn.functional.pad(tensor_4d, (2, 2, 2, 2), mode='replicate'),
+                kernel_4d,
+                padding=0
+            ).squeeze()
+            
+            # Apply heavy smoothing to polar regions
+            polar_smooth_mask = self._create_smooth_transition_mask(polar_mask, width=3)
+            result = result * (1.0 - polar_smooth_mask) + smoothed_heavy * polar_smooth_mask
+        
+        return result
+
+    def _create_smooth_transition_mask(self, mask: torch.Tensor, width: int = 5) -> torch.Tensor:
+        """Create smooth transition mask using Gaussian blur."""
+        # Create kernel
+        kernel_size = 2 * width + 1
+        x = torch.arange(kernel_size, device=self.device, dtype=torch.float32) - width
+        y = torch.arange(kernel_size, device=self.device, dtype=torch.float32) - width
+        xx, yy = torch.meshgrid(x, y, indexing='ij')
+        
+        # Gaussian kernel
+        sigma = width / 2.0
+        kernel = torch.exp(-(xx**2 + yy**2) / (2 * sigma**2))
+        kernel = kernel / torch.sum(kernel)
+        
+        # Apply convolution
+        mask_4d = mask.float().unsqueeze(0).unsqueeze(0)
+        kernel_4d = kernel.unsqueeze(0).unsqueeze(0)
+        
+        padded = torch.nn.functional.pad(mask_4d, (width, width, width, width), mode='replicate')
+        smoothed = torch.nn.functional.conv2d(padded, kernel_4d, padding=0).squeeze()
+        
+        return smoothed
+
+    def _apply_anisotropic_diffusion(self, tensor: torch.Tensor, iterations: int = 2) -> torch.Tensor:
+        """Apply anisotropic diffusion to remove strips while preserving edges."""
+        result = tensor.clone()
+        
+        for _ in range(iterations):
+            # Compute gradients
+            grad_y = torch.zeros_like(result)
+            grad_x = torch.zeros_like(result)
+            
+            # Simple finite differences with boundary replication
+            grad_y[1:-1, :] = result[2:, :] - result[:-2, :]
+            grad_x[:, 1:-1] = result[:, 2:] - result[:, :-2]
+            
+            # Handle boundaries
+            grad_y[0, :] = result[1, :] - result[0, :]
+            grad_y[-1, :] = result[-1, :] - result[-2, :]
+            grad_x[:, 0] = result[:, 1] - result[:, 0]
+            grad_x[:, -1] = result[:, -1] - result[:, -2]
+            
+            # Diffusion coefficient (edge-preserving)
+            grad_magnitude = torch.sqrt(grad_y**2 + grad_x**2 + 1e-8)
+            c = torch.exp(-(grad_magnitude / 2.0)**2)  # Perona-Malik
+            
+            # Apply diffusion
+            diff_y = torch.zeros_like(result)
+            diff_x = torch.zeros_like(result)
+            
+            diff_y[1:-1, :] = c[1:-1, :] * (result[2:, :] - result[1:-1, :]) - \
+                            c[:-2, :] * (result[1:-1, :] - result[:-2, :])
+            
+            diff_x[:, 1:-1] = c[:, 1:-1] * (result[:, 2:] - result[:, 1:-1]) - \
+                            c[:, :-2] * (result[:, 1:-1] - result[:, :-2])
+            
+            # Update with small timestep
+            result = result + 0.25 * (diff_y + diff_x)
+        
+        return result
+
+    def _apply_gaussian_smoothing(self, tensor: torch.Tensor, sigma: float = 1.0) -> torch.Tensor:
+        """Apply Gaussian smoothing."""
+        # Create Gaussian kernel
+        kernel_size = int(2 * 2 * sigma + 1)  # 2-sigma radius
+        if kernel_size % 2 == 0:
+            kernel_size += 1
+        
+        x = torch.arange(kernel_size, device=self.device, dtype=torch.float32) - kernel_size // 2
+        y = torch.arange(kernel_size, device=self.device, dtype=torch.float32) - kernel_size // 2
+        xx, yy = torch.meshgrid(x, y, indexing='ij')
+        
+        kernel = torch.exp(-(xx**2 + yy**2) / (2 * sigma**2))
+        kernel = kernel / torch.sum(kernel)
+        
+        # Apply convolution
+        tensor_4d = tensor.unsqueeze(0).unsqueeze(0)
+        kernel_4d = kernel.unsqueeze(0).unsqueeze(0)
+        
+        pad_size = kernel_size // 2
+        smoothed = torch.nn.functional.conv2d(
+            torch.nn.functional.pad(tensor_4d, (pad_size, pad_size, pad_size, pad_size), mode='replicate'),
+            kernel_4d,
+            padding=0
+        ).squeeze()
+        
+        return smoothed
+
+    def _get_coastal_mask(self, mask: torch.Tensor) -> torch.Tensor:
+        """Get coastal areas of a mask."""
+        kernel = torch.tensor([[0, 1, 0],
+                            [1, 0, 1],
+                            [0, 1, 0]], dtype=torch.float32, device=self.device) / 4.0
+        
+        mask_4d = mask.float().unsqueeze(0).unsqueeze(0)
+        kernel_4d = kernel.unsqueeze(0).unsqueeze(0)
+        
+        smoothed = torch.nn.functional.conv2d(
+            torch.nn.functional.pad(mask_4d, (1, 1, 1, 1), mode='replicate'),
+            kernel_4d,
+            padding=0
+        ).squeeze()
+        
+        # Coastal zone: where mask is 1 but neighbors average < 0.8
+        coastal = mask & (smoothed < 0.8)
+        return coastal
+    
+    def _apply_polar_katabatic_corrections(self, wind: torch.Tensor,
+                                        lat_deg: torch.Tensor, lon_deg: torch.Tensor,
+                                        antarctica_mask: torch.Tensor,
+                                        greenland_mask: torch.Tensor,
+                                        greenland_north_mask: torch.Tensor,
+                                        greenland_mid_mask: torch.Tensor) -> torch.Tensor:
+        """
+        Apply strip-aware polar katabatic corrections.
+        """
+        # Start with original wind
+        corrected = wind.clone()
+        
+        # 1. First, apply strip reduction filter to entire wind field
+        corrected = self._apply_strip_reduction_filter(corrected)
+        
+        # 2. Regional corrections with SMOOTH transitions
+        polar_mask = antarctica_mask | greenland_mask
+        
+        if torch.any(polar_mask):
+            # Create smooth regional masks
+            ant_smooth = self._create_smooth_transition_mask(antarctica_mask, width=4)
+            greenland_smooth = self._create_smooth_transition_mask(greenland_mask, width=4)
+            
+            # Antarctica: Reduce extremes
+            if torch.any(antarctica_mask):
+                # Compute regional statistics
+                ant_values = corrected[antarctica_mask]
+                if len(ant_values) > 0:
+                    ant_mean = torch.mean(ant_values)
+                    ant_std = torch.std(ant_values)
+                    
+                    # Reduce extremes more than mean
+                    ant_mask_flat = antarctica_mask.flatten()
+                    ant_correction = torch.zeros_like(corrected)
+                    
+                    # Iterate through Antarctica points
+                    for i in range(len(corrected.flatten())):
+                        if ant_mask_flat[i]:
+                            val = corrected.flatten()[i]
+                            # Reduce extreme positive values more
+                            if val > ant_mean + ant_std:
+                                correction_factor = 0.5  # 50% reduction
+                            elif val > ant_mean:
+                                correction_factor = 0.8  # 20% reduction
+                            elif val < ant_mean - ant_std:
+                                correction_factor = 1.3  # +30% to reduce extreme negative
+                            else:
+                                correction_factor = 1.0  # No change
+                            
+                            ant_correction.flatten()[i] = val * correction_factor
+                    
+                    # Blend with smooth transition
+                    corrected = corrected * (1.0 - ant_smooth) + ant_correction * ant_smooth
+            
+            # Greenland: Regional adjustments
+            if torch.any(greenland_mask):
+                # North Greenland: Add eastward bias smoothly
+                if torch.any(greenland_north_mask):
+                    north_smooth = self._create_smooth_transition_mask(greenland_north_mask, width=5)
+                    north_bias = torch.tensor(4.0, device=self.device)  # +4 m/s eastward
+                    corrected = corrected + north_bias * north_smooth
+                
+                # Middle Greenland coasts: Reduce positive extremes
+                if torch.any(greenland_mid_mask):
+                    mid_smooth = self._create_smooth_transition_mask(greenland_mid_mask, width=4)
+                    
+                    # Find positive values in this region
+                    mid_positive = (corrected > 0) & greenland_mid_mask
+                    if torch.any(mid_positive):
+                        # Apply sigmoid-like reduction to positive values
+                        reduction = 1.0 / (1.0 + torch.exp((corrected - 5.0) / 2.0))
+                        corrected = torch.where(mid_positive, 
+                                            corrected * (0.5 + 0.5 * reduction),
+                                            corrected)
+        
+        # 3. Apply final strip removal
+        corrected = self._apply_final_strip_removal(corrected, polar_mask)
+        
+        return corrected
+
+    def _apply_strip_reduction_filter(self, wind: torch.Tensor) -> torch.Tensor:
+        """Apply Fourier-based filter to remove strip artifacts."""
+        height, width = wind.shape
+        
+        # Perform 2D FFT
+        wind_fft = torch.fft.fft2(wind)
+        wind_fft_shifted = torch.fft.fftshift(wind_fft)
+        
+        # Create frequency domain filter to remove vertical/horizontal strips
+        u = torch.arange(width, device=self.device) - width // 2
+        v = torch.arange(height, device=self.device) - height // 2
+        uu, vv = torch.meshgrid(u, v, indexing='xy')
+        
+        # Create band-stop filter for strip frequencies
+        # Strips typically appear as high frequencies in one direction
+        freq_u = torch.abs(uu / width)
+        freq_v = torch.abs(vv / height)
+        
+        # Filter out high frequencies in both directions (strip patterns)
+        strip_filter = torch.ones_like(wind_fft_shifted, dtype=torch.float32)
+        
+        # Remove very high frequencies (potential strips)
+        high_freq_mask = (freq_u > 0.4) | (freq_v > 0.4)
+        strip_filter[high_freq_mask] = 0.5  # Reduce but not eliminate
+        
+        # Apply filter
+        filtered_fft = wind_fft_shifted * strip_filter
+        
+        # Inverse FFT
+        filtered_fft_ishift = torch.fft.ifftshift(filtered_fft)
+        filtered = torch.fft.ifft2(filtered_fft_ishift).real
+        
+        # Blend original and filtered (keep 70% original, 30% filtered)
+        return wind * 0.7 + filtered * 0.3
+
+    def _apply_final_strip_removal(self, wind: torch.Tensor, polar_mask: torch.Tensor) -> torch.Tensor:
+        """Final strip removal with regional awareness."""
+        # Apply median filtering in polar regions (excellent for removing strips)
+        if torch.any(polar_mask):
+            # Create a copy for median filtering
+            wind_median = wind.clone()
+            
+            # Apply 3x3 median filter only to polar regions
+            for i in range(1, wind.shape[0] - 1):
+                for j in range(1, wind.shape[1] - 1):
+                    if polar_mask[i, j]:
+                        # Get 3x3 neighborhood
+                        neighborhood = wind[i-1:i+2, j-1:j+2]
+                        # Compute median
+                        wind_median[i, j] = torch.median(neighborhood.flatten())
+            
+            # Blend with original using smooth transition
+            polar_smooth = self._create_smooth_transition_mask(polar_mask, width=2)
+            wind = wind * (1.0 - polar_smooth) + wind_median * polar_smooth
         
         return wind
+
+    def _create_transition_mask(self, mask: torch.Tensor, width: int) -> torch.Tensor:
+        """Create a transition zone mask around the given mask."""
+        kernel = torch.ones(2*width+1, 2*width+1, device=self.device, dtype=torch.float32)
+        kernel = kernel / kernel.numel()
+        
+        mask_4d = mask.float().unsqueeze(0).unsqueeze(0)
+        kernel_4d = kernel.unsqueeze(0).unsqueeze(0)
+        
+        # Apply convolution
+        padded = torch.nn.functional.pad(mask_4d, (width, width, width, width), mode='replicate')
+        smoothed = torch.nn.functional.conv2d(padded, kernel_4d, padding=0).squeeze()
+        
+        # Transition zone: where smoothed value is between 0.1 and 0.9
+        transition = (smoothed > 0.1) & (smoothed < 0.9) & ~mask
+        
+        return transition
     
-    # Keep all the other methods from the previous version (jet stream, pressure gradient, etc.)
-    # They remain the same as in the previous working version
+    def _apply_polar_coastal_limits(self, wind: torch.Tensor,
+                                land_sea_mask: torch.Tensor,
+                                antarctica_mask: torch.Tensor,
+                                greenland_mask: torch.Tensor,
+                                greenland_north_mask: torch.Tensor,
+                                greenland_mid_mask: torch.Tensor) -> torch.Tensor:
+        """
+        Apply strict limits to polar coastal regions.
+        """
+        # Create polar coastal mask
+        polar_mask = antarctica_mask | greenland_mask
+        
+        # Find coastal areas in polar regions
+        kernel = torch.tensor([[0, 1, 0],
+                            [1, 0, 1],
+                            [0, 1, 0]], dtype=torch.float32, device=self.device) / 4.0
+        
+        polar_mask_4d = polar_mask.float().unsqueeze(0).unsqueeze(0)
+        kernel_4d = kernel.unsqueeze(0).unsqueeze(0)
+        
+        polar_smooth = torch.nn.functional.conv2d(
+            torch.nn.functional.pad(polar_mask_4d, (1, 1, 1, 1), mode='replicate'),
+            kernel_4d,
+            padding=0
+        ).squeeze()
+        
+        # Coastal zone in polar regions
+        polar_coastal = (polar_smooth > 0.2) & (polar_smooth < 0.8) & polar_mask
+        
+        # Apply strict limits to polar coastal areas
+        limited = wind.clone()
+        
+        if torch.any(polar_coastal):
+            # VERY strict limits for coastal areas
+            limited = torch.where(polar_coastal,
+                                torch.clamp(limited, 
+                                        torch.tensor(-15.0, device=self.device), 
+                                        torch.tensor(15.0, device=self.device)),
+                                limited)
+        
+        # Specific stricter limits for problem areas
+        if torch.any(greenland_north_mask):
+            limited = torch.where(greenland_north_mask,
+                                torch.clamp(limited, 
+                                        torch.tensor(-12.0, device=self.device), 
+                                        torch.tensor(8.0, device=self.device)),
+                                limited)
+        
+        if torch.any(greenland_mid_mask):
+            limited = torch.where(greenland_mid_mask,
+                                torch.clamp(limited, 
+                                        torch.tensor(-10.0, device=self.device), 
+                                        torch.tensor(10.0, device=self.device)),
+                                limited)
+        
+        # Antarctica coastal extreme limits
+        if torch.any(antarctica_mask):
+            ant_coastal = polar_coastal & antarctica_mask
+            if torch.any(ant_coastal):
+                limited = torch.where(ant_coastal,
+                                    torch.clamp(limited,
+                                            torch.tensor(-12.0, device=self.device),
+                                            torch.tensor(12.0, device=self.device)),
+                                    limited)
+        
+        return limited
     
-    def _compute_research_jet_stream(self, lat_rad: torch.Tensor, lat_deg: torch.Tensor, 
-                                    current_time_utc: datetime) -> torch.Tensor:
-        """Compute jet stream based on research."""
+    def _compute_polar_friction_decay(self, land_sea_mask: torch.Tensor, 
+                                    delta_hours: int,
+                                    polar_mask: torch.Tensor,
+                                    antarctica_mask: torch.Tensor,
+                                    greenland_mask: torch.Tensor) -> torch.Tensor:
+        """
+        Compute friction decay with polar-specific values.
+        """
+        # Base friction
+        friction_coeff = land_sea_mask * self.cf_land + (1 - land_sea_mask) * self.cf_sea
+        
+        # Enhanced friction for ice sheets
+        ice_mask = antarctica_mask | greenland_mask
+        ice_friction = torch.where(ice_mask, self.cf_ice, torch.tensor(0.0, device=self.device))
+        friction_coeff = friction_coeff + ice_friction
+        
+        decay = torch.exp(-friction_coeff * delta_hours)
+        
+        # Higher minimum decay in polar regions to prevent stuck values
+        min_decay = torch.where(polar_mask,
+                            torch.tensor(0.6, device=self.device),
+                            torch.tensor(0.4, device=self.device))
+        
+        # FIX THE CLAMP ERROR:
+        max_decay = torch.tensor(1.0, device=decay.device, dtype=decay.dtype)
+        return torch.clamp(decay, min_decay, max_decay)
+    
+    def _compute_pressure_gradient(self, sp: torch.Tensor, lat_rad: torch.Tensor) -> torch.Tensor:
+        """Compute pressure gradient."""
+        height, width = sp.shape
+        
+        kernel_y = torch.tensor([[0, -0.5, 0],
+                                 [0, 0, 0],
+                                 [0, 0.5, 0]], dtype=sp.dtype, device=self.device)
+        
+        sp_4d = sp.unsqueeze(0).unsqueeze(0)
+        kernel_y_4d = kernel_y.unsqueeze(0).unsqueeze(0)
+        
+        grad_y = torch.nn.functional.conv2d(
+            torch.nn.functional.pad(sp_4d, (1, 1, 1, 1), mode='replicate'),
+            kernel_y_4d,
+            padding=0
+        ).squeeze()
+        
+        grad_y = grad_y * 1e-6
+        
+        f = 2 * self.omega * torch.sin(lat_rad)
+        f_sign = torch.sign(f)
+        f_abs = torch.abs(f)
+        f_min = torch.tensor(1e-10, device=self.device)
+        f_safe = f_sign * torch.maximum(f_abs, f_min)
+        
+        u_geo = -grad_y / (self.rho * f_safe)
+        
+        return self.PRESSURE_SCALING * u_geo
+    
+    def _compute_temperature_gradient(self, t2m: torch.Tensor) -> torch.Tensor:
+        """Compute temperature gradient."""
+        height, width = t2m.shape
+        
+        kernel_y = torch.tensor([[0, -0.3, 0],
+                                 [0, 0, 0],
+                                 [0, 0.3, 0]], dtype=t2m.dtype, device=self.device)
+        
+        t2m_4d = t2m.unsqueeze(0).unsqueeze(0)
+        kernel_y_4d = kernel_y.unsqueeze(0).unsqueeze(0)
+        
+        grad_y = torch.nn.functional.conv2d(
+            torch.nn.functional.pad(t2m_4d, (1, 1, 1, 1), mode='replicate'),
+            kernel_y_4d,
+            padding=0
+        ).squeeze()
+        
+        return self.THERMAL_WIND_SCALING * grad_y
+    
+    def _compute_jet_stream(self, lat_rad: torch.Tensor, lat_deg: torch.Tensor, 
+                           current_time_utc: datetime) -> torch.Tensor:
+        """Compute jet stream."""
         lat_from_center = lat_deg - self.jet_lat_center
         
         width_factor = torch.where(lat_from_center > 0, 
@@ -525,130 +990,47 @@ class U100mPredictor:
         lat_amplitude = torch.sin(lat_rad)**2
         jet_profile = jet_profile * lat_amplitude
         
-        jet_strength = self.jet_max_speed * jet_profile
-        
-        # Seasonal migration
-        day_of_year = current_time_utc.timetuple().tm_yday
-        seasonal_shift = self.SEASONAL_SHIFT_AMPLITUDE * torch.sin(
-            torch.tensor(2 * math.pi * (day_of_year - 80) / 365, device=self.device)
-        )
-        
-        # Winter amplification
-        is_winter = torch.abs(torch.tensor(day_of_year - 355, device=self.device)) < 45
-        winter_amplitude = torch.tensor(1.2 if is_winter else 1.0, device=self.device)
-        
-        # Shifted jet
-        jet_lat_shifted = self.jet_lat_center + seasonal_shift
-        lat_from_center_seasonal = lat_deg - jet_lat_shifted
-        width_factor_seasonal = torch.where(lat_from_center_seasonal > 0, 
-                                           self.jet_width * 0.8, 
-                                           self.jet_width * 1.2)
-        lat_norm_seasonal = lat_from_center_seasonal / width_factor_seasonal
-        
-        jet_profile_seasonal = torch.exp(-lat_norm_seasonal**4) * lat_amplitude
-        jet_strength_seasonal = self.jet_max_speed * jet_profile_seasonal * winter_amplitude
-        
-        return self.SEASONAL_BLEND * jet_strength + (1 - self.SEASONAL_BLEND) * jet_strength_seasonal
+        return self.jet_max_speed * jet_profile
     
-    def _compute_research_pressure_gradient(self, sp: torch.Tensor, lat_rad: torch.Tensor) -> torch.Tensor:
-        """Compute pressure gradient based on research."""
-        height, width = sp.shape
+    def _add_variability(self, wind: torch.Tensor, land_sea_mask: torch.Tensor) -> torch.Tensor:
+        """Add variability."""
+        height, width = wind.shape
         
-        kernel_y = torch.tensor([[0, -0.25, 0, 0.25, 0],
-                                 [0, -0.5, 0, 0.5, 0],
-                                 [0, -0.75, 0, 0.75, 0],
-                                 [0, -0.5, 0, 0.5, 0],
-                                 [0, -0.25, 0, 0.25, 0]], 
-                                dtype=sp.dtype, device=self.device) / 6.0
+        torch.manual_seed(42)
         
-        sp_4d = sp.unsqueeze(0).unsqueeze(0)
-        kernel_y_4d = kernel_y.unsqueeze(0).unsqueeze(0)
-        
-        grad_y = torch.nn.functional.conv2d(
-            torch.nn.functional.pad(sp_4d, (2, 2, 2, 2), mode='replicate'),
-            kernel_y_4d,
-            padding=0
+        # Two scales of noise
+        noise1 = torch.randn(height // 10, width // 10, device=self.device)
+        noise1 = torch.nn.functional.interpolate(
+            noise1.unsqueeze(0).unsqueeze(0),
+            size=(height, width),
+            mode='bilinear',
+            align_corners=False
         ).squeeze()
         
-        grad_y = grad_y * 3e-6
-        
-        f_base = 2 * self.omega * torch.sin(lat_rad)
-        lat_factor = torch.abs(torch.sin(lat_rad))
-        f_enhanced = f_base * (1.0 + 0.3 * lat_factor)
-        
-        f_safe = torch.where(torch.abs(f_enhanced) < 1e-10, 
-                            torch.sign(f_enhanced) * 1e-10, 
-                            f_enhanced)
-        
-        boundary_layer_factor = torch.tensor(0.7, device=self.device)
-        u_geo = -grad_y / (self.rho * f_safe) * boundary_layer_factor
-        
-        midlat_factor = 1.0 + 0.4 * lat_factor
-        return self.PRESSURE_SCALING * u_geo * midlat_factor
-    
-    def _compute_research_temperature_gradient(self, t2m: torch.Tensor, 
-                                              lat_rad: torch.Tensor) -> torch.Tensor:
-        """Compute thermal wind based on research."""
-        height, width = t2m.shape
-        
-        kernel_y = torch.tensor([[0, -0.1, 0, 0.1, 0],
-                                 [0, -0.2, 0, 0.2, 0],
-                                 [0, -0.3, 0, 0.3, 0],
-                                 [0, -0.2, 0, 0.2, 0],
-                                 [0, -0.1, 0, 0.1, 0]], 
-                                dtype=t2m.dtype, device=self.device) / 2.0
-        
-        t2m_4d = t2m.unsqueeze(0).unsqueeze(0)
-        kernel_y_4d = kernel_y.unsqueeze(0).unsqueeze(0)
-        
-        grad_y = torch.nn.functional.conv2d(
-            torch.nn.functional.pad(t2m_4d, (2, 2, 2, 2), mode='replicate'),
-            kernel_y_4d,
-            padding=0
+        noise2 = torch.randn(height // 5, width // 5, device=self.device)
+        noise2 = torch.nn.functional.interpolate(
+            noise2.unsqueeze(0).unsqueeze(0),
+            size=(height, width),
+            mode='bilinear',
+            align_corners=False
         ).squeeze()
         
-        lat_factor = torch.abs(torch.sin(lat_rad))
-        thermal_factor = 1.0 + 0.5 * lat_factor
+        total_noise = noise1 * 0.6 + noise2 * 0.4
         
-        return self.THERMAL_WIND_SCALING * grad_y * thermal_factor
+        if torch.std(total_noise) > 1e-6:
+            total_noise = total_noise / torch.std(total_noise) * 1.0
+        
+        # More variability over land
+        land_factor = 1.0 + land_sea_mask * 0.2
+        total_noise = total_noise * land_factor
+        
+        return wind + total_noise
     
-    def _apply_midlatitude_amplification(self, wind: torch.Tensor, 
-                                        lat_rad: torch.Tensor) -> torch.Tensor:
-        """Apply research-based mid-latitude amplification."""
-        midlat_factor = torch.abs(torch.sin(2 * lat_rad))
-        amplification = 1.0 + (self.MIDLAT_AMPLIFICATION - 1.0) * midlat_factor
-        return wind * amplification
-    
-    def _adaptive_smoothing(self, field: torch.Tensor, preserve_edges: bool = False) -> torch.Tensor:
-        """Apply adaptive smoothing."""
-        if preserve_edges:
-            kernel = torch.tensor([[1, 1, 1],
-                                   [1, 2, 1],
-                                   [1, 1, 1]], dtype=field.dtype, device=self.device) / 10.0
-            padding = 1
-        else:
-            kernel = torch.tensor([[1, 2, 1],
-                                   [2, 4, 2],
-                                   [1, 2, 1]], dtype=field.dtype, device=self.device) / 16.0
-            padding = 1
-        
-        field_4d = field.unsqueeze(0).unsqueeze(0)
-        kernel_4d = kernel.unsqueeze(0).unsqueeze(0)
-        
-        smoothed = torch.nn.functional.conv2d(
-            torch.nn.functional.pad(field_4d, (padding, padding, padding, padding), 
-                                   mode='replicate'),
-            kernel_4d,
-            padding=0
-        ).squeeze()
-        
-        return self.SMOOTHING_BLEND * field + (1 - self.SMOOTHING_BLEND) * smoothed
-    
-    def _light_smoothing(self, wind: torch.Tensor) -> torch.Tensor:
+    def _minimal_smoothing(self, wind: torch.Tensor) -> torch.Tensor:
         """Apply minimal smoothing."""
-        kernel = torch.tensor([[0, 1, 0],
-                               [1, 2, 1],
-                               [0, 1, 0]], dtype=wind.dtype, device=self.device) / 6.0
+        kernel = torch.tensor([[0, 0.1, 0],
+                               [0.1, 0.6, 0.1],
+                               [0, 0.1, 0]], dtype=wind.dtype, device=self.device)
         
         wind_4d = wind.unsqueeze(0).unsqueeze(0)
         kernel_4d = kernel.unsqueeze(0).unsqueeze(0)
@@ -659,7 +1041,7 @@ class U100mPredictor:
             padding=0
         ).squeeze()
         
-        return 0.9 * wind + 0.1 * smoothed
+        return wind * (1 - self.FINAL_SMOOTHING) + smoothed * self.FINAL_SMOOTHING
     
     def _convert_result(self, result: torch.Tensor, return_tensor: Optional[bool]) -> Union[torch.Tensor, np.ndarray]:
         """Convert result to appropriate format."""

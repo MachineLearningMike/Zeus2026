@@ -442,8 +442,8 @@ def show_array_single(arr1, arr2=None, variable1="", variable2="", dt=datetime(2
                 return np.nan_to_num(arr_float, nan=0.0)
         return np.array(arr, dtype=np.float32)
     
-    arr1_plot = prepare_array(arr1)
-    arr2_plot = prepare_array(arr2) if arr2 is not None else None
+    arr1_plot = arr1 #prepare_array(arr1)
+    arr2_plot = arr2 #prepare_array(arr2) if arr2 is not None else None
     
     show_two = arr2_plot is not None
     
