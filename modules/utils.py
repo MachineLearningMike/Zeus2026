@@ -223,7 +223,6 @@ def finalize_for_show_array():
 def show_array(arr1, arr2=None, variable1="", variable2="", dt=datetime(2000,1,1,0), modulo=6):
     """
     Display one or two arrays side-by-side with shared colorbar for two-panel plots.
-    Automatically handles string-to-float conversion.
     """
     global _fig, _ax1, _ax2, _im1, _im2, _cbar_shared
     
@@ -246,15 +245,20 @@ def show_array(arr1, arr2=None, variable1="", variable2="", dt=datetime(2000,1,1
     if _fig is None:
         # Create figure with appropriate layout
         if show_two:
-            # Create figure with GridSpec for shared colorbar
-            _fig = plt.figure(figsize=(16, 7))
-            gs = plt.GridSpec(1, 3, width_ratios=[1, 1, 0.05], wspace=0.1)
+            # Create figure with optimized size for two panels
+            _fig = plt.figure(figsize=(13, 5.5))
+            # Grid spec with minimal top/bottom margins for top-left alignment
+            gs = plt.GridSpec(1, 3, width_ratios=[1, 1, 0.05], 
+                            wspace=0.05, hspace=0, 
+                            left=0.04, right=0.96, top=0.98, bottom=0.02)
             _ax1 = _fig.add_subplot(gs[0], projection=ccrs.PlateCarree())
             _ax2 = _fig.add_subplot(gs[1], projection=ccrs.PlateCarree())
             cbar_ax = _fig.add_subplot(gs[2])
         else:
+            # Single plot with minimal margins for top-left alignment
             _fig, _ax1 = plt.subplots(1, 1, figsize=(10, 7),
                                      subplot_kw={'projection': ccrs.PlateCarree()})
+            _fig.subplots_adjust(left=0.04, right=0.96, top=0.98, bottom=0.02)
             _ax2 = None
             cbar_ax = None
         
@@ -306,22 +310,44 @@ def show_array(arr1, arr2=None, variable1="", variable2="", dt=datetime(2000,1,1
             
             # Add shared colorbar for two-panel plot
             _cbar_shared = plt.colorbar(_im1, cax=cbar_ax, orientation='vertical')
-            _cbar_shared.set_label(f'{variable1} / {variable2}', fontsize=12)
+            _cbar_shared.set_label(f'{variable1} / {variable2}', fontsize=11)
             
-            # Set title for two-panel figure
+            # Set title for two-panel figure - positioned at top-left
             _fig.suptitle(f'{variable1} vs {variable2} | {dt.strftime("%Y-%m-%d %H:%M")} UTC | Mod: {modulo}',
-                         fontsize=14, fontweight='bold', color='#00008B', y=0.98)
+                         fontsize=12, fontweight='bold', color='#00008B', 
+                         x=0.01, y=0.99, ha='left', va='top')  # Top-left aligned
         else:
             # Add colorbar for single plot
-            _cbar_shared = plt.colorbar(_im1, ax=_ax1, orientation='vertical', pad=0.03, shrink=0.9)
+            _cbar_shared = plt.colorbar(_im1, ax=_ax1, orientation='vertical', 
+                                       pad=0.02, shrink=0.95, aspect=20)
             _cbar_shared.set_label(variable1, fontsize=12)
             
-            # Set title for single plot
+            # Set title for single plot - positioned at top-left
             _ax1.set_title(f'{variable1} | {dt.strftime("%Y-%m-%d %H:%M")} UTC | Mod: {modulo}',
-                          fontsize=14, fontweight='bold', color='#00008B', pad=20)
+                          fontsize=13, fontweight='bold', color='#00008B', 
+                          pad=12, loc='left', x=0.0)  # Left-aligned
         
-        # Adjust layout
-        plt.tight_layout(rect=[0, 0, 0.95, 0.96] if show_two else None)
+        # Position window at top-left of screen
+        manager = plt.get_current_fig_manager()
+        if manager is not None:
+            try:
+                # Try different backends for window positioning
+                backend = plt.get_backend()
+                if 'Tk' in backend:
+                    manager.window.wm_geometry("+0+0")  # Tk backend
+                elif 'Qt' in backend:
+                    manager.window.move(0, 0)  # Qt backend
+                elif 'WX' in backend:
+                    manager.SetPosition((0, 0))  # WX backend
+                else:
+                    # Default for other backends
+                    if hasattr(manager, 'window'):
+                        if hasattr(manager.window, 'geometry'):
+                            manager.window.setGeometry(0, 0, 
+                                                      manager.window.width(), 
+                                                      manager.window.height())
+            except:
+                pass  # If positioning fails, continue anyway
         
         # Show window (non-blocking)
         plt.show(block=False)
@@ -360,13 +386,14 @@ def show_array(arr1, arr2=None, variable1="", variable2="", dt=datetime(2000,1,1
             
             # Update shared colorbar
             if _cbar_shared is not None:
-                _cbar_shared.set_label(f'{variable1} / {variable2}', fontsize=12)
+                _cbar_shared.set_label(f'{variable1} / {variable2}', fontsize=11)
                 _cbar_shared.update_normal(_im1)
             
             # Update suptitle for two-panel figure
             if hasattr(_fig, 'suptitle'):
                 _fig.suptitle(f'{variable1} vs {variable2} | {dt.strftime("%Y-%m-%d %H:%M")} UTC | Mod: {modulo}',
-                             fontsize=14, fontweight='bold', color='#00008B', y=0.98)
+                             fontsize=12, fontweight='bold', color='#00008B', 
+                             x=0.01, y=0.99, ha='left', va='top')
         else:
             # Update single array color range
             vmin, vmax = np.nanmin(arr1_plot), np.nanmax(arr1_plot)
@@ -380,7 +407,8 @@ def show_array(arr1, arr2=None, variable1="", variable2="", dt=datetime(2000,1,1
             # Update title for single plot
             if _ax1 is not None:
                 _ax1.set_title(f'{variable1} | {dt.strftime("%Y-%m-%d %H:%M")} UTC | Mod: {modulo}',
-                              fontsize=14, fontweight='bold', color='#00008B', pad=20)
+                              fontsize=13, fontweight='bold', color='#00008B', 
+                              pad=12, loc='left', x=0.0)
         
         # Force redraw
         _fig.canvas.draw_idle()
@@ -392,9 +420,9 @@ def show_array(arr1, arr2=None, variable1="", variable2="", dt=datetime(2000,1,1
 
 def show_array_single(arr1, arr2=None, variable1="", variable2="", dt=datetime(2000,1,1,0), modulo=6):
     """
-    Show one or two arrays in a standalone figure.
+    Show one or two arrays in a standalone figure with top-left alignment.
     """
-    # Prepare arrays (using the same function as above)
+    # Prepare arrays
     def prepare_array(arr):
         if arr is None:
             return None
@@ -419,13 +447,15 @@ def show_array_single(arr1, arr2=None, variable1="", variable2="", dt=datetime(2
     
     show_two = arr2_plot is not None
     
-    # Create figure
+    # Create figure with minimal top/bottom margins for top-left feel
     if show_two:
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 7),
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5.5),
                                       subplot_kw={'projection': ccrs.PlateCarree()})
+        fig.subplots_adjust(left=0.04, right=0.96, top=0.98, bottom=0.02, wspace=0.05)
     else:
         fig, ax1 = plt.subplots(1, 1, figsize=(10, 7),
                                subplot_kw={'projection': ccrs.PlateCarree()})
+        fig.subplots_adjust(left=0.04, right=0.96, top=0.98, bottom=0.02)
         ax2 = None
     
     # Set extent
@@ -448,7 +478,8 @@ def show_array_single(arr1, arr2=None, variable1="", variable2="", dt=datetime(2
     gl1.right_labels = False
     
     # Colorbar for first plot
-    cbar1 = plt.colorbar(im1, ax=ax1, orientation='vertical', pad=0.03, shrink=0.9)
+    cbar1 = plt.colorbar(im1, ax=ax1, orientation='vertical', 
+                        pad=0.02, shrink=0.95, aspect=20)
     cbar1.set_label(variable1, fontsize=12)
     
     # Plot second array if provided
@@ -470,16 +501,38 @@ def show_array_single(arr1, arr2=None, variable1="", variable2="", dt=datetime(2
         gl2.left_labels = False
         
         # Colorbar for second plot
-        cbar2 = plt.colorbar(im2, ax=ax2, orientation='vertical', pad=0.03, shrink=0.9)
+        cbar2 = plt.colorbar(im2, ax=ax2, orientation='vertical', 
+                            pad=0.02, shrink=0.95, aspect=20)
         cbar2.set_label(variable2, fontsize=12)
         
-        # Title for two-panel figure
+        # Title for two-panel figure - top-left aligned
         fig.suptitle(f'{variable1} vs {variable2} | {dt.strftime("%Y-%m-%d %H:%M")} UTC | Mod: {modulo}',
-                    fontsize=14, fontweight='bold', color='#00008B', y=0.98)
+                    fontsize=12, fontweight='bold', color='#00008B', 
+                    x=0.01, y=0.99, ha='left', va='top')
     else:
-        # Title for single plot
+        # Title for single plot - left-aligned
         ax1.set_title(f'{variable1} | {dt.strftime("%Y-%m-%d %H:%M")} UTC | Mod: {modulo}',
-                     fontsize=14, fontweight='bold', color='#00008B', pad=20)
+                     fontsize=13, fontweight='bold', color='#00008B', 
+                     pad=12, loc='left', x=0.0)
     
-    plt.tight_layout(rect=[0, 0, 1, 0.96] if show_two else None)
+    # Position window at top-left of screen
+    manager = plt.get_current_fig_manager()
+    if manager is not None:
+        try:
+            backend = plt.get_backend()
+            if 'Tk' in backend:
+                manager.window.wm_geometry("+0+0")
+            elif 'Qt' in backend:
+                manager.window.move(0, 0)
+            elif 'WX' in backend:
+                manager.SetPosition((0, 0))
+            else:
+                if hasattr(manager, 'window'):
+                    if hasattr(manager.window, 'geometry'):
+                        manager.window.setGeometry(0, 0, 
+                                                  manager.window.width(), 
+                                                  manager.window.height())
+        except:
+            pass
+    
     plt.show()
