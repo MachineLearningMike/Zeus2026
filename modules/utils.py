@@ -205,14 +205,15 @@ def initialize_for_show_array():
     plt.ion()
     
     # Define global variables
-    global _fig, _ax1, _ax2, _im1, _im2, _cbar1, _cbar2
+    global _fig, _ax1, _ax2, _ax3, _im1, _im2, _im3, _cbar_shared
     _fig = None
     _ax1 = None
     _ax2 = None
+    _ax3 = None
     _im1 = None
     _im2 = None
-    _cbar1 = None
-    _cbar2 = None
+    _im3 = None
+    _cbar_shared = None
 
 def finalize_for_show_array():
     """Turn off interactive mode and close figure."""
@@ -220,59 +221,143 @@ def finalize_for_show_array():
     if _fig is not None:
         plt.close(_fig)
 
-def show_array(arr1, arr2=None, variable1="", variable2="", dt=datetime(2000,1,1,0), modulo=6):
+def show_two_arrays(arr1, arr2=None, variable1="", variable2="", dt=datetime(2000,1,1,0), modulo=6):
     """
     Display one or two arrays side-by-side with shared colorbar for two-panel plots.
+    If two arrays are provided, also show their difference in a third panel on the lower row.
+    Top panels share a colorbar, bottom difference panel has its own colorbar with same colormap.
+    Each panel title includes mean and standard deviation on the same line.
     """
-    global _fig, _ax1, _ax2, _im1, _im2, _cbar_shared
-    
-    arr1_plot = arr1
-    arr2_plot = arr2
+    global _fig, _ax1, _ax2, _ax3, _im1, _im2, _im3, _cbar_top, _cbar_bottom
     
     # Determine if showing one or two arrays
-    show_two = arr2_plot is not None
+    show_two = arr2 is not None
+    show_three = show_two  # Show difference panel if we have two arrays
+    
+    # Resize arrays if they have different shapes
+    if show_two and arr1.shape != arr2.shape:
+        print(f"Resizing arrays: {arr1.shape} -> common shape")
+        arr1_resized, arr2_resized = resize_larger_to_smaller_cylindric(arr1[None, :, :], arr2[None, :, :])
+        arr1_resized, arr2_resized = arr1_resized[0], arr2_resized[0]
+        print(f"Resized to: {arr1_resized.shape}")
+        
+        # Calculate difference with resized arrays
+        diff_plot = arr1_resized - arr2_resized
+        
+        # Use resized arrays for display
+        arr1_plot = arr1_resized
+        arr2_plot = arr2_resized
+    elif show_two:
+        # Arrays already have same shape
+        diff_plot = arr2 - arr1
+        arr1_plot = arr1
+        arr2_plot = arr2
+    else:
+        # Single array
+        arr1_plot = arr1
+        arr2_plot = None
+        diff_plot = None
+    
+    # Calculate statistics for titles (on same line)
+    def get_stats_title(base_title, arr):
+        """Create title with mean and std statistics on same line."""
+        if arr is None:
+            return base_title
+        
+        mean_val = np.nanmean(arr)
+        std_val = np.nanstd(arr)
+        
+        # Format with 2 decimal places for cleaner display
+        title = f"{base_title} (μ={mean_val:.2f}, σ={std_val:.2f})"
+        return title
+    
+    # Create titles with statistics
+    title1 = get_stats_title(variable1, arr1_plot)
+    if show_two or show_three:
+        title2 = get_stats_title(variable2, arr2_plot)
+    if show_three:
+        title3 = get_stats_title(f'{variable1} - {variable2}', diff_plot)
     
     # Calculate color ranges
-    if show_two:
-        # Shared color scale for both arrays
-        vmin = min(np.nanmin(arr1_plot), np.nanmin(arr2_plot))
-        vmax = max(np.nanmax(arr1_plot), np.nanmax(arr2_plot))
+    if show_three:
+        # Top panels: shared color range for arr1 and arr2
+        vmin_top = min(np.nanmin(arr1_plot), np.nanmin(arr2_plot))
+        vmax_top = max(np.nanmax(arr1_plot), np.nanmax(arr2_plot))
+        
+        # Bottom panel: separate color range for difference
+        # Use the SAME colormap but with its own range
+        vmin_diff = np.nanmin(diff_plot)
+        vmax_diff = np.nanmax(diff_plot)
+        
+    elif show_two:
+        # Two panels: shared color range
+        vmin_top = min(np.nanmin(arr1_plot), np.nanmin(arr2_plot))
+        vmax_top = max(np.nanmax(arr1_plot), np.nanmax(arr2_plot))
     else:
-        # Single array color scale
-        vmin, vmax = np.nanmin(arr1_plot), np.nanmax(arr1_plot)
+        # Single array
+        vmin_top, vmax_top = np.nanmin(arr1_plot), np.nanmax(arr1_plot)
     
     # Create figure if it doesn't exist
     if _fig is None:
         # Create figure with appropriate layout
-        if show_two:
-            # Create figure with optimized size for two panels
+        if show_three:
+            # Three panels: arr1 and arr2 on top row, difference on bottom row
+            # Separate colorbars: one for top panels, one for bottom (same colormap)
+            _fig = plt.figure(figsize=(14, 10))
+            # Grid spec: 
+            # Row 0: arr1 | arr2 | top colorbar
+            # Row 1: difference | (empty) | bottom colorbar
+            gs = plt.GridSpec(2, 3, 
+                            height_ratios=[1, 1],
+                            width_ratios=[1, 1, 0.05],
+                            hspace=0.15, wspace=0.08,
+                            left=0.04, right=0.96, top=0.92, bottom=0.04)  # Reduced top margin
+            
+            # Top row: arr1 and arr2
+            _ax1 = _fig.add_subplot(gs[0, 0], projection=ccrs.PlateCarree())
+            _ax2 = _fig.add_subplot(gs[0, 1], projection=ccrs.PlateCarree())
+            
+            # Top colorbar axis (right of top row)
+            cbar_top_ax = _fig.add_subplot(gs[0, 2])
+            
+            # Bottom row: difference
+            _ax3 = _fig.add_subplot(gs[1, 0], projection=ccrs.PlateCarree())
+            
+            # Bottom colorbar axis (right of bottom row, spans the empty cell)
+            cbar_bottom_ax = _fig.add_subplot(gs[1, 2])
+            
+        elif show_two:
+            # Two panels side by side with single colorbar
             _fig = plt.figure(figsize=(13, 5.5))
-            # Grid spec with minimal top/bottom margins for top-left alignment
-            gs = plt.GridSpec(1, 3, width_ratios=[1, 1, 0.05], 
+            gs = plt.GridSpec(1, 4, width_ratios=[1, 1, 0.05, 0.01], 
                             wspace=0.05, hspace=0, 
-                            left=0.04, right=0.96, top=0.98, bottom=0.02)
+                            left=0.04, right=0.96, top=0.92, bottom=0.02)  # Reduced top margin
             _ax1 = _fig.add_subplot(gs[0], projection=ccrs.PlateCarree())
             _ax2 = _fig.add_subplot(gs[1], projection=ccrs.PlateCarree())
-            cbar_ax = _fig.add_subplot(gs[2])
+            cbar_top_ax = _fig.add_subplot(gs[2])
+            _ax3 = None
+            cbar_bottom_ax = None
         else:
-            # Single plot with minimal margins for top-left alignment
+            # Single plot
             _fig, _ax1 = plt.subplots(1, 1, figsize=(10, 7),
                                      subplot_kw={'projection': ccrs.PlateCarree()})
-            _fig.subplots_adjust(left=0.04, right=0.96, top=0.98, bottom=0.02)
+            _fig.subplots_adjust(left=0.04, right=0.96, top=0.92, bottom=0.02)  # Reduced top margin
             _ax2 = None
-            cbar_ax = None
+            _ax3 = None
+            cbar_top_ax = None
+            cbar_bottom_ax = None
         
         # Set extent for your data (ERA5 grid)
         left, right, bottom, top = -180.0, 180.0, -90.0, 90.0
         
         # --- Plot First Array ---
-        if show_two:
+        if show_two or show_three:
             _im1 = _ax1.imshow(arr1_plot,
                               transform=ccrs.PlateCarree(),
                               extent=[left, right, bottom, top],
                               cmap='viridis',
                               origin='lower',
-                              vmin=vmin, vmax=vmax)
+                              vmin=vmin_top, vmax=vmax_top)
         else:
             _im1 = _ax1.imshow(arr1_plot,
                               transform=ccrs.PlateCarree(),
@@ -280,7 +365,7 @@ def show_array(arr1, arr2=None, variable1="", variable2="", dt=datetime(2000,1,1
                               cmap='viridis',
                               origin='lower')
         
-        # Configure first subplot
+        # Configure first subplot with stats in title
         _ax1.coastlines(resolution='110m', linewidth=0.5, color='black', alpha=0.7)
         gl1 = _ax1.gridlines(draw_labels=True, linewidth=0.7, color='gray', 
                            alpha=0.5, linestyle='--')
@@ -288,17 +373,18 @@ def show_array(arr1, arr2=None, variable1="", variable2="", dt=datetime(2000,1,1
         gl1.ylocator = mticker.MultipleLocator(45)
         gl1.top_labels = False
         gl1.right_labels = False
+        _ax1.set_title(title1, fontsize=10, fontweight='bold', pad=6)  # Reduced pad
         
         # --- Plot Second Array if provided ---
-        if show_two:
+        if show_two or show_three:
             _im2 = _ax2.imshow(arr2_plot,
                               transform=ccrs.PlateCarree(),
                               extent=[left, right, bottom, top],
                               cmap='viridis',
                               origin='lower',
-                              vmin=vmin, vmax=vmax)
+                              vmin=vmin_top, vmax=vmax_top)
             
-            # Configure second subplot
+            # Configure second subplot with stats in title
             _ax2.coastlines(resolution='110m', linewidth=0.5, color='black', alpha=0.7)
             gl2 = _ax2.gridlines(draw_labels=True, linewidth=0.7, color='gray',
                                alpha=0.5, linestyle='--')
@@ -307,47 +393,63 @@ def show_array(arr1, arr2=None, variable1="", variable2="", dt=datetime(2000,1,1
             gl2.top_labels = False
             gl2.right_labels = False
             gl2.left_labels = False  # Only show labels on left plot
-            
-            # Add shared colorbar for two-panel plot
-            _cbar_shared = plt.colorbar(_im1, cax=cbar_ax, orientation='vertical')
-            _cbar_shared.set_label(f'{variable1} / {variable2}', fontsize=11)
-            
-            # Set title for two-panel figure - positioned at top-left
-            _fig.suptitle(f'{variable1} vs {variable2} | {dt.strftime("%Y-%m-%d %H:%M")} UTC | Mod: {modulo}',
-                         fontsize=12, fontweight='bold', color='#00008B', 
-                         x=0.01, y=0.99, ha='left', va='top')  # Top-left aligned
-        else:
-            # Add colorbar for single plot
-            _cbar_shared = plt.colorbar(_im1, ax=_ax1, orientation='vertical', 
-                                       pad=0.02, shrink=0.95, aspect=20)
-            _cbar_shared.set_label(variable1, fontsize=12)
-            
-            # Set title for single plot - positioned at top-left
-            _ax1.set_title(f'{variable1} | {dt.strftime("%Y-%m-%d %H:%M")} UTC | Mod: {modulo}',
-                          fontsize=13, fontweight='bold', color='#00008B', 
-                          pad=12, loc='left', x=0.0)  # Left-aligned
+            _ax2.set_title(title2, fontsize=10, fontweight='bold', pad=6)  # Reduced pad
         
-        # Position window at top-left of screen
-        manager = plt.get_current_fig_manager()
-        if manager is not None:
-            try:
-                # Try different backends for window positioning
-                backend = plt.get_backend()
-                if 'Tk' in backend:
-                    manager.window.wm_geometry("+0+0")  # Tk backend
-                elif 'Qt' in backend:
-                    manager.window.move(0, 0)  # Qt backend
-                elif 'WX' in backend:
-                    manager.SetPosition((0, 0))  # WX backend
-                else:
-                    # Default for other backends
-                    if hasattr(manager, 'window'):
-                        if hasattr(manager.window, 'geometry'):
-                            manager.window.setGeometry(0, 0, 
-                                                      manager.window.width(), 
-                                                      manager.window.height())
-            except:
-                pass  # If positioning fails, continue anyway
+        # --- Plot Difference Array if provided ---
+        if show_three:
+            # Use SAME colormap as top panels
+            _im3 = _ax3.imshow(diff_plot,
+                              transform=ccrs.PlateCarree(),
+                              extent=[left, right, bottom, top],
+                              cmap='viridis',  # Same colormap as top panels
+                              origin='lower',
+                              vmin=vmin_diff, vmax=vmax_diff)
+            
+            # Configure third subplot (difference) with stats in title
+            _ax3.coastlines(resolution='110m', linewidth=0.5, color='black', alpha=0.7)
+            gl3 = _ax3.gridlines(draw_labels=True, linewidth=0.7, color='gray',
+                               alpha=0.5, linestyle='--')
+            gl3.xlocator = mticker.MultipleLocator(45)
+            gl3.ylocator = mticker.MultipleLocator(45)
+            gl3.top_labels = False
+            gl3.right_labels = False
+            gl3.left_labels = True  # Show labels on left for bottom plot
+            _ax3.set_title(title3, fontsize=10, fontweight='bold', pad=6)  # Reduced pad
+        
+        # --- Add Color Bars ---
+        if cbar_top_ax is not None:
+            # Top colorbar for arr1 and arr2
+            _cbar_top = plt.colorbar(_im1, cax=cbar_top_ax, orientation='vertical')
+            if show_three:
+                _cbar_top.set_label(f'{variable1} / {variable2}', fontsize=10)
+            elif show_two:
+                _cbar_top.set_label(f'{variable1} / {variable2}', fontsize=11)
+        
+        if cbar_bottom_ax is not None and show_three:
+            # Bottom colorbar for difference (same colormap)
+            _cbar_bottom = plt.colorbar(_im3, cax=cbar_bottom_ax, orientation='vertical')
+            _cbar_bottom.set_label('Difference', fontsize=10)
+        
+        if not show_two and not show_three and cbar_top_ax is None:
+            # Colorbar for single plot
+            _cbar_top = plt.colorbar(_im1, ax=_ax1, orientation='vertical', 
+                                   pad=0.02, shrink=0.95, aspect=20)
+            _cbar_top.set_label(variable1, fontsize=12)
+        
+        # Set figure title with date/time info
+        time_info = f'{dt.strftime("%Y-%m-%d %H:%M")} UTC | Mod: {modulo}'
+        if show_three:
+            _fig.suptitle(f'{variable1} vs {variable2} | {time_info}',
+                         fontsize=12, fontweight='bold', color='#00008B', 
+                         x=0.01, y=0.97, ha='left', va='top')  # Adjusted y position
+        elif show_two:
+            _fig.suptitle(f'{variable1} vs {variable2} | {time_info}',
+                         fontsize=12, fontweight='bold', color='#00008B', 
+                         x=0.01, y=0.97, ha='left', va='top')  # Adjusted y position
+        else:
+            _fig.suptitle(f'{variable1} | {time_info}',
+                         fontsize=12, fontweight='bold', color='#00008B', 
+                         x=0.01, y=0.97, ha='left', va='top')  # Use suptitle for single plot
         
         # Show window (non-blocking)
         plt.show(block=False)
@@ -356,59 +458,79 @@ def show_array(arr1, arr2=None, variable1="", variable2="", dt=datetime(2000,1,1
     else:
         # --- Update Existing Plot ---
         
-        # Check if plot structure needs to change (single vs dual)
+        # Check if plot structure needs to change
+        current_show_three = _ax3 is not None and _im3 is not None
         current_show_two = _ax2 is not None and _im2 is not None
-        if show_two != current_show_two:
+        if (show_three != current_show_three) or (show_two != current_show_two):
             # Structure changed, recreate figure
             plt.close(_fig)
             _fig = None
-            _ax1 = _ax2 = None
-            _im1 = _im2 = None
-            _cbar_shared = None
+            _ax1 = _ax2 = _ax3 = None
+            _im1 = _im2 = _im3 = None
+            _cbar_top = _cbar_bottom = None
             # Recursive call with new figure
-            show_array(arr1_plot, arr2_plot, variable1, variable2, dt, modulo)
+            show_two_arrays(arr1, arr2, variable1, variable2, dt, modulo)
             return
         
         # Update first array
         _im1.set_data(arr1_plot)
+        _im1.set_clim(vmin_top, vmax_top)
         
-        # Update color limits
-        if show_two:
-            # Update shared color range
-            vmin = min(np.nanmin(arr1_plot), np.nanmin(arr2_plot))
-            vmax = max(np.nanmax(arr1_plot), np.nanmax(arr2_plot))
-            _im1.set_clim(vmin, vmax)
-            
-            # Update second array
-            if _im2 is not None:
-                _im2.set_data(arr2_plot)
-                _im2.set_clim(vmin, vmax)
-            
-            # Update shared colorbar
-            if _cbar_shared is not None:
-                _cbar_shared.set_label(f'{variable1} / {variable2}', fontsize=11)
-                _cbar_shared.update_normal(_im1)
-            
-            # Update suptitle for two-panel figure
+        # Update second array if exists
+        if show_two and _im2 is not None:
+            _im2.set_data(arr2_plot)
+            _im2.set_clim(vmin_top, vmax_top)
+        
+        # Update difference panel if exists
+        if show_three and _im3 is not None:
+            _im3.set_data(diff_plot)
+            _im3.set_clim(vmin_diff, vmax_diff)
+        
+        # Update titles with current statistics
+        title1 = get_stats_title(variable1, arr1_plot)
+        if show_two or show_three:
+            title2 = get_stats_title(variable2, arr2_plot)
+        if show_three:
+            title3 = get_stats_title(f'{variable1} - {variable2}', diff_plot)
+        
+        _ax1.set_title(title1, fontsize=10, fontweight='bold', pad=6)
+        if show_two or show_three:
+            _ax2.set_title(title2, fontsize=10, fontweight='bold', pad=6)
+        if show_three:
+            _ax3.set_title(title3, fontsize=10, fontweight='bold', pad=6)
+        
+        # Update colorbars
+        if _cbar_top is not None:
+            if show_three:
+                _cbar_top.set_label(f'{variable1} / {variable2}', fontsize=10)
+            elif show_two:
+                _cbar_top.set_label(f'{variable1} / {variable2}', fontsize=11)
+            else:
+                _cbar_top.set_label(variable1, fontsize=12)
+            _cbar_top.update_normal(_im1)
+        
+        if show_three and _cbar_bottom is not None:
+            _cbar_bottom.update_normal(_im3)
+        
+        # Update figure title
+        time_info = f'{dt.strftime("%Y-%m-%d %H:%M")} UTC | Mod: {modulo}'
+        if show_three:
             if hasattr(_fig, 'suptitle'):
-                _fig.suptitle(f'{variable1} vs {variable2} | {dt.strftime("%Y-%m-%d %H:%M")} UTC | Mod: {modulo}',
+                _fig.suptitle(f'{variable1} vs {variable2} | {time_info}',
                              fontsize=12, fontweight='bold', color='#00008B', 
-                             x=0.01, y=0.99, ha='left', va='top')
+                             x=0.01, y=0.97, ha='left', va='top')
+        
+        elif show_two:
+            if hasattr(_fig, 'suptitle'):
+                _fig.suptitle(f'{variable1} vs {variable2} | {time_info}',
+                             fontsize=12, fontweight='bold', color='#00008B', 
+                             x=0.01, y=0.97, ha='left', va='top')
+        
         else:
-            # Update single array color range
-            vmin, vmax = np.nanmin(arr1_plot), np.nanmax(arr1_plot)
-            _im1.set_clim(vmin, vmax)
-            
-            # Update colorbar
-            if _cbar_shared is not None:
-                _cbar_shared.set_label(variable1, fontsize=12)
-                _cbar_shared.update_normal(_im1)
-            
-            # Update title for single plot
-            if _ax1 is not None:
-                _ax1.set_title(f'{variable1} | {dt.strftime("%Y-%m-%d %H:%M")} UTC | Mod: {modulo}',
-                              fontsize=13, fontweight='bold', color='#00008B', 
-                              pad=12, loc='left', x=0.0)
+            if hasattr(_fig, 'suptitle'):
+                _fig.suptitle(f'{variable1} | {time_info}',
+                             fontsize=12, fontweight='bold', color='#00008B', 
+                             x=0.01, y=0.97, ha='left', va='top')
         
         # Force redraw
         _fig.canvas.draw_idle()
@@ -416,7 +538,6 @@ def show_array(arr1, arr2=None, variable1="", variable2="", dt=datetime(2000,1,1
     
     # Small pause for UI responsiveness
     plt.pause(0.001)
-
 
 def show_array_single(arr1, arr2=None, variable1="", variable2="", dt=datetime(2000,1,1,0), modulo=6):
     """
@@ -536,3 +657,188 @@ def show_array_single(arr1, arr2=None, variable1="", variable2="", dt=datetime(2
             pass
     
     plt.show()
+    
+    #--------------------------------------------------------
+    
+def resize_larger_to_smaller_cylindric(arr1, arr2, mode='bilinear'):
+    """
+    Resize the larger tensor to match the smaller one with cylindrical horizontal resizing.
+    
+    Args:
+        arr1: (C, H1, W1) or (H1, W1)
+        arr2: (C, H2, W2) or (H2, W2)
+        mode: interpolation mode ('bilinear', 'nearest', etc.)
+    
+    Returns:
+        Two tensors with the same dimensions (the smaller dimension)
+    """
+    import torch
+    import torch.nn.functional as F
+    
+    tensor1 = torch.from_numpy(arr1)
+    tensor2 = torch.from_numpy(arr2)
+    
+    # Get shapes
+    if tensor1.dim() == 3:
+        C1, H1, W1 = tensor1.shape
+    else:
+        H1, W1 = tensor1.shape
+        C1 = 1
+        tensor1 = tensor1.unsqueeze(0)
+    
+    if tensor2.dim() == 3:
+        C2, H2, W2 = tensor2.shape
+    else:
+        H2, W2 = tensor2.shape
+        C2 = 1
+        tensor2 = tensor2.unsqueeze(0)
+    
+    # Check if they already have the same size
+    if H1 == H2 and W1 == W2:
+        return tensor1, tensor2
+    
+    # Determine which tensor is larger (by total pixels)
+    size1 = H1 * W1
+    size2 = H2 * W2
+    
+    if size1 > size2:
+        # tensor1 is larger, resize it to match tensor2
+        target_size = (H2, W2)
+        tensor1_resized = resize_continuous_bilinear_channel_wise_cylindric(
+            tensor1, target_size, mode
+        )
+        tensor2_resized = tensor2
+        print(f"Resized tensor1: {tensor1.shape}->{tensor1_resized.shape} to match tensor2: {tensor2.shape}")
+    elif size2 > size1:
+        # tensor2 is larger, resize it to match tensor1
+        target_size = (H1, W1)
+        tensor2_resized = resize_continuous_bilinear_channel_wise_cylindric(
+            tensor2, target_size, mode
+        )
+        tensor1_resized = tensor1
+        print(f"Resized tensor2: {tensor2.shape}->{tensor2_resized.shape} to match tensor1: {tensor1.shape}")
+    else:
+        # Same size but different aspect ratio? Shouldn't happen with lat/lon grids
+        # But just in case, find minimum dimensions
+        target_h = min(H1, H2)
+        target_w = min(W1, W2)
+        
+        if H1 > target_h or W1 > target_w:
+            tensor1_resized = resize_continuous_bilinear_channel_wise_cylindric(
+                tensor1, (target_h, target_w), mode
+            )
+        else:
+            tensor1_resized = tensor1
+            
+        if H2 > target_h or W2 > target_w:
+            tensor2_resized = resize_continuous_bilinear_channel_wise_cylindric(
+                tensor2, (target_h, target_w), mode
+            )
+        else:
+            tensor2_resized = tensor2
+    
+    # Ensure both have same number of channels
+    if tensor1_resized.dim() != tensor2_resized.dim():
+        if tensor1_resized.dim() == 2:
+            tensor1_resized = tensor1_resized.unsqueeze(0)
+        if tensor2_resized.dim() == 2:
+            tensor2_resized = tensor2_resized.unsqueeze(0)
+    
+    return tensor1_resized.numpy(), tensor2_resized.numpy()
+
+
+# Your original function (unchanged except for better comments)
+def resize_continuous_bilinear_channel_wise_cylindric(tensor, target_size, mode='bilinear'):
+    """
+    CORRECT cylindrical resize for cyclic longitude dimension.
+    
+    Algorithm:
+    1. Unwrap cyclic data to larger size (wrap on BOTH sides)
+    2. Resize the unwrapped (larger) tensor
+    3. Crop the center portion corresponding to original data
+    
+    Args:
+        tensor: (C, H, W) where W is cyclic (longitude)
+        target_size: (target_h, target_w)
+    
+    Returns:
+        Resized tensor (C, target_h, target_w) with preserved cyclic continuity
+    """
+    import torch
+    import torch.nn.functional as F
+    
+    if tensor.dim() == 3:
+        x = tensor.unsqueeze(0)  # Add batch: (1, C, H, W)
+        has_batch = False
+    else:
+        x = tensor
+        has_batch = True
+    
+    target_h, target_w = target_size
+    B, C, H, W = x.shape
+    
+    # If already at target size, return
+    if H == target_h and W == target_w:
+        if not has_batch:
+            return tensor
+        else:
+            return x
+    
+    # --- STEP 1: Determine wrap amount ---
+    # For cyclic data, wrap HALF the width on EACH side
+    # This ensures continuity when we later crop the center
+    wrap_W = W // 2  # Wrap half the width
+    
+    # --- STEP 2: Create unwrapped tensor ---
+    # Pattern: [RIGHT-HALF, FULL, LEFT-HALF]
+    # This creates a continuous representation
+    right_half = x[..., -wrap_W:]  # Last wrap_W columns
+    left_half = x[..., :wrap_W]    # First wrap_W columns
+    
+    # Unwrapped tensor: (1, C, H, W + 2*wrap_W)
+    x_unwrapped = torch.cat([right_half, x, left_half], dim=-1)
+    
+    # --- STEP 3: Resize the UNWRAPPED tensor ---
+    # Calculate new wrap size proportionally
+    unwrapped_W = W + 2 * wrap_W
+    scale_factor = target_w / W
+    
+    # New dimensions for unwrapped tensor
+    target_unwrapped_W = int(target_w + 2 * wrap_W * scale_factor)
+    
+    x_resized_unwrapped = F.interpolate(
+        x_unwrapped,
+        size=(target_h, target_unwrapped_W),
+        mode=mode,
+        align_corners=False
+    )
+    
+    # --- STEP 4: Crop the CENTER portion ---
+    # After resizing, we need to find where the original data is
+    # It's in the middle, between the wrapped portions
+    current_unwrapped_W = x_resized_unwrapped.shape[-1]
+    
+    # The wrapped portions scaled proportionally
+    new_wrap_W = int(wrap_W * scale_factor)
+    
+    # Crop the middle part (original data)
+    start = new_wrap_W
+    end = current_unwrapped_W - new_wrap_W
+    result = x_resized_unwrapped[..., start:end]
+    
+    # --- STEP 5: Ensure exact target size ---
+    # Sometimes floating point math causes off-by-one
+    if result.shape[-1] != target_w:
+        # Final adjustment if needed
+        result = F.interpolate(
+            result,
+            size=(target_h, target_w),
+            mode=mode,
+            align_corners=False
+        )
+    
+    # Remove batch dimension if we added it
+    if not has_batch:
+        result = result.squeeze(0)
+    
+    return result

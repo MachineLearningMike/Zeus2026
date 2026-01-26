@@ -1233,7 +1233,7 @@ class Zeus_Dataset(Dataset):
     
     def play_weather_snapshots(self, inclusive_left, inclusive_right, modulo):
                
-        from modules.utils import show_array, initialize_for_show_array, finalize_for_show_array
+        from modules.utils import show_two_arrays, initialize_for_show_array, finalize_for_show_array
        
         def get_key():
             """
@@ -1279,7 +1279,7 @@ class Zeus_Dataset(Dataset):
                 arr_y = dict_data[variable]  # (C, H, W)
 
             # Display the array
-            show_array(arr1=arr_y, arr2=None, variable1=variable, variable2="", dt=dt, modulo=modulo)
+            show_two_arrays(arr1=arr_y, arr2=None, variable1=variable, variable2="", dt=dt, modulo=modulo)
             
             # Wait for key input
             key = None
@@ -1341,7 +1341,7 @@ class Zeus_Dataset(Dataset):
     
     def play_physical_prediction(self, inclusive_left, inclusive_right, modulo):
             
-        from modules.utils import show_array, initialize_for_show_array, finalize_for_show_array
+        from modules.utils import show_two_arrays, initialize_for_show_array, finalize_for_show_array
         from light.t2m_predict_n_hours import FastPhysicsT2MPredictor
         from light.u100m_predict_n_hours import U100mPredictor
     
@@ -1405,7 +1405,7 @@ class Zeus_Dataset(Dataset):
                     e = time.time()
                     # pred = ss_x.meteo[0].numpy() works   # array_x[0].numpy works
                 
-            show_array(arr1=arr_y, arr2=pred, variable1=variable, variable2=f"time: {e-s:.5f}", dt=dt, modulo=modulo)
+            show_two_arrays(arr1=arr_y, arr2=pred, variable1=variable, variable2=f"time: {e-s:.5f}", dt=dt, modulo=modulo)
             
             
             # Wait for key input
@@ -1476,9 +1476,9 @@ class Zeus_Dataset(Dataset):
         show_array_single(arr1=array, arr2=None, variable1=variable, variable2="", dt=datetime(2000,1,1,0), modulo=0)
         
     def show_array_double(self, arr1, arr2=None, variable1="", variable2="", dt=datetime(2000,1,1,0), modulo=0, duration=10):
-        from modules.utils import initialize_for_show_array, show_array, finalize_for_show_array        
+        from modules.utils import initialize_for_show_array, show_two_arrays, finalize_for_show_array        
         initialize_for_show_array()
-        show_array(arr1=arr1, arr2=arr2, variable1=variable1, variable2=variable2, dt=dt, modulo=modulo)
+        show_two_arrays(arr1=arr1, arr2=arr2, variable1=variable1, variable2=variable2, dt=dt, modulo=modulo)
         time.sleep(duration)
         finalize_for_show_array()
 

@@ -2,7 +2,7 @@
 Prompt (DeepSeek)
 Again.
 Now we have input maps at any given time t. They are:
-    meteo = torch.stack([t2m, tp, u100, v100, d2m, sp], dim=0), where all components are of shape (721, 1440) in lat and lon,
+    meteo = torch.stack([t2m, tp, u100, v100, d2m, sp], dim=0), where all components are of shape (H, W) in lat and lon,
     geo_dense = torch.stack([orograph, sin_lat, cos_lat, sin_lon, cos_lon], dim=0),
     geo_cat = torch.stack([land_sea_mask, soil_type], dim=0),
     geo_tempo = torch.stack([sin_orbit, cos_orbit, sin_zenith, cos_zenith], dim=0).
