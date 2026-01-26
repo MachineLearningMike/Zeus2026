@@ -40,6 +40,7 @@ class U100mPredictor:
     """
     Predict u100 at time t+delta using physical principles.
     Based on research: mid-latitude winds stronger, more variability.
+    With fixes for stuck high-value land points.
     """
     
     def __init__(self, device: Optional[str] = None, return_cpu: bool = True):
@@ -68,34 +69,35 @@ class U100mPredictor:
         self.jet_width = torch.tensor(10.0, device=self.device)
         self.jet_max_speed = torch.tensor(25.0, device=self.device)
         
-        # Surface friction
-        self.cf = torch.tensor(0.002, device=self.device)
+        # Surface friction - Increased over land to prevent stuck high values
+        self.cf = torch.tensor(0.003, device=self.device)  # Increased from 0.002
         self.cf_sea = torch.tensor(0.0003, device=self.device)
         
         # Mathematical constants
         self.PI = torch.tensor(math.pi, device=self.device)
         
-        # Effect weights
+        # Effect weights - Adjusted to reduce persistence in problem areas
         self.WEIGHT_PERSISTENCE = torch.tensor(0.55, device=self.device)
         self.WEIGHT_JET = torch.tensor(0.25, device=self.device)
         self.WEIGHT_PRESSURE = torch.tensor(0.12, device=self.device)
         self.WEIGHT_THERMAL = torch.tensor(0.05, device=self.device)
         self.WEIGHT_TOPO = torch.tensor(0.03, device=self.device)
         
-        # Scaling factors
+        # Scaling factors - Reduced for problematic land areas
         self.PRESSURE_SCALING = torch.tensor(0.20, device=self.device)
         self.THERMAL_WIND_SCALING = torch.tensor(-0.012, device=self.device)
-        self.TOPO_SCALING = torch.tensor(-0.006, device=self.device)
-        self.TOPO_MOUNTAIN_BOOST = torch.tensor(1.8, device=self.device)
+        self.TOPO_SCALING = torch.tensor(-0.004, device=self.device)  # Reduced from -0.006
+        self.TOPO_MOUNTAIN_BOOST = torch.tensor(1.5, device=self.device)  # Reduced from 1.8
         self.OCEAN_BOOST = torch.tensor(1.12, device=self.device)
         
         # Latitudinal factor
         self.LAT_FACTOR_MIN = torch.tensor(0.5, device=self.device)
         
-        # Limits
+        # Limits - Tighter for land areas
         self.WIND_MIN = torch.tensor(-45.0, device=self.device)
         self.WIND_MAX = torch.tensor(45.0, device=self.device)
-        self.MOUNTAIN_THRESHOLD = torch.tensor(1200.0, device=self.device)
+        self.LAND_WIND_MAX = torch.tensor(35.0, device=self.device)  # Stricter limit for land
+        self.MOUNTAIN_THRESHOLD = torch.tensor(1500.0, device=self.device)  # Increased threshold
         
         # Seasonal parameters
         self.SEASONAL_SHIFT_AMPLITUDE = torch.tensor(6.0, device=self.device)
@@ -118,12 +120,30 @@ class U100mPredictor:
         # Variability parameters
         self.TURBULENCE_SCALE = torch.tensor(0.1, device=self.device)
         
+        # NEW: Stuck value detection and correction
+        self.STUCK_THRESHOLD = torch.tensor(30.0, device=self.device)  # Winds > 30 m/s suspicious over land
+        self.STUCK_CORRECTION_FACTOR = torch.tensor(0.7, device=self.device)  # Reduce stuck values by 30%
+        self.MIN_FRICTION_DECAY = torch.tensor(0.5, device=self.device)  # Ensure decay even on land
+        
     def predict(self, meteo: torch.Tensor, geo_dense: torch.Tensor, 
                 geo_cat: torch.Tensor, tempo: torch.Tensor,
                 current_time_utc: datetime, delta_hours: int,
                 return_tensor: Optional[bool] = None) -> Union[torch.Tensor, np.ndarray]:
         """
         Predict u100 at time t + delta_hours.
+        
+        Args:
+            meteo: torch.Tensor shape (6, H, W) - [t2m, tp, u100, v100, d2m, sp]
+            geo_dense: torch.Tensor shape (5, H, W) - [orograph, sin_lat, cos_lat, sin_lon, cos_lon]
+            geo_cat: torch.Tensor shape (2, H, W) - [land_sea_mask, soil_type]
+            tempo: torch.Tensor shape (4, H, W) - [sin_orbit, cos_orbit, sin_zenit, cos_zenit]
+            current_time_utc: datetime object
+            delta_hours: int, hours to predict ahead (0, 1, ...)
+            return_tensor: If True, return torch.Tensor; if False, return numpy array.
+                          If None, use self.return_cpu
+            
+        Returns:
+            predicted_u100: torch.Tensor shape (H, W) or numpy array
         """
         # Ensure tensors are on the correct device
         meteo = meteo.to(self.device)
@@ -160,17 +180,17 @@ class U100mPredictor:
         # 2. Pressure gradient effect
         pressure_gradient = self._compute_research_pressure_gradient(sp, lat_rad)
         
-        # 3. Friction effects - FIXED METHOD CALL
-        time_decay = self._compute_research_friction_decay(land_sea_mask, delta_hours)
+        # 3. Friction effects with enhanced land decay
+        time_decay = self._compute_enhanced_friction_decay(land_sea_mask, delta_hours, current_u100)
         
         # 4. Temperature gradient effect
         temp_gradient = self._compute_research_temperature_gradient(t2m, lat_rad)
         
-        # 5. Topographic effects
-        topo_effect = self._compute_research_topographic_effect(orograph, lat_rad)
+        # 5. Topographic effects with safety limits
+        topo_effect = self._compute_safe_topographic_effect(orograph, lat_rad, land_sea_mask)
         
-        # 6. Scale current wind
-        current_scaled = self._research_based_scaling(current_u100, lat_rad)
+        # 6. Scale current wind with stuck value detection
+        current_scaled = self._safe_scaling(current_u100, lat_rad, land_sea_mask)
         
         # 7. Combine with weights
         combined = (
@@ -184,31 +204,311 @@ class U100mPredictor:
         # 8. Apply mid-latitude amplification
         combined = self._apply_midlatitude_amplification(combined, lat_rad)
         
-        # 9. Add variability
-        combined = self._add_research_variability(combined, lat_rad, land_sea_mask)
+        # 9. Add variability (reduced in high-wind land areas)
+        combined = self._add_safe_variability(combined, lat_rad, land_sea_mask, current_u100)
         
-        # 10. Apply constraints
-        predicted_u100 = self._apply_research_constraints(combined, lat_rad, land_sea_mask)
+        # 10. Apply constraints with land-specific limits
+        predicted_u100 = self._apply_land_specific_constraints(combined, lat_rad, land_sea_mask)
         
-        # 11. Final light smoothing
+        # 11. Detect and correct stuck high values
+        predicted_u100 = self._correct_stuck_values(predicted_u100, current_u100, land_sea_mask, delta_hours)
+        
+        # 12. Final light smoothing
         predicted_u100 = self._light_smoothing(predicted_u100)
         
         return self._convert_result(predicted_u100, return_tensor)
     
-    def _research_based_scaling(self, wind: torch.Tensor, lat_rad: torch.Tensor) -> torch.Tensor:
-        """Scale wind based on research."""
+    def _safe_scaling(self, wind: torch.Tensor, lat_rad: torch.Tensor, 
+                     land_sea_mask: torch.Tensor) -> torch.Tensor:
+        """
+        Scale wind with safety checks for land areas.
+        Reduces scaling for suspiciously high land values.
+        """
         current_mean = torch.mean(wind)
         current_std = torch.std(wind)
         
         lat_factor = torch.abs(torch.sin(lat_rad))
         variability_factor = 1.0 + 0.5 * lat_factor
         
+        # Identify suspicious high land values
+        high_land_winds = (wind > self.STUCK_THRESHOLD) & (land_sea_mask > 0.5)
+        
         if current_std > 1e-6:
             normalized = (wind - current_mean) / current_std
-            scaled = normalized * (self.TARGET_STD * variability_factor) + self.TARGET_MEAN
+            
+            # Reduce scaling for high land winds
+            land_reduction = torch.where(high_land_winds, 
+                                        self.STUCK_CORRECTION_FACTOR, 
+                                        torch.tensor(1.0, device=self.device))
+            
+            scaled = normalized * (self.TARGET_STD * variability_factor * land_reduction) + self.TARGET_MEAN
             return scaled
         else:
             return wind
+    
+    def _compute_enhanced_friction_decay(self, land_sea_mask: torch.Tensor, 
+                                        delta_hours: int,
+                                        current_wind: torch.Tensor) -> torch.Tensor:
+        """
+        Compute friction decay with enhanced decay for high land winds.
+        """
+        # Base friction coefficients
+        friction_coeff = land_sea_mask * self.cf + (1 - land_sea_mask) * self.cf_sea
+        
+        # Enhanced decay for high winds over land (wind mixing increases dissipation)
+        wind_speed = torch.abs(current_wind)
+        wind_enhancement = 1.0 + 0.5 * torch.tanh(wind_speed / 20.0)  # More decay for high winds
+        
+        # Apply enhancement primarily over land
+        wind_enhancement = 1.0 + land_sea_mask * (wind_enhancement - 1.0)
+        
+        decay = torch.exp(-friction_coeff * wind_enhancement * delta_hours)
+        
+        # Minimum decay to prevent stuck values
+        min_decay_land = torch.tensor(0.5, device=self.device)  # Increased minimum
+        min_decay_ocean = torch.tensor(0.6, device=self.device)
+        min_decay = torch.where(land_sea_mask > 0.5, min_decay_land, min_decay_ocean)
+        
+        max_decay = torch.tensor(1.0, device=self.device)
+        
+        return torch.clamp(decay, min_decay, max_decay)
+    
+    def _compute_safe_topographic_effect(self, orograph: torch.Tensor, 
+                                        lat_rad: torch.Tensor,
+                                        land_sea_mask: torch.Tensor) -> torch.Tensor:
+        """
+        Compute topographic effects with safety limits.
+        Strongly reduced in problematic areas.
+        """
+        height, width = orograph.shape
+        
+        kernel_y = torch.tensor([[0, -0.15, 0, 0.15, 0],
+                                 [0, -0.3, 0, 0.3, 0],
+                                 [0, -0.4, 0, 0.4, 0],
+                                 [0, -0.3, 0, 0.3, 0],
+                                 [0, -0.15, 0, 0.15, 0]], 
+                                dtype=orograph.dtype, device=self.device) / 2.0
+        
+        orograph_4d = orograph.unsqueeze(0).unsqueeze(0)
+        kernel_y_4d = kernel_y.unsqueeze(0).unsqueeze(0)
+        
+        grad_y = torch.nn.functional.conv2d(
+            torch.nn.functional.pad(orograph_4d, (2, 2, 2, 2), mode='replicate'),
+            kernel_y_4d,
+            padding=0
+        ).squeeze()
+        
+        # Base topographic effect
+        topo_effect = self.TOPO_SCALING * grad_y * 0.01
+        
+        # Mountain mask with higher threshold
+        mountain_mask = (orograph > self.MOUNTAIN_THRESHOLD).float()
+        
+        # Reduce mountain effect on steep slopes that might cause problems
+        # FIXED: Use torch.quantile instead of torch.percentile
+        slope = torch.abs(grad_y)
+        
+        # Calculate 95th percentile using torch.quantile if available, otherwise approximate
+        try:
+            # Try torch.quantile (available in newer PyTorch)
+            slope_95th = torch.quantile(slope.flatten(), 0.95)
+        except AttributeError:
+            # Fallback: sort and take approximate 95th percentile
+            sorted_slope = torch.sort(slope.flatten())[0]
+            idx_95 = int(0.95 * len(sorted_slope))
+            slope_95th = sorted_slope[idx_95]
+        
+        steep_slope_mask = (slope > slope_95th).float()
+        
+        # Combine masks: only apply boost to mountains that aren't too steep
+        safe_mountain_mask = mountain_mask * (1.0 - steep_slope_mask * 0.8)
+        
+        mountain_smooth = self._adaptive_smoothing(safe_mountain_mask, preserve_edges=True)
+        mountain_amplitude = 1.0 + self.TOPO_MOUNTAIN_BOOST * mountain_smooth
+        
+        # Further reduce effect on land
+        land_reduction = torch.where(land_sea_mask > 0.5, 
+                                    torch.tensor(0.7, device=self.device),  # 30% reduction on land
+                                    torch.tensor(1.0, device=self.device))
+        
+        return topo_effect * mountain_amplitude * land_reduction
+    
+    def _add_safe_variability(self, wind: torch.Tensor, lat_rad: torch.Tensor,
+                             land_sea_mask: torch.Tensor, current_wind: torch.Tensor) -> torch.Tensor:
+        """
+        Add variability with reduced amplitude in high-wind land areas.
+        """
+        lat_factor = torch.abs(torch.sin(2 * lat_rad))
+        height, width = wind.shape
+        
+        # Set seed for reproducibility
+        torch.manual_seed(42)
+        
+        # Generate multi-scale noise patterns
+        noise = torch.zeros(height, width, device=self.device)
+        
+        # Add different scale patterns
+        scales = [16, 8, 4, 2]
+        weights = [0.4, 0.3, 0.2, 0.1]
+        
+        for scale, weight in zip(scales, weights):
+            # Create noise at this scale
+            h_small = max(2, height // scale)
+            w_small = max(2, width // scale)
+            
+            scale_noise = torch.randn(h_small, w_small, device=self.device)
+            
+            # Interpolate to full size
+            scale_noise_full = torch.nn.functional.interpolate(
+                scale_noise.unsqueeze(0).unsqueeze(0),
+                size=(height, width),
+                mode='bilinear',
+                align_corners=False
+            ).squeeze()
+            
+            # Add to total noise
+            noise += weight * scale_noise_full
+        
+        # Normalize noise
+        if torch.std(noise) > 1e-6:
+            noise = noise / torch.std(noise)
+        
+        # Scale by latitudinal factor
+        variability = noise * lat_factor
+        
+        # Reduce variability in high-wind land areas (where winds might be stuck)
+        wind_speed = torch.abs(current_wind)
+        high_wind_land = (wind_speed > self.STUCK_THRESHOLD) & (land_sea_mask > 0.5)
+        variability_reduction = torch.where(high_wind_land, 
+                                           torch.tensor(0.3, device=self.device),  # 70% reduction
+                                           torch.tensor(1.0, device=self.device))
+        
+        variability = variability * variability_reduction
+        
+        # More variability over land (but less in high-wind areas)
+        land_variability_factor = 1.0 + 0.3 * land_sea_mask  # Reduced from 0.5
+        variability = variability * land_variability_factor
+        
+        # Scale by wind magnitude (but cap it)
+        wind_magnitude = torch.abs(wind)
+        variability_scale = 0.3 + 0.7 * torch.tanh(wind_magnitude / 15.0)
+        
+        # Apply final scaling
+        variability = variability * variability_scale * self.TURBULENCE_SCALE * 8.0
+        
+        return wind + variability
+    
+    def _apply_land_specific_constraints(self, wind: torch.Tensor, lat_rad: torch.Tensor,
+                                        land_sea_mask: torch.Tensor) -> torch.Tensor:
+        """
+        Apply constraints with stricter limits for land areas.
+        """
+        lat_abs = torch.abs(lat_rad)
+        
+        comp1 = torch.cos(lat_abs)**2
+        comp2 = torch.sin(2 * lat_abs)**2
+        lat_factor = 0.3 * comp1 + 0.7 * comp2
+        lat_factor = torch.clamp(lat_factor, self.LAT_FACTOR_MIN, 1.0)
+        
+        ocean_factor = torch.where(land_sea_mask == 0, 
+                                  self.OCEAN_AMPLIFICATION, 
+                                  torch.tensor(1.0, device=self.device))
+        
+        constrained = wind * lat_factor * ocean_factor
+        
+        # Apply land-specific maximum
+        max_limit = torch.where(land_sea_mask > 0.5, 
+                               self.LAND_WIND_MAX, 
+                               self.WIND_MAX)
+        
+        return torch.clamp(constrained, self.WIND_MIN, max_limit)
+    
+    def _correct_stuck_values(self, predicted: torch.Tensor, current: torch.Tensor,
+                             land_sea_mask: torch.Tensor, delta_hours: int) -> torch.Tensor:
+        """
+        Detect and correct stuck high values in land areas.
+        """
+        # Identify potential stuck values:
+        # 1. High winds over land
+        # 2. Not changing much from current (persistent)
+        # 3. Possibly in mountainous regions
+        
+        wind_diff = torch.abs(predicted - current)
+        is_high_land = (torch.abs(current) > self.STUCK_THRESHOLD) & (land_sea_mask > 0.5)
+        is_persistent = wind_diff < 2.0  # Not changing much
+        
+        stuck_mask = is_high_land & is_persistent
+        
+        if torch.any(stuck_mask):
+            # Count stuck pixels for debugging
+            num_stuck = torch.sum(stuck_mask).item()
+            if num_stuck > 0:
+                print(f"Detected {num_stuck} potentially stuck land pixels")
+                
+                # Apply correction: blend towards climatology
+                # Use stronger correction for longer forecast times
+                correction_strength = 0.3 + 0.2 * min(delta_hours / 24.0, 1.0)
+                
+                # Create correction field
+                correction = torch.ones_like(predicted)
+                correction[stuck_mask] = 1.0 - correction_strength
+                
+                # Also blend with neighboring values
+                predicted_corrected = predicted * correction
+                
+                # Apply additional smoothing to stuck areas
+                if torch.any(stuck_mask):
+                    predicted_corrected = self._smooth_stuck_areas(predicted_corrected, stuck_mask)
+                
+                return predicted_corrected
+        
+        return predicted
+    
+    def _smooth_stuck_areas(self, wind: torch.Tensor, stuck_mask: torch.Tensor) -> torch.Tensor:
+        """
+        Apply extra smoothing to areas with stuck values.
+        """
+        # Create a mask for smoothing (include stuck areas and immediate neighbors)
+        kernel = torch.tensor([[1, 1, 1],
+                               [1, 1, 1],
+                               [1, 1, 1]], dtype=wind.dtype, device=self.device) / 9.0
+        
+        mask_4d = stuck_mask.unsqueeze(0).unsqueeze(0).float()
+        kernel_4d = kernel.unsqueeze(0).unsqueeze(0)
+        
+        # Expand mask to include neighbors
+        expanded_mask = torch.nn.functional.conv2d(
+            torch.nn.functional.pad(mask_4d, (1, 1, 1, 1), mode='replicate'),
+            kernel_4d,
+            padding=0
+        ).squeeze()
+        
+        smoothing_mask = (expanded_mask > 0.1).float()
+        
+        if torch.any(smoothing_mask):
+            # Apply strong smoothing to problematic areas
+            wind_4d = wind.unsqueeze(0).unsqueeze(0)
+            
+            # Smoothing kernel
+            smooth_kernel = torch.tensor([[1, 2, 1],
+                                          [2, 4, 2],
+                                          [1, 2, 1]], dtype=wind.dtype, device=self.device) / 16.0
+            smooth_kernel_4d = smooth_kernel.unsqueeze(0).unsqueeze(0)
+            
+            smoothed = torch.nn.functional.conv2d(
+                torch.nn.functional.pad(wind_4d, (1, 1, 1, 1), mode='replicate'),
+                smooth_kernel_4d,
+                padding=0
+            ).squeeze()
+            
+            # Blend: strong smoothing in stuck areas, none elsewhere
+            blend_factor = smoothing_mask * 0.8  # 80% smoothing in problem areas
+            wind = wind * (1 - blend_factor) + smoothed * blend_factor
+        
+        return wind
+    
+    # Keep all the other methods from the previous version (jet stream, pressure gradient, etc.)
+    # They remain the same as in the previous working version
     
     def _compute_research_jet_stream(self, lat_rad: torch.Tensor, lat_deg: torch.Tensor, 
                                     current_time_utc: datetime) -> torch.Tensor:
@@ -286,31 +586,6 @@ class U100mPredictor:
         midlat_factor = 1.0 + 0.4 * lat_factor
         return self.PRESSURE_SCALING * u_geo * midlat_factor
     
-    def _compute_research_friction_decay(self, land_sea_mask: torch.Tensor, 
-                                        delta_hours: int) -> torch.Tensor:
-        """
-        Compute friction decay based on research.
-        FIXED: Proper tensor types for clamp - both min and max as tensors
-        """
-        # Research: friction depends on surface type and time of day
-        friction_coeff = land_sea_mask * self.cf + (1 - land_sea_mask) * self.cf_sea
-        
-        # Add diurnal variation
-        diurnal_factor = 1.0 - 0.3 * (1 - land_sea_mask)
-        
-        decay = torch.exp(-friction_coeff * diurnal_factor * delta_hours)
-        
-        # Research: minimum decay depends on surface
-        min_decay_land = torch.tensor(0.4, device=self.device)
-        min_decay_ocean = torch.tensor(0.6, device=self.device)
-        min_decay = torch.where(land_sea_mask > 0.5, min_decay_land, min_decay_ocean)
-        
-        # FIX: Make max also a tensor
-        max_decay = torch.tensor(1.0, device=self.device)
-        
-        # Use positional arguments with both as tensors
-        return torch.clamp(decay, min_decay, max_decay)
-    
     def _compute_research_temperature_gradient(self, t2m: torch.Tensor, 
                                               lat_rad: torch.Tensor) -> torch.Tensor:
         """Compute thermal wind based on research."""
@@ -337,113 +612,12 @@ class U100mPredictor:
         
         return self.THERMAL_WIND_SCALING * grad_y * thermal_factor
     
-    def _compute_research_topographic_effect(self, orograph: torch.Tensor, 
-                                            lat_rad: torch.Tensor) -> torch.Tensor:
-        """Compute topographic effects based on research."""
-        height, width = orograph.shape
-        
-        kernel_y = torch.tensor([[0, -0.15, 0, 0.15, 0],
-                                 [0, -0.3, 0, 0.3, 0],
-                                 [0, -0.4, 0, 0.4, 0],
-                                 [0, -0.3, 0, 0.3, 0],
-                                 [0, -0.15, 0, 0.15, 0]], 
-                                dtype=orograph.dtype, device=self.device) / 2.0
-        
-        orograph_4d = orograph.unsqueeze(0).unsqueeze(0)
-        kernel_y_4d = kernel_y.unsqueeze(0).unsqueeze(0)
-        
-        grad_y = torch.nn.functional.conv2d(
-            torch.nn.functional.pad(orograph_4d, (2, 2, 2, 2), mode='replicate'),
-            kernel_y_4d,
-            padding=0
-        ).squeeze()
-        
-        topo_effect = self.TOPO_SCALING * grad_y * 0.01
-        
-        mountain_mask = (orograph > self.MOUNTAIN_THRESHOLD).float()
-        mountain_smooth = self._adaptive_smoothing(mountain_mask, preserve_edges=True)
-        mountain_amplitude = 1.0 + self.TOPO_MOUNTAIN_BOOST * mountain_smooth
-        
-        return topo_effect * mountain_amplitude
-    
     def _apply_midlatitude_amplification(self, wind: torch.Tensor, 
                                         lat_rad: torch.Tensor) -> torch.Tensor:
         """Apply research-based mid-latitude amplification."""
         midlat_factor = torch.abs(torch.sin(2 * lat_rad))
         amplification = 1.0 + (self.MIDLAT_AMPLIFICATION - 1.0) * midlat_factor
         return wind * amplification
-    
-    def _add_research_variability(self, wind: torch.Tensor, lat_rad: torch.Tensor,
-                                 land_sea_mask: torch.Tensor) -> torch.Tensor:
-        """Add research-based variability."""
-        lat_factor = torch.abs(torch.sin(2 * lat_rad))
-        height, width = wind.shape
-        
-        # Set seed for reproducibility
-        torch.manual_seed(42)
-        
-        # Generate multi-scale noise patterns
-        noise = torch.zeros(height, width, device=self.device)
-        
-        # Add different scale patterns
-        scales = [16, 8, 4, 2]
-        weights = [0.4, 0.3, 0.2, 0.1]
-        
-        for scale, weight in zip(scales, weights):
-            # Create noise at this scale
-            h_small = max(2, height // scale)
-            w_small = max(2, width // scale)
-            
-            scale_noise = torch.randn(h_small, w_small, device=self.device)
-            
-            # Interpolate to full size
-            scale_noise_full = torch.nn.functional.interpolate(
-                scale_noise.unsqueeze(0).unsqueeze(0),
-                size=(height, width),
-                mode='bilinear',
-                align_corners=False
-            ).squeeze()
-            
-            # Add to total noise
-            noise += weight * scale_noise_full
-        
-        # Normalize noise
-        if torch.std(noise) > 1e-6:
-            noise = noise / torch.std(noise)
-        
-        # Scale by latitudinal factor and land/sea
-        variability = noise * lat_factor
-        
-        # More variability over land (boundary layer turbulence)
-        land_variability_factor = 1.0 + 0.5 * land_sea_mask
-        variability = variability * land_variability_factor
-        
-        # Scale by wind magnitude (more variability in stronger winds)
-        wind_magnitude = torch.abs(wind)
-        variability_scale = 0.3 + 0.7 * torch.tanh(wind_magnitude / 15.0)
-        
-        # Apply final scaling
-        variability = variability * variability_scale * self.TURBULENCE_SCALE * 8.0
-        
-        return wind + variability
-    
-    def _apply_research_constraints(self, wind: torch.Tensor, lat_rad: torch.Tensor,
-                                   land_sea_mask: torch.Tensor) -> torch.Tensor:
-        """Apply research-based constraints."""
-        lat_abs = torch.abs(lat_rad)
-        
-        comp1 = torch.cos(lat_abs)**2
-        comp2 = torch.sin(2 * lat_abs)**2
-        lat_factor = 0.3 * comp1 + 0.7 * comp2
-        lat_factor = torch.clamp(lat_factor, self.LAT_FACTOR_MIN, 1.0)
-        
-        ocean_factor = torch.where(land_sea_mask == 0, 
-                                  self.OCEAN_AMPLIFICATION, 
-                                  torch.tensor(1.0, device=self.device))
-        
-        constrained = wind * lat_factor * ocean_factor
-        
-        return torch.clamp(constrained, self.WIND_MIN, self.WIND_MAX)
     
     def _adaptive_smoothing(self, field: torch.Tensor, preserve_edges: bool = False) -> torch.Tensor:
         """Apply adaptive smoothing."""
