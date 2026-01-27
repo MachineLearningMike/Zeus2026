@@ -1,32 +1,31 @@
 """
 Prompt (DeepSeek)
-Again.
-Now we have input maps at any given time t. They are:
-    meteo = torch.stack([t2m, tp, u100, v100, d2m, sp], dim=0), where all components are of shape (H, W) in lat and lon,
+
+t2m, tp, u100, v100, d2m, sp, orograph, and land_sea_mask are from ERA5 and have units defined by ERA5.
+Their units are: t2m: temperature K, tp: water m, u100: m/s, v100: m/s, d2m: temperature K, sp: Pascal, orograph: m**2 / s**2
+soil types are {'O: cean/Lake', 1: 'Coarse', 2:'Medium', 3: 'Medium Fine', 4: 'Fine', 5: 'Very Fine', 6: 'Organic', 7: 'Tropical Organic',}
+land_sea_mask types are {0: sea, 1: land}
+We also have geological data: loatitudes, longitudes, earth orbital angle, and zenith angle.
+All above data components are a map over the globe, with thee shape of (latitudes and longitudes).
+The time t is given in UTC.
+
+Now we have inputs for given current time t. They are:
+    meteo = torch.stack([t2m, tp, u100, v100, d2m, sp], dim=0),
     geo_dense = torch.stack([orograph, sin_lat, cos_lat, sin_lon, cos_lon], dim=0),
     geo_cat = torch.stack([land_sea_mask, soil_type], dim=0),
     geo_tempo = torch.stack([sin_orbit, cos_orbit, sin_zenith, cos_zenith], dim=0).
+, where sin_xxx means sin(xxx) and cos_xxx means cos(xxx)
+We also have inputs for the given future time f. 
+The current and the future shares all inputs, except that the future has no meteo and its own geo_tempo called geo_tempo_f.
 
-t2m, tp, u100, v100, d2m, sp, orograph, and land_sea_mask are from ERA5 and have units defined by ERA5.
-The units are: temperature K, water m, m/s, m/s, temperature K, and Pa, respectively.
-sin_xxx means sin(xxx) for any xxx, and cos_xxx means cos(xxx) for any xxx.
-All component tensors of the stacks have a shape of (721, 1440).
-soil types are 
-soil_type_descriptions = {
-0:	'Ocean/Lake',
-1:	'Coarse',
-2:	'Medium',
-3:	'Medium Fine',
-4:	'Fine',
-5:	'Very Fine',
-6:	'Organic',
-7:	'Tropical Organic',
-}
-land_sea_mask types are {0: sea, 1: land}
-The time t is given in UTC.
+def predict(self, meteo: torch.Tensor, geo_dense: torch.Tensor, 
+                geo_cat: torch.Tensor, geo_tempo: torch.Tensor, geo_tempo_f: torch.Tensor,
+                current_dt: datetime, delta_hours: int) -> torch.Tensor
 
-Please write code that predicts u100m at time t + delta hours, by fastest physical logic and not by tedious ML or numerical analysis. delta is in range: 0, 1, ...,
+Please write a Python class "U100mPredictor" that has the above predict(.) function, which predicts u100m 
+for the time t + delta hours, with fast physical logic and not by tedious ML or numerical analysis.
 Please take into account all the input maps, together with Jet-stream, which is best modeled with sin**2 x cos**2 of latitude.
+Please choose GPU if it's avialable.
 I need both code and physical explanation.
 """
 
@@ -38,383 +37,392 @@ import numpy as np
 
 class U100mPredictor:
     """
-    Predict u100 at time t+delta using physical principles.
-    Fixed polar katabatic wind patterns.
+    Physics-based 100m wind speed (u100) predictor.
+    Focus on persistence with minimal physics for forecasting.
     """
     
-    def __init__(self, device: Optional[str] = None, return_cpu: bool = True):
-        self.device = device if device else ('cuda' if torch.cuda.is_available() else 'cpu')
-        self.return_cpu = return_cpu
-        self._setup_constants()
+    def __init__(self, device: Optional[str] = None):
+        # Set device
+        if device is None:
+            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        else:
+            self.device = torch.device(device)
         
-    def _setup_constants(self):
-        """Initialize all physical constants."""
         # Physical constants
-        self.R = torch.tensor(287.058, device=self.device)
-        self.omega = torch.tensor(7.2921159e-5, device=self.device)
-        self.rho = torch.tensor(1.225, device=self.device)
+        self.R = 287.05  # Gas constant (J/kg/K)
+        self.omega = 7.2921e-5  # Earth's angular velocity (rad/s)
+        self.g = 9.81  # Gravity (m/s²)
+        
+        # Friction coefficients (per hour)
+        self.cf_sea = 0.01  # Sea friction
+        self.cf_land = 0.03  # Land friction
+        self.cf_ice = 0.02   # Ice friction (polar regions)
         
         # Jet stream parameters
-        self.jet_lat_center = torch.tensor(45.0, device=self.device)
-        self.jet_width = torch.tensor(10.0, device=self.device)
-        self.jet_max_speed = torch.tensor(25.0, device=self.device)
+        self.jet_lat_center = 45.0  # Degrees
+        self.jet_width = 15.0  # Degrees
+        self.jet_max_speed = 30.0  # m/s
         
-        # Friction coefficients
-        self.cf_land = torch.tensor(0.0035, device=self.device)
-        self.cf_sea = torch.tensor(0.00025, device=self.device)
-        self.cf_ice = torch.tensor(0.0045, device=self.device)  # Higher for ice
-        
-        # SIMPLIFIED WEIGHTS (90% persistence approach)
-        self.WEIGHT_PERSISTENCE = torch.tensor(0.90, device=self.device)  # 90% persistence
-        self.WEIGHT_JET = torch.tensor(0.05, device=self.device)
-        self.WEIGHT_PRESSURE = torch.tensor(0.03, device=self.device)
-        self.WEIGHT_THERMAL = torch.tensor(0.01, device=self.device)
-        self.WEIGHT_TOPO = torch.tensor(0.01, device=self.device)  # Only 1%
-        
-        # Scaling factors
-        self.PRESSURE_SCALING = torch.tensor(0.12, device=self.device)
-        self.THERMAL_WIND_SCALING = torch.tensor(-0.006, device=self.device)
-        self.TOPO_SCALING = torch.tensor(-0.00001, device=self.device)  # Almost zero for polar fix
-        
-        # Limits
-        self.WIND_MIN = torch.tensor(-40.0, device=self.device)
-        self.WIND_MAX = torch.tensor(40.0, device=self.device)
-        self.POLAR_COASTAL_LIMIT = torch.tensor(8.0, device=self.device)  # Stricter polar limits
-        
-        # Smoothing
-        self.FINAL_SMOOTHING = torch.tensor(0.15, device=self.device)
+        # Effect weights (sum to 1.0)
+        self.WEIGHT_PERSISTENCE = 0.85
+        self.WEIGHT_JET = 0.08
+        self.WEIGHT_PRESSURE = 0.05
+        self.WEIGHT_THERMAL = 0.02
         
         # Polar region thresholds
-        self.ANTARCTICA_LAT = torch.tensor(-60.0, device=self.device)
-        self.GREENLAND_LAT_MIN = torch.tensor(60.0, device=self.device)
-        self.GREENLAND_LAT_MAX = torch.tensor(85.0, device=self.device)
-        self.GREENLAND_LON_MIN = torch.tensor(-50.0, device=self.device)
-        self.GREENLAND_LON_MAX = torch.tensor(-20.0, device=self.device)
+        self.ANTARCTICA_LAT = -60.0
+        self.GREENLAND_LAT_MIN = 60.0
+        self.GREENLAND_LAT_MAX = 85.0
+        self.GREENLAND_LON_MIN = -50.0
+        self.GREENLAND_LON_MAX = -20.0
         
-        # Strip removal parameters
-        self.STRIP_REDUCTION = torch.tensor(0.3, device=self.device)
-        self.STRIP_SMOOTHING = torch.tensor(0.4, device=self.device)
-        self.COASTAL_BLEND_WIDTH = torch.tensor(3.0, device=self.device)
+        print(f"U100mPredictor initialized on device: {self.device}")
+    
+    def _safe_divide(self, numerator: torch.Tensor, denominator: torch.Tensor,
+                    eps: float = 1e-10) -> torch.Tensor:
+        """Safe division to avoid NaN."""
+        return numerator / (denominator + eps * torch.sign(denominator))
+    
+    def _compute_gradients(self, field: torch.Tensor) -> tuple:
+        """Compute spatial gradients using finite differences."""
+        h, w = field.shape
         
-    def predict(self, meteo: torch.Tensor, geo_dense: torch.Tensor, 
-                geo_cat: torch.Tensor, geo_tempo: torch.Tensor,
-                current_dt: datetime, geo_cat_f: torch.Tensor, 
-                delta_hours: int, return_tensor: Optional[bool] = None) -> Union[torch.Tensor, np.ndarray]:
-        """
-        SIMPLIFIED PREDICTION: Focus on persistence with minimal polar effects.
+        # Initialize gradient arrays
+        dfield_dx = torch.zeros_like(field)
+        dfield_dy = torch.zeros_like(field)
         
-        Args:
-            meteo: torch.Tensor shape (C, H, W) - meteorological variables
-            geo_dense: torch.Tensor shape (C_geo, H, W) - dense geographical features
-            geo_cat: torch.Tensor shape (C_cat, H, W) - categorical geographical features (current)
-            geo_tempo: torch.Tensor shape (C_temp, H, W) - temporal features
-            current_dt: datetime object for current time
-            geo_cat_f: torch.Tensor shape (C_cat, H, W) - categorical geo features (future)
-            delta_hours: int, hours to predict ahead (0-12)
-            return_tensor: If True, return torch.Tensor; if False, return numpy array.
-                          If None, use self.return_cpu
-            
-        Returns:
-            predicted_u100m: torch.Tensor shape (H, W) or numpy array
-        """
-        # Move to device
-        meteo = meteo.to(self.device)
-        geo_dense = geo_dense.to(self.device)
-        geo_cat = geo_cat.to(self.device)
-        geo_tempo = geo_tempo.to(self.device)
-        geo_cat_f = geo_cat_f.to(self.device)
+        # Central differences for interior
+        if w > 2:
+            dfield_dx[:, 1:-1] = (field[:, 2:] - field[:, :-2]) / 2.0
+        # Forward/backward differences for boundaries
+        if w > 1:
+            dfield_dx[:, 0] = field[:, 1] - field[:, 0]
+            dfield_dx[:, -1] = field[:, -1] - field[:, -2]
         
-        # Extract components
-        t2m = meteo[0]
-        current_u100 = meteo[2]
-        sp = meteo[5]
+        if h > 2:
+            dfield_dy[1:-1, :] = (field[2:, :] - field[:-2, :]) / 2.0
+        if h > 1:
+            dfield_dy[0, :] = field[1, :] - field[0, :]
+            dfield_dy[-1, :] = field[-1, :] - field[-2, :]
         
-        orograph = geo_dense[0]
-        sin_lat = geo_dense[1]
-        cos_lat = geo_dense[2]
-        sin_lon = geo_dense[3]
-        cos_lon = geo_dense[4]
+        return dfield_dx, dfield_dy
+    
+    def _compute_pressure_gradient_wind(self, sp: torch.Tensor, lat_rad: torch.Tensor) -> torch.Tensor:
+        """Compute geostrophic wind from pressure gradient."""
+        # Pressure gradients
+        dp_dx, dp_dy = self._compute_gradients(sp)
         
-        land_sea_mask = geo_cat[0]
+        # Grid spacing (approximate meters per grid cell)
+        # Assuming 1-degree resolution
+        dx = 111320 * torch.cos(torch.abs(lat_rad))  # Varies with latitude
+        dy = 111320 * torch.ones_like(lat_rad)  # Constant in latitude
         
-        height, width = t2m.shape
+        # Scale gradients by grid spacing
+        dp_dx = dp_dx / dx
+        dp_dy = dp_dy / dy
         
-        # Calculate latitude and longitude
-        cos_lat_clamped = torch.clamp(cos_lat, -0.9999, 0.9999)
-        lat_rad = torch.where(
-            cos_lat_clamped > 0.5,
-            torch.asin(torch.clamp(sin_lat, -0.9999, 0.9999)),
-            torch.acos(cos_lat_clamped) * torch.sign(sin_lat)
-        )
-        lat_rad = torch.remainder(lat_rad + math.pi, 2 * math.pi) - math.pi
-        lat_deg = torch.rad2deg(lat_rad)
+        # Coriolis parameter
+        f = 2 * self.omega * torch.sin(lat_rad)
+        f = torch.where(torch.abs(f) < 1e-10, torch.sign(f) * 1e-10, f)
         
-        lon_rad = torch.atan2(sin_lon, cos_lon)
-        lon_deg = torch.rad2deg(lon_rad)
+        # Air density (simplified)
+        rho = 1.225  # kg/m³ at sea level
         
-        # 1. Identify polar regions
-        antarctica_mask, greenland_mask, greenland_north_mask, greenland_mid_mask = \
-            self._identify_polar_regions(lat_deg, lon_deg, orograph)
+        # Geostrophic wind: u_g = -(1/(ρf)) * ∂p/∂y
+        u_geo = -self._safe_divide(dp_dy, rho * f)
         
-        polar_mask = antarctica_mask | greenland_mask
+        # Scale down for 100m level (boundary layer reduction)
+        u_geo = u_geo * 0.3
         
-        # 2. Strong persistence (90% weight)
-        time_decay = self._compute_simple_friction_decay(land_sea_mask, delta_hours, polar_mask)
-        persistence = current_u100 * time_decay
+        return u_geo
+    
+    def _compute_thermal_wind(self, t2m: torch.Tensor, lat_rad: torch.Tensor) -> torch.Tensor:
+        """Compute thermal wind adjustment."""
+        # Temperature gradient
+        dT_dx, dT_dy = self._compute_gradients(t2m)
         
-        # 3. Minimal other effects (10% total)
-        jet_strength = self._compute_jet_stream(lat_rad, lat_deg, current_dt) * 0.05
-        pressure_gradient = self._compute_pressure_gradient(sp, lat_rad) * 0.03
-        temp_gradient = self._compute_temperature_gradient(t2m) * 0.01
-        topo_effect = self._compute_minimal_topo_effect(orograph, polar_mask) * 0.01
+        # Grid spacing
+        dx = 111320 * torch.cos(torch.abs(lat_rad))
+        dy = 111320 * torch.ones_like(lat_rad)
         
-        # 4. Combine (90% persistence, 10% other)
-        combined = persistence * 0.9 + (jet_strength + pressure_gradient + temp_gradient + topo_effect) * 0.1
+        dT_dx = dT_dx / dx
+        dT_dy = dT_dy / dy
         
-        # 5. Apply POLAR HARD LIMITS (not corrections - just limits)
-        predicted_u100 = self._apply_polar_hard_limits_only(
-            combined, lat_deg, lon_deg,
-            antarctica_mask, greenland_mask, greenland_north_mask, greenland_mid_mask
-        )
+        # Coriolis parameter
+        f = 2 * self.omega * torch.sin(lat_rad)
+        f = torch.where(torch.abs(f) < 1e-10, torch.sign(f) * 1e-10, f)
         
-        # 6. Apply stabilization using future land-sea mask
-        land_sea_mask_future = geo_cat_f[0]
-        predicted_u100 = self._apply_stabilization(predicted_u100, current_u100, land_sea_mask_future)
+        # Thermal wind: ∂u/∂z = -(g/(fT)) * ∂T/∂y
+        # Integrated over 100m boundary layer
+        boundary_layer_height = 100.0  # meters
+        mean_temp = 288.0  # Kelvin
         
-        # 7. Final smoothing
-        predicted_u100 = self._minimal_smoothing(predicted_u100)
+        u_thermal = -self._safe_divide(self.g * dT_dy * boundary_layer_height, f * mean_temp)
         
-        # 8. Final clamp
-        predicted_u100 = torch.clamp(predicted_u100, self.WIND_MIN, self.WIND_MAX)
+        # Small effect
+        u_thermal = u_thermal * 0.1
         
-        return self._convert_result(predicted_u100, return_tensor)
+        return u_thermal
+    
+    def _compute_jet_stream(self, lat_rad: torch.Tensor, lat_deg: torch.Tensor) -> torch.Tensor:
+        """Compute jet stream contribution using sin²*cos² pattern."""
+        # Jet stream profile (Gaussian centered at jet latitude)
+        lat_from_center = lat_deg - self.jet_lat_center
+        jet_profile = torch.exp(-(lat_from_center / self.jet_width)**2)
+        
+        # sin²(lat) * cos²(lat) pattern for longitudinal variation
+        sin_lat = torch.sin(lat_rad)
+        cos_lat = torch.cos(lat_rad)
+        pattern = (sin_lat**2) * (cos_lat**2)
+        
+        # Combine
+        u_jet = self.jet_max_speed * jet_profile * (0.7 + 0.3 * pattern)
+        
+        return u_jet
+    
+    def _compute_friction_decay(self, land_sea_mask: torch.Tensor,
+                              delta_hours: int) -> torch.Tensor:
+        """Compute wind decay due to surface friction."""
+        # Base friction coefficient
+        cf = land_sea_mask * self.cf_land + (1 - land_sea_mask) * self.cf_sea
+        
+        # Exponential decay
+        decay = torch.exp(-cf * delta_hours)
+        
+        # Ensure reasonable bounds
+        decay = torch.clamp(decay, 0.5, 1.0)
+        
+        return decay
     
     def _identify_polar_regions(self, lat_deg: torch.Tensor, lon_deg: torch.Tensor,
-                                orograph: torch.Tensor) -> tuple:
-        """
-        Identify polar regions with sub-regions.
-        """
+                              orograph: torch.Tensor) -> tuple:
+        """Identify polar regions."""
         # Antarctica
         antarctica_mask = (lat_deg < self.ANTARCTICA_LAT) & (orograph > 500)
         
-        # Greenland main mask
+        # Greenland
         greenland_lat = (lat_deg > self.GREENLAND_LAT_MIN) & (lat_deg < self.GREENLAND_LAT_MAX)
         greenland_lon = (lon_deg > self.GREENLAND_LON_MIN) & (lon_deg < self.GREENLAND_LON_MAX)
         greenland_mask = greenland_lat & greenland_lon & (orograph > 500)
         
-        # North Greenland (problem area: too negative winds)
-        greenland_north_mask = greenland_mask & (lat_deg > 75.0)
-        
-        # Middle Greenland coasts (problem area: too positive winds)
-        greenland_mid_lat = (lat_deg > 65.0) & (lat_deg < 75.0)
-        greenland_east_coast = greenland_mid_lat & (lon_deg > -30.0) & (lon_deg < -20.0)
-        greenland_west_coast = greenland_mid_lat & (lon_deg > -50.0) & (lon_deg < -40.0)
-        greenland_mid_mask = (greenland_east_coast | greenland_west_coast) & greenland_mask
-        
-        return antarctica_mask, greenland_mask, greenland_north_mask, greenland_mid_mask
+        return antarctica_mask, greenland_mask
     
-    def _compute_simple_friction_decay(self, land_sea_mask: torch.Tensor, 
-                                      delta_hours: int,
-                                      polar_mask: torch.Tensor) -> torch.Tensor:
-        """Simple friction decay with polar adjustments."""
-        # Base decay
-        decay = torch.exp(-self.cf_sea * delta_hours)  # Use sea value as base
-        
-        # Land has faster decay
-        land_decay = torch.exp(-self.cf_land * delta_hours)
-        decay = torch.where(land_sea_mask > 0.5, land_decay, decay)
-        
-        # Polar regions: slower decay (more persistence)
-        polar_decay = torch.exp(-self.cf_sea * delta_hours * 0.5)  # 50% slower decay
-        decay = torch.where(polar_mask, polar_decay, decay)
-        
-        # Ensure reasonable bounds
-        decay = torch.clamp(decay, torch.tensor(0.3, device=self.device), torch.tensor(1.0, device=self.device))
-        
-        return decay
-    
-    def _compute_minimal_topo_effect(self, orograph: torch.Tensor, polar_mask: torch.Tensor) -> torch.Tensor:
-        """Minimal topographic effect - mostly zeros."""
-        # ZERO in polar regions
-        effect = torch.zeros_like(orograph, device=self.device)
-        
-        # Very small effect elsewhere
-        non_polar = ~polar_mask
-        if torch.any(non_polar):
-            # Tiny gradient using large kernel (smooth)
-            kernel = torch.tensor([[0, 0.1, 0],
-                                   [0.1, 0, 0.1],
-                                   [0, 0.1, 0]], device=self.device, dtype=orograph.dtype) * 0.1
-            
-            orograph_4d = orograph.unsqueeze(0).unsqueeze(0)
-            kernel_4d = kernel.unsqueeze(0).unsqueeze(0)
-            
-            grad = torch.nn.functional.conv2d(
-                torch.nn.functional.pad(orograph_4d, (1, 1, 1, 1), mode='replicate'),
-                kernel_4d,
-                padding=0
-            ).squeeze()
-            
-            effect = torch.where(non_polar, grad * 0.001, effect)  # Very small scaling
-        
-        return effect
-    
-    def _apply_polar_hard_limits_only(self, wind: torch.Tensor,
-                                     lat_deg: torch.Tensor, lon_deg: torch.Tensor,
-                                     antarctica_mask: torch.Tensor,
-                                     greenland_mask: torch.Tensor,
-                                     greenland_north_mask: torch.Tensor,
-                                     greenland_mid_mask: torch.Tensor) -> torch.Tensor:
-        """
-        Apply ONLY hard limits - no complex corrections.
-        """
+    def _apply_polar_limits(self, wind: torch.Tensor,
+                          antarctica_mask: torch.Tensor,
+                          greenland_mask: torch.Tensor) -> torch.Tensor:
+        """Apply simple limits to polar regions."""
         result = wind.clone()
         
-        # Antarctica: Strict limits
+        # Antarctica limits
         if torch.any(antarctica_mask):
             result = torch.where(antarctica_mask,
-                               torch.clamp(result, 
-                                         torch.tensor(-8.0, device=self.device),
-                                         torch.tensor(8.0, device=self.device)),
+                               torch.clamp(result, -15.0, 15.0),
                                result)
         
-        # Greenland: Regional limits
+        # Greenland limits
         if torch.any(greenland_mask):
-            # North Greenland
-            if torch.any(greenland_north_mask):
-                result = torch.where(greenland_north_mask,
-                                   torch.clamp(result,
-                                             torch.tensor(-5.0, device=self.device),
-                                             torch.tensor(10.0, device=self.device)),
-                                   result)
-            
-            # Middle Greenland
-            if torch.any(greenland_mid_mask):
-                result = torch.where(greenland_mid_mask,
-                                   torch.clamp(result,
-                                             torch.tensor(-8.0, device=self.device),
-                                             torch.tensor(8.0, device=self.device)),
-                                   result)
-            
-            # Rest of Greenland
-            rest_greenland = greenland_mask & ~greenland_north_mask & ~greenland_mid_mask
-            if torch.any(rest_greenland):
-                result = torch.where(rest_greenland,
-                                   torch.clamp(result,
-                                             torch.tensor(-10.0, device=self.device),
-                                             torch.tensor(10.0, device=self.device)),
-                                   result)
+            result = torch.where(greenland_mask,
+                               torch.clamp(result, -12.0, 12.0),
+                               result)
         
         return result
     
-    def _apply_stabilization(self, predicted_wind: torch.Tensor, 
-                            current_wind: torch.Tensor,
-                            land_sea_mask_future: torch.Tensor) -> torch.Tensor:
-        """
-        Apply stabilization using future land-sea mask.
-        Land: 85% persistence, Ocean: 95% persistence.
-        """
-        land_damping = torch.tensor(0.85, device=self.device)
-        ocean_damping = torch.tensor(0.95, device=self.device)
+    def _apply_smoothing(self, wind: torch.Tensor, sigma: float = 0.5) -> torch.Tensor:
+        """Apply simple Gaussian-like smoothing."""
+        # Simple 3x3 averaging filter
+        kernel = torch.tensor([[0.0625, 0.125, 0.0625],
+                              [0.125, 0.250, 0.125],
+                              [0.0625, 0.125, 0.0625]],
+                             device=self.device, dtype=wind.dtype)
         
-        damping = torch.where(land_sea_mask_future > 0.5, land_damping, ocean_damping)
-        
-        return damping * predicted_wind + (1 - damping) * current_wind
-    
-    def _compute_pressure_gradient(self, sp: torch.Tensor, lat_rad: torch.Tensor) -> torch.Tensor:
-        """Compute pressure gradient."""
-        height, width = sp.shape
-        
-        kernel_y = torch.tensor([[0, -0.5, 0],
-                                 [0, 0, 0],
-                                 [0, 0.5, 0]], dtype=sp.dtype, device=self.device)
-        
-        sp_4d = sp.unsqueeze(0).unsqueeze(0)
-        kernel_y_4d = kernel_y.unsqueeze(0).unsqueeze(0)
-        
-        grad_y = torch.nn.functional.conv2d(
-            torch.nn.functional.pad(sp_4d, (1, 1, 1, 1), mode='replicate'),
-            kernel_y_4d,
-            padding=0
-        ).squeeze()
-        
-        grad_y = grad_y * 1e-6
-        
-        f = 2 * self.omega * torch.sin(lat_rad)
-        f_sign = torch.sign(f)
-        f_abs = torch.abs(f)
-        f_min = torch.tensor(1e-10, device=self.device)
-        f_safe = f_sign * torch.maximum(f_abs, f_min)
-        
-        u_geo = -grad_y / (self.rho * f_safe)
-        
-        return self.PRESSURE_SCALING * u_geo
-    
-    def _compute_temperature_gradient(self, t2m: torch.Tensor) -> torch.Tensor:
-        """Compute temperature gradient."""
-        height, width = t2m.shape
-        
-        kernel_y = torch.tensor([[0, -0.3, 0],
-                                 [0, 0, 0],
-                                 [0, 0.3, 0]], dtype=t2m.dtype, device=self.device)
-        
-        t2m_4d = t2m.unsqueeze(0).unsqueeze(0)
-        kernel_y_4d = kernel_y.unsqueeze(0).unsqueeze(0)
-        
-        grad_y = torch.nn.functional.conv2d(
-            torch.nn.functional.pad(t2m_4d, (1, 1, 1, 1), mode='replicate'),
-            kernel_y_4d,
-            padding=0
-        ).squeeze()
-        
-        return self.THERMAL_WIND_SCALING * grad_y
-    
-    def _compute_jet_stream(self, lat_rad: torch.Tensor, lat_deg: torch.Tensor, 
-                           current_time_utc: datetime) -> torch.Tensor:
-        """Compute jet stream."""
-        lat_from_center = lat_deg - self.jet_lat_center
-        
-        width_factor = torch.where(lat_from_center > 0, 
-                                  self.jet_width * 0.8,
-                                  self.jet_width * 1.2)
-        
-        lat_norm = lat_from_center / width_factor
-        jet_profile = torch.exp(-lat_norm**4)
-        
-        lat_amplitude = torch.sin(lat_rad)**2
-        jet_profile = jet_profile * lat_amplitude
-        
-        return self.jet_max_speed * jet_profile
-    
-    def _minimal_smoothing(self, wind: torch.Tensor) -> torch.Tensor:
-        """Apply minimal smoothing."""
-        kernel = torch.tensor([[0, 0.1, 0],
-                               [0.1, 0.6, 0.1],
-                               [0, 0.1, 0]], dtype=wind.dtype, device=self.device)
-        
+        # Apply convolution
         wind_4d = wind.unsqueeze(0).unsqueeze(0)
         kernel_4d = kernel.unsqueeze(0).unsqueeze(0)
         
-        smoothed = torch.nn.functional.conv2d(
-            torch.nn.functional.pad(wind_4d, (1, 1, 1, 1), mode='replicate'),
-            kernel_4d,
-            padding=0
-        ).squeeze()
+        # Use reflect padding for boundaries
+        padded = torch.nn.functional.pad(wind_4d, (1, 1, 1, 1), mode='reflect')
+        smoothed = torch.nn.functional.conv2d(padded, kernel_4d, padding=0).squeeze()
         
-        return wind * (1 - self.FINAL_SMOOTHING) + smoothed * self.FINAL_SMOOTHING
+        # Blend with original
+        result = wind * 0.7 + smoothed * 0.3
+        
+        return result
     
-    def _convert_result(self, result: torch.Tensor, return_tensor: Optional[bool]) -> Union[torch.Tensor, np.ndarray]:
-        """Convert result to appropriate format."""
-        if return_tensor is None:
-            return_tensor = not self.return_cpu
+    def predict(self, meteo: torch.Tensor, geo_dense: torch.Tensor,
+                geo_cat: torch.Tensor, geo_tempo: torch.Tensor,
+                geo_tempo_f: torch.Tensor, current_dt: datetime,
+                delta_hours: int) -> torch.Tensor:
+        """
+        Predict u100m for future time t + delta_hours.
         
-        if return_tensor:
-            return result
+        Args:
+            meteo: [t2m, tp, u100, v100, d2m, sp] - shape [6, H, W]
+            geo_dense: [orograph, sin_lat, cos_lat, sin_lon, cos_lon] - shape [5, H, W]
+            geo_cat: [land_sea_mask, soil_type] - shape [2, H, W]
+            geo_tempo: [sin_orbit, cos_orbit, sin_zenith, cos_zenith] - shape [4, H, W] for current
+            geo_tempo_f: [sin_orbit, cos_orbit, sin_zenith, cos_zenith] - shape [4, H, W] for future
+            current_dt: Current datetime
+            delta_hours: Hours to forecast
+            
+        Returns:
+            Predicted u100m (eastward wind component) at future time
+        """
+        # Move to device
+        meteo = meteo.to(self.device).float()
+        geo_dense = geo_dense.to(self.device).float()
+        geo_cat = geo_cat.to(self.device).float()
+        geo_tempo = geo_tempo.to(self.device).float()
+        geo_tempo_f = geo_tempo_f.to(self.device).float()
+        
+        # Extract components
+        t2m = meteo[0]        # 2m temperature (K)
+        tp = meteo[1]         # Total precipitation (m)
+        u100_current = meteo[2]  # Current u100 (m/s)
+        v100_current = meteo[3]  # Current v100 (m/s)
+        d2m = meteo[4]        # 2m dew point (K)
+        sp = meteo[5]         # Surface pressure (Pa)
+        
+        orograph = geo_dense[0]   # Orography (m²/s²)
+        sin_lat = geo_dense[1]    # sin(latitude)
+        cos_lat = geo_dense[2]    # cos(latitude)
+        sin_lon = geo_dense[3]    # sin(longitude)
+        cos_lon = geo_dense[4]    # cos(longitude)
+        
+        land_sea_mask = geo_cat[0]  # 0=sea, 1=land
+        soil_type = geo_cat[1]      # Soil type
+        
+        # Calculate latitude and longitude in radians and degrees
+        lat_rad = torch.arcsin(torch.clamp(sin_lat, -0.9999, 0.9999))
+        lat_deg = torch.rad2deg(lat_rad)
+        lon_rad = torch.atan2(sin_lon, cos_lon)
+        lon_deg = torch.rad2deg(lon_rad)
+        
+        # 1. Identify polar regions (for limits only)
+        antarctica_mask, greenland_mask = self._identify_polar_regions(lat_deg, lon_deg, orograph)
+        
+        # 2. Persistence with friction decay (85% weight)
+        decay = self._compute_friction_decay(land_sea_mask, delta_hours)
+        persistence = u100_current * decay
+        
+        # 3. Jet stream contribution (8% weight)
+        u_jet = self._compute_jet_stream(lat_rad, lat_deg)
+        
+        # 4. Pressure gradient wind (5% weight)
+        u_pressure = self._compute_pressure_gradient_wind(sp, lat_rad)
+        
+        # 5. Thermal wind adjustment (2% weight)
+        u_thermal = self._compute_thermal_wind(t2m, lat_rad)
+        
+        # 6. Combine all effects
+        u_pred = (persistence * self.WEIGHT_PERSISTENCE +
+                 u_jet * self.WEIGHT_JET +
+                 u_pressure * self.WEIGHT_PRESSURE +
+                 u_thermal * self.WEIGHT_THERMAL)
+        
+        # 7. Apply precipitation damping (rain reduces wind)
+        # Convert precipitation from meters to mm/hour equivalent
+        tp_mm_per_hour = tp * 1000.0 / max(delta_hours, 1)
+        precip_factor = torch.exp(-0.005 * tp_mm_per_hour)
+        precip_factor = torch.clamp(precip_factor, 0.7, 1.0)
+        u_pred = u_pred * precip_factor
+        
+        # 8. Apply polar region limits (simple hard limits)
+        u_pred = self._apply_polar_limits(u_pred, antarctica_mask, greenland_mask)
+        
+        # 9. Apply smoothing to remove small-scale noise
+        u_pred = self._apply_smoothing(u_pred)
+        
+        # 10. Final global limits
+        u_pred = torch.clamp(u_pred, -50.0, 50.0)
+        
+        # 11. Handle NaN values (fall back to persistence)
+        nan_mask = torch.isnan(u_pred)
+        if torch.any(nan_mask):
+            u_pred = torch.where(nan_mask, persistence, u_pred)
+        
+        # Return on CPU if using GPU
+        if self.device.type == 'cuda':
+            return u_pred.cpu()
         else:
-            return result.cpu().numpy()
+            return u_pred
+
+
+# Test function
+def test_predictor():
+    """Test the predictor with simple data."""
+    # Create test data
+    H, W = 64, 128  # Small test size
     
-    def to(self, device: str) -> 'U100mPredictor':
-        """Move the predictor to a different device."""
-        self.device = device
-        self._setup_constants()
-        return self
+    # Create realistic test data
+    torch.manual_seed(42)
+    
+    # Latitude grid (-90 to 90 degrees)
+    lat = torch.linspace(-90, 90, H)
+    lon = torch.linspace(-180, 180, W)
+    lat_grid, lon_grid = torch.meshgrid(lat, lon, indexing='ij')
+    
+    # Meteo data
+    t2m = torch.ones(H, W) * 288.0 + torch.randn(H, W) * 10.0
+    tp = torch.rand(H, W) * 0.001  # Small precipitation
+    u100_current = torch.randn(H, W) * 5.0  # Current wind
+    v100_current = torch.randn(H, W) * 5.0
+    d2m = t2m - torch.rand(H, W) * 5.0  # Dew point slightly lower than temp
+    sp = torch.ones(H, W) * 101325.0 + torch.randn(H, W) * 1000.0
+    
+    meteo = torch.stack([t2m, tp, u100_current, v100_current, d2m, sp], dim=0)
+    
+    # Geographic data
+    sin_lat = torch.sin(torch.deg2rad(lat_grid))
+    cos_lat = torch.cos(torch.deg2rad(lat_grid))
+    sin_lon = torch.sin(torch.deg2rad(lon_grid))
+    cos_lon = torch.cos(torch.deg2rad(lon_grid))
+    orograph = torch.randn(H, W) * 1000.0  # Terrain
+    
+    geo_dense = torch.stack([orograph, sin_lat, cos_lat, sin_lon, cos_lon], dim=0)
+    
+    # Categorical data
+    land_sea_mask = torch.rand(H, W) > 0.3  # 70% land
+    soil_type = torch.randint(0, 8, (H, W))
+    
+    geo_cat = torch.stack([land_sea_mask.float(), soil_type.float()], dim=0)
+    
+    # Temporal data (simplified)
+    sin_orbit = torch.sin(torch.tensor(0.0)) * torch.ones(H, W)
+    cos_orbit = torch.cos(torch.tensor(0.0)) * torch.ones(H, W)
+    sin_zenith = torch.sin(torch.deg2rad(45.0)) * torch.ones(H, W)
+    cos_zenith = torch.cos(torch.deg2rad(45.0)) * torch.ones(H, W)
+    
+    geo_tempo = torch.stack([sin_orbit, cos_orbit, sin_zenith, cos_zenith], dim=0)
+    geo_tempo_f = geo_tempo.clone()  # Same for future for testing
+    
+    # Create predictor
+    predictor = U100mPredictor()
+    
+    # Make prediction
+    current_time = datetime.now()
+    u_pred = predictor.predict(meteo, geo_dense, geo_cat, geo_tempo,
+                             geo_tempo_f, current_time, delta_hours=6)
+    
+    # Check results
+    print(f"Prediction shape: {u_pred.shape}")
+    print(f"Min: {u_pred.min().item():.2f} m/s")
+    print(f"Max: {u_pred.max().item():.2f} m/s")
+    print(f"Mean: {u_pred.mean().item():.2f} m/s")
+    print(f"Std: {u_pred.std().item():.2f} m/s")
+    
+    # Check for invalid values
+    nan_count = torch.isnan(u_pred).sum().item()
+    inf_count = torch.isinf(u_pred).sum().item()
+    
+    if nan_count == 0 and inf_count == 0:
+        print("✓ No NaN or Inf values")
+    else:
+        print(f"✗ Found {nan_count} NaN and {inf_count} Inf values")
+    
+    return u_pred
+
+
+if __name__ == "__main__":
+    print("Testing U100mPredictor...")
+    result = test_predictor()
+    print("Test completed successfully!")

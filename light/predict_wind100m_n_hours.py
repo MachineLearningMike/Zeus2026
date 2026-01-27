@@ -1,38 +1,33 @@
 """
 Prompt (DeepSeek)
-Again.
-Now we have input maps at any given time t. They are:
-    meteo = torch.stack([t2m, tp, u100, v100, d2m, sp], dim=0), where all components are of shape (H, W) in lat and lon,
+
+t2m, tp, u100, v100, d2m, sp, orograph, and land_sea_mask are from ERA5 and have units defined by ERA5.
+Their units are: t2m: temperature K, tp: water m, u100: m/s, v100: m/s, d2m: temperature K, sp: Pascal, orograph: m**2 / s**2
+soil types are {'O: cean/Lake', 1: 'Coarse', 2:'Medium', 3: 'Medium Fine', 4: 'Fine', 5: 'Very Fine', 6: 'Organic', 7: 'Tropical Organic',}
+land_sea_mask types are {0: sea, 1: land}
+We also have geological data: loatitudes, longitudes, earth orbital angle, and zenith angle.
+All above data components are a map over the globe, with thee shape of (latitudes and longitudes).
+The time t is given in UTC.
+
+Now we have inputs for given current time t. They are:
+    meteo = torch.stack([t2m, tp, u100, v100, d2m, sp], dim=0),
     geo_dense = torch.stack([orograph, sin_lat, cos_lat, sin_lon, cos_lon], dim=0),
     geo_cat = torch.stack([land_sea_mask, soil_type], dim=0),
     geo_tempo = torch.stack([sin_orbit, cos_orbit, sin_zenith, cos_zenith], dim=0).
+, where sin_xxx means sin(xxx) and cos_xxx means cos(xxx)
+We also have inputs for the given future time f. 
+The current and the future shares all inputs, except that the future has no meteo and its own geo_tempo called geo_tempo_f.
 
-t2m, tp, u100, v100, d2m, sp, orograph, and land_sea_mask are from ERA5 and have units defined by ERA5.
-The units are: temperature K, water m, m/s, m/s, temperature K, and Pa, respectively.
-sin_xxx means sin(xxx) for any xxx, and cos_xxx means cos(xxx) for any xxx.
-All component tensors of the stacks have a shape of (721, 1440).
-soil types are 
-soil_type_descriptions = {
-0:	'Ocean/Lake',
-1:	'Coarse',
-2:	'Medium',
-3:	'Medium Fine',
-4:	'Fine',
-5:	'Very Fine',
-6:	'Organic',
-7:	'Tropical Organic',
-}
-land_sea_mask types are {0: sea, 1: land}
-The time t is given in UTC.
+def predict(self, meteo: torch.Tensor, geo_dense: torch.Tensor, 
+                geo_cat: torch.Tensor, geo_tempo: torch.Tensor, geo_tempo_f: torch.Tensor,
+                current_dt: datetime, delta_hours: int) -> torch.Tensor] - (torch.tensor)
 
-Please write code that predicts v100m at time t + delta hours, by fastest physical logic and not by tedious ML or numerical analysis. delta is in range: 0, 1, ...,
+Please write a Python class "Wind100mPredictor" that has the above predict(.) function, 
+which predicts both u100 and v100 at the same time in relation with each other, 
+for the time t + delta hours, with fast physical logic and not by tedious ML or numerical analysis.
 Please take into account all the input maps, together with Jet-stream, which is best modeled with sin**2 x cos**2 of latitude.
+Please choose GPU if it's avialable.
 I need both code and physical explanation.
-
-Please predict the future u100m and v100m both at the same time in relation with each other, from the current meteo information, 
-which has both current u100m and v100m, along with the current and future geological information, like latitude, longitude, 
-earth orbital angle, zenith angle, etc., which are found in the arguments in the predict(.) function.
-
 """
 
 import torch

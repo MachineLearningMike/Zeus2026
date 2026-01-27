@@ -1342,9 +1342,12 @@ class Zeus_Dataset(Dataset):
     def play_physical_prediction(self, inclusive_left, inclusive_right, modulo):
             
         from modules.utils import show_two_arrays, initialize_for_show_array, finalize_for_show_array
-        from light.predict_t2m_n_hours import FastPhysicsT2MPredictor
+        from light.predict_t2m_n_hours import T2mPredictor
         from light.predict_u100m_n_hours import U100mPredictor
+        from light.predict_d2m_n_hours import D2mPredictor
         from light.predict_v100m_n_hours import V100mPredictor
+        from light.predict_sp_n_hours import SpPredictor
+        
         from light.predict_wind100m_n_hours import Wind100mPredictor
     
         def get_key():
@@ -1375,9 +1378,11 @@ class Zeus_Dataset(Dataset):
         
         initialize_for_show_array()
         
-        t2m_predictor = FastPhysicsT2MPredictor()
+        t2m_predictor = T2mPredictor()
         u100m_predictor = U100mPredictor()
         v100m_predictor = V100mPredictor()
+        d2m_predictor = D2mPredictor()
+        sp_predictor = SpPredictor()
         wind100m_predictor = Wind100mPredictor()
         
         # Main loop -----------------------------------------------------------------------------
@@ -1404,13 +1409,20 @@ class Zeus_Dataset(Dataset):
                 
                     s = time.time()
                     if variable == "t2m":
-                        pred = t2m_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, dt_x, ss_y.tempo, delta_hours=modulo)
+                        pred = t2m_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, ss_y.tempo, dt_x, delta_hours=modulo).cpu().numpy()
                     elif variable == "u100m":
-                        pred = u100m_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, dt_x, ss_y.tempo, delta_hours=modulo)
-                        # pred, _ = wind100m_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, dt_x, ss_y.tempo, delta_hours=modulo)
+                        pred = u100m_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, ss_y.tempo, dt_x, delta_hours=modulo).cpu().numpy()
+                        # pred, _ = wind100m_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, ss_y.tempo, dt_x, delta_hours=modulo).numpy()
                     elif variable == "v100m":
-                        pred = v100m_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, dt_x, ss_y.tempo, delta_hours=modulo)
-                        # _, pred = wind100m_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, dt_x, ss_y.tempo, delta_hours=modulo)
+                        pred = v100m_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, ss_y.tempo, dt_x, delta_hours=modulo).cpu().numpy()
+                        # _, pred = wind100m_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, ss_y.tempo, dt_x, delta_hours=modulo).numpy()
+                    elif variable == "d2m":
+                        pred = d2m_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, ss_y.tempo, dt_x, delta_hours=modulo).cpu().numpy()
+                        # _, pred = wind100m_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, ss_y.tempo, dt_x, delta_hours=modulo).numpy()
+                    elif variable == "sp":
+                        pred = sp_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, ss_y.tempo, dt_x, delta_hours=modulo).cpu().numpy()
+
+
                     e = time.time()
                     # pred = ss_x.meteo[0].numpy() works   # array_x[0].numpy works
                 
