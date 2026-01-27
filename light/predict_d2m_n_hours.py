@@ -37,8 +37,8 @@ from typing import Optional
 
 class D2mPredictor:
     """
-    D2M Predictor that uses fast physical parameterizations.
-    Predicts dew point temperature (d2m) for time t + delta_hours.
+    D2M Predictor based on T2mPredictor logic but adapted for dew point temperature.
+    Key insight: Dew point depends on moisture content, which changes slower than temperature.
     """
     
     def __init__(self, device: Optional[str] = None):
@@ -49,414 +49,108 @@ class D2mPredictor:
             device: Device to run computations on ('cuda', 'cpu', or None for auto-detection)
         """
         self.device = device if device else ('cuda' if torch.cuda.is_available() else 'cpu')
-        print(f"D2mPredictor using device: {self.device}")
-        
-        # Initialize all constants and kernels
         self._setup_constants()
-        self._setup_kernels()
-    
+        self._setup_dew_point_physics()
+        
     def _setup_constants(self):
-        """Initialize all physical constants as tensors on the correct device."""
-        # Physical constants
+        """Physical constants."""
+        # Gas constants
         self.Rv = torch.tensor(461.5, device=self.device)      # Gas constant for water vapor [J/(kg·K)]
         self.Rd = torch.tensor(287.05, device=self.device)     # Gas constant for dry air [J/(kg·K)]
         self.eps = self.Rd / self.Rv  # Ratio ≈ 0.622
+        
+        # Thermodynamic constants
         self.Lv = torch.tensor(2.5e6, device=self.device)      # Latent heat of vaporization [J/kg]
         self.cp = torch.tensor(1005.0, device=self.device)     # Specific heat at constant pressure [J/(kg·K)]
         self.g = torch.tensor(9.80665, device=self.device)     # Gravity [m/s²]
         self.STD_PRESSURE = torch.tensor(101325.0, device=self.device)  # Standard pressure [Pa]
         
-        # Dew point parameters
-        self.DEW_POINT_MIN = torch.tensor(180.0, device=self.device)  # Minimum possible dew point [K]
-        self.DEW_POINT_MAX = torch.tensor(310.0, device=self.device)  # Maximum possible dew point [K]
-        self.DEW_POINT_DIFF_MAX = torch.tensor(40.0, device=self.device)  # Max difference from air temp [K]
-        self.DEW_POINT_PERSISTENCE = torch.tensor(0.7, device=self.device)  # Base persistence
-        
-        # Soil properties (already defined as dict, convert to tensors)
-        self.soil_evap_factor = torch.tensor([
-            1.0,   # 0: Ocean/Lake - maximum evaporation
-            0.3,   # 1: Coarse - sand/gravel, low water retention
-            0.5,   # 2: Medium - loam
-            0.6,   # 3: Medium Fine - clay loam
-            0.7,   # 4: Fine - clay
-            0.8,   # 5: Very Fine - silt
-            0.9,   # 6: Organic - peat, high water retention
-            1.0,   # 7: Tropical Organic - maximum
-        ], device=self.device)
-        
-        self.soil_thermal_inertia = torch.tensor([
-            0.9,   # 0: Ocean/Lake - high thermal inertia
-            0.3,   # 1: Coarse - low thermal inertia
-            0.5,   # 2: Medium
-            0.6,   # 3: Medium Fine
-            0.8,   # 4: Fine - high thermal inertia
-            0.7,   # 5: Very Fine
-            0.4,   # 6: Organic - low thermal inertia
-            0.4,   # 7: Tropical Organic
-        ], device=self.device)
-        
-        # Evaporation parameters
-        self.EVAP_RATE_LAND = torch.tensor(0.001, device=self.device)
-        self.EVAP_RATE_OCEAN = torch.tensor(0.002, device=self.device)
-        self.EVAP_SOLAR_FACTOR = torch.tensor(0.5, device=self.device)
-        
-        # Advection parameters
-        self.ADVECTION_FACTOR = torch.tensor(0.00005, device=self.device)
-        self.JET_STREAM_BOOST = torch.tensor(5.0, device=self.device)
-        
-        # Boundary layer mixing
-        self.MIXING_LAND = torch.tensor(0.3, device=self.device)
-        self.MIXING_OCEAN = torch.tensor(0.1, device=self.device)
-        
-        # Precipitation effect
-        self.PRECIP_EVAP_RATE = torch.tensor(0.5, device=self.device)  # Evaporation from precipitation
-        self.PRECIP_REMOVAL_RATE = torch.tensor(-1.0, device=self.device)  # Moisture removal by precipitation
-        
-        # Diurnal cycle for moisture
-        self.DIURNAL_MOISTURE_LAND = torch.tensor(0.1, device=self.device)
-        self.DIURNAL_MOISTURE_OCEAN = torch.tensor(0.05, device=self.device)
-        
-        # Orographic effect
-        self.OROGRAPHIC_FACTOR = torch.tensor(-0.0001, device=self.device)
-        self.OROGRAPHIC_THRESHOLD = torch.tensor(500.0, device=self.device)  # meters
-        
-        # Cloud effects
-        self.CLOUD_EVAP_REDUCTION = torch.tensor(0.3, device=self.device)
-        self.CLOUD_MOISTURE_RETENTION = torch.tensor(0.2, device=self.device)
-        
-        # Smoothing
-        self.SMOOTHING_FACTOR = torch.tensor(0.2, device=self.device)
-        
-        # Pole handling
-        self.POLE_LATITUDE_THRESHOLD = torch.tensor(85.0, device=self.device)  # degrees
-        self.POLE_PERSISTENCE = torch.tensor(0.9, device=self.device)
-        
-        # Small epsilon to avoid division by zero
+        # Mathematical constants
+        self.PI = torch.tensor(math.pi, device=self.device)
+        self.DEG2RAD = torch.tensor(math.pi / 180.0, device=self.device)
         self.EPS = torch.tensor(1e-8, device=self.device)
         
-        # Humidity bounds
-        self.Q_MIN = torch.tensor(0.0001, device=self.device)  # Minimum specific humidity
-        self.Q_MAX = torch.tensor(0.04, device=self.device)    # Maximum specific humidity
-        
-    def _setup_kernels(self):
-        """Initialize convolution kernels for smoothing."""
-        # Separable convolution kernels for better GPU performance
-        self.kernel_x = torch.ones(1, 1, 1, 3, device=self.device) / 3.0
-        self.kernel_y = torch.ones(1, 1, 3, 1, device=self.device) / 3.0
-    
-    def _saturation_vapor_pressure(self, T_K: torch.Tensor) -> torch.Tensor:
-        """Calculate saturation vapor pressure using Teten's formula."""
-        T_C = T_K - 273.15
-        # Teten's formula (more stable than Magnus)
-        es = 6.112 * torch.exp((17.67 * T_C) / (T_C + 243.5))  # hPa
-        return es * 100  # Convert to Pa
-    
-    def _dew_point_from_specific_humidity(self, q: torch.Tensor, p: torch.Tensor) -> torch.Tensor:
-        """Calculate dew point from specific humidity and pressure."""
-        # Vapor pressure from specific humidity (avoid division by zero)
-        e_num = q * p
-        e_den = self.eps + (1 - self.eps) * q
-        e = e_num / torch.clamp(e_den, min=self.EPS)
-        
-        # Dew point from vapor pressure (inverse Teten's)
-        e_hPa = torch.clamp(e / 100.0, min=0.001, max=1000.0)  # Bound to reasonable values
-        
-        # Safe calculation
-        log_term = torch.log(e_hPa / 6.112)
-        Td_C = (243.5 * log_term) / torch.clamp(17.67 - log_term, min=self.EPS)
-        
-        return Td_C + 273.15  # Convert to K
-    
-    def _specific_humidity_from_dew_point(self, Td: torch.Tensor, p: torch.Tensor) -> torch.Tensor:
-        """Calculate specific humidity from dew point temperature."""
-        # Vapor pressure from dew point
-        Td_C = Td - 273.15
-        e = 6.112 * torch.exp((17.67 * Td_C) / (Td_C + 243.5)) * 100  # Pa
-        
-        # Specific humidity
-        q = (self.eps * e) / torch.clamp(p - (1 - self.eps) * e, min=self.EPS)
-        
-        return torch.clamp(q, self.Q_MIN, self.Q_MAX)
-    
-    def _compute_jet_stream_factor(self, sin_lat: torch.Tensor, cos_lat: torch.Tensor) -> torch.Tensor:
-        """
-        Jet stream influence factor.
-        sin²(lat) * cos²(lat) peaks at ±45° latitude (typical jet stream position).
-        Safe for poles.
-        """
-        # Compute latitude in radians safely
-        sin_lat_clamped = torch.clamp(sin_lat, -0.9999, 0.9999)
-        lat_rad = torch.arcsin(sin_lat_clamped)
-        
-        # Jet stream factor
-        jet_factor = torch.sin(lat_rad)**2 * torch.cos(lat_rad)**2
-        
-        # Normalize to [0, 1]
-        max_factor = torch.max(jet_factor)
-        if max_factor > 0:
-            jet_factor = jet_factor / max_factor
-        else:
-            jet_factor = torch.zeros_like(jet_factor)
-        
-        return jet_factor
-    
-    def _compute_time_factor(self, delta_hours: int) -> torch.Tensor:
-        """Compute time scaling factor."""
-        delta_tensor = torch.tensor(delta_hours, device=self.device, dtype=torch.float32)
-        return torch.clamp(delta_tensor / 6.0, 0.0, 1.0)
-    
-    def _compute_surface_masks(self, land_mask: torch.Tensor) -> tuple:
-        """Compute land and ocean masks."""
-        is_land = (land_mask == 1)
-        is_ocean = (land_mask == 0)
-        return is_land, is_ocean
-    
-    def _compute_pole_masks(self, sin_lat: torch.Tensor) -> tuple:
-        """Compute north and south pole masks."""
-        # Convert sin_lat to degrees for threshold
-        lat_rad = torch.arcsin(torch.clamp(sin_lat, -0.9999, 0.9999))
-        lat_deg = torch.rad2deg(lat_rad)
-        
-        is_north_pole = lat_deg > self.POLE_LATITUDE_THRESHOLD
-        is_south_pole = lat_deg < -self.POLE_LATITUDE_THRESHOLD
-        is_pole = is_north_pole | is_south_pole
-        
-        return is_pole, is_north_pole, is_south_pole
-    
-    def _compute_soil_factors(self, soil_type: torch.Tensor) -> tuple:
-        """Compute soil evaporation and thermal inertia factors."""
-        # Ensure soil_type is integer indices
-        soil_idx = soil_type.long()
-        
-        # Get soil factors using indexing
-        soil_evap = self.soil_evap_factor[soil_idx]
-        soil_inertia = self.soil_thermal_inertia[soil_idx]
-        
-        return soil_evap, soil_inertia
-    
-    def _compute_cloud_effects(self, T: torch.Tensor, Td: torch.Tensor, tp: torch.Tensor) -> tuple:
-        """Compute cloud cover and effects on moisture."""
-        # Relative humidity estimate
-        T_diff = torch.clamp(T - Td, min=1.0, max=30.0)
-        RH = torch.exp(-0.05 * T_diff)
-        
-        # Cloud cover from RH and precipitation
-        cloud_cover = torch.clamp(0.8 * RH + 2.0 * tp, 0.0, 1.0)
-        
-        # Cloud effects on evaporation and moisture
-        evap_reduction = 1.0 - self.CLOUD_EVAP_REDUCTION * cloud_cover
-        moisture_retention = 1.0 + self.CLOUD_MOISTURE_RETENTION * cloud_cover
-        
-        return cloud_cover, evap_reduction, moisture_retention
-    
-    def _compute_local_solar_time(self, sin_lon: torch.Tensor, cos_lon: torch.Tensor,
-                                 current_dt: datetime, delta_hours: int) -> torch.Tensor:
-        """Compute local solar time for future time."""
-        # Longitude in radians
-        lon_rad = torch.atan2(sin_lon, cos_lon)
-        
-        # Current UTC hour
-        UTC_hour = current_dt.hour + current_dt.minute/60.0 + current_dt.second/3600.0
-        
-        # Future UTC hour
-        future_hour = (UTC_hour + delta_hours) % 24
-        
-        # Convert to local solar time (hours)
-        local_solar_future = (future_hour + torch.rad2deg(lon_rad)/15.0) % 24
-        
-        return local_solar_future
-    
-    def _compute_time_period_masks(self, local_solar_future: torch.Tensor) -> dict:
-        """Compute masks for different time periods of the day."""
-        return {
-            'pre_dawn': (local_solar_future >= 3) & (local_solar_future < 6),
-            'morning': (local_solar_future >= 6) & (local_solar_future < 9),
-            'midday': (local_solar_future >= 9) & (local_solar_future < 15),
-            'afternoon': (local_solar_future >= 15) & (local_solar_future < 18),
-            'evening': (local_solar_future >= 18) & (local_solar_future < 21),
-            'night': (local_solar_future >= 21) | (local_solar_future < 3),
+    def _setup_dew_point_physics(self):
+        """Parameters specific to dew point prediction."""
+        # MOISTURE SOURCES (increases d2m)
+        # 1. Evaporation - based on solar intensity and vapor pressure deficit
+        self.EVAPORATION_RATE = {
+            'land': torch.tensor(0.0015, device=self.device),   # K/hour per 100 W/m² deficit
+            'ocean': torch.tensor(0.003, device=self.device),   # Ocean evaporates faster
         }
-    
-    def _compute_evaporation(self, T: torch.Tensor, Td: torch.Tensor, wind_speed: torch.Tensor,
-                            soil_evap: torch.Tensor, is_land: torch.Tensor, is_ocean: torch.Tensor,
-                            solar_factor: torch.Tensor, cloud_evap_reduction: torch.Tensor,
-                            time_factor: torch.Tensor) -> torch.Tensor:
-        """Compute evaporation rate."""
-        # Saturation vapor pressure
-        es = self._saturation_vapor_pressure(T)
         
-        # Actual vapor pressure from dew point
+        # 2. Diurnal moisture cycle (d2m has weaker diurnal cycle than t2m)
+        self.DIURNAL_MOISTURE = {
+            'land_amplitude': torch.tensor(1.0, device=self.device),    # d2m varies ±1K over day
+            'ocean_amplitude': torch.tensor(0.3, device=self.device),   # Ocean varies less
+            'peak_hour': torch.tensor(15.0, device=self.device),        # Peak moisture ~3 PM
+        }
+        
+        # MOISTURE SINKS (decreases d2m)
+        # 3. Mixing - wind mixes drier air from aloft
+        self.MIXING_RATE = torch.tensor(-0.0005, device=self.device)  # K/hour per m/s wind
+        
+        # 4. Advection - horizontal moisture transport
+        self.ADVECTION_FACTOR = torch.tensor(0.001, device=self.device)
+        
+        # 5. Precipitation effects
+        self.PRECIP_EVAP_BOOST = torch.tensor(0.002, device=self.device)  # Evaporation from falling rain
+        self.PRECIP_REMOVAL = torch.tensor(-0.001, device=self.device)    # Moisture removal by rain
+        
+        # ASYMMETRY FACTORS (like T2mPredictor)
+        self.MORNING_EVAP_BOOST = torch.tensor(1.3, device=self.device)    # Morning evaporation stronger
+        self.EVENING_EVAP_REDUCTION = torch.tensor(0.7, device=self.device) # Evening evaporation weaker
+        
+        # RATE LIMITS (d2m changes slower than t2m)
+        self.MAX_WARMING = {
+            'land': torch.tensor(0.4, device=self.device),    # K/hour max warming
+            'ocean': torch.tensor(0.2, device=self.device),   # Ocean changes slower
+        }
+        
+        self.MAX_COOLING = {
+            'land': torch.tensor(-0.3, device=self.device),   # K/hour max cooling
+            'ocean': torch.tensor(-0.15, device=self.device), # Ocean changes slower
+        }
+        
+        # MORNING/EVENING ASYMMETRY IN RATE LIMITS
+        self.MORNING_WARMING_BOOST = torch.tensor(1.5, device=self.device)
+        self.EVENING_COOLING_REDUCTION = torch.tensor(0.8, device=self.device)
+        
+        # PHYSICAL BOUNDS
+        self.DEW_POINT_MIN = torch.tensor(220.0, device=self.device)
+        self.DEW_POINT_MAX = torch.tensor(310.0, device=self.device)
+        self.MAX_TD_T_DIFF = torch.tensor(30.0, device=self.device)  # Max T - Td difference
+        
+    def _calculate_specific_humidity(self, Td: torch.Tensor, p: torch.Tensor) -> torch.Tensor:
+        """Calculate specific humidity from dew point."""
+        # Vapor pressure from dew point (Teten's formula)
         Td_C = Td - 273.15
         e = 6.112 * torch.exp((17.67 * Td_C) / (Td_C + 243.5)) * 100  # Pa
         
-        # Vapor pressure deficit
-        VPD = torch.clamp(es - e, min=0.0)
+        # Specific humidity: q = εe / (p - (1-ε)e)
+        q = (self.eps * e) / torch.clamp(p - (1 - self.eps) * e, min=100.0)
         
-        # Base evaporation rate
-        evap_rate_land = self.EVAP_RATE_LAND
-        evap_rate_ocean = self.EVAP_RATE_OCEAN
-        base_rate = torch.where(is_land, evap_rate_land, evap_rate_ocean)
-        
-        # Wind effect
-        wind_effect = torch.sqrt(wind_speed + self.EPS)
-        
-        # Solar effect
-        solar_effect = 1.0 + self.EVAP_SOLAR_FACTOR * solar_factor
-        
-        # Combine all effects
-        evaporation = base_rate * VPD * wind_effect * soil_evap * solar_effect * cloud_evap_reduction
-        
-        return evaporation * time_factor
+        return torch.clamp(q, 0.0001, 0.04)
     
-    def _compute_moisture_advection(self, U: torch.Tensor, V: torch.Tensor, q: torch.Tensor,
-                                   sin_lat: torch.Tensor, jet_factor: torch.Tensor,
-                                   is_pole: torch.Tensor, time_factor: torch.Tensor) -> torch.Tensor:
-        """Compute moisture advection."""
-        # Moisture gradient (approximate: decreases with latitude)
-        lat_gradient = -self.ADVECTION_FACTOR  # kg/kg per degree latitude
+    def _calculate_dew_point(self, q: torch.Tensor, p: torch.Tensor) -> torch.Tensor:
+        """Calculate dew point from specific humidity."""
+        # Vapor pressure: e = qp / (ε + q(1-ε))
+        e = (q * p) / torch.clamp(self.eps + q * (1 - self.eps), min=self.EPS)
         
-        # Effective wind for advection
-        wind_speed = torch.sqrt(U**2 + V**2 + self.EPS)
+        # Dew point from vapor pressure
+        e_hPa = torch.clamp(e / 100.0, 0.001, 100.0)
         
-        # Direction factor (use u-wind component)
-        advection = U * lat_gradient * 111000  # Convert to m (1° ≈ 111km)
+        # Inverse Teten's: Td = (243.5 * ln(e/6.112)) / (17.67 - ln(e/6.112))
+        ln_term = torch.log(e_hPa / 6.112)
+        Td_C = (243.5 * ln_term) / torch.clamp(17.67 - ln_term, min=self.EPS)
         
-        # Jet stream enhancement
-        advection = advection * (1.0 + self.JET_STREAM_BOOST * jet_factor)
-        
-        # Minimal advection at poles
-        advection = torch.where(is_pole, torch.tensor(0.0, device=self.device), advection)
-        
-        return advection * time_factor
+        return Td_C + 273.15  # Convert to Kelvin
     
-    def _compute_boundary_layer_mixing(self, wind_speed: torch.Tensor, sp: torch.Tensor,
-                                      is_land: torch.Tensor, is_ocean: torch.Tensor,
-                                      time_factor: torch.Tensor) -> torch.Tensor:
-        """Compute boundary layer mixing effect (dries the air)."""
-        # Mixing efficiency
-        mixing_efficiency = torch.where(is_land, self.MIXING_LAND, self.MIXING_OCEAN)
-        
-        # Pressure effect (less mixing at higher pressure)
-        pressure_factor = self.STD_PRESSURE / torch.clamp(sp, min=80000.0)
-        
-        # Mixing effect (negative = drying)
-        mixing = -mixing_efficiency * wind_speed * pressure_factor * 0.001
-        
-        return mixing * time_factor
-    
-    def _compute_orographic_effect(self, orograph: torch.Tensor, wind_speed: torch.Tensor,
-                                  q: torch.Tensor, time_factor: torch.Tensor) -> torch.Tensor:
-        """Compute orographic effects on moisture."""
-        # Convert orograph to height [m]
-        height = orograph / self.g
-        
-        # Orographic effect (drying on lee side, moistening on windward)
-        orographic_effect = torch.where(
-            height > self.OROGRAPHIC_THRESHOLD,
-            self.OROGRAPHIC_FACTOR * height,
-            torch.tensor(0.0, device=self.device)
-        )
-        
-        # Enhanced by wind speed
-        return orographic_effect * wind_speed * q * time_factor
-    
-    def _compute_precipitation_effect(self, tp: torch.Tensor, is_day: torch.Tensor,
-                                     time_factor: torch.Tensor) -> torch.Tensor:
-        """Compute precipitation effect on moisture."""
-        # Two competing effects:
-        # 1. Evaporation from falling precipitation adds moisture
-        # 2. Precipitation removes moisture from the air
-        
-        # Net effect depends on time of day
-        # During day: more evaporation from precipitation
-        # During night: more moisture removal
-        
-        evap_from_precip = self.PRECIP_EVAP_RATE * tp
-        removal_by_precip = self.PRECIP_REMOVAL_RATE * tp
-        
-        # Daytime favors evaporation, nighttime favors removal
-        effect = torch.where(is_day, evap_from_precip, removal_by_precip)
-        
-        return effect * time_factor
-    
-    def _compute_diurnal_moisture(self, time_masks: dict, is_land: torch.Tensor,
-                                 is_ocean: torch.Tensor, cloud_cover: torch.Tensor,
-                                 local_solar_future: torch.Tensor, time_factor: torch.Tensor) -> torch.Tensor:
-        """Compute diurnal moisture variation."""
-        diurnal_moisture = torch.zeros_like(local_solar_future, device=self.device)
-        
-        # Different moisture regimes throughout the day
-        # Morning/afternoon: increasing moisture from evaporation
-        # Night: decreasing moisture from condensation
-        
-        # Morning (6-9 AM): moisture increases
-        morning_factor = torch.where(
-            time_masks['morning'],
-            torch.clamp((local_solar_future - 6) / 3.0, 0.0, 1.0),
-            0.0
-        )
-        diurnal_moisture = torch.where(
-            time_masks['morning'] & is_land,
-            self.DIURNAL_MOISTURE_LAND * morning_factor * (1.0 - cloud_cover),
-            diurnal_moisture
-        )
-        diurnal_moisture = torch.where(
-            time_masks['morning'] & is_ocean,
-            self.DIURNAL_MOISTURE_OCEAN * morning_factor * (1.0 - cloud_cover),
-            diurnal_moisture
-        )
-        
-        # Night (9 PM - 3 AM): moisture decreases
-        night_factor = torch.where(
-            time_masks['night'],
-            torch.clamp(1.0 - torch.abs(local_solar_future - 24.0) / 3.0, 0.0, 1.0),
-            0.0
-        )
-        diurnal_moisture = torch.where(
-            time_masks['night'] & is_land,
-            -self.DIURNAL_MOISTURE_LAND * night_factor * (1.0 - cloud_cover),
-            diurnal_moisture
-        )
-        diurnal_moisture = torch.where(
-            time_masks['night'] & is_ocean,
-            -self.DIURNAL_MOISTURE_OCEAN * night_factor * (1.0 - cloud_cover),
-            diurnal_moisture
-        )
-        
-        return diurnal_moisture * time_factor
-    
-    def _apply_smoothing(self, field: torch.Tensor) -> torch.Tensor:
-        """Apply spatial smoothing."""
-        if field.dim() == 2:
-            # Add batch and channel dimensions
-            field_4d = field.unsqueeze(0).unsqueeze(0)
-            
-            # Apply separable convolution
-            field_smooth_x = torch.nn.functional.conv2d(
-                torch.nn.functional.pad(field_4d, (1, 1, 0, 0), mode='replicate'),
-                self.kernel_x,
-                padding=0
-            )
-            
-            field_smooth = torch.nn.functional.conv2d(
-                torch.nn.functional.pad(field_smooth_x, (0, 0, 1, 1), mode='replicate'),
-                self.kernel_y,
-                padding=0
-            ).squeeze()
-            
-            # Handle NaN in smoothing
-            field_smooth = torch.where(torch.isnan(field_smooth), field, field_smooth)
-            
-            return (1 - self.SMOOTHING_FACTOR) * field + self.SMOOTHING_FACTOR * field_smooth
-        
-        return field
-    
-    def predict(self, meteo: torch.Tensor, geo_dense: torch.Tensor,
-                geo_cat: torch.Tensor, geo_tempo: torch.Tensor, 
-                geo_tempo_f: torch.Tensor,
+    def predict(self, meteo: torch.Tensor, geo_dense: torch.Tensor, 
+                geo_cat: torch.Tensor, geo_tempo: torch.Tensor, geo_tempo_f: torch.Tensor,
                 current_dt: datetime, delta_hours: int) -> torch.Tensor:
         """
-        Predict dew point temperature (d2m) at time t + delta_hours.
+        Predict dew point temperature (d2m) for time t + delta_hours.
         
         Args:
             meteo: [t2m, tp, u100, v100, d2m, sp] shape (6, H, W)
@@ -470,12 +164,10 @@ class D2mPredictor:
         Returns:
             predicted_d2m: torch.Tensor shape (H, W)
         """
-        # Validate delta
-        delta_hours = max(0, min(12, delta_hours))
         if delta_hours == 0:
             return meteo[4].clone()
         
-        # Ensure tensors are on the correct device
+        # Move to device
         meteo = meteo.to(self.device)
         geo_dense = geo_dense.to(self.device)
         geo_cat = geo_cat.to(self.device)
@@ -483,222 +175,431 @@ class D2mPredictor:
         geo_tempo_f = geo_tempo_f.to(self.device)
         
         # Extract variables
-        T = meteo[0]           # Current 2m temperature (K)
-        tp = meteo[1]          # Total precipitation water (m)
-        U = meteo[2]           # Eastward wind at 100m (m/s)
-        V = meteo[3]           # Northward wind at 100m (m/s)
-        current_d2m = meteo[4]  # Current dew point at 2m (K)
-        sp = meteo[5]          # Surface pressure (Pa)
+        T = meteo[0]           # Current air temperature [K]
+        tp = meteo[1]          # Total precipitation [m water]
+        U = meteo[2]           # Eastward wind at 100m [m/s]
+        V = meteo[3]           # Northward wind at 100m [m/s]
+        Td_current = meteo[4]  # Current dew point [K]
+        sp = meteo[5]          # Surface pressure [Pa]
         
-        # Extract geographical data
-        orograph = geo_dense[0]  # Geopotential (m²/s²)
+        # Geographical data
         sin_lat = geo_dense[1]   # sin(latitude)
         cos_lat = geo_dense[2]   # cos(latitude)
         sin_lon = geo_dense[3]   # sin(longitude)
         cos_lon = geo_dense[4]   # cos(longitude)
         
         land_mask = geo_cat[0]   # 0=sea, 1=land
-        soil_type = geo_cat[1]   # Soil type (0-7)
+        land_fraction = land_mask.float()
         
-        # Use geo_tempo_f for future solar geometry
-        sin_zenith_future = geo_tempo_f[2]  # sin(zenith angle at future time)
-        cos_zenith_future = geo_tempo_f[3]  # cos(zenith angle at future time)
-        cos_z_future = torch.clamp(cos_zenith_future, 0.0, 1.0)
+        # Solar geometry (use future time for prediction)
+        cos_z_current = torch.clamp(geo_tempo[3], 0.0, 1.0)
+        cos_z_future = torch.clamp(geo_tempo_f[3], 0.0, 1.0)
         
-        # --- MAIN COMPUTATION ---
-        # Compute masks and factors
-        time_factor = self._compute_time_factor(delta_hours)
-        is_land, is_ocean = self._compute_surface_masks(land_mask)
-        is_pole, is_north_pole, is_south_pole = self._compute_pole_masks(sin_lat)
-        soil_evap, soil_inertia = self._compute_soil_factors(soil_type)
-        cloud_cover, cloud_evap_reduction, cloud_moisture_retention = self._compute_cloud_effects(
-            T, current_d2m, tp
-        )
+        H, W = Td_current.shape
+        delta_hours_tensor = torch.tensor(delta_hours, device=self.device, dtype=torch.float32)
         
-        # Solar time and day/night
-        local_solar_future = self._compute_local_solar_time(
-            sin_lon, cos_lon, current_dt, delta_hours
-        )
-        time_masks = self._compute_time_period_masks(local_solar_future)
+        # --- MAIN PHYSICS (following T2mPredictor pattern) ---
         
-        # Day/night based on solar zenith angle
-        is_day = cos_z_future > 0.1  # Simple threshold
+        # 1. EVAPORATION/CONDENSATION (main moisture source/sink)
+        # Vapor pressure deficit
+        es_current = 6.112 * torch.exp((17.67 * (T - 273.15)) / ((T - 273.15) + 243.5)) * 100
+        e_current = 6.112 * torch.exp((17.67 * (Td_current - 273.15)) / ((Td_current - 273.15) + 243.5)) * 100
+        VPD = torch.clamp(es_current - e_current, min=0.0)  # Vapor pressure deficit [Pa]
         
-        # Jet stream
-        jet_factor = self._compute_jet_stream_factor(sin_lat, cos_lat)
+        # Solar intensity affects evaporation
+        solar_future = 1361.0 * cos_z_future  # W/m²
         
-        # Current specific humidity
-        current_q = self._specific_humidity_from_dew_point(current_d2m, sp)
+        # Cloud reduction (precipitation indicates clouds)
+        cloud_fraction = torch.clamp(20.0 * tp, 0.0, 1.0)
+        solar_effective = solar_future * (1.0 - 0.5 * cloud_fraction)
         
-        # Wind speed
+        # Evaporation rate (depends on land/ocean)
+        evap_rate = (self.EVAPORATION_RATE['land'] * land_fraction + 
+                    self.EVAPORATION_RATE['ocean'] * (1.0 - land_fraction))
+        
+        # ΔTd from evaporation: proportional to VPD and solar
+        evap_effect = evap_rate * (VPD / 100.0) * (solar_effective / 100.0) * delta_hours_tensor
+        
+        # 2. MORNING/EVENING ASYMMETRY (like T2mPredictor)
+        cos_z_change = cos_z_future - cos_z_current
+        
+        # Morning: sun rising (increasing evaporation)
+        is_morning = cos_z_change > 0.05
+        
+        # Evening: sun setting (decreasing evaporation)
+        is_evening = cos_z_change < -0.05
+        
+        # Adjust evaporation rates
+        evap_effect = torch.where(is_morning,
+                                 evap_effect * self.MORNING_EVAP_BOOST,
+                                 evap_effect)
+        
+        evap_effect = torch.where(is_evening,
+                                 evap_effect * self.EVENING_EVAP_REDUCTION,
+                                 evap_effect)
+        
+        # 3. DIURNAL MOISTURE CYCLE (d2m has its own diurnal cycle)
+        lat_rad = torch.arcsin(torch.clamp(sin_lat, -0.9999, 0.9999))
+        lon_rad = torch.atan2(sin_lon, cos_lon)
+        
+        UTC_hour = current_dt.hour + current_dt.minute/60.0 + current_dt.second/3600.0
+        
+        # Smooth local time calculation (reduce banding)
+        lon_effect = torch.rad2deg(lon_rad) / 15.0
+        
+        # Apply smoothing to longitude effect
+        if H > 1 and W > 1:
+            lon_effect_4d = lon_effect.unsqueeze(0).unsqueeze(0)
+            kernel = torch.ones(1, 1, 7, 7, device=self.device) / 49.0
+            lon_effect_smooth = torch.nn.functional.conv2d(
+                torch.nn.functional.pad(lon_effect_4d, (3, 3, 3, 3), mode='replicate'),
+                kernel
+            ).squeeze()
+            lon_effect = 0.2 * lon_effect + 0.8 * lon_effect_smooth
+        
+        local_hour_current = (UTC_hour + lon_effect) % 24
+        local_hour_future = (local_hour_current + delta_hours) % 24
+        
+        # Diurnal amplitude (smaller than temperature)
+        diurnal_amplitude = (self.DIURNAL_MOISTURE['land_amplitude'] * land_fraction + 
+                           self.DIURNAL_MOISTURE['ocean_amplitude'] * (1.0 - land_fraction))
+        
+        # Moisture peaks later than temperature (~3 PM vs 2 PM)
+        peak_hour = self.DIURNAL_MOISTURE['peak_hour']
+        
+        phase_current = (local_hour_current - peak_hour) * 2.0 * self.PI / 24.0
+        phase_future = (local_hour_future - peak_hour) * 2.0 * self.PI / 24.0
+        
+        diurnal_current = diurnal_amplitude * torch.cos(phase_current)
+        diurnal_future = diurnal_amplitude * torch.cos(phase_future)
+        
+        diurnal_change = diurnal_future - diurnal_current
+        
+        # 4. ADVECTION - horizontal moisture transport
         wind_speed = torch.sqrt(U**2 + V**2 + self.EPS)
         
-        # --- COMPUTE ALL MOISTURE CHANGES ---
-        # 1. Evaporation (adds moisture)
-        evaporation = self._compute_evaporation(
-            T, current_d2m, wind_speed, soil_evap, is_land, is_ocean,
-            cos_z_future, cloud_evap_reduction, time_factor
+        # Current specific humidity
+        q_current = self._calculate_specific_humidity(Td_current, sp)
+        
+        # Moisture gradient (use specific humidity)
+        dx = 111320 * torch.clamp(cos_lat, 0.3, 1.0)  # meters per degree longitude
+        dy = 111320 * torch.ones_like(cos_lat)        # meters per degree latitude
+        
+        q_padded = torch.nn.functional.pad(q_current.unsqueeze(0).unsqueeze(0), 
+                                          (1, 1, 1, 1), mode='replicate').squeeze()
+        
+        dq_dx = (q_padded[1:-1, 2:] - q_padded[1:-1, :-2]) / (2 * dx + self.EPS)
+        dq_dy = (q_padded[2:, 1:-1] - q_padded[:-2, 1:-1]) / (2 * dy + self.EPS)
+        
+        # Moisture advection: dq/dt = -U·∇q
+        q_advection = -(U * dq_dx + V * dq_dy) * delta_hours_tensor * self.ADVECTION_FACTOR
+        
+        # Convert q change to Td change
+        # Approximate: ΔTd ≈ (Δq / (dq/dTd)) where dq/dTd ≈ 0.0005 K⁻¹ at 20°C
+        dTd_advection = q_advection / 0.0005
+        
+        # 5. BOUNDARY LAYER MIXING (dries the air)
+        # Stronger winds mix drier air from aloft
+        mixing_effect = self.MIXING_RATE * wind_speed * delta_hours_tensor
+        
+        # 6. PRECIPITATION EFFECTS
+        # Two competing effects:
+        # - Evaporation from falling rain increases moisture
+        # - Precipitation removes moisture from air
+        is_day = cos_z_future > 0.1
+        
+        # Daytime: evaporation from rain dominates
+        # Nighttime: moisture removal dominates
+        precip_effect = torch.where(
+            is_day,
+            self.PRECIP_EVAP_BOOST * tp * delta_hours_tensor,
+            self.PRECIP_REMOVAL * tp * delta_hours_tensor
         )
         
-        # 2. Moisture advection
-        advection = self._compute_moisture_advection(
-            U, V, current_q, sin_lat, jet_factor, is_pole, time_factor
-        )
+        # 7. CLOUD EFFECTS (moisture retention)
+        # Clouds trap moisture near surface
+        cloud_moisture = 0.1 * cloud_fraction * delta_hours_tensor
         
-        # 3. Boundary layer mixing (removes moisture)
-        mixing = self._compute_boundary_layer_mixing(
-            wind_speed, sp, is_land, is_ocean, time_factor
-        )
+        # 8. JET STREAM EFFECT (enhances horizontal transport)
+        # Jet streams at mid-latitudes enhance moisture transport
+        lat_rad = torch.arcsin(torch.clamp(sin_lat, -0.9999, 0.9999))
+        jet_factor = torch.sin(2 * lat_rad)**2 * torch.cos(lat_rad)**2
         
-        # 4. Orographic effects
-        orographic = self._compute_orographic_effect(
-            orograph, wind_speed, current_q, time_factor
-        )
+        # Normalize jet factor
+        jet_max = torch.max(jet_factor)
+        if jet_max > 0:
+            jet_factor = jet_factor / jet_max
         
-        # 5. Precipitation effects
-        precip_effect = self._compute_precipitation_effect(
-            tp, is_day, time_factor
-        )
+        # Apply jet stream boost to advection
+        dTd_advection = dTd_advection * (1.0 + 2.0 * jet_factor)
         
-        # 6. Diurnal moisture cycle
-        diurnal_moisture = self._compute_diurnal_moisture(
-            time_masks, is_land, is_ocean, cloud_cover, local_solar_future, time_factor
-        )
+        # 9. COMBINE ALL EFFECTS
+        dTd_total = (evap_effect +
+                    diurnal_change +
+                    dTd_advection +
+                    mixing_effect +
+                    precip_effect +
+                    cloud_moisture)
         
-        # 7. Cloud moisture retention
-        cloud_moisture = (cloud_moisture_retention - 1.0) * current_q * time_factor
+        # 10. RATE LIMITS (asymmetric, like T2mPredictor)
+        # Base rate limits
+        max_warming_base = (self.MAX_WARMING['land'] * land_fraction + 
+                          self.MAX_WARMING['ocean'] * (1.0 - land_fraction)) * delta_hours_tensor
         
-        # --- COMBINE ALL EFFECTS ---
-        future_q = current_q + evaporation + advection + mixing + orographic + \
-                  precip_effect + diurnal_moisture + cloud_moisture
+        max_cooling_base = (self.MAX_COOLING['land'] * land_fraction + 
+                          self.MAX_COOLING['ocean'] * (1.0 - land_fraction)) * delta_hours_tensor
         
-        # Apply physical bounds
-        future_q = torch.clamp(future_q, self.Q_MIN, self.Q_MAX)
+        # Morning/evening adjustments
+        max_warming = torch.where(is_morning,
+                                 max_warming_base * self.MORNING_WARMING_BOOST,
+                                 max_warming_base)
         
-        # Convert back to dew point
-        predicted_d2m = self._dew_point_from_specific_humidity(future_q, sp)
+        max_cooling = torch.where(is_evening,
+                                 max_cooling_base * self.EVENING_COOLING_REDUCTION,
+                                 max_cooling_base)
         
-        # --- APPLY PHYSICAL CONSTRAINTS ---
+        # Apply rate limits
+        dTd_limited = torch.clamp(dTd_total, max_cooling, max_warming)
         
-        # 1. Dew point cannot exceed temperature
-        predicted_d2m = torch.minimum(predicted_d2m, T)
+        # 11. PREDICT FINAL DEW POINT
+        Td_pred = Td_current + dTd_limited
         
-        # 2. Minimum reasonable dew point
-        min_dewpoint = T - self.DEW_POINT_DIFF_MAX
-        predicted_d2m = torch.maximum(predicted_d2m, min_dewpoint)
+        # 12. APPLY ASYMMETRIC SMOOTHING (like T2mPredictor)
+        Td_pred = self._apply_dew_point_smoothing(Td_pred, is_morning, is_evening)
         
-        # 3. Global bounds
-        predicted_d2m = torch.clamp(predicted_d2m, self.DEW_POINT_MIN, self.DEW_POINT_MAX)
+        # 13. PHYSICAL CONSTRAINTS
+        # Dew point cannot exceed air temperature
+        Td_pred = torch.minimum(Td_pred, T)
         
-        # 4. Persistence for short forecasts
-        if delta_hours <= 3:
-            persistence_weight = torch.exp(torch.tensor(-delta_hours / 1.5, device=self.device))
-            predicted_d2m = persistence_weight * current_d2m + \
-                          (1 - persistence_weight) * predicted_d2m
+        # Minimum reasonable dew point
+        min_Td = T - self.MAX_TD_T_DIFF
+        Td_pred = torch.maximum(Td_pred, min_Td)
         
-        # 5. High persistence at poles
-        predicted_d2m = torch.where(
-            is_pole,
-            self.POLE_PERSISTENCE * current_d2m + (1 - self.POLE_PERSISTENCE) * predicted_d2m,
-            predicted_d2m
-        )
+        # Absolute bounds
+        Td_pred = torch.clamp(Td_pred, self.DEW_POINT_MIN, self.DEW_POINT_MAX)
         
-        # 6. Land-sea contrast
-        land_persistence = torch.where(is_land, 0.7, 0.9)
-        predicted_d2m = land_persistence * predicted_d2m + (1 - land_persistence) * current_d2m
+        # 14. HIGH PERSISTENCE AT POLES
+        # At high latitudes, moisture changes very slowly
+        is_pole = torch.abs(torch.rad2deg(lat_rad)) > 70.0
+        pole_persistence = 0.95
+        Td_pred = torch.where(is_pole,
+                             pole_persistence * Td_current + (1 - pole_persistence) * Td_pred,
+                             Td_pred)
         
-        # 7. Apply smoothing
-        predicted_d2m = self._apply_smoothing(predicted_d2m)
+        # 15. FINAL CHECKS
+        Td_pred = torch.where(torch.isnan(Td_pred), Td_current, Td_pred)
+        Td_pred = torch.where(torch.isinf(Td_pred), Td_current, Td_pred)
         
-        # 8. Final NaN/Inf check
-        predicted_d2m = torch.where(
-            torch.isnan(predicted_d2m) | torch.isinf(predicted_d2m),
-            current_d2m,
-            predicted_d2m
-        )
+        return Td_pred
+    
+    def _apply_dew_point_smoothing(self, Td: torch.Tensor,
+                                  is_morning: torch.Tensor,
+                                  is_evening: torch.Tensor) -> torch.Tensor:
+        """
+        Apply asymmetric smoothing to dew point field.
+        More smoothing in east-west direction to reduce banding.
+        """
+        # Strong east-west smoothing kernel
+        kernel_ew = torch.tensor([[0.0, 0.15, 0.0],
+                                 [0.0, 0.70, 0.0],
+                                 [0.0, 0.15, 0.0]], device=self.device).view(1, 1, 3, 3)
         
-        return predicted_d2m
+        # Mild north-south smoothing
+        kernel_ns = torch.tensor([[0.0, 0.0, 0.0],
+                                 [0.08, 0.84, 0.08],
+                                 [0.0, 0.0, 0.0]], device=self.device).view(1, 1, 3, 3)
+        
+        Td_4d = Td.unsqueeze(0).unsqueeze(0)
+        
+        # Apply east-west smoothing
+        smoothed_ew = torch.nn.functional.conv2d(
+            torch.nn.functional.pad(Td_4d, (1, 1, 1, 1), mode='replicate'),
+            kernel_ew
+        ).squeeze()
+        
+        # Apply north-south smoothing
+        smoothed_ns = torch.nn.functional.conv2d(
+            torch.nn.functional.pad(Td_4d, (1, 1, 1, 1), mode='replicate'),
+            kernel_ns
+        ).squeeze()
+        
+        # More smoothing in morning/evening transition zones
+        morning_evening_mask = is_morning | is_evening
+        
+        # Stronger smoothing for transition regions
+        smoothing_strength = torch.where(morning_evening_mask,
+                                        torch.tensor(0.3, device=self.device),
+                                        torch.tensor(0.15, device=self.device))
+        
+        # Blend: 60% east-west, 40% north-south (dew point is more zonally uniform)
+        smoothed = 0.6 * smoothed_ew + 0.4 * smoothed_ns
+        
+        result = (1 - smoothing_strength) * Td + smoothing_strength * smoothed
+        
+        return result
     
     def to(self, device: str) -> 'D2mPredictor':
         """Move the predictor to a different device."""
         self.device = device
-        self._setup_constants()  # Re-initialize constants on new device
-        self._setup_kernels()
+        self._setup_constants()
+        self._setup_dew_point_physics()
         return self
 
 
 # Test function
 def test_d2m_predictor():
-    """Test the D2mPredictor."""
-    print("Testing D2mPredictor...")
+    """Test the D2mPredictor with realistic data."""
+    print("Testing D2mPredictor with T2mPredictor-style physics")
     print("=" * 60)
     
     # Create predictor
     predictor = D2mPredictor(device='cpu')
     
-    # Create realistic sample data
-    H, W = 100, 100
+    # Create realistic grid
+    H, W = 180, 360
+    lat = torch.linspace(-90, 90, H)
+    lon = torch.linspace(-180, 180, W)
+    lat_grid, lon_grid = torch.meshgrid(lat, lon, indexing='ij')
     
-    # Create tensors
+    # Initialize tensors
     meteo = torch.ones(6, H, W)
     geo_dense = torch.ones(5, H, W)
     geo_cat = torch.ones(2, H, W)
     geo_tempo = torch.ones(4, H, W)
     geo_tempo_f = torch.ones(4, H, W)
     
-    # Set realistic values
-    meteo[0] = 273.15 + 20.0  # 20°C air temperature
-    meteo[1] = 0.001  # 1mm precipitation water
-    meteo[2] = 5.0  # 5 m/s eastward wind
-    meteo[3] = 2.0  # 2 m/s northward wind
-    meteo[4] = 273.15 + 15.0  # 15°C dew point
-    meteo[5] = 101325.0  # Standard pressure
+    # Setup realistic values
+    # Temperature field with latitudinal gradient
+    for i in range(H):
+        lat_deg = lat[i].item()
+        # Realistic temperature: warm at equator, cold at poles
+        T_eq = 300.0  # 27°C at equator
+        T_pole = 250.0  # -23°C at poles
+        T_lat = T_eq - (abs(lat_deg) / 90.0) * (T_eq - T_pole)
+        
+        # Add some longitudinal variation
+        for j in range(W):
+            lon_deg = lon[j].item()
+            # Warmer over continents (simplified)
+            is_land = (abs(lon_deg) < 60 and abs(lat_deg) < 45)
+            T = T_lat + (5.0 if is_land else 0.0)
+            
+            # Dew point: typically 5-10°C below temperature
+            Td = T - 7.0 + torch.randn(1).item() * 2.0
+            
+            meteo[0, i, j] = T
+            meteo[4, i, j] = Td
+            geo_cat[0, i, j] = 1.0 if is_land else 0.0
     
-    # Set geographical data
-    lat = torch.linspace(-90, 90, H).unsqueeze(1)
-    lon = torch.linspace(-180, 180, W).unsqueeze(0)
+    # Other meteorological variables
+    meteo[1] = torch.rand(H, W) * 0.005  # Precipitation 0-5mm
+    meteo[2] = torch.randn(H, W) * 5.0   # Wind U
+    meteo[3] = torch.randn(H, W) * 3.0   # Wind V
+    meteo[5] = 101325.0  # Pressure
     
-    geo_dense[1] = torch.sin(lat * math.pi / 180.0)
-    geo_dense[2] = torch.cos(lat * math.pi / 180.0)
-    geo_dense[3] = torch.sin(lon * math.pi / 180.0)
-    geo_dense[4] = torch.cos(lon * math.pi / 180.0)
+    # Geographical data
+    geo_dense[1] = torch.sin(lat_grid * math.pi / 180.0)
+    geo_dense[2] = torch.cos(lat_grid * math.pi / 180.0)
+    geo_dense[3] = torch.sin(lon_grid * math.pi / 180.0)
+    geo_dense[4] = torch.cos(lon_grid * math.pi / 180.0)
     
-    # Land-sea mask
-    geo_cat[0] = (torch.rand(H, W) > 0.5).float()
-    
-    # Soil type
+    # Soil type (random for now)
     geo_cat[1] = torch.randint(0, 8, (H, W)).float()
     
-    # Solar geometry
-    geo_tempo_f[2] = torch.sin(torch.linspace(0, math.pi/2, H*W).view(H, W))
-    geo_tempo_f[3] = torch.cos(torch.linspace(0, math.pi/2, H*W).view(H, W))
+    # Simulate solar geometry (like in T2mPredictor test)
+    current_dt = datetime(2024, 6, 21, 6, 0, 0)  # 6 AM UTC
+    declination = 23.44 * math.pi / 180.0  # Summer solstice
     
-    current_dt = datetime(2024, 6, 21, 12, 0, 0)
-    delta_hours = 6
+    for i in range(H):
+        for j in range(W):
+            lat_rad = lat[i] * math.pi / 180.0
+            lon_rad = lon[j] * math.pi / 180.0
+            
+            # Current: 6 AM UTC
+            hour_angle_current = (6 - 12) * 15 * math.pi / 180.0 + lon_rad
+            cos_z_current = (math.sin(lat_rad) * math.sin(declination) +
+                           math.cos(lat_rad) * math.cos(declination) * math.cos(hour_angle_current))
+            geo_tempo[3, i, j] = max(0.0, min(1.0, cos_z_current))
+            
+            # Future: 12 PM UTC (6 hours later)
+            hour_angle_future = (12 - 12) * 15 * math.pi / 180.0 + lon_rad
+            cos_z_future = (math.sin(lat_rad) * math.sin(declination) +
+                          math.cos(lat_rad) * math.cos(declination) * math.cos(hour_angle_future))
+            geo_tempo_f[3, i, j] = max(0.0, min(1.0, cos_z_future))
     
     # Make prediction
+    print(f"Making 6-hour dew point forecast...")
     pred = predictor.predict(meteo, geo_dense, geo_cat, geo_tempo, geo_tempo_f,
-                            current_dt, delta_hours)
+                            current_dt, 6)
     
-    # Check results
-    nan_count = torch.isnan(pred).sum().item()
-    inf_count = torch.isinf(pred).sum().item()
+    # Analyze results
+    print("\nRESULTS:")
+    print("-" * 40)
     
+    # Convert to numpy for analysis
+    pred_np = pred.numpy()
+    Td_current_np = meteo[4].numpy()
+    T_np = meteo[0].numpy()
+    
+    # Check physical constraints
+    print(f"Min dew point: {pred_np.min():.2f} K ({pred_np.min() - 273.15:.2f}°C)")
+    print(f"Max dew point: {pred_np.max():.2f} K ({pred_np.max() - 273.15:.2f}°C)")
+    print(f"Mean dew point: {pred_np.mean():.2f} K ({pred_np.mean() - 273.15:.2f}°C)")
+    
+    # Check if dew point exceeds air temperature
+    exceeds_temp = np.any(pred_np > T_np + 0.1)  # Allow small numerical tolerance
+    print(f"Dew point exceeds air temperature: {'YES' if exceeds_temp else 'NO'}")
+    
+    # Check rate of change
+    dTd = pred_np - Td_current_np
+    print(f"Max warming: {dTd.max():.3f} K")
+    print(f"Max cooling: {dTd.min():.3f} K")
+    print(f"Mean change: {dTd.mean():.3f} K")
+    
+    # Check NaN/Inf
+    nan_count = np.isnan(pred_np).sum()
+    inf_count = np.isinf(pred_np).sum()
     print(f"NaN count: {nan_count}")
     print(f"Inf count: {inf_count}")
-    print(f"Min dew point: {pred.min().item():.2f} K ({pred.min().item() - 273.15:.2f}°C)")
-    print(f"Max dew point: {pred.max().item():.2f} K ({pred.max().item() - 273.15:.2f}°C)")
-    print(f"Mean dew point: {pred.mean().item():.2f} K ({pred.mean().item() - 273.15:.2f}°C)")
     
-    # Check pole values
-    print("\nPole values:")
-    print(f"North pole (row 0): mean = {pred[0, :].mean().item():.2f} K")
-    print(f"South pole (row -1): mean = {pred[-1, :].mean().item():.2f} K")
-    
-    if nan_count == 0 and inf_count == 0:
-        print("\n✓ SUCCESS: No NaN or Inf values found!")
+    if nan_count == 0 and inf_count == 0 and not exceeds_temp:
+        print("\n✓ SUCCESS: Physically consistent dew point prediction!")
     else:
-        print(f"\n✗ FAILED: Found {nan_count} NaN and {inf_count} Inf values")
+        print("\n✗ ISSUES DETECTED")
+    
+    # Analyze banding (like T2mPredictor)
+    cos_z_current_np = geo_tempo[3].numpy()
+    cos_z_future_np = geo_tempo_f[3].numpy()
+    cos_z_change = cos_z_future_np - cos_z_current_np
+    
+    is_morning = cos_z_change > 0.05
+    is_evening = cos_z_change < -0.05
+    
+    # Check for longitudinal banding
+    lon_grad = np.gradient(pred_np, axis=1)
+    lon_grad_abs = np.abs(lon_grad)
+    
+    morning_grad = lon_grad_abs[is_morning].mean() if np.any(is_morning) else 0
+    evening_grad = lon_grad_abs[is_evening].mean() if np.any(is_evening) else 0
+    
+    print(f"\nBANDING ANALYSIS:")
+    print(f"Morning region gradient: {morning_grad:.4f} K/degree")
+    print(f"Evening region gradient: {evening_grad:.4f} K/degree")
+    
+    if morning_grad > 0.1 or evening_grad > 0.1:
+        print("⚠️  Warning: Possible banding in dew point field")
+    else:
+        print("✓ Good: Minimal banding detected")
+    
+    print("\nKey physics included:")
+    print("1. Evaporation based on solar intensity and VPD")
+    print("2. Morning/evening asymmetry (like T2m)")
+    print("3. Diurnal moisture cycle (weaker than temperature)")
+    print("4. Moisture advection with jet stream enhancement")
+    print("5. Boundary layer mixing (drying)")
+    print("6. Precipitation effects (evaporation vs removal)")
+    print("7. Physical constraints (Td ≤ T, reasonable bounds)")
+    print("8. Asymmetric smoothing to reduce banding")
     
     return pred
 
