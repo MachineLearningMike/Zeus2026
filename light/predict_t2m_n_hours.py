@@ -24,6 +24,7 @@ def predict(self, meteo: torch.Tensor, geo_dense: torch.Tensor,
 
 Please write a Python class "T2mPredictor" that has the above predict(.) function, which predicts t2m 
 for the time t + delta hours, with fast physical logic and not by tedious ML or numerical analysis.
+Note the big picture is that t2m flows along the jes stream on the sea and flows along the sun on the land.
 Please take into account all the input maps, together with Jet-stream, which is best modeled with sin**2 x cos**2 of latitude.
 Please choose GPU if it's avialable.
 I need both code and physical explanation.
