@@ -1347,6 +1347,7 @@ class Zeus_Dataset(Dataset):
         from light.predict_d2m_n_hours import D2mPredictor
         from light.predict_v100m_n_hours import V100mPredictor
         from light.predict_sp_n_hours import SpPredictor
+        from light.predict_tp_n_hours import TpPredictor
         
         from light.predict_wind100m_n_hours import Wind100mPredictor
     
@@ -1383,6 +1384,7 @@ class Zeus_Dataset(Dataset):
         v100m_predictor = V100mPredictor()
         d2m_predictor = D2mPredictor()
         sp_predictor = SpPredictor()
+        tp_predictor = TpPredictor()
         wind100m_predictor = Wind100mPredictor()
         
         # Main loop -----------------------------------------------------------------------------
@@ -1421,6 +1423,8 @@ class Zeus_Dataset(Dataset):
                         # _, pred = wind100m_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, ss_y.tempo, dt_x, delta_hours=modulo).numpy()
                     elif variable == "sp":
                         pred = sp_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, ss_y.tempo, dt_x, delta_hours=modulo).cpu().numpy()
+                    elif variable == "tp":
+                        pred = tp_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, ss_y.tempo, dt_x, delta_hours=modulo).cpu().numpy()
 
 
                     e = time.time()

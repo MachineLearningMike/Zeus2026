@@ -268,13 +268,13 @@ def show_two_arrays(arr1, arr2=None, variable1="", variable2="", dt=datetime(200
         mean_val = np.nanmean(arr)
         std_val = np.nanstd(arr)
         
-        # Format with array label and 2 decimal places for cleaner display
+        # Format with array label and 5 decimal places for cleaner display
         if diff:
             # For difference panel, use the base_title which should already be "variable2 - variable1"
-            title = f"{base_title} (μ={mean_val:.2f}, σ={std_val:.2f})"
+            title = f"{base_title} (μ={mean_val:.5f}, σ={std_val:.5f})"
         else:
             # For regular panels, use the variable name
-            title = f"{base_title} (μ={mean_val:.2f}, σ={std_val:.2f})"
+            title = f"{base_title} (μ={mean_val:.5f}, σ={std_val:.5f})"
         return title
     
     # Create titles with statistics and array numbers
