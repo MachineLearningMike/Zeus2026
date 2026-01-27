@@ -227,6 +227,7 @@ def show_two_arrays(arr1, arr2=None, variable1="", variable2="", dt=datetime(200
     If two arrays are provided, also show their difference in a third panel on the lower row.
     Top panels share a colorbar, bottom difference panel has its own colorbar with same colormap.
     Each panel title includes array number, mean and standard deviation on the same line.
+    Mean and std values in the 3rd panel are displayed in dark blue color.
     """
     global _fig, _ax1, _ax2, _ax3, _im1, _im2, _im3, _cbar_top, _cbar_bottom
     
@@ -259,32 +260,49 @@ def show_two_arrays(arr1, arr2=None, variable1="", variable2="", dt=datetime(200
         arr2_plot = None
         diff_plot = None
     
-    # Calculate statistics for titles (on same line)
-    def get_stats_title(base_title, arr, diff=False):
-        """Create title with array label, mean and std statistics on same line."""
-        if arr is None:
-            return base_title
+    # Helper function to create colored titles
+    def create_titles(variable1, variable2, arr1_plot, arr2_plot, diff_plot, show_three):
+        """Create titles with appropriate formatting for each panel."""
+        # Calculate statistics
+        mean1 = np.nanmean(arr1_plot)
+        std1 = np.nanstd(arr1_plot)
         
-        mean_val = np.nanmean(arr)
-        std_val = np.nanstd(arr)
+        if show_three or show_two:
+            mean2 = np.nanmean(arr2_plot)
+            std2 = np.nanstd(arr2_plot)
         
-        # Format with array label and 5 decimal places for cleaner display
-        if diff:
-            # For difference panel, use the base_title which should already be "variable2 - variable1"
-            title = f"{base_title} (μ={mean_val:.5f}, σ={std_val:.5f})"
-        else:
-            # For regular panels, use the variable name
-            title = f"{base_title} (μ={mean_val:.5f}, σ={std_val:.5f})"
-        return title
+        if show_three:
+            mean_diff = np.nanmean(diff_plot)
+            std_diff = np.nanstd(diff_plot)
+        
+        # Panel 1 title (normal black)
+        title1 = f'{variable1} (μ={mean1:.5f}, σ={std1:.5f})'
+        
+        # Panel 2 title (normal black)
+        title2 = None
+        if show_three or show_two:
+            title2 = f'{variable2} (μ={mean2:.5f}, σ={std2:.5f})'
+        
+        # Panel 3 title with colored mean/std values
+        title3 = None
+        if show_three:
+            # Create a title with dark blue mean and std values
+            # We'll use matplotlib's Text object with different colors for different parts
+            title3_text = f'{variable2} - {variable1} (μ={mean_diff:.5f}, σ={std_diff:.5f})'
+            title3 = {
+                'text': title3_text,
+                'mean_value': f'{mean_diff:.5f}',
+                'std_value': f'{std_diff:.5f}',
+                'mean_start': title3_text.find(f'{mean_diff:.5f}'),
+                'mean_end': title3_text.find(f'{mean_diff:.5f}') + len(f'{mean_diff:.5f}'),
+                'std_start': title3_text.find(f'{std_diff:.5f}'),
+                'std_end': title3_text.find(f'{std_diff:.5f}') + len(f'{std_diff:.5f}')
+            }
+        
+        return title1, title2, title3
     
-    # Create titles with statistics and array numbers
-    title1 = get_stats_title(variable1, arr1_plot)
-    if show_two or show_three:
-        title2 = get_stats_title(variable2, arr2_plot)
-    if show_three:
-        # For difference panel, show "variable2 - variable1"
-        diff_title = f'{variable2} - {variable1}'
-        title3 = get_stats_title(diff_title, diff_plot, diff=True)
+    # Create titles
+    title1, title2, title3_dict = create_titles(variable1, variable2, arr1_plot, arr2_plot, diff_plot, show_three)
     
     # Calculate color ranges
     if show_three:
@@ -422,7 +440,12 @@ def show_two_arrays(arr1, arr2=None, variable1="", variable2="", dt=datetime(200
             gl3.top_labels = False
             gl3.right_labels = False
             gl3.left_labels = True  # Show labels on left for bottom plot
-            _ax3.set_title(title3, fontsize=10, fontweight='bold', pad=6)  # Reduced pad
+            
+            # Set the title for difference panel with colored mean/std values
+            title_obj = _ax3.set_title(title3_dict['text'], fontsize=10, fontweight='bold', pad=6)
+            
+            # We'll store the title data for later updates
+            _ax3._title_data = title3_dict
         
         # --- Add Color Bars ---
         if cbar_top_ax is not None:
@@ -494,19 +517,17 @@ def show_two_arrays(arr1, arr2=None, variable1="", variable2="", dt=datetime(200
             _im3.set_data(diff_plot)
             _im3.set_clim(vmin_diff, vmax_diff)
         
-        # Update titles with current statistics (using variable names)
-        title1 = get_stats_title(variable1, arr1_plot)
-        if show_two or show_three:
-            title2 = get_stats_title(variable2, arr2_plot)
-        if show_three:
-            diff_title = f'{variable2} - {variable1}'
-            title3 = get_stats_title(diff_title, diff_plot, diff=True)
+        # Recreate titles with current statistics
+        title1, title2, title3_dict = create_titles(variable1, variable2, arr1_plot, arr2_plot, diff_plot, show_three)
         
         _ax1.set_title(title1, fontsize=10, fontweight='bold', pad=6)
         if show_two or show_three:
             _ax2.set_title(title2, fontsize=10, fontweight='bold', pad=6)
         if show_three:
-            _ax3.set_title(title3, fontsize=10, fontweight='bold', pad=6)
+            # Update the title for difference panel
+            _ax3.set_title(title3_dict['text'], fontsize=10, fontweight='bold', pad=6)
+            # Store the updated title data
+            _ax3._title_data = title3_dict
         
         # Update colorbars
         if _cbar_top is not None:

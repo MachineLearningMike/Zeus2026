@@ -30,458 +30,369 @@ I need both code and physical explanation.
 """
 
 import torch
-import torch.nn as nn
-import numpy as np
-from datetime import datetime, timedelta
 import math
+from datetime import datetime
+from typing import Optional
 
 class V100mPredictor:
-    def __init__(self, device=None):
-        """
-        Physical model for predicting v100 (meridional wind at 100m)
-        
-        Physical principles:
-        1. Meridional pressure gradient force
-        2. Coriolis effect on zonal winds
-        3. Jet stream meandering (Rossby waves) and propagation
-        4. Thermal wind relation (N-S temperature gradients) with diurnal evolution
-        5. Surface friction and boundary layer effects with time dependence
-        6. Topographic steering
-        7. Land-sea thermal contrasts with diurnal cycle
-        8. Seasonal/orbital forcing with time progression
-        9. Advection and time tendencies
-        """
+    """
+    Predict meridional wind (v100) at time t+delta.
+    
+    Key physical insights for v-component:
+    1. Meridional wind is typically weaker than zonal wind
+    2. Driven by east-west pressure gradients (geostrophic balance)
+    3. Influenced by jet stream meanders (Rossby waves)
+    4. Has seasonal and diurnal patterns
+    5. Affected by topography blocking
+    """
+    
+    def __init__(self, device: Optional[str] = None):
         if device is None:
             self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        elif isinstance(device, str):
+            self.device = torch.device(device)
         else:
             self.device = device
-            
+        
+        self._setup_constants()
+        print(f"V100mPredictor initialized on device: {self.device}")
+        
+    def _setup_constants(self):
+        """Initialize thoughtfully chosen constants."""
         # Earth parameters
-        self.omega = 7.2921e-5  # Earth's rotation rate (rad/s)
-        self.R = 6371000.0  # Earth's radius (m)
-        self.g = 9.80665  # Gravity (m/s²)
+        self.omega = torch.tensor(7.2921159e-5, device=self.device)  # Earth rotation (rad/s)
+        self.R = torch.tensor(287.058, device=self.device)           # Gas constant (J/kg/K)
+        self.rho = torch.tensor(1.2, device=self.device)             # Air density (kg/m³)
         
-        # Physical constants
-        self.friction_land = 0.15  # Higher friction over land (per hour)
-        self.friction_sea = 0.05  # Lower friction over sea (per hour)
-        self.boundary_layer_response_time = 3.0  # hours (BL adjustment time)
-        self.rho = 1.225  # Air density (kg/m³)
+        # Jet stream characteristics for v-component
+        # v-component of jet is strongest during meanders/ridges
+        self.jet_lat_center = torch.tensor(45.0, device=self.device)  # Mid-latitude jets
+        self.jet_max_speed = torch.tensor(8.0, device=self.device)    # Meridional jet speed
         
-        # Atmospheric wave parameters
-        self.rossby_wave_speed = -10.0  # m/s (westward propagation)
-        self.synoptic_scale_advection = 15.0  # m/s typical advection speed
+        # Time evolution
+        self.hourly_persistence = torch.tensor(0.96, device=self.device)  # 96% persistence per hour
         
-        # Jet stream parameters
-        self.jet_lat_center = 45.0  # Approximate jet stream latitude (degrees)
-        self.jet_width = 15.0  # Jet stream width (degrees)
+        # Pressure gradient scaling (empirical)
+        self.pressure_scale = torch.tensor(1e-8, device=self.device)
         
-        print(f"Initialized V100mPredictor on device: {self.device}")
-    
-    def _compute_coriolis(self, lat_rad):
-        """Compute Coriolis parameter f = 2Ωsin(latitude)"""
-        return 2 * self.omega * torch.sin(lat_rad)
-    
-    def _compute_beta(self, lat_rad):
-        """Compute beta parameter β = ∂f/∂y = 2Ωcos(latitude)/R"""
-        return 2 * self.omega * torch.cos(lat_rad) / self.R
-    
-    def _jet_stream_evolution(self, lat_rad, lon_rad, delta_hours, season_factor):
-        """
-        Model jet stream evolution with Rossby wave propagation
+        # Topographic blocking
+        self.topo_blocking_scale = torch.tensor(0.001, device=self.device)
         
-        Physical basis:
-        - Rossby waves propagate westward with speed c = -β/k²
-        - Waves meander with time
-        - Amplitude varies with season
-        """
-        # Base latitudinal pattern
-        lat_deg = lat_rad * 180 / math.pi
+        # Realistic limits based on ERA5 v100 statistics
+        self.V_MIN = torch.tensor(-20.0, device=self.device)
+        self.V_MAX = torch.tensor(20.0, device=self.device)
         
-        # Jet stream envelope (Gaussian in latitude)
-        jet_envelope = torch.exp(-((lat_deg - self.jet_lat_center) / self.jet_width) ** 2)
-        
-        # Rossby wave pattern (wavenumber 3 typical)
-        wave_number = 3.0
-        k = wave_number / (self.R * torch.cos(lat_rad))  # Zonal wavenumber
-        
-        # Rossby wave phase speed (westward propagation)
-        beta = self._compute_beta(lat_rad)
-        with torch.no_grad():
-            # Avoid division by zero
-            k_safe = torch.where(torch.abs(k) > 1e-10, k, torch.ones_like(k) * 1e-10)
-        phase_speed = -beta / (k_safe ** 2)  # Rossby wave phase speed
-        
-        # Time evolution: wave propagates westward
-        # Δphase = k * c * Δt
-        delta_time_seconds = delta_hours * 3600.0
-        phase_shift = k * phase_speed * delta_time_seconds
-        
-        # Meridional wind pattern (90° out of phase from zonal)
-        # v_jet ∝ sin(kx - ωt) with ω = kc
-        rossby_wave = torch.sin(wave_number * lon_rad + phase_shift + math.pi/2)
-        
-        # Seasonally varying amplitude
-        base_strength = 12.0  # m/s
-        jet_strength = base_strength * season_factor
-        
-        # Time-evolving component
-        # Convert delta_hours to tensor for torch operations
-        delta_hours_tensor = torch.tensor(delta_hours, device=self.device, dtype=torch.float32)
-        time_evolution = 1.0 / (1.0 + 0.1 * delta_hours_tensor)  # Slow decay over time
-        
-        return jet_strength * jet_envelope * rossby_wave * time_evolution
-    
-    def _thermal_wind_evolution(self, t2m, d2m, lat_rad, delta_hours, diurnal_factor):
-        """
-        Compute evolving thermal wind
-        
-        Physical basis:
-        - Temperature gradients change with diurnal cycle
-        - Surface heating/cooling modifies gradients
-        - Time lag in atmospheric response
-        """
-        # Current zonal temperature gradient
-        grad_T_x = torch.gradient(t2m, dim=1)[0]  # ∂T/∂x
-        
-        # Moisture effect (dew point depression indicates dry air)
-        # Dry air heats/cools faster
-        dryness = (t2m - d2m) / 10.0  # Normalized dryness
-        
-        # Diurnal evolution: stronger gradients during day
-        # Maximum heating around local noon, cooling at night
-        diurnal_amplification = 1.0 + 0.3 * diurnal_factor * (1.0 - dryness)
-        
-        # Time lag in atmospheric response (thermal inertia)
-        # Convert delta_hours to tensor
-        delta_hours_tensor = torch.tensor(delta_hours, device=self.device, dtype=torch.float32)
-        response_factor = 1.0 - torch.exp(-delta_hours_tensor / self.boundary_layer_response_time)
-        
-        # Coriolis scaling
-        coriolis = self._compute_coriolis(lat_rad)
-        coriolis_factor = torch.where(torch.abs(coriolis) > 1e-8, 
-                                     1.0 / torch.abs(coriolis), 
-                                     torch.zeros_like(coriolis))
-        
-        # Evolving thermal wind
-        thermal_wind = -0.08 * grad_T_x * coriolis_factor * 100.0  # Base
-        thermal_wind = thermal_wind * diurnal_amplification * response_factor
-        
-        return thermal_wind
-    
-    def _pressure_gradient_evolution(self, sp, lat_rad, delta_hours):
-        """
-        Pressure gradient evolution over time
-        
-        Physical basis:
-        - Pressure systems move and intensify
-        - Geostrophic adjustment timescale
-        - Different evolution rates over land vs sea
-        """
-        # Current pressure gradient
-        grad_p_x = torch.gradient(sp, dim=1)[0]  # ∂p/∂x
-        
-        # Coriolis parameter
-        f = self._compute_coriolis(lat_rad)
-        
-        # Geostrophic wind
-        with torch.no_grad():
-            f_safe = torch.where(torch.abs(f) > 1e-8, f, torch.sign(f) * 1e-8)
-        v_geo = grad_p_x / (self.rho * f_safe)
-        
-        # Pressure systems evolve over time
-        # Convert delta_hours to tensor
-        delta_hours_tensor = torch.tensor(delta_hours, device=self.device, dtype=torch.float32)
-        time_decay = torch.exp(-delta_hours_tensor / 12.0)  # 12-hour decay timescale
-        
-        # Boundary layer reduction
-        bl_factor = 0.7
-        
-        return v_geo * bl_factor * time_decay
-    
-    def _advection_tendency(self, u100_current, v100_current, v100_field, delta_hours):
-        """
-        Compute advection tendency: ∂v/∂t = -u·∇v
-        
-        Physical basis:
-        - Wind carries momentum with it
-        - Upstream conditions affect downstream evolution
-        - Important for time evolution
-        """
-        # Compute gradients of v
-        grad_v_x = torch.gradient(v100_field, dim=1)[0]  # ∂v/∂x
-        grad_v_y = torch.gradient(v100_field, dim=0)[0]  # ∂v/∂y
-        
-        # Advection: ∂v/∂t = -u·∇v = -(u ∂v/∂x + v ∂v/∂y)
-        advection_tendency = -(u100_current * grad_v_x + v100_current * grad_v_y)
-        
-        # Convert tendency to change over delta_hours
-        # ∂v = (∂v/∂t) * Δt
-        delta_seconds = delta_hours * 3600.0
-        
-        # Scale appropriately (typical synoptic scale)
-        advection_change = advection_tendency * delta_seconds / 1e6
-        
-        return advection_change
-    
-    def _boundary_layer_evolution(self, u100_current, v100_current, land_sea_mask, delta_hours):
-        """
-        Boundary layer evolution with time
-        
-        Physical basis:
-        - Frictional damping increases with time
-        - Different evolution over land vs sea
-        - Momentum mixing time scale
-        """
-        # Current wind magnitude
-        wind_speed = torch.sqrt(u100_current**2 + v100_current**2 + 1e-6)
-        
-        # Time-dependent friction coefficient
-        # Convert delta_hours to tensor
-        delta_hours_tensor = torch.tensor(delta_hours, device=self.device, dtype=torch.float32)
-        
-        # Friction accumulates over time
-        friction_accumulation = 1.0 - torch.exp(-delta_hours_tensor / 6.0)
-        
-        # Different friction for land vs sea
-        base_friction = torch.where(land_sea_mask.bool(), 
-                                  self.friction_land, 
-                                  self.friction_sea)
-        
-        effective_friction = base_friction * (1.0 + friction_accumulation)
-        
-        # Damping factor: exp(-friction * time)
-        damping = torch.exp(-effective_friction * delta_hours_tensor)
-        
-        return damping
-    
-    def _diurnal_evolution(self, cos_zenith_current, cos_zenith_future, delta_hours):
-        """
-        Diurnal cycle evolution
-        
-        Physical basis:
-        - Solar heating changes through the day
-        - Thermal circulations evolve
-        - Maximum effect during daytime
-        """
-        # Current and future solar zenith
-        # cos(zenith) = 1 at noon, -1 at midnight
-        solar_current = torch.clamp(cos_zenith_current, 0.0, 1.0)  # Daytime only
-        solar_future = torch.clamp(cos_zenith_future, 0.0, 1.0)
-        
-        # Diurnal change
-        solar_change = solar_future - solar_current
-        
-        # Time-of-day factor
-        # Maximum thermal effects around local noon
-        time_factor = 1.0 + 0.5 * solar_future
-        
-        # Convert delta_hours to tensor for tensor operations
-        delta_hours_tensor = torch.tensor(delta_hours, device=self.device, dtype=torch.float32)
-        
-        # Evolution rate (faster during day)
-        if delta_hours > 0:
-            # Use tensor operation
-            evolution_rate = 1.0 / (1.0 + torch.exp(-10.0 * solar_change))
-        else:
-            evolution_rate = torch.ones_like(solar_change)
-        
-        return time_factor * evolution_rate
+        # Seasonal variation amplitude
+        self.seasonal_amplitude = torch.tensor(1.5, device=self.device)
     
     def predict(self, meteo: torch.Tensor, geo_dense: torch.Tensor, 
-                geo_cat: torch.Tensor, geo_tempo: torch.Tensor, 
+                geo_cat: torch.Tensor, geo_tempo: torch.Tensor,
                 geo_tempo_f: torch.Tensor,
                 current_dt: datetime, delta_hours: int) -> torch.Tensor:
         """
-        Predict v100 (meridional wind at 100m) delta_hours into the future
+        Thoughtful prediction of meridional wind.
+        
+        Strategy:
+        1. Strong persistence (wind patterns evolve slowly)
+        2. Pressure gradient forcing (geostrophic balance)
+        3. Jet stream influence (Rossby wave patterns)
+        4. Topographic effects (mountain blocking)
+        5. Seasonal/diurnal adjustments
         
         Args:
             meteo: [t2m, tp, u100, v100, d2m, sp] at current time
             geo_dense: [orograph, sin_lat, cos_lat, sin_lon, cos_lon]
             geo_cat: [land_sea_mask, soil_type]
             geo_tempo: [sin_orbit, cos_orbit, sin_zenith, cos_zenith] at current time
-            geo_tempo_f: same as geo_tempo but at future time
+            geo_tempo_f: [sin_orbit, cos_orbit, sin_zenith, cos_zenith] at future time
             current_dt: current datetime in UTC
-            delta_hours: hours to predict ahead (positive for future)
+            delta_hours: hours to predict ahead
             
         Returns:
             Predicted v100 field at t + delta_hours
         """
-        # Move tensors to device
-        meteo = meteo.to(self.device)
-        geo_dense = geo_dense.to(self.device)
-        geo_cat = geo_cat.to(self.device)
-        geo_tempo = geo_tempo.to(self.device)
-        geo_tempo_f = geo_tempo_f.to(self.device)
+        # Move to device
+        meteo = meteo.to(self.device).float()
+        geo_dense = geo_dense.to(self.device).float()
+        geo_cat = geo_cat.to(self.device).float()
+        geo_tempo = geo_tempo.to(self.device).float()
+        geo_tempo_f = geo_tempo_f.to(self.device).float()
         
-        # Unpack inputs
-        t2m, tp, u100_current, v100_current, d2m, sp = meteo
-        orograph, sin_lat, cos_lat, sin_lon, cos_lon = geo_dense
-        land_sea_mask, soil_type = geo_cat
-        sin_orbit, cos_orbit, sin_zenith, cos_zenith = geo_tempo
-        sin_orbit_f, cos_orbit_f, sin_zenith_f, cos_zenith_f = geo_tempo_f
+        # Extract current v100 - this is what we're predicting
+        current_v100 = meteo[3].clone()  # Index 3 is v100
         
-        # Convert to radians
-        lat_rad = torch.atan2(sin_lat, cos_lat)
+        # Other useful variables
+        sp = meteo[5]  # Surface pressure (Pa)
+        
+        # Geographical information
+        orograph = geo_dense[0]  # Topography (m)
+        sin_lat = geo_dense[1]
+        cos_lat = geo_dense[2]
+        sin_lon = geo_dense[3]
+        cos_lon = geo_dense[4]
+        
+        # Land-sea mask and soil type
+        land_sea_mask = geo_cat[0]  # 0: sea, 1: land
+        
+        # Current time information
+        sin_orbit = geo_tempo[0]
+        cos_orbit = geo_tempo[1]
+        sin_zenith = geo_tempo[2]
+        cos_zenith = geo_tempo[3]
+        
+        # Future time information
+        sin_orbit_f = geo_tempo_f[0]
+        cos_orbit_f = geo_tempo_f[1]
+        sin_zenith_f = geo_tempo_f[2]
+        cos_zenith_f = geo_tempo_f[3]
+        
+        # Calculate latitude in radians
+        cos_lat_clamped = torch.clamp(cos_lat, -0.9999, 0.9999)
+        lat_rad = torch.where(
+            torch.abs(cos_lat_clamped) > 0.5,
+            torch.asin(torch.clamp(sin_lat, -0.9999, 0.9999)),
+            torch.acos(cos_lat_clamped) * torch.sign(sin_lat)
+        )
+        lat_deg = torch.rad2deg(lat_rad)
+        
+        # Calculate longitude in radians
         lon_rad = torch.atan2(sin_lon, cos_lon)
-        lat_deg = lat_rad * 180 / math.pi
+        lon_deg = torch.rad2deg(lon_rad)
         
-        # Compute diurnal evolution factor
-        diurnal_factor = self._diurnal_evolution(cos_zenith, cos_zenith_f, delta_hours)
+        # === COMPONENT 1: PERSISTENCE (70%) ===
+        # Wind patterns have strong temporal autocorrelation
+        persistence = current_v100 * (self.hourly_persistence ** delta_hours)
         
-        # Seasonal factor (from orbital position)
-        season_current = cos_orbit
-        season_future = cos_orbit_f
-        season_factor = 0.5 * (season_current + season_future)  # Average over interval
-        season_factor = 1.0 + 0.3 * (1.0 - season_factor)  # NH winter: ~1.3, summer: ~0.7
+        # === COMPONENT 2: PRESSURE GRADIENT FORCING (15%) ===
+        # Geostrophic wind: v_g = (1/(ρf)) * ∂p/∂x
+        pressure_effect = self._compute_pressure_effect(sp, lat_rad, current_v100)
         
-        # 1. Jet stream evolution with Rossby wave propagation
-        jet_v = self._jet_stream_evolution(lat_rad, lon_rad, delta_hours, season_factor)
+        # === COMPONENT 3: JET STREAM INFLUENCE (10%) ===
+        # Meridional wind associated with jet meanders
+        jet_effect = self._compute_jet_effect(lat_rad, lon_rad, current_dt, current_v100)
         
-        # 2. Thermal wind evolution (diurnal changes in temperature gradients)
-        thermal_v = self._thermal_wind_evolution(t2m, d2m, lat_rad, delta_hours, diurnal_factor)
+        # === COMPONENT 4: TOPOGRAPHIC EFFECTS (5%) ===
+        # Mountains block meridional flow
+        topo_effect = self._compute_topo_effect(orograph, lat_rad, current_v100)
         
-        # 3. Pressure gradient evolution
-        pressure_v = self._pressure_gradient_evolution(sp, lat_rad, delta_hours)
-        
-        # 4. Topographic effects (relatively constant over short periods)
-        grad_orog_y = torch.gradient(orograph, dim=0)[0]
-        topo_v = -0.05 * grad_orog_y
-        land_factor = land_sea_mask.float()
-        topo_v = topo_v * (1.0 + 0.5 * land_factor)
-        
-        # 5. Land-sea breeze evolution
-        # Temperature difference evolves with diurnal cycle
-        temp_diff = t2m - d2m
-        diurnal_effect = 0.02 * temp_diff * diurnal_factor
-        land_sea_v = diurnal_effect * land_sea_mask.float()
-        
-        # Soil type effect
-        soil_factor = torch.ones_like(soil_type, dtype=torch.float32)
-        for soil_code, factor in [(1, 1.2), (2, 1.1), (3, 1.0), 
-                                 (4, 0.9), (5, 0.8), (6, 0.7), (7, 0.6)]:
-            soil_factor = torch.where(soil_type == soil_code, 
-                                    factor * soil_factor, soil_factor)
-        land_sea_v = land_sea_v * soil_factor
-        
-        # 6. Current wind persistence with time-dependent damping
-        damping = self._boundary_layer_evolution(u100_current, v100_current, 
-                                                land_sea_mask, delta_hours)
-        persistence_v = v100_current * damping
-        
-        # 7. Advection tendency (wind carries itself forward)
-        advection_change = self._advection_tendency(u100_current, v100_current, 
-                                                   v100_current, delta_hours)
-        
-        # 8. Precipitation evolution
-        # Convert delta_hours to tensor for torch operations
-        delta_hours_tensor = torch.tensor(delta_hours, device=self.device, dtype=torch.float32)
-        precip_effect = -0.01 * tp * torch.exp(-delta_hours_tensor / 3.0)  # Decays over 3 hours
-        
-        # 9. Coriolis-zonal interaction evolution
-        coriolis = self._compute_coriolis(lat_rad)
-        coriolis_on_u = 0.08 * coriolis * u100_current * damping
-        
-        # Combine all components with time-aware weighting
-        # Shorter forecasts: more persistence
-        # Longer forecasts: more evolution terms
-        forecast_weight = min(1.0, delta_hours / 12.0)  # 0-1 scale
-        forecast_weight_tensor = torch.tensor(forecast_weight, device=self.device, dtype=torch.float32)
-        
-        v_predicted = (
-            (1.0 - forecast_weight_tensor * 0.3) * persistence_v +  # Less persistence for longer forecasts
-            0.25 * jet_v +                                   # Jet stream always important
-            forecast_weight_tensor * 0.15 * pressure_v +     # Pressure evolves
-            forecast_weight_tensor * 0.12 * thermal_v +      # Thermal winds evolve
-            0.08 * topo_v +                                  # Topography constant
-            forecast_weight_tensor * 0.05 * land_sea_v +     # Land-sea evolves
-            forecast_weight_tensor * 0.08 * advection_change +  # Advection increases with time
-            forecast_weight_tensor * 0.03 * coriolis_on_u +  # Coriolis interaction evolves
-            0.02 * precip_effect                             # Precipitation effect
+        # === COMBINE COMPONENTS ===
+        predicted_v = (
+            0.70 * persistence +
+            0.15 * pressure_effect +
+            0.10 * jet_effect +
+            0.05 * topo_effect
         )
         
-        # Special handling for different forecast lengths
-        if delta_hours <= 1:
-            # Very short range: heavily weighted to persistence
-            v_predicted = 0.8 * v100_current + 0.2 * v_predicted
-        elif delta_hours <= 6:
-            # Short range: balanced approach
-            pass  # Use the weighted combination above
+        # === ADDITIONAL PHYSICAL EFFECTS ===
+        # Land-sea contrast effect
+        land_sea_effect = self._compute_land_sea_effect(land_sea_mask, current_v100)
+        predicted_v = predicted_v + 0.02 * land_sea_effect
+        
+        # Diurnal effect (weaker at night, stronger during day)
+        diurnal_effect = self._compute_diurnal_effect(sin_zenith_f, cos_zenith_f, current_v100)
+        predicted_v = predicted_v + 0.01 * diurnal_effect
+        
+        # Seasonal effect (use FUTURE orbital angle)
+        seasonal_effect = self._compute_seasonal_effect(sin_orbit_f, cos_orbit_f, current_v100)
+        predicted_v = predicted_v + 0.01 * seasonal_effect
+        
+        # === POST-PROCESSING ===
+        # Apply spatial smoothing (wind is coherent over space)
+        predicted_v = self._apply_spatial_smoothing(predicted_v, current_v100)
+        
+        # Maintain statistical properties similar to input
+        predicted_v = self._preserve_statistics(predicted_v, current_v100)
+        
+        # Apply physical limits
+        predicted_v = torch.clamp(predicted_v, self.V_MIN, self.V_MAX)
+        
+        # Return CPU tensor if device is GPU
+        if self.device.type == 'cuda':
+            return predicted_v.cpu()
         else:
-            # Longer range: more evolution, less persistence
-            evolution_boost = min(1.0, (delta_hours - 6) / 12.0)
-            evolution_boost_tensor = torch.tensor(evolution_boost, device=self.device, dtype=torch.float32)
-            v_predicted = v_predicted * (1.0 + 0.2 * evolution_boost_tensor)
-        
-        # Apply latitude-dependent adjustments
-        # Near equator: reduce geostrophic terms, enhance diurnal
-        equator_mask = torch.abs(lat_deg) < 10.0
-        if equator_mask.any():
-            v_equator = v_predicted * equator_mask.float()
-            # Enhanced diurnal effects near equator
-            v_equator = v_equator * (1.0 + 0.3 * diurnal_factor)
-            # Reduce pressure gradient terms
-            v_equator = 0.3 * pressure_v + 0.7 * v_equator
-            v_predicted = torch.where(equator_mask, v_equator, v_predicted)
-        
-        # Polar regions: simplified dynamics
-        polar_mask = torch.abs(lat_deg) > 70.0
-        if polar_mask.any():
-            v_polar = v_predicted * polar_mask.float()
-            v_polar = 0.9 * persistence_v + 0.1 * v_polar  # High persistence
-            v_predicted = torch.where(polar_mask, v_polar, v_predicted)
-        
-        # Ensure physical bounds
-        v_predicted = torch.clamp(v_predicted, -50.0, 50.0)
-        
-        # Ocean smoothing (less variability over water)
-        ocean_mask = land_sea_mask == 0
-        if ocean_mask.any() and delta_hours > 0:
-            # Apply stronger smoothing for longer forecasts over ocean
-            smooth_factor = min(0.5, delta_hours / 24.0)
-            smooth_factor_tensor = torch.tensor(smooth_factor, device=self.device, dtype=torch.float32)
-            v_ocean = v_predicted * ocean_mask.float()
-            # 5-point smoothing
-            for _ in range(int(1 + smooth_factor_tensor.item() * 2)):
-                v_ocean = (torch.roll(v_ocean, 1, dims=0) +
-                          torch.roll(v_ocean, -1, dims=0) +
-                          torch.roll(v_ocean, 1, dims=1) +
-                          torch.roll(v_ocean, -1, dims=1) +
-                          v_ocean) / 5.0
-            v_predicted = torch.where(ocean_mask, v_ocean, v_predicted)
-        
-        return v_predicted
-
-# Example usage with different delta_hours
-if __name__ == "__main__":
-    # Create predictor
-    predictor = V100mPredictor()
+            return predicted_v
     
-    # Test different forecast lengths
-    test_hours = [1, 3, 6, 12, 24]
+    def _compute_pressure_effect(self, sp: torch.Tensor, lat_rad: torch.Tensor, 
+                                current_v: torch.Tensor) -> torch.Tensor:
+        """Compute pressure gradient effect on meridional wind."""
+        # Smooth pressure field to get large-scale gradients
+        sp_smooth = self._gaussian_smooth(sp, sigma=2.0)
+        
+        # Compute east-west pressure gradient (∂p/∂x)
+        kernel_x = torch.tensor([[0, 0, 0, 0, 0],
+                                 [0, 0, 0, 0, 0],
+                                 [-1/12, 8/12, 0, -8/12, 1/12],
+                                 [0, 0, 0, 0, 0],
+                                 [0, 0, 0, 0, 0]], device=self.device, dtype=sp.dtype)
+        
+        sp_4d = sp_smooth.unsqueeze(0).unsqueeze(0)
+        kernel_4d = kernel_x.unsqueeze(0).unsqueeze(0)
+        
+        padded = torch.nn.functional.pad(sp_4d, (2, 2, 2, 2), mode='replicate')
+        dp_dx = torch.nn.functional.conv2d(padded, kernel_4d, padding=0).squeeze()
+        
+        # Coriolis parameter (avoid division by zero near equator)
+        f = 2 * self.omega * torch.sin(lat_rad)
+        f_safe = torch.sign(f) * torch.maximum(torch.abs(f), torch.tensor(1e-10, device=self.device))
+        
+        # Geostrophic wind approximation
+        v_geo = dp_dx / (self.rho * f_safe) * self.pressure_scale
+        
+        # Blend with current wind
+        return current_v * 0.7 + v_geo * 0.3
     
-    for delta_hours in test_hours:
-        print(f"\n=== Testing {delta_hours}-hour forecast ===")
+    def _compute_jet_effect(self, lat_rad: torch.Tensor, lon_rad: torch.Tensor,
+                          current_dt: datetime, current_v: torch.Tensor) -> torch.Tensor:
+        """Compute jet stream influence on meridional wind."""
+        # Base jet profile
+        lat_from_center = torch.rad2deg(lat_rad) - self.jet_lat_center
+        jet_profile = torch.exp(-(lat_from_center / 15.0) ** 2)
         
-        # Create dummy data
-        height, width = 180, 360
-        meteo = torch.randn(6, height, width)
-        geo_dense = torch.randn(5, height, width)
-        geo_cat = torch.randint(0, 2, (2, height, width))
-        geo_tempo = torch.randn(4, height, width)
-        geo_tempo_f = torch.randn(4, height, width)
+        # Latitude dependence: sin²φ × cos²φ (peaks at 45°)
+        sin_lat = torch.sin(lat_rad)
+        cos_lat = torch.cos(lat_rad)
+        lat_amplitude = (sin_lat ** 2) * (cos_lat ** 2)
         
-        current_dt = datetime(2024, 1, 15, 12, 0, 0)
+        # Longitudinal wave pattern
+        wave_number = 6
+        lon_pattern = torch.sin(wave_number * lon_rad + math.pi/4)
         
-        # Make prediction
-        with torch.no_grad():
-            v100_pred = predictor.predict(meteo, geo_dense, geo_cat,
-                                         geo_tempo, geo_tempo_f,
-                                         current_dt, delta_hours)
+        # Seasonal variation
+        day_of_year = current_dt.timetuple().tm_yday
         
-        print(f"Predicted v100 shape: {v100_pred.shape}")
-        print(f"Predicted v100 range: [{v100_pred.min():.2f}, {v100_pred.max():.2f}] m/s")
-        print(f"Mean: {v100_pred.mean():.2f} m/s, Std: {v100_pred.std():.2f} m/s")
+        # Create a tensor for seasonal variation
+        seasonal_scalar = torch.cos(torch.tensor(2 * math.pi * (day_of_year - 172) / 365.0, 
+                                                device=self.device, dtype=lat_rad.dtype))
+        seasonal = torch.full_like(lat_rad, seasonal_scalar)
         
-        # Compare with persistence (if we had truth)
-        v100_current = meteo[3]  # Current v100
-        print(f"Persistence would give range: [{v100_current.min():.2f}, {v100_current.max():.2f}] m/s")
+        # Combine components
+        jet_strength = (
+            jet_profile * 
+            lat_amplitude * 
+            (1.0 + 0.3 * lon_pattern) * 
+            (1.0 + 0.2 * seasonal)
+        )
+        
+        # Scale to appropriate magnitude
+        jet_v = self.jet_max_speed * jet_strength
+        
+        # Blend with current wind
+        return current_v * 0.8 + jet_v * 0.2
+    
+    def _compute_topo_effect(self, orograph: torch.Tensor, lat_rad: torch.Tensor,
+                           current_v: torch.Tensor) -> torch.Tensor:
+        """Compute topographic blocking effect."""
+        # Identify significant topography
+        topo_threshold = 1000.0
+        significant_topo = torch.where(orograph > topo_threshold, orograph, torch.tensor(0.0, device=self.device))
+        
+        # Compute north-south gradient
+        kernel_y = torch.tensor([[0, -0.25, 0],
+                                 [0, 0, 0],
+                                 [0, 0.25, 0]], device=self.device, dtype=orograph.dtype)
+        
+        topo_4d = significant_topo.unsqueeze(0).unsqueeze(0)
+        kernel_4d = kernel_y.unsqueeze(0).unsqueeze(0)
+        
+        padded = torch.nn.functional.pad(topo_4d, (1, 1, 1, 1), mode='replicate')
+        dh_dy = torch.nn.functional.conv2d(padded, kernel_4d, padding=0).squeeze()
+        
+        # Mountains block meridional flow
+        v_topo = -dh_dy * self.topo_blocking_scale
+        
+        # Effect is stronger at higher latitudes
+        lat_factor = torch.abs(torch.sin(lat_rad))
+        v_topo = v_topo * lat_factor
+        
+        # Only apply where topography is significant
+        mask = (orograph > topo_threshold).float()
+        v_topo = v_topo * mask
+        
+        # Blend gently
+        return current_v * 0.9 + v_topo * 0.1
+    
+    def _compute_land_sea_effect(self, land_sea_mask: torch.Tensor, current_v: torch.Tensor) -> torch.Tensor:
+        """Compute land-sea contrast effect."""
+        # Land has higher friction -> reduced wind
+        friction_factor = 1.0 - 0.2 * land_sea_mask
+        
+        # Smooth the transition
+        friction_smooth = self._gaussian_smooth(friction_factor, sigma=1.0)
+        
+        return current_v * (friction_smooth - 1.0)
+    
+    def _compute_diurnal_effect(self, sin_zenith: torch.Tensor, cos_zenith: torch.Tensor,
+                              current_v: torch.Tensor) -> torch.Tensor:
+        """Compute diurnal variation effect."""
+        # Daytime when sun is high (cos_zenith > 0)
+        daytime_factor = torch.sigmoid(5.0 * cos_zenith)
+        
+        # Diurnal amplitude (stronger mixing during day)
+        diurnal_amplitude = 0.3 * daytime_factor
+        
+        return current_v * diurnal_amplitude
+    
+    def _compute_seasonal_effect(self, sin_orbit: torch.Tensor, cos_orbit: torch.Tensor,
+                               current_v: torch.Tensor) -> torch.Tensor:
+        """Compute seasonal variation effect."""
+        # Use cos_orbit for seasonal variation
+        seasonal_factor = 1.0 - cos_orbit  # 0 in NH summer, 2 in NH winter
+        
+        # Scale to reasonable amplitude
+        seasonal_amplitude = 0.2 * seasonal_factor
+        
+        return current_v * seasonal_amplitude
+    
+    def _apply_spatial_smoothing(self, wind: torch.Tensor, current_v: torch.Tensor) -> torch.Tensor:
+        """Apply spatial smoothing appropriate for wind fields."""
+        # Two-pass light smoothing
+        kernel = torch.tensor([[0.02, 0.08, 0.02],
+                               [0.08, 0.6, 0.08],
+                               [0.02, 0.08, 0.02]], device=self.device, dtype=wind.dtype)
+        
+        wind_4d = wind.unsqueeze(0).unsqueeze(0)
+        kernel_4d = kernel.unsqueeze(0).unsqueeze(0)
+        
+        # First pass
+        padded1 = torch.nn.functional.pad(wind_4d, (1, 1, 1, 1), mode='replicate')
+        smoothed1 = torch.nn.functional.conv2d(padded1, kernel_4d, padding=0)
+        
+        # Second pass
+        padded2 = torch.nn.functional.pad(smoothed1, (1, 1, 1, 1), mode='replicate')
+        smoothed2 = torch.nn.functional.conv2d(padded2, kernel_4d, padding=0).squeeze()
+        
+        # Preserve some of the original structure
+        return wind * 0.7 + smoothed2 * 0.3
+    
+    def _preserve_statistics(self, predicted: torch.Tensor, original: torch.Tensor) -> torch.Tensor:
+        """Ensure predicted field has similar statistics to original."""
+        # Preserve mean and standard deviation
+        pred_mean = torch.mean(predicted)
+        pred_std = torch.std(predicted)
+        orig_mean = torch.mean(original)
+        orig_std = torch.std(original)
+        
+        # Avoid division by zero
+        safe_std = torch.where(pred_std < 1e-8, torch.tensor(1.0, device=self.device), pred_std)
+        
+        # Standardize and rescale
+        standardized = (predicted - pred_mean) / safe_std
+        rescaled = standardized * orig_std + orig_mean
+        
+        return rescaled
+    
+    def _gaussian_smooth(self, field: torch.Tensor, sigma: float = 1.0) -> torch.Tensor:
+        """Apply Gaussian smoothing."""
+        size = int(3 * sigma)
+        x = torch.arange(-size, size + 1, device=self.device, dtype=field.dtype)
+        gaussian = torch.exp(-x**2 / (2 * sigma**2))
+        kernel = torch.outer(gaussian, gaussian)
+        kernel = kernel / torch.sum(kernel)
+        
+        field_4d = field.unsqueeze(0).unsqueeze(0)
+        kernel_4d = kernel.unsqueeze(0).unsqueeze(0)
+        
+        padded = torch.nn.functional.pad(field_4d, (size, size, size, size), mode='replicate')
+        smoothed = torch.nn.functional.conv2d(padded, kernel_4d, padding=0).squeeze()
+        
+        return smoothed
