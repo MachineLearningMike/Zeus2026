@@ -1342,10 +1342,10 @@ class Zeus_Dataset(Dataset):
     def play_physical_prediction(self, inclusive_left, inclusive_right, modulo):
             
         from modules.utils import show_two_arrays, initialize_for_show_array, finalize_for_show_array
-        from light.t2m_predict_n_hours import FastPhysicsT2MPredictor
-        from light.u100m_predict_n_hours import U100mPredictor
-        from light.v100m_predict_n_hours import V100mPredictor
-        from light.wind100m_predict_n_hours import Wind100mPredictor
+        from light.predict_t2m_n_hours import FastPhysicsT2MPredictor
+        from light.predict_u100m_n_hours import U100mPredictor
+        from light.predict_v100m_n_hours import V100mPredictor
+        from light.predict_wind100m_n_hours import Wind100mPredictor
     
         def get_key():
             """
@@ -1414,7 +1414,7 @@ class Zeus_Dataset(Dataset):
                     e = time.time()
                     # pred = ss_x.meteo[0].numpy() works   # array_x[0].numpy works
                 
-            show_two_arrays(arr1=arr_y, arr2=pred, variable1=variable, variable2=f"time: {e-s:.5f}", dt=dt, modulo=modulo)
+            show_two_arrays(arr1=arr_y, arr2=pred, variable1=variable + ".truth", variable2=variable + ".prediction", dt=dt, modulo=modulo)
             
             
             # Wait for key input

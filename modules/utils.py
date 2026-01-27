@@ -260,7 +260,7 @@ def show_two_arrays(arr1, arr2=None, variable1="", variable2="", dt=datetime(200
         diff_plot = None
     
     # Calculate statistics for titles (on same line)
-    def get_stats_title(array_label, base_title, arr):
+    def get_stats_title(base_title, arr, diff=False):
         """Create title with array label, mean and std statistics on same line."""
         if arr is None:
             return base_title
@@ -269,16 +269,22 @@ def show_two_arrays(arr1, arr2=None, variable1="", variable2="", dt=datetime(200
         std_val = np.nanstd(arr)
         
         # Format with array label and 2 decimal places for cleaner display
-        title = f"Array {array_label}: {base_title} (μ={mean_val:.2f}, σ={std_val:.2f})"
+        if diff:
+            # For difference panel, use the base_title which should already be "variable2 - variable1"
+            title = f"{base_title} (μ={mean_val:.2f}, σ={std_val:.2f})"
+        else:
+            # For regular panels, use the variable name
+            title = f"{base_title} (μ={mean_val:.2f}, σ={std_val:.2f})"
         return title
     
     # Create titles with statistics and array numbers
-    title1 = get_stats_title(1, variable1, arr1_plot)
+    title1 = get_stats_title(variable1, arr1_plot)
     if show_two or show_three:
-        title2 = get_stats_title(2, variable2, arr2_plot)
+        title2 = get_stats_title(variable2, arr2_plot)
     if show_three:
-        # Show Array 2 - Array 1 in the title to match the calculation
-        title3 = get_stats_title("2 - 1", f'{variable2} - {variable1}', diff_plot)
+        # For difference panel, show "variable2 - variable1"
+        diff_title = f'{variable2} - {variable1}'
+        title3 = get_stats_title(diff_title, diff_plot, diff=True)
     
     # Calculate color ranges
     if show_three:
@@ -439,7 +445,7 @@ def show_two_arrays(arr1, arr2=None, variable1="", variable2="", dt=datetime(200
             _cbar_top.set_label(variable1, fontsize=12)
         
         # Set figure title with date/time info
-        time_info = f'{dt.strftime("%Y-%m-%d %H:%M")} UTC | Mod: {modulo}'
+        time_info = f'{dt.strftime("%Y-%m-%d %H:%M")} UTC | Delta Hours: {modulo}'
         if show_three:
             _fig.suptitle(f'{variable1} vs {variable2} | {time_info}',
                          fontsize=12, fontweight='bold', color='#00008B', 
@@ -488,12 +494,13 @@ def show_two_arrays(arr1, arr2=None, variable1="", variable2="", dt=datetime(200
             _im3.set_data(diff_plot)
             _im3.set_clim(vmin_diff, vmax_diff)
         
-        # Update titles with current statistics and array numbers
-        title1 = get_stats_title(1, variable1, arr1_plot)
+        # Update titles with current statistics (using variable names)
+        title1 = get_stats_title(variable1, arr1_plot)
         if show_two or show_three:
-            title2 = get_stats_title(2, variable2, arr2_plot)
+            title2 = get_stats_title(variable2, arr2_plot)
         if show_three:
-            title3 = get_stats_title("2 - 1", f'{variable2} - {variable1}', diff_plot)
+            diff_title = f'{variable2} - {variable1}'
+            title3 = get_stats_title(diff_title, diff_plot, diff=True)
         
         _ax1.set_title(title1, fontsize=10, fontweight='bold', pad=6)
         if show_two or show_three:
@@ -515,7 +522,7 @@ def show_two_arrays(arr1, arr2=None, variable1="", variable2="", dt=datetime(200
             _cbar_bottom.update_normal(_im3)
         
         # Update figure title
-        time_info = f'{dt.strftime("%Y-%m-%d %H:%M")} UTC | Mod: {modulo}'
+        time_info = f'{dt.strftime("%Y-%m-%d %H:%M")} UTC | Delta Hours: {modulo}'
         if show_three:
             if hasattr(_fig, 'suptitle'):
                 _fig.suptitle(f'{variable1} vs {variable2} | {time_info}',
@@ -629,12 +636,12 @@ def show_array_single(arr1, arr2=None, variable1="", variable2="", dt=datetime(2
         cbar2.set_label(variable2, fontsize=12)
         
         # Title for two-panel figure - top-left aligned
-        fig.suptitle(f'{variable1} vs {variable2} | {dt.strftime("%Y-%m-%d %H:%M")} UTC | Mod: {modulo}',
+        fig.suptitle(f'{variable1} vs. {variable2} | {dt.strftime("%Y-%m-%d %H:%M")} UTC | Delta Hours: {modulo}',
                     fontsize=12, fontweight='bold', color='#00008B', 
                     x=0.01, y=0.99, ha='left', va='top')
     else:
         # Title for single plot - left-aligned
-        ax1.set_title(f'{variable1} | {dt.strftime("%Y-%m-%d %H:%M")} UTC | Mod: {modulo}',
+        ax1.set_title(f'{variable1} | {dt.strftime("%Y-%m-%d %H:%M")} UTC | Delta Hours: {modulo}',
                      fontsize=13, fontweight='bold', color='#00008B', 
                      pad=12, loc='left', x=0.0)
     
