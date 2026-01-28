@@ -82,6 +82,15 @@ class Flash2DMHA(nn.Module):
         buf.copy_(tensor, non_blocking=True)
         
     def forward_attention(self, q_h, k_h, v_h, s_start, s_end, attn_mask):
+        #++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+        #
+        # Chunking is actually something that is implemented by FlashAttention internally 
+        # under the name tiling but with faster memory and one-kernel.
+        #
+        # So no need for outer chunking.
+        #
+        #++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+        
                 
         # slice query in sequence
         q_seq = q_h[:, :, s_start:s_end, :]  # [B, heads_per_chunk, Lc, head_dim]

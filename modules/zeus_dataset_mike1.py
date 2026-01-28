@@ -42,6 +42,7 @@ from modules_zeus.era5_cds import Era5CDSLoader, get_today
 from modules.zeus_dataset_var_names import VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map, num_vars_per_level, num_levels, HECTA_PASCAL_UNCHANGEABLE
 
 from modules.zeus_dataset_codec_Mike1 import load_and_decode, save
+from modules.utils import resize_continuous_bilinear_channel_wise_cylindric, resize_categorical_nearest_channelwise_cylindric
 from modules.zeus_dataset_Snapshot import Snapshot
 # from modules.zeus_dataset_sharding_dynamic import ERA5ZarrShards
 
@@ -1506,6 +1507,36 @@ class Zeus_Dataset(Dataset):
         show_two_arrays(arr1=arr1, arr2=arr2, variable1=variable1, variable2=variable2, dt=dt, modulo=modulo)
         time.sleep(duration)
         finalize_for_show_array()
+        
+    #----------------- Physical prediction after Downsampling ---------------
+    
+    def physical_after_donwsampl(self, inclusive_left, inclusive_right, modulo):
+            
+        from modules.utils import show_two_arrays, initialize_for_show_array, finalize_for_show_array
+        from light.predict_t2m_n_hours import T2mPredictor
+        from light.predict_u100m_n_hours import U100mPredictor
+        from light.predict_d2m_n_hours import D2mPredictor
+        from light.predict_v100m_n_hours import V100mPredictor
+        from light.predict_sp_n_hours import SpPredictor
+        from light.predict_tp_n_hours import TpPredictor    
+        from light.predict_wind100m_n_hours import Wind100mPredictor
+            
+        t2m_predictor = T2mPredictor()
+        u100m_predictor = U100mPredictor()
+        v100m_predictor = V100mPredictor()
+        d2m_predictor = D2mPredictor()
+        sp_predictor = SpPredictor()
+        tp_predictor = TpPredictor()
+        wind100m_predictor = Wind100mPredictor()
+        
+        # pred = t2m_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, ss_y.tempo, dt_x, delta_hours=modulo).cpu().numpy()
+        # pred = u100m_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, ss_y.tempo, dt_x, delta_hours=modulo).cpu().numpy()
+        # pred = v100m_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, ss_y.tempo, dt_x, delta_hours=modulo).cpu().numpy()
+        # pred = d2m_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, ss_y.tempo, dt_x, delta_hours=modulo).cpu().numpy()
+        # pred = sp_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, ss_y.tempo, dt_x, delta_hours=modulo).cpu().numpy()
+        # pred = tp_predictor.predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, ss_y.tempo, dt_x, delta_hours=modulo).cpu().numpy()
+
+
 
     #----------------- Standardize --------------------
 
@@ -2431,8 +2462,8 @@ if __name__ == "__main__":
     # dict = dataset.analyze_hourly_paths(inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=1)
     # print(f"count: {dict['count']}, n_unexpected_hours: {dict['n_unexpected_hours']}, first_hour: {dict['first_hour']}, last_hour: {dict['last_hour']}, n_missing_hours: {len(dict['missing_hours'])}")
 
-    # dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=6, file_name_suffix="2008_2025_m6")
-    # dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=1, file_name_suffix="2008_2025_m1")
+    dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=6, file_name_suffix="2008_2025_m6_PhDn")
+    # dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=1, file_name_suffix="2008_2025_m6_PhDn")
 
     # mean_meteo, std_meteo, mean_tempo, std_tempo, \
     # mean_meteo_ready_cpu, std_meteo_ready_cpu, mean_meteo_ready_cuda, std_meteo_ready_cuda, \

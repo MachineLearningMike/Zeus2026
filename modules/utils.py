@@ -872,3 +872,42 @@ def resize_continuous_bilinear_channel_wise_cylindric(tensor, target_size, mode=
         result = result.squeeze(0)
     
     return result
+
+def resize_categorical_nearest_channelwise_cylindric(tensor, target_resolution):
+    target_H, target_W = target_resolution
+    C, H, W = tensor.shape
+    
+    """
+    Perfect cylindrical resize for categorical data.
+    Ensures left and right edges have similar distributions.
+    """
+    target_H, target_W = target_resolution
+    C, H, W = tensor.shape
+    device = tensor.device
+    
+    # --- Create mapping that ensures edge continuity ---
+    # The key: make sure j_norm for leftmost and rightmost pixels
+    # map to similar source regions
+    
+    # Create j_norm from -0.5 to 0.5 (centered)
+    # This ensures continuity at edges
+    j_norm = torch.linspace(-0.5, 0.5, target_W, device=device)
+    
+    # Map to source coordinates
+    j_source_float = (j_norm + 0.5) * W  # Now in [0, W]
+    
+    # Convert to indices with modulo
+    j_source = torch.floor(j_source_float).long() % W
+    
+    # For latitude
+    i_norm = torch.linspace(0, 1, target_H, device=device)
+    i_source_float = i_norm * (H - 1)
+    i_source = torch.floor(i_source_float).long().clamp(0, H-1)
+    
+    # Create meshgrid
+    I, J = torch.meshgrid(i_source, j_source, indexing='ij')
+    
+    # Sample
+    result = tensor[:, I, J]
+    
+    return result

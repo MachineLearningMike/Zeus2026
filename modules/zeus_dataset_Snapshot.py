@@ -12,7 +12,7 @@ from models.config_Mike1 import config
 
 from modules.zeus_dateset_geo_tempo import Geo_Tempo
 from modules.zeus_dataset_var_names import VARIABLE_NAME_LIST_UNCHANGEABLE, mike1_variables_order, num_vars_per_level, num_levels, HECTA_PASCAL_UNCHANGEABLE
-from modules.utils import best_segments_increasing, best_segments_decreasing, check_consistency
+from modules.utils import check_consistency, resize_continuous_bilinear_channel_wise_cylindric, resize_categorical_nearest_channelwise_cylindric
 
 import math
 
@@ -102,7 +102,7 @@ class Snapshot:
     def get_season_events(year):
         return Geo_Tempo.get_season_events(year)
             
-    def __init__(self, year, month, day, hour, meteo, meteo_unnormal):
+    def __init__(self, year, month, day, hour, meteo, meteo_unnormal, with_tempo=True):
         assert year is not None and month is not None and day is not None and hour is not None
         self.year = year
         self.month = month
@@ -124,7 +124,7 @@ class Snapshot:
         else:
             meteo_tensor = Snapshot.crop_tensor(meteo, (Snapshot.original_720_h, Snapshot.original_1440_w))
             if Snapshot.factor10 != 10:
-                meteo_tensor = Snapshot.resize_continuous_bilinear_channel_wise_cylindric(meteo_tensor, Snapshot.get_export_size())
+                meteo_tensor = resize_continuous_bilinear_channel_wise_cylindric(meteo_tensor, Snapshot.get_export_size())
         self.meteo = meteo_tensor
 
         #--------------- meteo_unnormalized -------------
@@ -133,14 +133,15 @@ class Snapshot:
         if meteo_unnormal is not None:
             meteo_unnormal = Snapshot.crop_tensor(meteo_unnormal, full_size)
             if Snapshot.factor10 != 10:
-                meteo_unnormal = Snapshot.resize_continuous_bilinear_channel_wise_cylindric(meteo_unnormal, Snapshot.get_export_size())
+                meteo_unnormal = resize_continuous_bilinear_channel_wise_cylindric(meteo_unnormal, Snapshot.get_export_size())
 
         self.meteo_unnormal = meteo_unnormal
 
         #--------------- tempo ---------------
 
-        tempo = self.create_tempo(Snapshot.tempo_variables)        
-        self.tempo = tempo
+        if with_tempo:
+            tempo = self.create_tempo(Snapshot.tempo_variables)        
+            self.tempo = tempo
 
         #---------------- geo ----------------
         
@@ -152,7 +153,7 @@ class Snapshot:
         tensor = Geo_Tempo.cos_lat_sin_lon_tensor_era5()
         tensor = Snapshot.crop_tensor(tensor, (Snapshot.original_720_h, Snapshot.original_1440_w))
         if Snapshot.factor10 != 10:
-            tensor = Snapshot.resize_continuous_bilinear_channel_wise_cylindric(tensor, Snapshot.get_export_size())
+            tensor = resize_continuous_bilinear_channel_wise_cylindric(tensor, Snapshot.get_export_size())
         return tensor
         
 
@@ -190,7 +191,7 @@ class Snapshot:
         
         tensor = Snapshot.crop_tensor(tensor, (Snapshot.original_720_h, Snapshot.original_1440_w))
         if Snapshot.factor10 != 10:
-            tensor = Snapshot.resize_continuous_bilinear_channel_wise_cylindric(tensor, Snapshot.get_export_size())
+            tensor = resize_continuous_bilinear_channel_wise_cylindric(tensor, Snapshot.get_export_size())
         
         return tensor
     
@@ -242,7 +243,7 @@ class Snapshot:
         
         tensor = Snapshot.crop_tensor(tensor, (Snapshot.original_720_h, Snapshot.original_1440_w))
         if Snapshot.factor10 != 10:
-            tensor = Snapshot.resize_continuous_bilinear_channel_wise_cylindric(tensor, Snapshot.get_export_size())
+            tensor = resize_continuous_bilinear_channel_wise_cylindric(tensor, Snapshot.get_export_size())
         tensor = (tensor - tensor.mean(dim=(1,2), keepdim=True)) / (tensor.std(dim=(1,2), keepdim=True) + 1e-12)
         
         return tensor
@@ -288,139 +289,15 @@ class Snapshot:
         
         tensor = Snapshot.crop_tensor(tensor, (Snapshot.original_720_h, Snapshot.original_1440_w))
         if Snapshot.factor10 != 10:
-            tensor = Snapshot.resize_categorical_nearest_channelwise_cylindric(tensor, Snapshot.get_export_size())                    
+            tensor = resize_categorical_nearest_channelwise_cylindric(tensor, Snapshot.get_export_size())                    
         # No normalization for categories !!!!!!!!!!!
         # tensor = (tensor - tensor.mean(dim=(1,2), keepdim=True)) / (tensor.std(dim=(1,2), keepdim=True) + 1e-12)
 
         return tensor
-
-    def resize_categorical_nearest_channelwise_cylindric(tensor, target_resolution):
-        target_H, target_W = target_resolution
-        C, H, W = tensor.shape
-        
-        """
-        Perfect cylindrical resize for categorical data.
-        Ensures left and right edges have similar distributions.
-        """
-        target_H, target_W = target_resolution
-        C, H, W = tensor.shape
-        device = tensor.device
-        
-        # --- Create mapping that ensures edge continuity ---
-        # The key: make sure j_norm for leftmost and rightmost pixels
-        # map to similar source regions
-        
-        # Create j_norm from -0.5 to 0.5 (centered)
-        # This ensures continuity at edges
-        j_norm = torch.linspace(-0.5, 0.5, target_W, device=device)
-        
-        # Map to source coordinates
-        j_source_float = (j_norm + 0.5) * W  # Now in [0, W]
-        
-        # Convert to indices with modulo
-        j_source = torch.floor(j_source_float).long() % W
-        
-        # For latitude
-        i_norm = torch.linspace(0, 1, target_H, device=device)
-        i_source_float = i_norm * (H - 1)
-        i_source = torch.floor(i_source_float).long().clamp(0, H-1)
-        
-        # Create meshgrid
-        I, J = torch.meshgrid(i_source, j_source, indexing='ij')
-        
-        # Sample
-        result = tensor[:, I, J]
-        
-        return result
             
     #------------------ export tensors  --------------------
     def get_export_size():
         return (int(Snapshot.original_720_h/10*Snapshot.factor10), int(Snapshot.original_1440_w/10*Snapshot.factor10))
-    
-    def resize_continuous_bilinear_channel_wise_cylindric(tensor, target_size, mode='bilinear'):
-        """
-        CORRECT cylindrical resize for cyclic longitude dimension.
-        
-        Algorithm:
-        1. Unwrap cyclic data to larger size (wrap on BOTH sides)
-        2. Resize the unwrapped (larger) tensor
-        3. Crop the center portion corresponding to original data
-        
-        Args:
-            tensor: (C, H, W) where W is cyclic (longitude)
-            target_size: (target_h, target_w)
-        
-        Returns:
-            Resized tensor (C, target_h, target_w) with preserved cyclic continuity
-        """
-        if tensor.dim() == 3:
-            x = tensor.unsqueeze(0)  # Add batch: (1, C, H, W)
-            has_batch = False
-        else:
-            x = tensor
-            has_batch = True
-        
-        target_h, target_w = target_size
-        B, C, H, W = x.shape
-        
-        # --- STEP 1: Determine wrap amount ---
-        # For cyclic data, wrap HALF the width on EACH side
-        # This ensures continuity when we later crop the center
-        wrap_W = W // 2  # Wrap half the width
-        
-        # --- STEP 2: Create unwrapped tensor ---
-        # Pattern: [RIGHT-HALF, FULL, LEFT-HALF]
-        # This creates a continuous representation
-        right_half = x[..., -wrap_W:]  # Last wrap_W columns
-        left_half = x[..., :wrap_W]    # First wrap_W columns
-        
-        # Unwrapped tensor: (1, C, H, W + 2*wrap_W)
-        x_unwrapped = torch.cat([right_half, x, left_half], dim=-1)
-        
-        # --- STEP 3: Resize the UNWRAPPED tensor ---
-        # Calculate new wrap size proportionally
-        unwrapped_W = W + 2 * wrap_W
-        scale_factor = target_w / W
-        
-        # New dimensions for unwrapped tensor
-        target_unwrapped_W = int(target_w + 2 * wrap_W * scale_factor)
-        
-        x_resized_unwrapped = F.interpolate(
-            x_unwrapped,
-            size=(target_h, target_unwrapped_W),
-            mode=mode,
-            align_corners=False
-        )
-        
-        # --- STEP 4: Crop the CENTER portion ---
-        # After resizing, we need to find where the original data is
-        # It's in the middle, between the wrapped portions
-        current_unwrapped_W = x_resized_unwrapped.shape[-1]
-        
-        # The wrapped portions scaled proportionally
-        new_wrap_W = int(wrap_W * scale_factor)
-        
-        # Crop the middle part (original data)
-        start = new_wrap_W
-        end = current_unwrapped_W - new_wrap_W
-        result = x_resized_unwrapped[..., start:end]
-        
-        # --- STEP 5: Ensure exact target size ---
-        # Sometimes floating point math causes off-by-one
-        if result.shape[-1] != target_w:
-            # Final adjustment if needed
-            result = F.interpolate(
-                result,
-                size=(target_h, target_w),
-                mode=mode,
-                align_corners=False
-            )
-        
-        # Remove batch dimension if we added it
-        if not has_batch:
-            result = result.squeeze(0)
-        
-        return result
 
     def is_export_size(tensor):
         exp_h, exp_w = Snapshot.get_export_size()

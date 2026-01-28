@@ -163,9 +163,9 @@ if __name__ == "__main__":
         T1 = 24
         N = round(72 * factor10 * 144 * factor10 /16/16)
         seq_len = round(T1 * 72 * factor10 * 144 * factor10 /16/16)    # 97_200 for factor10 == 10
-        nLayers = 1
-        d_model = 1024
-        nHeads = 128
+        nLayers = 10
+        d_model = 256
+        nHeads = 8
         tokens_per_chunk = None
         heads_per_chunk = None
         kv_full_sequence = True
@@ -250,7 +250,7 @@ if __name__ == "__main__":
         return model
         
     model_true = demonstrate(chunkBackward=True)
-    model_false = demonstrate(chunkBackward=False)
+    # model_false = demonstrate(chunkBackward=False)
 
 
 
