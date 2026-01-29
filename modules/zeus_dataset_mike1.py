@@ -33,7 +33,7 @@ import os, sys, gc
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.CylindricalResizer import CylindricalResizer
-from modules.utils import check_dir
+from modules.utils import check_dir, get_module_hash
 # Make they're from sure modules_zeus
 from modules_zeus.constants import ERA5_DATA_VARS
 from modules_zeus.sample import Era5Sample
@@ -535,7 +535,11 @@ class Zeus_Dataset(Dataset):
             data = {}
         data.update(items)
         torch.save(data, path)
-        return       
+        return
+    
+    def get_checkpoint_path(self, original, file_name_suffix):
+        path = original.with_stem(original.stem + "_f" + str(self.pm.factor10)) if file_name_suffix is None else original.with_stem(original.stem + "_" + file_name_suffix + "_f" + str(self.pm.factor10))
+        return path
 
     def get_mean_meteo_downloading_if_not_ready(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=10, modulo=6, file_name_suffix=None, is_downsample_and_predict=False):
         """
@@ -552,7 +556,7 @@ class Zeus_Dataset(Dataset):
                 )
         
         original = self.mean_meteo_onestop_checkpoint_path
-        checkpoint_path = original.with_stem(original.stem + "_f" + str(self.pm.factor10)) if file_name_suffix is None else original.with_stem(original.stem + "_" + file_name_suffix + "_f" + str(self.pm.factor10))
+        checkpoint_path = self.get_checkpoint_path(original, file_name_suffix)
 
         task = "mean_meteo"
 
@@ -670,7 +674,7 @@ class Zeus_Dataset(Dataset):
                 )
         
         original = self.mean_meteo_checkpoint_path
-        checkpoint_path = original.with_stem(original.stem + "_f" + str(self.pm.factor10)) if file_name_suffix is None else original.with_stem(original.stem + "_" + file_name_suffix + "_f" + str(self.pm.factor10))
+        checkpoint_path = self.get_checkpoint_path(original, file_name_suffix)
 
         task = "mean_meteo"
         
@@ -782,7 +786,7 @@ class Zeus_Dataset(Dataset):
                 )
         
         original = self.variance_meteo_checkpoint_path
-        checkpoint_path = original.with_stem(original.stem + "_f" + str(self.pm.factor10)) if file_name_suffix is None else original.with_stem(original.stem + "_" + file_name_suffix + "_f" + str(self.pm.factor10))
+        checkpoint_path = self.get_checkpoint_path(original, file_name_suffix)
 
         task = "variance_meteo"
         
@@ -894,7 +898,7 @@ class Zeus_Dataset(Dataset):
             )
 
         original = self.mean_tempo_checkpoint_path
-        checkpoint_path = original.with_stem(original.stem + "_f" + str(self.pm.factor10)) if file_name_suffix is None else original.with_stem(original.stem + "_" + file_name_suffix + "_f" + str(self.pm.factor10))
+        checkpoint_path = self.get_checkpoint_path(original, file_name_suffix)
 
         task = "mean_tempo"
 
@@ -999,7 +1003,7 @@ class Zeus_Dataset(Dataset):
             )
         
         original = self.variance_tempo_checkpoint_path
-        checkpoint_path = original.with_stem(original.stem + "_f" + str(self.pm.factor10)) if file_name_suffix is None else original.with_stem(original.stem + "_" + file_name_suffix + "_f" + str(self.pm.factor10))
+        checkpoint_path = self.get_checkpoint_path(original, file_name_suffix)
         
         task = "variance_tempo"
 
@@ -1104,6 +1108,12 @@ class Zeus_Dataset(Dataset):
             std  (np.ndarray): std values (C,)
         """
         
+        # This is a bug: If you restart this function after changing the phyiscal prediction modules,
+        # the function is blindly deceived.
+        if is_downsample_and_predict:
+            initial_module_hashes = self.get_module_hashes()
+
+        
         check_interval = 24 // modulo
 
         # Compute mean with checkpointing
@@ -1165,7 +1175,7 @@ class Zeus_Dataset(Dataset):
             variance_tempo_dict  = {var: float(val) for var, val in zip(Snapshot.tempo_variables, list(var_tempo))}   # var_, a numpy array, acts as a list
 
             original = self.param_path
-            save_path = original if file_name_suffix is None else original.with_stem(original.stem + "_" + file_name_suffix)
+            save_path = self.get_checkpoint_path(original, file_name_suffix)
 
             # Load old data if it exists
             if save_path.exists() and save_path.is_file():
@@ -1182,6 +1192,11 @@ class Zeus_Dataset(Dataset):
             data["variance_meteo_dict"] = variance_meteo_dict
             data["mean_tempo_dict"] = mean_tempo_dict
             data["variance_tempo_dict"] = variance_tempo_dict
+            
+            if is_downsample_and_predict:
+                module_hashes = self.get_module_hashes()
+                assert module_hashes == initial_module_hashes
+                data["module_hashes"] = module_hashes
 
             # Save updated data
             with open(save_path, "w") as f:
@@ -1195,8 +1210,7 @@ class Zeus_Dataset(Dataset):
     def load_dataset_params(self, file_name_suffix=None):
 
         original = self.param_path
-        params_path = original if file_name_suffix is None else original.with_stem(original.stem + "_" + file_name_suffix)
-
+        params_path = self.get_checkpoint_path(original, file_name_suffix)
 
         with open(params_path, "r") as f:
             data = json.load(f)
@@ -1205,6 +1219,10 @@ class Zeus_Dataset(Dataset):
         mean_meteo_dict, variance_meteo_dict, mean_tempo_dict, variance_tempo_dict = \
         data['mean_meteo_dict'], data['variance_meteo_dict'], (data['mean_tempo_dict']), data['variance_tempo_dict']
 
+        if data.get("module_hashes", None) is not None:
+            module_hashes = self.get_module_hashes()
+            assert module_hashes == data["module_hashes"]
+            
         #--------------------- meteo -----------------
         
         mean_meteo = []
@@ -1555,12 +1573,12 @@ class Zeus_Dataset(Dataset):
 
         from modules.utils import show_two_arrays, initialize_for_show_array, finalize_for_show_array
         from light.predict_t2m_n_hours import T2mPredictor
-        from light.predict_u100m_n_hours import U100mPredictor
-        from light.predict_d2m_n_hours import D2mPredictor
-        from light.predict_v100m_n_hours import V100mPredictor
-        from light.predict_sp_n_hours import SpPredictor
         from light.predict_tp_n_hours import TpPredictor    
-        from light.predict_wind100m_n_hours import Wind100mPredictor
+        from light.predict_u100m_n_hours import U100mPredictor
+        from light.predict_v100m_n_hours import V100mPredictor
+        from light.predict_d2m_n_hours import D2mPredictor
+        from light.predict_sp_n_hours import SpPredictor
+        # from light.predict_wind100m_n_hours import Wind100mPredictor
 
         if self.fun_dict is None:
             self.fun_dict = {"t2m": T2mPredictor(), "tp": TpPredictor(), "u100m": U100mPredictor(), "v100m": V100mPredictor(), "d2m": D2mPredictor(), "sp": SpPredictor()}
@@ -1576,6 +1594,14 @@ class Zeus_Dataset(Dataset):
             dict_x[var] = self.fun_dict[var].predict(ss_x.meteo, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, ss_y.tempo, dt_x, delta_hours=modulo).cpu().numpy()
 
         return dict_x
+    
+    def get_module_hashes(self):
+        from modules.utils import get_module_hash
+        
+        module_names = ["light.predict_t2m_n_hours", "light.predict_tp_n_hours", "light.predict_u100m_n_hours", "light.predict_v100m_n_hours", "light.predict_d2m_n_hours", "light.predict_sp_n_hours"]
+        hashes = {name: get_module_hash(name) for name in module_names}
+        
+        return hashes
 
     #----------------- Standardize --------------------
 
@@ -2497,6 +2523,7 @@ if __name__ == "__main__":
 
     inclusive_left = datetime(2018, 1, 1, 0)
     inclusive_right = datetime(2025, 12, 31, 23)
+    # inclusive_right = datetime(2018, 1, 2, 23)
 
     # dict = dataset.analyze_hourly_paths(inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=1)
     # print(f"count: {dict['count']}, n_unexpected_hours: {dict['n_unexpected_hours']}, first_hour: {dict['first_hour']}, last_hour: {dict['last_hour']}, n_missing_hours: {len(dict['missing_hours'])}")
@@ -2505,16 +2532,16 @@ if __name__ == "__main__":
     dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=modulo, 
             file_name_suffix=f"2008_2025_m{modulo}_" + ("PhDn" if is_downsample_and_predict else ""), is_downsample_and_predict=is_downsample_and_predict)
 
-    # mean_meteo, std_meteo, mean_tempo, std_tempo, \
-    # mean_meteo_ready_cpu, std_meteo_ready_cpu, mean_meteo_ready_cuda, std_meteo_ready_cuda, \
-    # mean_tempo_ready_cpu, std_tempo_ready_cpu, mean_tempo_ready_cuda, std_tempo_ready_cuda, \
-    # area_weights_cuda \
-    # = dataset.load_dataset_params(file_name_suffix="208_2025_m6")
+    mean_meteo, std_meteo, mean_tempo, std_tempo, \
+    mean_meteo_ready_cpu, std_meteo_ready_cpu, mean_meteo_ready_cuda, std_meteo_ready_cuda, \
+    mean_tempo_ready_cpu, std_tempo_ready_cpu, mean_tempo_ready_cuda, std_tempo_ready_cuda, \
+    area_weights_cuda \
+    = dataset.load_dataset_params(file_name_suffix=f"2008_2025_m{modulo}_" + ("PhDn" if is_downsample_and_predict else ""))
 
-    # print("-------- mean_meteo: ", mean_meteo.shape, mean_meteo[-3:])
-    # print("-------- std_meteo: ", std_meteo.shape, std_meteo[-3:])
-    # print("-------- mean_tempo: ", mean_tempo.shape, mean_tempo[-3:])
-    # print("-------- std_tempo: ", std_tempo.shape, std_tempo[-3:])
+    print("-------- mean_meteo: ", mean_meteo.shape, mean_meteo[-3:])
+    print("-------- std_meteo: ", std_meteo.shape, std_meteo[-3:])
+    print("-------- mean_tempo: ", mean_tempo.shape, mean_tempo[-3:])
+    print("-------- std_tempo: ", std_tempo.shape, std_tempo[-3:])
 
     # train_hours, vali_hours, test_hours = dataset.split_data_hours_by_date_segents(
     #     datetime(2015, 1, 1, 10), datetime(2015, 1, 10, 10), datetime(2015, 1, 20, 10), datetime(2015, 1, 30, 10),

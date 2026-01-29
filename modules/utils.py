@@ -911,3 +911,17 @@ def resize_categorical_nearest_channelwise_cylindric(tensor, target_resolution):
     result = tensor[:, I, J]
     
     return result
+
+import importlib, hashlib
+def get_module_hash(module_name):
+    """Get hash of a module's source code."""
+    module = importlib.import_module(module_name)
+    
+    # Get module file path
+    module_path = Path(module.__file__)
+    
+    # Read and hash the source file
+    with open(module_path, 'rb') as f:
+        content = f.read()
+    
+    return hashlib.sha256(content).hexdigest()
