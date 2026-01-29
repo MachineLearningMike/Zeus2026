@@ -46,7 +46,6 @@ class U100mPredictor:
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.device = torch.device(device)
         self._setup_constants()
-        print(f"U100mPredictor initialized on device: {self.device}")
         
     def _setup_constants(self):
         """Initialize all physical constants."""

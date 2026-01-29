@@ -109,7 +109,7 @@ class Snapshot:
         self.day = day
         self.hour = hour
                 
-        self._meteo, self._tempo, self._geo_dense, self._geo_cat = None, None, None, None
+        self.meteo, self.tempo, self.geo_dense, self.geo_cat = None, None, None, None
 
         #---------------------- temporary ----------------------
         exp_h, exp_w = Snapshot.get_export_size()
@@ -145,8 +145,8 @@ class Snapshot:
 
         #---------------- geo ----------------
         
-        self._geo_dense = Snapshot.geo_dense
-        self._geo_cat = Snapshot.geo_cat
+        self.geo_dense = Snapshot.geo_dense
+        self.geo_cat = Snapshot.geo_cat
         
         
     def create_cos_lat_sin_lon():

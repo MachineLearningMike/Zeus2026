@@ -55,7 +55,6 @@ class V100mPredictor:
             self.device = device
         
         self._setup_constants()
-        print(f"V100mPredictor initialized on device: {self.device}")
         
     def _setup_constants(self):
         """Initialize thoughtfully chosen constants."""

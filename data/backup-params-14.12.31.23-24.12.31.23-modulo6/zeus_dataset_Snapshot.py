@@ -162,8 +162,8 @@ class Snapshot:
    
     delevel_plan = best_segments_increasing(num_air_levels, 7)
     
-    _geo_dense = None   # on device
-    _geo_cat = None
+    geo_dense = None   # on device
+    geo_cat = None
     
     def set_original_settings():
         Snapshot.export_factor10 = 10
@@ -185,10 +185,10 @@ class Snapshot:
         dense_npy_paths = [config['orograph_npy_path']]
 
         #--------------------------------------------------------------------------------------------------------
-        _geo_dense = Snapshot.create_geo_dense_era5(dense_npy_paths)
-        Snapshot._geo_dense = Snapshot.crop_tensor(_geo_dense, size=(Snapshot.original_720_h, Snapshot.original_1440_w))
-        _geo_cat = Snapshot.create_geo_cat_era5(categorical_npy_paths)
-        Snapshot._geo_cat = Snapshot.crop_tensor(_geo_cat, size=(Snapshot.original_720_h, Snapshot.original_1440_w))
+        geo_dense = Snapshot.create_geo_dense_era5(dense_npy_paths)
+        Snapshot.geo_dense = Snapshot.crop_tensor(geo_dense, size=(Snapshot.original_720_h, Snapshot.original_1440_w))
+        geo_cat = Snapshot.create_geo_cat_era5(categorical_npy_paths)
+        Snapshot.geo_cat = Snapshot.crop_tensor(geo_cat, size=(Snapshot.original_720_h, Snapshot.original_1440_w))
             
     def __init__(self, year, month, day, hour, meteo, meteo_unnormal, device='cpu'):
         assert year is not None and month is not None and day is not None and hour is not None
@@ -200,7 +200,7 @@ class Snapshot:
         self._device = None
         self.device = device    # operation
         
-        self._meteo, self._tempo, self._geo_dense, self._geo_cat = None, None, None, None
+        self.meteo, self.tempo, self.geo_dense, self.geo_cat = None, None, None, None
 
         #---------------------- temporary ----------------------
         exp_h, exp_w = Snapshot.get_export_size()
@@ -222,7 +222,7 @@ class Snapshot:
         if _meteo_tensor.shape[1] > Snapshot.original_720_h or _meteo_tensor.shape[2] > Snapshot.original_1440_w:
             _meteo_tensor = Snapshot.crop_tensor(_meteo_tensor, full_size)
             
-        self._meteo = _meteo_tensor
+        self.meteo = _meteo_tensor
 
         #--------------- meteo_unnormalized -------------
         # meteo_unnormal, if not None, comes from dataset: (n, 721, 1440)
@@ -233,13 +233,13 @@ class Snapshot:
 
         #--------------- tempo ---------------
 
-        _tempo = self.create_tempo_era5()
-        self._tempo = Snapshot.crop_tensor(_tempo, full_size)
+        tempo = self.create_tempo_era5()
+        self.tempo = Snapshot.crop_tensor(tempo, full_size)
 
         #---------------- geo ----------------
         
-        self._geo_dense = Snapshot._geo_dense
-        self._geo_cat = Snapshot._geo_cat
+        self.geo_dense = Snapshot.geo_dense
+        self.geo_cat = Snapshot.geo_cat
 
         
     def crop_tensor(tensor, size):
@@ -264,7 +264,7 @@ class Snapshot:
     
     #------------------ meteo -----------------------
     def _get_meteo(self):
-        return self._meteo
+        return self.meteo
     
     meteo_internal = property(
         fget = _get_meteo,
@@ -299,7 +299,7 @@ class Snapshot:
     
     #------------------ tempo -----------------------
     def _get_tempo(self):
-        return self._tempo
+        return self.tempo
     
     tempo_internal = property(
         fget = _get_tempo,
@@ -320,7 +320,7 @@ class Snapshot:
     
     #------------------ geo dense -----------------------
     def _get_geo_dense(self):
-        return self._geo_dense
+        return self.geo_dense
     geo_dense_internal = property(
         fget = _get_geo_dense,
     )
@@ -340,14 +340,14 @@ class Snapshot:
 
     @classproperty
     def shared_geo_dense(cls):
-        geo_dense = Snapshot._geo_dense
+        geo_dense = Snapshot.geo_dense
         if not Snapshot.is_export_size(geo_dense):
             geo_dense = Snapshot.resize_for_export(geo_dense)
         return geo_dense
     
     #------------------ geo cat -----------------------
     def _get_geo_cat(self):
-        return self._geo_cat
+        return self.geo_cat
     geo_cat_internal = property(
         fget = _get_geo_cat,
     )
@@ -367,7 +367,7 @@ class Snapshot:
     
     @classproperty
     def shared_geo_cat(cls):
-        geo_cat = Snapshot._geo_cat
+        geo_cat = Snapshot.geo_cat
         if not Snapshot.is_export_size(geo_cat):
             geo_cat = Snapshot.resize_for_export(geo_cat)        
         return geo_cat
