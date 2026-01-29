@@ -1473,9 +1473,57 @@ projects["Zeus_26Jan18"] = {    #-----------------------------------------------
     "model_4": {},
 }
 
+projects["Zeus_26Jan30"] = {    #---------------------------------------------------------- Micro-model for a single 8GB GPU -------
+    # ------------------------------- This overrides the above rules ----------------------
+    "management": {
+    "Zeus_Model_module" : "Zeus_Light",
+    "GPUWaitsData" : True,
+    "models_to_play": [0,],
+    "metrics" : "rmse", # "mae", "rmse"
+    # Let it be chosen by GPU rule 'nRawStepsPerBatch' : 2,       # Can be changed upto the type of GPU.
+    'max_cascade_step' : 1,     # max = nRawStepsPerBatch. 1 = no actual cascades, raw prediction only
+    },
+    
+    "data": {
+    "org_height": 721,
+    "batch_size": 1,
+    'lossXtargets' : 5.0,
+    },
+    
+    "model_0": {
+        "lr": 1e-4,
+        "max_lr": 1e-4,
+        "overwrite_saved_lr": False,
+        "accum_steps" : 10,   
+        "skip_validation" : True,
+        #----------------------------------- SWIN ------------------------
+        # 'factor10' : 2 on Windows else 10.   3 works on 8GB, 10 will work on 80GB? Yes, barely.
+        
+        'patch_kernel' : 4,
+        'patch_stride' : 4,
+
+        "batch_size": 1,
+        "nHeads" : 2,      #
+        "nLayers" : 2,     # This is a major upgrade, from 4.
+        
+        'choose_best_loss_model' : False,
+        'useLRLearner' : False,
+        'use_checkpoint' : False,
+        
+        # The current model goes OOM on A100, with layers_to_enhance_in_enc_dec = [0] and nEnhancementPairs = [1]
+        'layers_to_enhance_in_enc_dec' : [],
+        'nEnhancementPairs': [],  # pairs
+    }, 
+    
+    "model_1": {},
+    "model_2": {},
+    "model_3": {},
+    "model_4": {},
+}
+
 #-------------------------------- select proejct -----------------------
 
-project = "Zeus_25Dec28_1"   # "Zeus_Swin_25Dec25_2"
+project = "Zeus_26Jan30"   # "Zeus_Swin_25Dec25_2"
 config["bayesProject"] = project
 # updata 'management'
 config.update(projects[project]["management"])

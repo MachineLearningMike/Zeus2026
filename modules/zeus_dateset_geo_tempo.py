@@ -473,10 +473,6 @@ class Geo_Tempo():
         H = 721
         W = 1441
 
-        # Step sizes
-        lat_step = 180.0 / (H - 1)    # 0.25°
-        lon_step = 360.0 / (W - 1)    # 0.25°
-
         # Latitudes: center of each cell
         lat_tensor = torch.linspace(-90.0, 90.0, H, dtype=torch.float32) # 0.25 x 721
         # print(lat_tensor[0], lat_tensor[-1], lat_tensor[1]-lat_tensor[0])
@@ -493,6 +489,37 @@ class Geo_Tempo():
 
         # Stack into (2, H, W)
         lat_lon_tensor = torch.stack([lat_grid, lon_grid], dim=0)   # (2, 721, 1440), with a resolution of 0.25 degree
+
+        # print(lat_lon_tensor.shape)
+        # print(lat_lon_tensor[0, 360, :])
+        # print(lat_lon_tensor[1, :, 0])
+        
+        return lat_lon_tensor, lat_tensor, lon_tensor
+    
+    def lat_lon_grid_tensor(h, w):
+        # BE CAREFUL !!!!!!!!!!! with this code, which is the foundation of geography of the whole system.
+
+        """
+        Just a costomization of lat_lon_grid_tensor_era5_721
+        """
+        H, W = h, w+1
+
+        # Latitudes: center of each cell
+        lat_tensor = torch.linspace(-90.0, 90.0, H, dtype=torch.float32)
+        # print(lat_tensor[0], lat_tensor[-1], lat_tensor[1]-lat_tensor[0])
+        # Longitudes: center of each cell
+        lon_tensor = torch.linspace(-180.0, 180.0, W, dtype=torch.float32)
+        # print(lon_tensor[0], lon_tensor[-1], lon_tensor[1]-lon_tensor[0])
+
+        lat_tensor = lat_tensor[:]      # H
+        lon_tensor = lon_tensor[:-1]    # (W-1), the +180, or E180, is removed. why not -180? ERA5 does that. So, west is respected.
+
+        # Broadcast to grids
+        lat_grid = lat_tensor.unsqueeze(1).expand(H, W-1)
+        lon_grid = lon_tensor.unsqueeze(0).expand(H, W-1)
+
+        # Stack into (2, h, w)
+        lat_lon_tensor = torch.stack([lat_grid, lon_grid], dim=0)   # (2, h, w)
 
         # print(lat_lon_tensor.shape)
         # print(lat_lon_tensor[0, 360, :])

@@ -2538,10 +2538,10 @@ if __name__ == "__main__":
     area_weights_cuda \
     = dataset.load_dataset_params(file_name_suffix=f"2008_2025_m{modulo}_" + ("PhDn" if is_downsample_and_predict else ""))
 
-    print("-------- mean_meteo: ", mean_meteo.shape, mean_meteo[-3:])
-    print("-------- std_meteo: ", std_meteo.shape, std_meteo[-3:])
-    print("-------- mean_tempo: ", mean_tempo.shape, mean_tempo[-3:])
-    print("-------- std_tempo: ", std_tempo.shape, std_tempo[-3:])
+    print("-------- mean_meteo: ", mean_meteo.shape, mean_meteo[:])
+    print("-------- std_meteo: ", std_meteo.shape, std_meteo[:])
+    print("-------- mean_tempo: ", mean_tempo.shape, mean_tempo[:])
+    print("-------- std_tempo: ", std_tempo.shape, std_tempo[:])
 
     # train_hours, vali_hours, test_hours = dataset.split_data_hours_by_date_segents(
     #     datetime(2015, 1, 1, 10), datetime(2015, 1, 10, 10), datetime(2015, 1, 20, 10), datetime(2015, 1, 30, 10),
