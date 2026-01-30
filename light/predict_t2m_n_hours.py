@@ -10,15 +10,15 @@ All above data components are a map over the globe, with thee shape of (latitude
 The time t is given in UTC.
 
 Now we have inputs for given current time t. They are:
-    meteo = torch.stack([t2m, tp, u100, v100, d2m, sp], dim=0),
+    meteo_normal = torch.stack([t2m, tp, u100, v100, d2m, sp], dim=0),
     geo_dense = torch.stack([orograph, sin_lat, cos_lat, sin_lon, cos_lon], dim=0),
     geo_cat = torch.stack([land_sea_mask, soil_type], dim=0),
     geo_tempo = torch.stack([sin_orbit, cos_orbit, sin_zenith, cos_zenith], dim=0).
 , where sin_xxx means sin(xxx) and cos_xxx means cos(xxx)
 We also have inputs for the given future time f. 
-The current and the future shares all inputs, except that the future has no meteo and its own geo_tempo called geo_tempo_f.
+The current and the future shares all inputs, except that the future has no meteo_normal and its own geo_tempo called geo_tempo_f.
 
-def predict(self, meteo: torch.Tensor, geo_dense: torch.Tensor, 
+def predict(self, meteo_normal: torch.Tensor, geo_dense: torch.Tensor, 
                 geo_cat: torch.Tensor, geo_tempo: torch.Tensor, geo_tempo_f: torch.Tensor,
                 current_dt: datetime, delta_hours: int) -> torch.Tensor
 
@@ -79,7 +79,7 @@ class T2mPredictor:
         # WIND MIXING
         self.WIND_MIXING = torch.tensor(0.1, device=self.device)
         
-    def predict(self, meteo: torch.Tensor, geo_dense: torch.Tensor, 
+    def predict(self, meteo_normal: torch.Tensor, geo_dense: torch.Tensor, 
                 geo_cat: torch.Tensor, geo_tempo: torch.Tensor, geo_tempo_f: torch.Tensor,
                 current_dt: datetime, delta_hours: int) -> torch.Tensor:
         """
@@ -87,21 +87,21 @@ class T2mPredictor:
         not solar change.
         """
         if delta_hours == 0:
-            return meteo[0].clone()
+            return meteo_normal[0].clone()
         
         # Move to device
-        meteo = meteo.to(self.device)
+        meteo_normal = meteo_normal.to(self.device)
         geo_dense = geo_dense.to(self.device)
         geo_cat = geo_cat.to(self.device)
         geo_tempo = geo_tempo.to(self.device)
         geo_tempo_f = geo_tempo_f.to(self.device)
         
         # Extract variables
-        T0 = meteo[0]
-        tp = meteo[1]
-        U = meteo[2]
-        V = meteo[3]
-        Td = meteo[4]
+        T0 = meteo_normal[0]
+        tp = meteo_normal[1]
+        U = meteo_normal[2]
+        V = meteo_normal[3]
+        Td = meteo_normal[4]
         
         # Geographical data
         sin_lat = geo_dense[1]
@@ -341,15 +341,15 @@ def analyze_banding_fix():
     lat_grid, lon_grid = torch.meshgrid(lat, lon, indexing='ij')
     
     # Initialize tensors
-    meteo = torch.ones(6, H, W)
+    meteo_normal = torch.ones(6, H, W)
     geo_dense = torch.ones(5, H, W)
     geo_cat = torch.ones(2, H, W)
     geo_tempo = torch.ones(4, H, W)
     geo_tempo_f = torch.ones(4, H, W)
     
     # Setup
-    meteo[0] = 283.0  # 10°C
-    meteo[4] = 280.0  # Dew point
+    meteo_normal[0] = 283.0  # 10°C
+    meteo_normal[4] = 280.0  # Dew point
     
     # Land-ocean pattern
     land_mask = torch.zeros(H, W)
@@ -396,7 +396,7 @@ def analyze_banding_fix():
             geo_tempo_f[3, i, j] = max(0.0, min(1.0, cos_z_future))
     
     # Make prediction (6-hour forecast)
-    pred = predictor.predict(meteo, geo_dense, geo_cat, geo_tempo, geo_tempo_f,
+    pred = predictor.predict(meteo_normal, geo_dense, geo_cat, geo_tempo, geo_tempo_f,
                             current_dt, 6)
     
     # Analyze

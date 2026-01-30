@@ -715,8 +715,8 @@ class Train():
                 with autocast(device_type=self.device_type, dtype=torch.bfloat16):
                     with torch.set_grad_enabled(trainable):
                         pred = self.model(batch_x, self.pm.mFrames)
-                        pred = self.dataset.unnormalize(pred)   # torch.float32 !!!, cuda, True !!!
-                        target = self.dataset.unnormalize(batch_y)   # torch.float32, cuda, False
+                        pred = self.dataset.rawize(pred)   # torch.float32 !!!, cuda, True !!!
+                        target = self.dataset.rawize(batch_y)   # torch.float32, cuda, False
                         loss, rmse = self.loss(target, pred, batch_diff, era5_data_vars)  # (,), (C,), torch.float32, cuda, True !!!
                     if trainable:
                         loss.backward()
@@ -730,10 +730,10 @@ class Train():
                     # context = autocast(device_type=self.device_type, dtype=torch.bfloat16) if self.pm.use_autocast else nullcontext()
                     # with context:
                     # with torch.set_grad_enabled(trainable):   # grad is managed by single_GPU_forward_loss_backward
-                    (loss, normalized_rmse), unnormalized_rmse, unnormalized_mae = self.model.single_GPU_forward_loss_backward(batch_x, batch_y, self.loss, self.dataset.normalize, self.dataset.unnormalize, batch_diff, era5_data_vars, trainable=trainable)
+                    (loss, normalized_rmse), rawized_rmse, rawized_mae = self.model.single_GPU_forward_loss_backward(batch_x, batch_y, self.loss, self.dataset.normalize, self.dataset.rawize, batch_diff, era5_data_vars, trainable=trainable)
                             # (loss, rmse) = self.model.single_GPU_forward_loss_backward(batch_x.detach().clone(), batch_y.detach().clone(), self.loss, None, batch_diff, era5_data_vars, trainable=trainable)
                     step_loss.append(loss)  # (,) - list.        Even if no cpu(), their stack results in cpu !!!
-                    step_metrics.append(unnormalized_mae)      # (C,) - list.  If no cpu(), their stack results in cuda
+                    step_metrics.append(rawized_mae)      # (C,) - list.  If no cpu(), their stack results in cuda
                     self.total_losses.append(loss.item())
                 else:
                     chunks_x = batch_x.chunk(self.nDevices)
@@ -744,7 +744,7 @@ class Train():
                         
                     futures = [
                         gpu_executor.submit(
-                            self.slave_models[self.devices[i]].single_GPU_forward_loss_backward, mb_x, mb_y, self.loss, self.dataset.unnormalize, 
+                            self.slave_models[self.devices[i]].single_GPU_forward_loss_backward, mb_x, mb_y, self.loss, self.dataset.rawize, 
                             batch_diff, era5_data_vars, self.devices[i]
                         )
                         for i, (mb_x, mb_y) in enumerate(zip(chunks_x, chunks_y))                        

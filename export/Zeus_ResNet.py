@@ -126,7 +126,7 @@ if __name__ == "__main__":
     y_pred = model(trimmed_x, m_frames)
 
     # Unnormalize    
-    unnormal_y_pred = dataset.unnormalize(y_pred)
+    raw_y_pred = dataset.rawize(y_pred)
     print("Output shape:", y_pred.shape)
     assert trimmed_x.shape == y_pred.shape, "Output shape differs from input shape"
     
@@ -144,7 +144,7 @@ if __name__ == "__main__":
     print("Output shape:", y_pred.shape)
 
     # Unnormalize    
-    unnormal_y_pred = dataset.unnormalize(y_pred)
+    raw_y_pred = dataset.rawize(y_pred)
     print("Output shape:", y_pred.shape)
     assert trimmed_x.shape == y_pred.shape, "Output shape differs from input shape"
     

@@ -555,7 +555,7 @@ class Zeus_Dataset(Dataset):
         else:
             return ( data - self.mean_ready_cpu ) / self.std_ready_cpu
     
-    def unnormalize(self, data):    # data: (... C, H, W)
+    def rawize(self, data):    # data: (... C, H, W)
         # Mike!!! I found this error Oct 23 only. 
         # Over 2 months of test training was based on this wrong formula, forcing neual networks to distort accordingly.
         # return ( data - rearrange(self.mean, 'c -> c 1 1').to(device) ) / rearrange(self.std, 'c -> c 1 1').to(device)
@@ -1032,11 +1032,11 @@ class Zeus_Dataset(Dataset):
         return output  # (B, frames, C, H1, W1)
 
     def load_from_drive(self, day, with_normalized=True):
-        unnormalied = torch.tensor(self.load_day_all_data(day))
+        rawied = torch.tensor(self.load_day_all_data(day))
         normalized = None
         if with_normalized:
-            normalized = self.normalize(unnormalied)
-        return unnormalied, normalized
+            normalized = self.normalize(rawied)
+        return rawied, normalized
 
     def take_batch(self):
         
@@ -1077,10 +1077,10 @@ class Zeus_Dataset(Dataset):
                 with_normalized = False
                 future_x = self._disk_threadPool.submit(self.load_from_drive, day, with_normalized)
                 future_y = self._disk_threadPool.submit(self.load_from_drive, day + timedelta(days=1), with_normalized)                
-                unnormalized_x, _ = future_x.result()
-                unnormalized_y, _ = future_y.result()
-                batch_x.append(unnormalized_x)
-                batch_y.append(unnormalized_y)
+                rawized_x, _ = future_x.result()
+                rawized_y, _ = future_y.result()
+                batch_x.append(rawized_x)
+                batch_y.append(rawized_y)
                 
         batch_x = torch.stack(batch_x, dim=0)     # (B, T1FG, C, 721, 1440)
         batch_y = torch.stack(batch_y, dim=0)     # (B, T2FG, C, 721, 1440)

@@ -38,7 +38,7 @@ class Miner(BaseMinerNeuron):
     Your miner neuron class. You should use this class to define your miner's behavior.
     In particular, you should replace the forward function with your own logic.
 
-    Currently the base miner does a request to OpenMeteo (https://open-meteo.com/) for predictions.
+    Currently the base miner does a request to OpenMeteo (https://open-meteo_normal.com/) for predictions.
     You are encouraged to attempt to improve over this by changing the forward function.
     """
 
@@ -86,7 +86,7 @@ class Miner(BaseMinerNeuron):
             "end_hour": end_time.isoformat(timespec="minutes"),
         }
         responses = self.openmeteo_api.weather_api(
-            "https://api.open-meteo.com/v1/forecast", params=params
+            "https://api.open-meteo_normal.com/v1/forecast", params=params
         )
         # get output as grid of [time, lat, lon]
         output = np.stack(

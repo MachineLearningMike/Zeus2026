@@ -389,14 +389,14 @@ class Model_Sequence_Trainer():
                     for md in mds:
                         batch_x = slots[0]
                         batch_y = slots[md.md_id + 1]
-                        (loss, normalized_rmse), unnormalized_metrics = \
+                        (loss, normalized_rmse), rawized_metrics = \
                         md.model.single_GPU_forward_loss_backward(
                             batch_x, batch_y, 
-                            self.loss, self.dataset.normalize, self.dataset.unnormalize, 
+                            self.loss, self.dataset.normalize, self.dataset.rawize, 
                             batch_diff, era5_data_vars, trainable=trainable,
                             metrics = self.pm.metrics,
                         )
-                        md.store_step_loss_and_metrics(loss, unnormalized_metrics)
+                        md.store_step_loss_and_metrics(loss, rawized_metrics)
                         losses.append(loss.item())
                         
                         if trainable:
@@ -413,7 +413,7 @@ class Model_Sequence_Trainer():
                     
                 # futures = [
                 #     gpu_executor.submit(
-                #         self.slave_models[self.devices[i]].single_GPU_forward_loss_backward, mb_x, mb_y, self.loss, self.dataset.unnormalize, 
+                #         self.slave_models[self.devices[i]].single_GPU_forward_loss_backward, mb_x, mb_y, self.loss, self.dataset.rawize, 
                 #         batch_diff, era5_data_vars, self.devices[i]
                 #     )
                 #     for i, (mb_x, mb_y) in enumerate(zip(chunks_x, chunks_y))                        

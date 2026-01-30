@@ -95,7 +95,7 @@ conda activate zeus
 ./start_miner.sh
 ```
 
-The base miner already provides a very competitive level of predictions. It invokes [OpenMeteo's API](https://open-meteo.com/), which uses current state-of-the-art models to do forecasting. While improving upon this prediction might initially be challenging, just a small improvement will mean you can potentially obtain far higher rewards. Also note that you might run out of free-tier credits for this API eventually, depending on how often your miner is queried.
+The base miner already provides a very competitive level of predictions. It invokes [OpenMeteo's API](https://open-meteo_normal.com/), which uses current state-of-the-art models to do forecasting. While improving upon this prediction might initially be challenging, just a small improvement will mean you can potentially obtain far higher rewards. Also note that you might run out of free-tier credits for this API eventually, depending on how often your miner is queried.
 
 ### Input and desired output data
 The datasource for this subnet consists of ERA5 reanalysis data from the Climate Data Store (CDS) of the European Union's Earth observation programme (Copernicus). This comprises the largest global environmental dataset to date, containing hourly measurements across a multitude of variables. 

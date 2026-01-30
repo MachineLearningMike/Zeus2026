@@ -5,6 +5,12 @@ import math
 
 from flash_attn import flash_attn_func
 
+from pathlib import Path
+import os, sys
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+
+from modules.DeltaOperator import DeltaOperator
+
 
 class SwiGLU(nn.Module):
     def __init__(self, dim_in, dim_out):
@@ -33,13 +39,13 @@ class PhysicalFlashAttention(nn.Module):
       out = O(att)
     """
 
-    def __init__(self, dim, H, W, num_heads=8, dropout=0.0, eps=1e-5):
+    def __init__(self, dim, H, W, nHeads=8, dropout=0.0, eps=1e-5):
         super().__init__()
-        assert dim % num_heads == 0, "dim must be divisible by num_heads"
+        assert dim % nHeads == 0, "dim must be divisible by num_heads"
 
         self.dim = dim
-        self.num_heads = num_heads
-        self.head_dim = dim // num_heads
+        self.num_heads = nHeads
+        self.head_dim = dim // nHeads
         self.dropout = dropout
 
         # LayerNorm for input features
@@ -51,8 +57,10 @@ class PhysicalFlashAttention(nn.Module):
         self.k_proj = nn.Linear(dim, dim)
         self.v_proj = TanGLU(dim, dim)          # Aggressive all-directional non-linearity
         self.out_proj = TanGLU(dim, dim)        # Aggressive all-directional non-linearity
+        
+        self.delta_operator = DeltaOperator(input_dim=H*W, latent_rank=16, device='cuda')
 
-        self.register_parameter("Em", nn.Parameter(torch.ones(1, H, W, 1)))
+        # self.register_parameter("Em", nn.Parameter(torch.ones(1, H, W, 1)))     #============== Determine the strategy.
         
         self.apply(self.init_linear)
         
@@ -81,7 +89,6 @@ class PhysicalFlashAttention(nn.Module):
         # Flatten spatial dims
         x = x.reshape(B, N, C)
         p = p.reshape(B, N, C)
-        Em = self.Em.reshape(1, N, 1)
 
         # Apply LayerNorm
         x = self.norm_x(x)
@@ -91,10 +98,12 @@ class PhysicalFlashAttention(nn.Module):
         print(f"p: {p}")
 
         # Projections
-        q = self.q_proj(p) * Em
+        q = self.q_proj(x)
         q = q * (self.head_dim ** -0.5)     # This is non-negotiable with FlashAttention.
         k = self.k_proj(x)
-        v = self.v_proj(x) * 1.5
+        
+        err = self.delta_operator(p)
+        v = self.v_proj(p + err) * 1.5
 
         # Multi-head reshape
         q = self._reshape_heads(q, B, N)
@@ -125,14 +134,14 @@ if __name__ == "__main__":
         dtype = torch.bfloat16  # fp16 or bf16 only
 
         B, H, W, C = 1, 180, 360, 10
-        num_heads = 2
+        nHeads = 2
 
         # Inputs
         x = torch.randn(B, H, W, C, device=device, dtype=dtype, requires_grad=True)
         p = torch.randn(B, H, W, C, device=device, dtype=dtype, requires_grad=True)
 
         # Module
-        attn = PhysicalFlashAttention(dim=C, H=H, W=W, num_heads=num_heads, dropout=0.0).to(device=device, dtype=dtype)
+        attn = PhysicalFlashAttention(dim=C, H=H, W=W, nHeads=nHeads, dropout=0.0).to(device=device, dtype=dtype)
 
         # Forward + backward
         y = attn(x, p)

@@ -10,15 +10,15 @@ All above data components are a map over the globe, with thee shape of (latitude
 The time t is given in UTC.
 
 Now we have inputs for given current time t. They are:
-    meteo = torch.stack([t2m, tp, u100, v100, d2m, sp], dim=0),
+    meteo_normal = torch.stack([t2m, tp, u100, v100, d2m, sp], dim=0),
     geo_dense = torch.stack([orograph, sin_lat, cos_lat, sin_lon, cos_lon], dim=0),
     geo_cat = torch.stack([land_sea_mask, soil_type], dim=0),
     geo_tempo = torch.stack([sin_orbit, cos_orbit, sin_zenith, cos_zenith], dim=0).
 , where sin_xxx means sin(xxx) and cos_xxx means cos(xxx)
 We also have inputs for the given future time f. 
-The current and the future shares all inputs, except that the future has no meteo and its own geo_tempo called geo_tempo_f.
+The current and the future shares all inputs, except that the future has no meteo_normal and its own geo_tempo called geo_tempo_f.
 
-def predict(self, meteo: torch.Tensor, geo_dense: torch.Tensor, 
+def predict(self, meteo_normal: torch.Tensor, geo_dense: torch.Tensor, 
                 geo_cat: torch.Tensor, geo_tempo: torch.Tensor, geo_tempo_f: torch.Tensor,
                 current_dt: datetime, delta_hours: int) -> torch.Tensor] - (torch.tensor)
 
@@ -98,7 +98,7 @@ class Wind100mPredictor:
                                            [0.1, 0.4, 0.1],
                                            [0.05, 0.1, 0.05]], device=self.device)
         
-    def predict(self, meteo: torch.Tensor, geo_dense: torch.Tensor, 
+    def predict(self, meteo_normal: torch.Tensor, geo_dense: torch.Tensor, 
                 geo_cat: torch.Tensor, geo_tempo: torch.Tensor,
                 current_dt: datetime, geo_cat_f: torch.Tensor, 
                 delta_hours: int, return_tensor: Optional[bool] = None) -> Union[Tuple[torch.Tensor, torch.Tensor], 
@@ -107,17 +107,17 @@ class Wind100mPredictor:
         Predict both u100 and v100 at time t+delta with corrected jet stream model.
         """
         # Move to device
-        meteo = meteo.to(self.device)
+        meteo_normal = meteo_normal.to(self.device)
         geo_dense = geo_dense.to(self.device)
         geo_cat = geo_cat.to(self.device)
         geo_tempo = geo_tempo.to(self.device)
         geo_cat_f = geo_cat_f.to(self.device)
         
         # Extract components
-        t2m = meteo[0]
-        current_u100 = meteo[2]
-        current_v100 = meteo[3]
-        sp = meteo[5]
+        t2m = meteo_normal[0]
+        current_u100 = meteo_normal[2]
+        current_v100 = meteo_normal[3]
+        sp = meteo_normal[5]
         
         orograph = geo_dense[0]
         sin_lat = geo_dense[1]

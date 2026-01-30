@@ -89,7 +89,7 @@ class Zeus(nn.Module):
 
         return preds
 
-    def single_GPU_forward_loss_backward(self, input_unnormalized, target_unnormalized, loss_fn, normalize, unnormalize, batch_diff, era5_data_vars, trainable=True, metrics="rmse"):
+    def single_GPU_forward_loss_backward(self, input_rawized, target_rawized, loss_fn, normalize, rawize, batch_diff, era5_data_vars, trainable=True, metrics="rmse"):
         # Do not cast to 16bit for CNN networks.
 
         # with autocast(device_type=self.device_type, dtype=torch.bfloat16):
@@ -98,11 +98,11 @@ class Zeus(nn.Module):
         # assert input.requires_grad == False
         # assert target.requires_grad == False
 
-        input_unnormalized = input_unnormalized.to(self.device)
-        target_unnormalized = target_unnormalized.to(self.device)
+        input_rawized = input_rawized.to(self.device)
+        target_rawized = target_rawized.to(self.device)
         
-        input_normalized = normalize(input_unnormalized)
-        target_normalized = normalize(target_unnormalized)
+        input_normalized = normalize(input_rawized)
+        target_normalized = normalize(target_rawized)
 
         context = torch.enable_grad if trainable else torch.no_grad       # This is the only place where grad is managed.
         with context():
@@ -118,21 +118,21 @@ class Zeus(nn.Module):
         else:
             detached_loss_metrics = lossAndMetrics.detach().cpu()
         
-        pred = unnormalize(pred.detach())        # (B, T, C, H, W)
+        pred = rawize(pred.detach())        # (B, T, C, H, W)
         
         # Temoporay to check for the accuracy near the equator.
         # remain = 30
-        # trim = int((target_unnormalized.shape[3] - remain)/2)
-        # target_unnormalized = target_unnormalized[:, :, :, trim:-trim, :]
+        # trim = int((target_rawized.shape[3] - remain)/2)
+        # target_rawized = target_rawized[:, :, :, trim:-trim, :]
         # pred = pred[:, :, :, trim:-trim, :]
         
         if metrics == "rmse":
-            lossAndMetrics = loss_fn(target_unnormalized, pred, batch_diff, era5_data_vars)
-            unnormalized_metrics = lossAndMetrics[1].cpu() if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics.cpu()
+            lossAndMetrics = loss_fn(target_rawized, pred, batch_diff, era5_data_vars)
+            rawized_metrics = lossAndMetrics[1].cpu() if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics.cpu()
         else:
-            unnormalized_metrics = torch.abs(pred - target_unnormalized).mean(dim=(0, 1, 3, 4)).cpu()    # (C,)
+            rawized_metrics = torch.abs(pred - target_rawized).mean(dim=(0, 1, 3, 4)).cpu()    # (C,)
                         
-        return detached_loss_metrics, unnormalized_metrics
+        return detached_loss_metrics, rawized_metrics
 
 # -----------------------------
 # Sinusoidal dataset

@@ -87,7 +87,7 @@ if __name__ == "__main__":
     from datetime import datetime, timedelta, timezone
 
     nStepsPerBatch = 32
-    snapshots = [Snapshot(dt.year, dt.month, dt.day, dt.hour, meteo=None, device='cpu')
+    snapshots = [Snapshot(dt.year, dt.month, dt.day, dt.hour, meteo_normal=None, device='cpu')
                  for dt in [datetime.now(timezone.utc)+timedelta(days=-10, hours=n) for n in range(nStepsPerBatch+2)]]
     model_dom = {}
     device = "cuda"

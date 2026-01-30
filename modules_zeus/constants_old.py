@@ -65,7 +65,7 @@ LIVE_START_SAMPLE_STD: float = 35
 # ------------------------------------------------------
 # ------------ OpenMeteo (SOTA comparisons) ------------
 # ------------------------------------------------------
-OPEN_METEO_URL: str = "https://customer-api.open-meteo.com/v1/forecast"
+OPEN_METEO_URL: str = "https://customer-api.open-meteo_normal.com/v1/forecast"
 
 # ------------------------------------------------------
 # ---------- Historic prediction (UNUSED) --------------

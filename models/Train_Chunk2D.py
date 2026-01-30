@@ -438,8 +438,8 @@ class Train():
                 with autocast(device_type=self.device_type, dtype=torch.bfloat16):
                     with torch.set_grad_enabled(trainable):
                         pred = self.model(batch_x)
-                    pred = self.dataset.unnormalize(pred)   # torch.float32 !!!, cuda, True !!!
-                    target = self.dataset.unnormalize(batch_y)   # torch.float32, cuda, False
+                    pred = self.dataset.rawize(pred)   # torch.float32 !!!, cuda, True !!!
+                    target = self.dataset.rawize(batch_y)   # torch.float32, cuda, False
                     loss, rmse = self.loss(target, pred, batch_diff, era5_data_vars)  # (,), (C,), torch.float32, cuda, True !!!
                     if trainable:
                         loss.backward()
@@ -455,13 +455,13 @@ class Train():
                 if self.nDevices <= 1:
                     
                     # _, (loss, rmse) = self.model.single_GPU_forward_loss_backward(batch_x, batch_y, self.loss, 
-                    #                   self.dataset.unnormalize, batch_diff, era5_data_vars)
+                    #                   self.dataset.rawize, batch_diff, era5_data_vars)
                 
                     with autocast(device_type=self.device_type, dtype=torch.bfloat16):  
                         with torch.no_grad():
                             pred = self.model(batch_x, train=True, modules_to_cpu=True)
-                        pred = self.dataset.unnormalize(pred)   # torch.float32 !!!, cuda, True !!!
-                        target = self.dataset.unnormalize(batch_y)   # torch.float32, cuda, False
+                        pred = self.dataset.rawize(pred)   # torch.float32 !!!, cuda, True !!!
+                        target = self.dataset.rawize(batch_y)   # torch.float32, cuda, False
                         # target -> same device as out for loss
                         
                         if trainable:
@@ -495,7 +495,7 @@ class Train():
                     
                     futures = [
                         executor.submit(
-                            self.slave_models[self.devices[i]].single_GPU_forward_loss_backward, mb_x, mb_y, self.loss, self.dataset.unnormalize, 
+                            self.slave_models[self.devices[i]].single_GPU_forward_loss_backward, mb_x, mb_y, self.loss, self.dataset.rawize, 
                             batch_diff, era5_data_vars)
                         for i, (mb_x, mb_y) in enumerate(zip(chunks_x, chunks_y))                        
                     ]   # returns immediately.

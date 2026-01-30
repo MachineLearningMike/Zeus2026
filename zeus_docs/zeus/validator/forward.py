@@ -71,7 +71,7 @@ async def forward(self: BaseValidatorNeuron):
 
     # get the baseline data, which we also store and check against
     bt.logging.info("Fetching OpenMeteo baseline")
-    sample.output_data = self.open_meteo_loader.get_output(sample)      # sample.output_data = meteo data, for querying miners
+    sample.output_data = self.open_meteo_loader.get_output(sample)      # sample.output_data = meteo_normal data, for querying miners
   
     miner_uids = self.uid_tracker.get_random_uids(
         k = self.config.neuron.sample_size,

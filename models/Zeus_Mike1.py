@@ -72,11 +72,11 @@ class Zeus(nn.Module):
             tempo_variables = tempo_variables,
             )  
         now = datetime.now(timezone.utc)
-        ss1 = Snapshot(now.year, now.month, now.day, now.hour, meteo=None, meteo_unnormal=None)
+        ss1 = Snapshot(now.year, now.month, now.day, now.hour, meteo_normal=None, meteo_raw=None)
         
         if pm.pair_not_single_snapshot:
             then = now + timedelta(hours=6)
-            ss2 = Snapshot(then.year, then.month, then.day, then.hour, meteo=None, meteo_unnormal=None)
+            ss2 = Snapshot(then.year, then.month, then.day, then.hour, meteo_normal=None, meteo_raw=None)
         else:
             ss2 = ss1
 
@@ -108,7 +108,7 @@ class Zeus(nn.Module):
         #--------------- Unpatch reconstructor        
         self.unpatch_reconstructor = UnpatchReconstructor(
                 in_channels=self.patch_extractor.nTotalLevels * swin_dim, 
-                # We have to reduce losses for all the meteo variables, for auto-regressive (cascaded) inference.
+                # We have to reduce losses for all the meteo_normal variables, for auto-regressive (cascaded) inference.
                 # Consider placing heavier weights on our target variables in the loss function.
                 out_channels=Snapshot.meteo_dims,   
                 kernel_size=self.patch_kernel, 
@@ -116,7 +116,7 @@ class Zeus(nn.Module):
             )
 
     def forward(self, ss1, ss2, cascade_step):    # Not batch-processing, as hard drives are always bottlenecks.       
-        # print(f"x befor patching: {ss1.meteo.shape, ss1.tempo.shape, ss1.geo_dense.shape}")
+        # print(f"x befor patching: {ss1.meteo_normal.shape, ss1.tempo.shape, ss1.geo_dense.shape}")
 
         #----------- patch/extract level features ------------
         # s = time.time()
@@ -153,7 +153,7 @@ class Zeus(nn.Module):
     
     def forward_backward_no_optimizer_step(self,
             ss0, ss1, ssY, cascade_step,
-            fn_loss, fn_nornalize, fn_unnornalize, 
+            fn_loss, fn_nornalize, fn_rawize, 
             batch_diff, zeus_loss_weights_on_target_vars, trainable,
             type_metrics, predicted_snapshot_required,
             air_level_pressure_indices, air_level_pressure_values,
@@ -166,33 +166,33 @@ class Zeus(nn.Module):
         air_levels_mask[air_level_pressure_indices] = 0.0
         # air_levels_mask[-len(self.pm.targetVariables):] = self.pm.lossXtargets  # Weight amplifiled -------------------------
         
-        lossAndMetrics = fn_loss(ssY.meteo, pred_normal, batch_diff, zeus_loss_weights_on_target_vars, vars_to_mask_on_loss=air_levels_mask, area_weights=area_weights)
+        lossAndMetrics = fn_loss(ssY.meteo_normal, pred_normal, batch_diff, zeus_loss_weights_on_target_vars, vars_to_mask_on_loss=air_levels_mask, area_weights=area_weights)
         normalized_loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics   #---- [0] picks loss
 
         if trainable:
             scaler.scale(normalized_loss).backward(retain_graph=True)
 
         pred_normal = pred_normal.detach()
-        pred_normal[air_level_pressure_indices] = ssY.meteo[air_level_pressure_indices].to(pred_normal.device).to(pred_normal.dtype)
+        pred_normal[air_level_pressure_indices] = ssY.meteo_normal[air_level_pressure_indices].to(pred_normal.device).to(pred_normal.dtype)
 
         if predicted_snapshot_required:
-            result_ss = Snapshot(ssY.year, ssY.month, ssY.day, ssY.hour, meteo=pred_normal.to(ssY.meteo.device), meteo_unnormal=None)
+            result_ss = Snapshot(ssY.year, ssY.month, ssY.day, ssY.hour, meteo_normal=pred_normal.to(ssY.meteo_normal.device), meteo_raw=None)
         else:
             result_ss = None
             
         #------------------------------ pred_normal is no longer user below -------------------
-        pred_unnormal = pred_normal
-        fn_unnornalize(pred_normal, pred_unnormal)
+        pred_raw = pred_normal
+        fn_rawize(pred_normal, pred_raw)
         
         if type_metrics == "rmse":
-            lossAndMetrics = fn_loss(ssY.meteo_unnormal, pred_unnormal, batch_diff, zeus_loss_weights_on_target_vars=None, vars_to_mask_on_loss=air_levels_mask, area_weights=area_weights)
-            unnormalized_metrics = lossAndMetrics[1] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics   #---- [1] picks rmse
+            lossAndMetrics = fn_loss(ssY.meteo_raw, pred_raw, batch_diff, zeus_loss_weights_on_target_vars=None, vars_to_mask_on_loss=air_levels_mask, area_weights=area_weights)
+            rawized_metrics = lossAndMetrics[1] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics   #---- [1] picks rmse
         elif type_metrics == "mae":
-            unnormalized_metrics = torch.abs(ssY.meteo_unnormal - pred_unnormal).mean(dim=(1, 2))    # (C,)
+            rawized_metrics = torch.abs(ssY.meteo_raw - pred_raw).mean(dim=(1, 2))    # (C,)
         else:
             raise Exception("type_metrics is invalid")
                 
-        return result_ss, normalized_loss.detach().to("cpu"), unnormalized_metrics.detach().to("cpu")
+        return result_ss, normalized_loss.detach().to("cpu"), rawized_metrics.detach().to("cpu")
 
     def enhance_model_insert_codec_bloks(self, model, layers_to_enhance_in_enc_dec=[2], verbose=True):
         """
@@ -246,9 +246,9 @@ if __name__ == "__main__":
     Snapshot.device = device
     Snapshot.export_factor10 = model.factor10
     now = datetime.now(timezone.utc)
-    ss1 = Snapshot(now.year, now.month, now.day, now.hour, meteo=None, meteo_unnormal=None, device=device)
+    ss1 = Snapshot(now.year, now.month, now.day, now.hour, meteo_normal=None, meteo_raw=None, device=device)
     then = now + timedelta(hours=6)
-    ss2 = Snapshot(then.year, then.month, then.day, then.hour, meteo=None, meteo_unnormal=None, device=device)
+    ss2 = Snapshot(then.year, then.month, then.day, then.hour, meteo_normal=None, meteo_raw=None, device=device)
     
     s = time.time()
     x_out = model(ss1, ss2, 1)

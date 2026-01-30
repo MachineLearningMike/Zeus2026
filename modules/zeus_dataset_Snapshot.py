@@ -4,7 +4,6 @@ import numpy as np
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import torch.nn.functional as F
-import math
 
 import os, sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
@@ -102,40 +101,40 @@ class Snapshot:
     def get_season_events(year):
         return Geo_Tempo.get_season_events(year)
             
-    def __init__(self, year, month, day, hour, meteo, meteo_unnormal, with_tempo=True):
+    def __init__(self, year, month, day, hour, meteo_normal, meteo_raw, with_tempo=True):
         assert year is not None and month is not None and day is not None and hour is not None
         self.year = year
         self.month = month
         self.day = day
         self.hour = hour
                 
-        self.meteo, self.tempo, self.geo_dense, self.geo_cat = None, None, None, None
+        self.meteo_normal, self.meteo_raw, self.tempo, self.geo_dense, self.geo_cat = None, None, None, None, None
 
         #---------------------- temporary ----------------------
         exp_h, exp_w = Snapshot.get_export_size()
         full_size = (Snapshot.original_720_h, Snapshot.original_1440_w)
 
-        #----------------- meteo normalized -------------
-        # meteo, if not None, comes in two scenarios: 
+        #----------------- meteo_normal normalized -------------
+        # meteo_normal, if not None, comes in two scenarios: 
         # - dataset: (n, 721, 1440)
         # - prediction: (n, 720/10*factor10, 1440/10*factor10) = (n, exp_h, exp_w)
-        if meteo is None:
+        if meteo_normal is None:
             meteo_tensor = torch.rand(Snapshot.meteo_dims, exp_h, exp_w) - 0.5     # placeholder for tests.
         else:
-            meteo_tensor = Snapshot.crop_tensor(meteo, (Snapshot.original_720_h, Snapshot.original_1440_w))
+            meteo_tensor = Snapshot.crop_tensor(meteo_normal, (Snapshot.original_720_h, Snapshot.original_1440_w))
             if Snapshot.factor10 != 10:
                 meteo_tensor = resize_continuous_bilinear_channel_wise_cylindric(meteo_tensor, Snapshot.get_export_size())
-        self.meteo = meteo_tensor
+        self.meteo_normal = meteo_tensor
 
-        #--------------- meteo_unnormalized -------------
-        # meteo_unnormal, if not None, comes from dataset: (n, 721, 1440)
+        #--------------- meteo_rawized -------------
+        # meteo_raw, if not None, comes from dataset: (n, 721, 1440)
         # 
-        if meteo_unnormal is not None:
-            meteo_unnormal = Snapshot.crop_tensor(meteo_unnormal, full_size)
+        if meteo_raw is not None:
+            meteo_raw = Snapshot.crop_tensor(meteo_raw, full_size)
             if Snapshot.factor10 != 10:
-                meteo_unnormal = resize_continuous_bilinear_channel_wise_cylindric(meteo_unnormal, Snapshot.get_export_size())
+                meteo_raw = resize_continuous_bilinear_channel_wise_cylindric(meteo_raw, Snapshot.get_export_size())
 
-        self.meteo_unnormal = meteo_unnormal
+        self.meteo_raw = meteo_raw
 
         #--------------- tempo ---------------
 
@@ -148,6 +147,8 @@ class Snapshot:
         self.geo_dense = Snapshot.geo_dense
         self.geo_cat = Snapshot.geo_cat
         
+    def get_datetime(self):
+        return datetime(self.year, self.month, self.day, self.hour)        
         
     def create_cos_lat_sin_lon():
         tensor = Geo_Tempo.cos_lat_sin_lon_tensor_era5()
@@ -306,66 +307,27 @@ class Snapshot:
     #----------------------- packinng --------------------
         
     def pack_pair_snapshots(ss1, ss2, device='cpu'):
-        """
-        Packs two snapshots by interleaving meteo, tempo, and geo features per level,
-        for vertical levels and surface variables.
-        """
-
-        def arrange_by_level(ss):
-            _, H, W = ss.meteo.shape
-            
-            meteo = ss.meteo                        
-            # meteo = meteo[:Snapshot.air_level_dims*Snapshot.num_air_levels].view(Snapshot.air_level_dims, Snapshot.num_air_levels, H, W)
-            
-            # --- Vertical levels ---            
-
-            # delevels = []
-            # for idx, group in enumerate(Snapshot.delevel_plan):
-            #     start = group[0]
-            #     end = group[-1] + 1
-                
-            #     level_slice = torch.concat([meteo[:, start:end, :, :].reshape(-1, H, W), ss.tempo], dim=0).to(device)
-            #     delevels.append(level_slice)  # list of length levels, each (different s, H, W)
-
-            # --- Surface variables ---
-            meteo_surface = ss.meteo # [Snapshot.air_level_dims*Snapshot.num_air_levels:, :, :].view(-1, H, W)  # (m_surf, H, W)
-            tempo_surface = ss.tempo                                                                     # (t, H, W)
-            surface = torch.concat([meteo_surface, tempo_surface], dim=0)  #.to(device)
-
-            return surface
-
-        # --- Process snapshots ---
-        meteo_temop = arrange_by_level(ss1)
-        surf1_meteo_temop_dense = torch.cat([meteo_temop.to(device), ss1.geo_dense], dim=0)
         
-        surf2_meteo_temop_dense = None
+        def get_meteo_tempo(ss):
+            meteo_tempo = torch.concat([ss.meteo_normal, ss.tempo], dim=0)  #.to(device)
+            return meteo_tempo
+
+        meteo_tempo_1 = get_meteo_tempo(ss1)
+        
+        meteo_tempo_2 = None
         if ss1 != ss2:
-            meteo_temop = arrange_by_level(ss2)
-            surf2_meteo_temop_dense = torch.cat([meteo_temop.to(device), ss2.geo_dense], dim=0)
+            meteo_tempo_2 = get_meteo_tempo(ss2)
                 
-        # --- Concatenate corresponding levels ---
-        _, H, W = ss1.meteo.shape
-
-        if ss1 == ss2:    
-            # delevels_paired = [torch.cat([l1, l2, ss1.geo_dense], dim=0) for l1, l2 in zip(lev1, lev2)]  # list of (m+t+g)*2, H, W
-            surface_meteo_tempo_dense = surf1_meteo_temop_dense       # (m_surf+t+g), H, W
+        if meteo_tempo_2 is None:   
+            meteo_normal_tempo_dense = torch.concat([meteo_tempo_1, ss1.geo_dense], dim=0)
         else:
-            # delevels_paired = [torch.cat([l1, ss1.geo_dense], dim=0) for l1 in lev1]  # list of (m+t+g)*2, H, W
-            surface_meteo_tempo_dense = torch.concat([surf1_meteo_temop_dense, surf2_meteo_temop_dense], dim=0)       # (m_surf+t+g) * 2, H, W
+            meteo_normal_tempo_dense = torch.concat([meteo_tempo_1, meteo_tempo_2, ss.geo_dense], dim=0)
 
-        #---------- asserts ------------        
-        # assert not torch.isnan(surface_paired).any()
-        # export_size = Snapshot.get_export_size()
-        # nSnapshots = 2 if ss1 != ss2 else 1
-        # for lvl, group in zip(delevels_paired, Snapshot.delevel_plan):
-        #     assert lvl.shape == ((Snapshot.air_level_dims * len(group) + Snapshot.tempo_dims) * nSnapshots + Snapshot.geo_dense_dims, export_size[0], export_size[1])
-        # assert surface_paired.shape == ((Snapshot.meteo_dims - Snapshot.air_level_dims * Snapshot.num_air_levels + Snapshot.tempo_dims) * nSnapshots + Snapshot.geo_dense_dims, export_size[0], export_size[1])
-
-        return surface_meteo_tempo_dense  # requires_grad == False
+        return meteo_normal_tempo_dense
     
     #------------------ miscellaneout --------------------
 
-Snapshot.set_original_settings(factor10=2)
+Snapshot.set_original_settings(factor10=2.5)
 
 #------------------------------------------------------------------------------------------------------------------------------------
 
@@ -379,8 +341,8 @@ if __name__ == "__main__":
     #---------------------- Check Snapshot --------------------
     
     Snapshot.set_original_settings()
-    ss = Snapshot(2020, 1, 1, 1, meteo=None, meteo_unnormal=None)
-    print("original size: ", ss.meteo.shape, ss.tempo.shape, ss.geo_dense.shape, ss.geo_cat.shape, ss.meteo.dtype, ss.geo_dense.dtype, ss.geo_cat.dtype)
+    ss = Snapshot(2020, 1, 1, 1, meteo_normal=None, meteo_raw=None)
+    print("original size: ", ss.meteo_normal.shape, ss.tempo.shape, ss.geo_dense.shape, ss.geo_cat.shape, ss.meteo_normal.dtype, ss.geo_dense.dtype, ss.geo_cat.dtype)
     
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
@@ -388,9 +350,9 @@ if __name__ == "__main__":
     print(f"------------ Total number of train variables: {nVars}")
 
     now = datetime.now(timezone.utc)
-    ss1 = Snapshot(now.year, now.month, now.day, now.hour, meteo=None, meteo_unnormal=None)
+    ss1 = Snapshot(now.year, now.month, now.day, now.hour, meteo_normal=None, meteo_raw=None)
     then = now + timedelta(hours=6)
-    ss2 = Snapshot(then.year, then.month, then.day, then.hour, meteo=None, meteo_unnormal=None)
+    ss2 = Snapshot(then.year, then.month, then.day, then.hour, meteo_normal=None, meteo_raw=None)
     
     surface = Snapshot.pack_pair_snapshots(ss1, ss2)
     # for idx, lvl in enumerate(levels):
@@ -399,12 +361,12 @@ if __name__ == "__main__":
     print(14, surface.shape)
 
     now = datetime.now(timezone.utc)
-    snapshot_now = Snapshot(now.year, now.month, now.day, now.hour, meteo=None, meteo_unnormal=None)
+    snapshot_now = Snapshot(now.year, now.month, now.day, now.hour, meteo_normal=None, meteo_raw=None)
     # print("meteo_internal, tempo_internal, meteo_tempo_internal, geo_internal, nCat: ", snapshot_now.meteo_internal.shape, snapshot_now.tempo_internal.shape, snapshot_now.meteo_tempo_internal.shape, snapshot_now.geo_internal.shape, snapshot_now.geo_nCategories)
-    # print("input, meteo, meteo_tempo, geo: ", snapshot_now.input.shape, snapshot_now.meteo.shape, snapshot_now.meteo_tempo.shape, snapshot_now.geo.shape)
+    # print("input, meteo_normal, meteo_tempo, geo: ", snapshot_now.input.shape, snapshot_now.meteo_normal.shape, snapshot_now.meteo_tempo.shape, snapshot_now.geo.shape)
 
     Snapshot.export_factor10 = 2
-    print("meteo, tempo, geo: ", snapshot_now.meteo.shape, snapshot_now.tempo.shape, snapshot_now.geo_dense.shape, snapshot_now.geo_cat.shape)    
+    print("meteo_normal, tempo, geo: ", snapshot_now.meteo_normal.shape, snapshot_now.tempo.shape, snapshot_now.geo_dense.shape, snapshot_now.geo_cat.shape)    
     Snapshot.export_factor10 = 10
     
     import numpy as np
@@ -446,14 +408,14 @@ if __name__ == "__main__":
         gl.top_labels = False
         gl.right_labels = False
 
-        plt.title(f"data = {title}, mean = {data.mean():.5f}, std = {data.std():.5f}")
+        plt.title(f"{title}, mean {data.mean():.5f}, std {data.std():.5f}")
         plt.show()
 
     import time
     s = time.time()
-    zenithh = Geo_Tempo.get_zenithh_angle_faster(dt_utc = datetime.now(timezone.utc))
+    zenith = Geo_Tempo.get_zenithh_angle_faster(dt_utc = datetime.now(timezone.utc))
     e = time.time()
-    show_on_map(zenithh.numpy(), title=f"zenithh angle now. time taken: {e-s}")
+    show_on_map(zenith.numpy(), title=f"zenithh angle now. time taken: {e-s}")
 
     #------------- geo_cat, 2 -----------------
     # print(Snapshot.delevel_plan)
@@ -478,40 +440,41 @@ if __name__ == "__main__":
     Snapshot.set_original_settings()
     
     now = datetime.now(timezone.utc)
-    ss1 = Snapshot(now.year, now.month, now.day, now.hour, meteo=None, meteo_unnormal=None)
+    ss1 = Snapshot(now.year, now.month, now.day, now.hour, meteo_normal=None, meteo_raw=None)
     then = now + timedelta(hours=6)
-    ss2 = Snapshot(then.year, then.month, then.day, then.hour, meteo=None, meteo_unnormal=None)
+    ss2 = Snapshot(then.year, then.month, then.day, then.hour, meteo_normal=None, meteo_raw=None)
     
     surface_paired = Snapshot.pack_pair_snapshots(ss1, ss2)
 
     nSnapshots = 2 if ss1 != ss2 else 1
     
     export_size = Snapshot.get_export_size()
-    # for lvl, group in zip(delevels_paired, Snapshot.delevel_plan):
-    #     assert lvl.shape == ((Snapshot.air_level_dims * len(group) + Snapshot.tempo_dims) * nSnapshots + Snapshot.geo_dense_dims, export_size[0], export_size[1])
-    assert surface_paired.shape == ((Snapshot.meteo_dims + Snapshot.tempo_dims + Snapshot.geo_dense_dims) * nSnapshots, export_size[0], export_size[1])
+    assert surface_paired.shape == ((Snapshot.meteo_dims + Snapshot.tempo_dims) * nSnapshots + Snapshot.geo_dense_dims, export_size[0], export_size[1])
 
+    meteo_variables = ['t2m', 'tp', 'u100m', 'v100m', 'd2m', 'sp'] # risky
+    tempo_variables = Snapshot.tempo_variables
     geo_dense_variables = Snapshot.geo_dense_variables
     geo_cat_variables = Snapshot.geo_cat_variables
-    tempo_variables = Snapshot.tempo_variables
 
-    surface_items = []
+
+    #----------------  Check for right variable at right slice
+
+    surface_items = []; base = 0
+
+    for ss_id in range(nSnapshots):
+        base = (len(meteo_variables) + len(tempo_variables)) * ss_id
+        for dim in range(len(meteo_variables)):
+            slice = base + dim
+            # surface_items.append([slice, ss_id, meteo_variables[dim]])
+        base = slice + 1
+        for dim in range(len(tempo_variables)):
+            slice = base + dim
+            surface_items.append([slice, ss_id, tempo_variables[dim]])
+            
+    base = slice + 1
     for dim in range(Snapshot.geo_dense_dims):
-        surface_items.append([Snapshot.meteo_dims + dim, -1, tempo_variables[dim]])
-    for dim in range(Snapshot.tempo_dims):
-        for ss in range(nSnapshots):   # 2 snapshots
-            surface_items.append([(Snapshot.meteo_dims + Snapshot.tempo_dims) + dim, ss, geo_dense_variables[dim]])
+        slice = base + dim
+        surface_items.append([slice, -1, geo_dense_variables[dim]])
 
-    # level_items = []
-    # for level_id, group in enumerate(Snapshot.delevel_plan):
-    #     for dim in range(Snapshot.geo_dense_dims):
-    #         level_items.append([level_id, (Snapshot.air_level_dims * len(group) + Snapshot.tempo_dims) * nSnapshots + dim, -1, geo_dense_variables[dim]])
-    #     for dim in range(Snapshot.tempo_dims):
-    #         for ss in range(2):   # 2 snapshots
-    #             level_items.append([level_id, (Snapshot.air_level_dims * len(group) + Snapshot.tempo_dims) * ss + Snapshot.air_level_dims * len(group) + dim, ss, tempo_variables[dim]])
-
-    # If packing is correct, this code should show correct geo-distributions.
-    for [channel_id, ss, title] in surface_items:
-        show_on_map(surface_paired[channel_id].numpy(), title=f"{title} ss = {ss}, surface")
-    # for [level_id, channel_id, ss, title] in level_items:
-    #     show_on_map(delevels_paired[level_id][channel_id].numpy(), title=f"{title} ss = {ss}, level {level_id}")
+    for [slice, ss_id, variable] in surface_items:
+        show_on_map(surface_paired[slice].numpy(), title=f"{variable}, ss {ss_id}")

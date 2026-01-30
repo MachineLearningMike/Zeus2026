@@ -35,6 +35,8 @@ config = {
     "train_hours_limit" : 1000,    #------------------------------------------------------------------ for tests ----
     
     #============================ data parameters ===========================================================================
+    "dataset_name" : "2008_2025",
+
     "dtype" : 32,   # 16 is complicated. deffered.
     "meteo_variables": VARIABLE_NAME_LIST_UNCHANGEABLE,   #!!!!!!!!!!!!!!!!!!!!!!!!!!!! The order of meteo_variables must consistent across training and inference !!!!!!
     "variable_groups" : VARIABLE_GROUP_LIST_UNCHANGEABLE,
@@ -1503,7 +1505,7 @@ projects["Zeus_26Jan30"] = {    #-----------------------------------------------
         'patch_stride' : 4,
 
         "batch_size": 1,
-        "nHeads" : 2,      #
+        "nHeads" : 3,      #    assuming 15 channels
         "nLayers" : 2,     # This is a major upgrade, from 4.
         
         'choose_best_loss_model' : False,

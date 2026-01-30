@@ -168,7 +168,7 @@ def set_rewards(
     # make difficulty [-1, 1], then go between [1/scaler, scaler]
     gamma = np.power(REWARD_DIFFICULTY_SCALER, avg_difficulty * 2 - 1)
 
-    # compute unnormalised scores
+    # compute rawised scores
     for miner_data in miners_data:
         miner_data.rmse = rmse(output_data, miner_data.prediction)
         improvement = baseline_rmse - miner_data.rmse - min_sota_delta

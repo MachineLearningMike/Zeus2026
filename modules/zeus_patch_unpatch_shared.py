@@ -66,9 +66,9 @@ if __name__ == "__main__":
     from datetime import datetime, timedelta, timezone
 
     now = datetime.now(timezone.utc)
-    ss1 = Snapshot(now.year, now.month, now.day, now.hour, meteo=None, meteo_unnormal=None)
+    ss1 = Snapshot(now.year, now.month, now.day, now.hour, meteo_normal=None, meteo_raw=None)
     then = now + timedelta(hours=6)
-    ss2 = Snapshot(then.year, then.month, then.day, then.hour, meteo=None, meteo_unnormal=None)
+    ss2 = Snapshot(then.year, then.month, then.day, then.hour, meteo_normal=None, meteo_raw=None)
 
     Snapshot.device = device
     levels, surface = Snapshot.pack_pair_snapshots(ss1, ss2)

@@ -160,12 +160,12 @@ class Zeus(nn.Module):
 
         return preds
 
-    def single_GPU_forward_loss_backward(self, data, target, loss_fn, unnormal_fn, batch_diff, era5_data_vars):
+    def single_GPU_forward_loss_backward(self, data, target, loss_fn, raw_fn, batch_diff, era5_data_vars):
         
         pred = self(data, target.shape[1], target)
 
-        target = unnormal_fn(target)
-        pred = unnormal_fn(pred)
+        target = raw_fn(target)
+        pred = raw_fn(pred)
         lossAndMetrics = loss_fn(target, pred, batch_diff, era5_data_vars)     
         loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics
         loss.backward()             # grads for last_input (i.e. act[n-2]) -> last_module -> act[n-1] -> loss_fn -> loss.

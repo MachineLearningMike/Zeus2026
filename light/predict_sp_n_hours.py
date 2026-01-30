@@ -10,15 +10,15 @@ All above data components are a map over the globe, with thee shape of (latitude
 The time t is given in UTC.
 
 Now we have inputs for given current time t. They are:
-    meteo = torch.stack([t2m, tp, u100, v100, d2m, sp], dim=0),
+    meteo_normal = torch.stack([t2m, tp, u100, v100, d2m, sp], dim=0),
     geo_dense = torch.stack([orograph, sin_lat, cos_lat, sin_lon, cos_lon], dim=0),
     geo_cat = torch.stack([land_sea_mask, soil_type], dim=0),
     geo_tempo = torch.stack([sin_orbit, cos_orbit, sin_zenith, cos_zenith], dim=0).
 , where sin_xxx means sin(xxx) and cos_xxx means cos(xxx)
 We also have inputs for the given future time f. 
-The current and the future shares all inputs, except that the future has no meteo and its own geo_tempo called geo_tempo_f.
+The current and the future shares all inputs, except that the future has no meteo_normal and its own geo_tempo called geo_tempo_f.
 
-def predict(self, meteo: torch.Tensor, geo_dense: torch.Tensor, 
+def predict(self, meteo_normal: torch.Tensor, geo_dense: torch.Tensor, 
                 geo_cat: torch.Tensor, geo_tempo: torch.Tensor, geo_tempo_f: torch.Tensor,
                 current_dt: datetime, delta_hours: int) -> torch.Tensor
 
@@ -85,14 +85,14 @@ class SpPredictor:
         # Elevation pressure correction
         self.ELEVATION_PRESSURE_FACTOR = torch.tensor(0.00012, device=self.device)  # Pa/m
         
-    def predict(self, meteo: torch.Tensor, geo_dense: torch.Tensor,
+    def predict(self, meteo_normal: torch.Tensor, geo_dense: torch.Tensor,
                 geo_cat: torch.Tensor, geo_tempo: torch.Tensor, geo_tempo_f: torch.Tensor,
                 current_dt: datetime, delta_hours: int) -> torch.Tensor:
         """
         Predict sp (surface pressure) for time t + delta_hours.
         
         Args:
-            meteo: Current meteorological data [t2m, tp, u100, v100, d2m, sp]
+            meteo_normal: Current meteorological data [t2m, tp, u100, v100, d2m, sp]
             geo_dense: Dense geographical features [orograph, sin_lat, cos_lat, sin_lon, cos_lon]
             geo_cat: Categorical geographical features [land_sea_mask, soil_type]
             geo_tempo: Current temporal features [sin_orbit, cos_orbit, sin_zenith, cos_zenith]
@@ -107,22 +107,22 @@ class SpPredictor:
         # Limit prediction horizon
         delta_hours = max(0, min(12, delta_hours))
         if delta_hours == 0:
-            return meteo[5].clone().to(self.device)  # Return current sp
+            return meteo_normal[5].clone().to(self.device)  # Return current sp
         
         # Move to device
-        meteo = meteo.to(self.device)
+        meteo_normal = meteo_normal.to(self.device)
         geo_dense = geo_dense.to(self.device)
         geo_cat = geo_cat.to(self.device)
         geo_tempo = geo_tempo.to(self.device)
         geo_tempo_f = geo_tempo_f.to(self.device)
         
         # Extract current variables
-        T_current = meteo[0]           # Current air temperature (t2m) in K
-        precipitation = meteo[1]       # Total precipitation (tp) in m of water
-        U = meteo[2]                   # U-wind at 100m (u100) in m/s
-        V = meteo[3]                   # V-wind at 100m (v100) in m/s
-        Td = meteo[4]                  # Dew point (d2m) in K
-        sp_current = meteo[5]          # Current surface pressure (sp) in Pa
+        T_current = meteo_normal[0]           # Current air temperature (t2m) in K
+        precipitation = meteo_normal[1]       # Total precipitation (tp) in m of water
+        U = meteo_normal[2]                   # U-wind at 100m (u100) in m/s
+        V = meteo_normal[3]                   # V-wind at 100m (v100) in m/s
+        Td = meteo_normal[4]                  # Dew point (d2m) in K
+        sp_current = meteo_normal[5]          # Current surface pressure (sp) in Pa
         
         # Extract geographical features
         orograph = geo_dense[0]        # Orography (m²/s²) - geopotential

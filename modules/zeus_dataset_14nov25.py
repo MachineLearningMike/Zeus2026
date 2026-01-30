@@ -544,7 +544,7 @@ class Zeus_Dataset(Dataset):
         else:
             return ( data - self.mean_ready_cpu ) / self.std_ready_cpu
     
-    def unnormalize(self, data):    # data: (... C, H, W)
+    def rawize(self, data):    # data: (... C, H, W)
         # Mike!!! I found this error Oct 23 only. 
         # Over 2 months of test training was based on this wrong formula, forcing neual networks to distort accordingly.
         # return ( data - rearrange(self.mean, 'c -> c 1 1').to(device) ) / rearrange(self.std, 'c -> c 1 1').to(device)
@@ -1036,11 +1036,11 @@ class Zeus_Dataset(Dataset):
         return output
 
     def load_from_drive(self, day, with_normalized=True):
-        unnormalied = torch.tensor(self.load_day_all_data(day))
+        rawied = torch.tensor(self.load_day_all_data(day))
         normalized = None
         if with_normalized:
-            normalized = self.normalize(unnormalied)
-        return unnormalied, normalized
+            normalized = self.normalize(rawied)
+        return rawied, normalized
 
     def take_batch(self):
         

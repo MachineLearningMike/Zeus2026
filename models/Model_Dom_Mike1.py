@@ -1150,22 +1150,13 @@ class Model_Dom():
         performed_step, lr, grad_norm = self.lr_controller.stepOptimizer(loss_item)
         
 
-    def forward_backward_no_optimizer_step(self,
-            X0, X1, Y, cascade_step,
-            fn_loss, fn_nornalize, fn_unnornalize, 
-            batch_diff, zeus_loss_weights_on_target_vars, trainable,
-            type_metrics, predicted_snapshot_required,
-            air_level_pressure_indices, air_level_pressure_values,
-            scaler, area_weights,
-        ):
-        
+    def forward_backward_no_optimizer_step(self,       
+            X0, X1, Y, batch_diff, cascade_step, trainable, scaler, predicted_snapshot_required,
+            zeus_loss_weights_on_target_vars, train_dict,
+        ):        
         return self.model.forward_backward_no_optimizer_step(
-            X0, X1, Y, cascade_step,
-            fn_loss, fn_nornalize, fn_unnornalize, 
-            batch_diff, zeus_loss_weights_on_target_vars, trainable,
-            type_metrics, predicted_snapshot_required,
-            air_level_pressure_indices, air_level_pressure_values,
-            scaler, area_weights,
+            X0, X1, Y, batch_diff, cascade_step, trainable, scaler, predicted_snapshot_required,
+            zeus_loss_weights_on_target_vars, train_dict,
         )
         
     def store_step_loss_and_metrics(self, step_loss, step_metrics): # [substep_loss...], [substep_metrics...]
