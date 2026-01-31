@@ -45,33 +45,31 @@ class Mlp(nn.Module):
 # ---------------------------
 # Window partition / reverse (no padding)
 # ---------------------------
-def window_partition_3d(x, sWin):
-    # x: (B, C, D, H, W)
-    B, C, D, H, W = x.shape
-    win_D, win_H, win_W = sWin
-    assert D % win_D == 0 and H % win_H == 0 and W % win_W == 0, \
+def window_partition_2d(x, sWin):
+    # x: (B, C, H, W)
+    B, C, H, W = x.shape
+    win_H, win_W = sWin
+    assert H % win_H == 0 and W % win_W == 0, \
         f"Input dims {(D,H,W)} must be multiples of sWin {sWin}"
 
-    nWd = D // win_D
     nWh = H // win_H
     nWw = W // win_W
 
-    x = x.view(B, C, nWd, win_D, nWh, win_H, nWw, win_W)
+    x = x.view(B, C, nWh, win_H, nWw, win_W)
     # (B, nWd, nWh, nWw, C, win_D, win_H, win_w) -> (-1, C, win_D, win_H, win_W)
-    windows = x.permute(0, 2, 4, 6, 1, 3, 5, 7).contiguous().view(-1, C, win_D, win_H, win_W)
-    return windows, nWd, nWh, nWw
+    windows = x.permute(0, 2, 4, 1, 3, 5).contiguous().view(-1, C, win_H, win_W)    # order: N, C, H, W
+    return windows, nWh, nWw
 
-def window_reverse_3d(windows, sWin, D, H, W):
-    win_D, win_H, win_W = sWin
-    nWd = D // win_D
+def window_reverse_2d(windows, sWin, H, W):
+    # windows: (N, C, H, W)
+    win_H, win_W = sWin
     nWh = H // win_H
     nWw = W // win_W
-    B = int(windows.shape[0] // (nWd * nWh * nWw))
+    B = int(windows.shape[0] // (nWh * nWw))
     C = windows.shape[1]
 
-    x = windows.view(B, nWd, nWh, nWw, C, win_D, win_H, win_W)
-    # (B, C, nWd, win_D, nWh, win_H, nWw, win_W) -> (B, C, D, H, W)
-    x = x.permute(0, 4, 1, 5, 2, 6, 3, 7).contiguous().view(B, C, D, H, W)
+    x = windows.view(B, nWh, nWw, C, win_H, win_W)
+    x = x.permute(0, 3, 1, 4, 2, 5).contiguous().view(B, C, H, W)
     return x
 
 
@@ -86,7 +84,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 from models.config_Mike1 import config
 from modules.zeus_dateset_geo_tempo import Geo_Tempo
 
-class PositionBiasLearner3D_Shpere(nn.Module):
+class PositionBiasLearner2D_Shpere(nn.Module):
     pair_bias_shared, shifted_pair_bias_shared = None, None
     
     def __init__(self, i_reso, sWin, num_heads, hidden_dim, shift_size, pair_bias_dim):
@@ -140,21 +138,21 @@ class PositionBiasLearner3D_Shpere(nn.Module):
         self.shifted = any(s != 0 for s in shift_size)
         
         if not self.shifted:
-            if PositionBiasLearner3D_Shpere.pair_bias_shared is None:
-                PositionBiasLearner3D_Shpere.pair_bias_shared = pair_bias
+            if PositionBiasLearner2D_Shpere.pair_bias_shared is None:
+                PositionBiasLearner2D_Shpere.pair_bias_shared = pair_bias
 
             self.register_buffer(
                 "pair_bias", 
-                PositionBiasLearner3D_Shpere.pair_bias_shared,
+                PositionBiasLearner2D_Shpere.pair_bias_shared,
                 persistent=False
             )
         else:
-            if PositionBiasLearner3D_Shpere.shifted_pair_bias_shared is None:
-                PositionBiasLearner3D_Shpere.shifted_pair_bias_shared = pair_bias
+            if PositionBiasLearner2D_Shpere.shifted_pair_bias_shared is None:
+                PositionBiasLearner2D_Shpere.shifted_pair_bias_shared = pair_bias
 
             self.register_buffer(
                 "pair_bias",
-                PositionBiasLearner3D_Shpere.shifted_pair_bias_shared,
+                PositionBiasLearner2D_Shpere.shifted_pair_bias_shared,
                 persistent=False
             )
         
@@ -174,7 +172,7 @@ class PositionBiasLearner3D_Shpere(nn.Module):
         if any(s != 0 for s in self.shift_size):
             shifted_depth_lat_lon = torch.roll(shifted_depth_lat_lon, shifts=self.shift_size, dims=(2,3,4))     # x: (B, C, D, H, W)
 
-        windows, nWd, nWh, nWw = window_partition_3d(
+        windows, nWd, nWh, nWw = window_partition_2d(
             shifted_depth_lat_lon,        # (B, C, D, H, W)
             self.sWin
         )
@@ -440,7 +438,7 @@ class AttentionMask3D(nn.Module):     # original, mine
                             slice(-w_size, -s_size),    # L = w_size - s_size       # (4)                       shift_size[0] == 1
                             slice(-s_size, None))       # L = s_size                # (5)
                                                                                     # (t, t, t, t, t1, t2)            after filling in with type_id
-                                                                                    # (t, t), (t, t), (t1, t2)        after window_partition_3d
+                                                                                    # (t, t), (t, t), (t1, t2)        after window_partition_2d
                                                                                     # (0,0; 0,0), (0,0; 0,0), (0,-100; -100,0)    after masked_fill
                                                                                     # This means mask is palced on the higher-index side.
                                                                                     # This is consistent with negative shift, where the higher-index side has imigrants, like 0.
@@ -525,7 +523,7 @@ class AttentionMask3D(nn.Module):     # original, mine
                     region_id += 1
 
         # Partition windows
-        windows, nWd, nWh, nWw = window_partition_3d(img_mask, sWin)
+        windows, nWd, nWh, nWw = window_partition_2d(img_mask, sWin)
         mask_windows = windows.view(-1, sWin[0]*sWin[1]*sWin[2])
         attn_mask = mask_windows.unsqueeze(1) - mask_windows.unsqueeze(2)
         attn_mask = attn_mask.masked_fill(attn_mask != 0, float(-100.0)).masked_fill(attn_mask == 0, float(0.0))
@@ -578,7 +576,7 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
         self.type_pos_bias = type_pos_bias
         
         if type_pos_bias == 'shpere':
-            self.positionBiasLearner = PositionBiasLearner3D_Shpere(i_reso, sWin, num_heads, shift_size=shift_size, pair_bias_dim=pair_bias_dim, hidden_dim=pair_bias_dim * 4)
+            self.positionBiasLearner = PositionBiasLearner2D_Shpere(i_reso, sWin, num_heads, shift_size=shift_size, pair_bias_dim=pair_bias_dim, hidden_dim=pair_bias_dim * 4)
         elif type_pos_bias == 'lonBand':
             D, H, W = i_reso
             wd, wh, ww = sWin
@@ -724,7 +722,7 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
             shifted_x = x
 
         # partition windows
-        x_windows, nWd, nWh, nWw = window_partition_3d(shifted_x, self.sWin)
+        x_windows, nWd, nWh, nWw = window_partition_2d(shifted_x, self.sWin)
         x_windows = x_windows.view(-1, C, self.vWin).permute(0,2,1).contiguous()
 
         # posision bias
@@ -746,7 +744,7 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
 
         # reverse windows
         attn_windows = attn_windows.permute(0,2,1).contiguous().view(-1, C, *self.sWin)
-        x = window_reverse_3d(attn_windows, self.sWin, D, H, W)
+        x = window_reverse_2d(attn_windows, self.sWin, D, H, W)
 
         #------------------------- torch.roll ----------------------------------------
         #   x = torch.tensor([2, 3, 1])
@@ -805,14 +803,14 @@ class Zeus_SwinTransformerBlock3D(nn.Module):
     #     else:
     #         shifted_x = x
 
-    #     x_windows, nWd, nWh, nWw = window_partition_3d(shifted_x, self.sWin)
+    #     x_windows, nWd, nWh, nWw = window_partition_2d(shifted_x, self.sWin)
     #     x_windows = x_windows.view(-1, C, self.vWin).permute(0,2,1).contiguous()
 
     #     position_bias = self.positionBiasLearner()
     #     attn_windows = self.attn(x_windows, position_bias, mask=self.attn_mask.attn_mask)
 
     #     attn_windows = attn_windows.permute(0,2,1).contiguous().view(-1, C, *self.sWin)
-    #     x = window_reverse_3d(attn_windows, self.sWin, D, H, W)
+    #     x = window_reverse_2d(attn_windows, self.sWin, D, H, W)
 
     #     if any(s != 0 for s in self.shift_size):
     #         x = torch.roll(x, shifts=[s for s in self.shift_size], dims=(2,3,4))
@@ -1912,7 +1910,7 @@ if __name__ == "__main__":
     # assert x_out.shape == x_in.shape
 
     # shift_size = (0,0,0)
-    # PBLearner = PositionBiasLearner3D_Shpere(i_reso=(D, H, W), sWin=sWin,shift_size=shift_size, num_heads=num_heads, pair_bias_dim=pair_bias_dim, hidden_dim=pair_bias_dim*2)
+    # PBLearner = PositionBiasLearner2D_Shpere(i_reso=(D, H, W), sWin=sWin,shift_size=shift_size, num_heads=num_heads, pair_bias_dim=pair_bias_dim, hidden_dim=pair_bias_dim*2)
     # pair_bias = PBLearner.pair_bias # (nWin * vWin * vWin, 4)
     
     # pair_bias = pair_bias.view(PBLearner.nWin, PBLearner.vWin, PBLearner.vWin, pair_bias_dim) # (nWin, indow_volume, vWin, 4)

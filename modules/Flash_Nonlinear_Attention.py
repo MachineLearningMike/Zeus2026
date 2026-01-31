@@ -2,156 +2,183 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
-
 from flash_attn import flash_attn_func
 
+import sys
 from pathlib import Path
-import os, sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from modules.DeltaOperator import DeltaOperator
+from modules.DeltaOperator import DeltaOperatorMultiChannel
 
-
-class SwiGLU(nn.Module):
-    def __init__(self, dim_in, dim_out):
-        super().__init__()
-        self.proj = nn.Linear(dim_in, dim_out * 2)
-
-    def forward(self, x):
-        x1, x2 = self.proj(x).chunk(2, dim=-1)
-        return x1 * F.silu(x2) * math.sqrt(2)
-
-class TanGLU(nn.Module):
-    def __init__(self, dim_in, dim_out):
-        super().__init__()
-        self.proj = nn.Linear(dim_in, dim_out * 2)
-
-    def forward(self, x):
-        x1, x2 = self.proj(x).chunk(2, dim=-1)
-        return x1 * F.tanh(x2) * math.sqrt(2)
 
 class PhysicalFlashAttention(nn.Module):
-    """
-    Multi-head Physical Attention:
-      q = Q(p) * Em
-      k = K(x)
-      v = V(x)   (nonlinear)
-      out = O(att)
-    """
-
-    def __init__(self, dim, H, W, nHeads=8, dropout=0.0, eps=1e-5):
+    def __init__(self, dim, phys_channels, H, W, nHeads=8, dropout=0.0, eps=1e-5):
         super().__init__()
-        assert dim % nHeads == 0, "dim must be divisible by num_heads"
+        assert dim % nHeads == 0
 
         self.dim = dim
-        self.num_heads = nHeads
+        self.C = phys_channels
+        self.H = H
+        self.W = W
+        self.nHeads = nHeads
         self.head_dim = dim // nHeads
         self.dropout = dropout
 
-        # LayerNorm for input features
+        # Norms
         self.norm_x = nn.LayerNorm(dim, eps=eps)
-        self.norm_p = nn.LayerNorm(dim, eps=eps)
+        self.norm_p = nn.LayerNorm(self.C, eps=eps)
 
-        # Projections
+        # QK from model state
         self.q_proj = nn.Linear(dim, dim)
         self.k_proj = nn.Linear(dim, dim)
-        self.v_proj = TanGLU(dim, dim)          # Aggressive all-directional non-linearity
-        self.out_proj = TanGLU(dim, dim)        # Aggressive all-directional non-linearity
-        
-        self.delta_operator = DeltaOperator(input_dim=H*W, latent_rank=16, device='cuda')
 
-        # self.register_parameter("Em", nn.Parameter(torch.ones(1, H, W, 1)))     #============== Determine the strategy.
-        
-        self.apply(self.init_linear)
-        
-    def init_linear(self, m):
-        if isinstance(m, nn.Linear):
-            if m is self.out_proj.proj:  # SwiGLU inner Linear
-                nn.init.normal_(m.weight, std=1)    # std = 1, not 0.02, for aggressive non-linearity
-            else:
-                nn.init.normal_(m.weight, std=1)    # std = 1, not 0.02, for aggressive non-linearity
-            if m.bias is not None:
-                nn.init.zeros_(m.bias)
+        # --- PHYSICS-AWARE V PROJECTION (PER-HEAD, LOW-RANK) ---
+        # (nHeads, C, head_dim)
+        self.v_head_proj = nn.Parameter(
+            torch.randn(nHeads, self.C, self.head_dim) * 0.02
+        )
+
+        # Output: bring attention result back to physical space
+        self.out_proj = nn.Linear(dim, self.C)
+
+        # Physics error corrector
+        self.delta_operator = DeltaOperatorMultiChannel(
+            H=H, W=W, C=self.C, latent_rank=16, gate_init_scale=0.01
+        )
 
     def _reshape_heads(self, x, B, N):
-        """
-        (B, N, C) -> (B, N, H, D)
-        """
-        return x.reshape(B, N, self.num_heads, self.head_dim)
+        return x.view(B, N, self.nHeads, self.head_dim)
 
     def forward(self, x, p):
         """
-        x, p: (B, H, W, C)
+        x: (B, H, W, dim)   – model state
+        p: (B, H, W, C)     – physical prediction (x_phys)
         """
-        B, H, W, C = x.shape
+        B, H, W, _ = x.shape
         N = H * W
 
-        # Flatten spatial dims
-        x = x.reshape(B, N, C)
-        p = p.reshape(B, N, C)
+        # Flatten
+        x = x.view(B, N, self.dim)
+        p = p.view(B, N, self.C)
 
-        # Apply LayerNorm
+        # Norm
         x = self.norm_x(x)
         p = self.norm_p(p)
 
-        print(f"x: {x}")
-        print(f"p: {p}")
-
-        # Projections
-        q = self.q_proj(x)
-        q = q * (self.head_dim ** -0.5)     # This is non-negotiable with FlashAttention.
+        # Q, K
+        q = self.q_proj(x) * (self.head_dim ** -0.5)
         k = self.k_proj(x)
-        
-        err = self.delta_operator(p)
-        v = self.v_proj(p + err) * 1.5
 
-        # Multi-head reshape
         q = self._reshape_heads(q, B, N)
         k = self._reshape_heads(k, B, N)
-        v = self._reshape_heads(v, B, N)
 
-        # FlashAttention-2
+        # ---- Physics correction ----
+        p_corr = p + self.delta_operator(p.view(B, H, W, self.C)).view(B, N, self.C)
+
+        # ---- V: project physics directly into head space ----
+        # v: (B, N, nHeads, head_dim)
+        v = torch.einsum(
+            "bnc,hcd->bnhd",
+            p_corr,
+            self.v_head_proj
+        )
+
+        # FlashAttention
         att = flash_attn_func(
             q, k, v,
             dropout_p=self.dropout,
             causal=False
         )
 
-        # Merge heads safely
-        att = att.reshape(B, N, C)
+        # Merge heads
+        att = att.reshape(B, N, self.dim)
 
+        # Back to physical space
         out = self.out_proj(att)
-        return out.reshape(B, H, W, C)
+
+        return out.view(B, H, W, self.C)
 
 
 if __name__ == "__main__":
+
     def test_physical_flash_attention():
         import torch
+        from datetime import datetime
 
-        assert torch.cuda.is_available(), "CUDA is required for FlashAttention-2"
+        assert torch.cuda.is_available(), "CUDA required for FlashAttention"
 
         device = torch.device("cuda")
-        dtype = torch.bfloat16  # fp16 or bf16 only
+        dtype = torch.bfloat16  # FlashAttention requirement
 
-        B, H, W, C = 1, 180, 360, 10
-        nHeads = 2
+        # -------------------------
+        # Dimensions
+        # -------------------------
+        B = 1
+        H = 180
+        W = 360
+        dim = 10          # model state channels
+        C = 1            # physical channels (e.g. u100, v100)
+        nHeads = 5
 
+        # -------------------------
         # Inputs
-        x = torch.randn(B, H, W, C, device=device, dtype=dtype, requires_grad=True)
-        p = torch.randn(B, H, W, C, device=device, dtype=dtype, requires_grad=True)
+        # -------------------------
+        x = torch.randn(
+            B, H, W, dim,
+            device=device,
+            dtype=dtype,
+            requires_grad=True
+        )
 
+        p = torch.randn(
+            B, H, W, C,
+            device=device,
+            dtype=dtype,
+            requires_grad=True
+        )
+
+        # -------------------------
         # Module
-        attn = PhysicalFlashAttention(dim=C, H=H, W=W, nHeads=nHeads, dropout=0.0).to(device=device, dtype=dtype)
+        # -------------------------
+        attn = PhysicalFlashAttention(
+            dim=dim,
+            phys_channels=C,
+            H=H,
+            W=W,
+            nHeads=nHeads,
+            dropout=0.0
+        ).to(device=device, dtype=dtype)
 
-        # Forward + backward
-        y = attn(x, p)
-        loss = y.mean()
-        loss.backward()
+        import time
+        s = time.time()
+        loops = 5
+        for _ in range(loops):
+            # -------------------------
+            # Forward
+            # -------------------------
+            y = attn(x, p)
 
-        print("Output shape:", y.shape)
-        print("Output mean:", y.mean().item())
-        print("x.grad:", x.grad is not None)
-        print("p.grad:", p.grad is not None)
-        print("✅ PhysicalFlashAttention with LayerNorm test passed")
+            # -------------------------
+            # Checks
+            # -------------------------
+            assert y.shape == (B, H, W, C), f"Output shape mismatch: {y.shape}"
+
+            loss = y.mean()
+            loss.backward()
+
+            assert x.grad is not None, "x.grad is None"
+            assert p.grad is not None, "p.grad is None"
+        e = time.time()
+        
+        print(f"tike taken: {(e-s)/loops:.3f}")
+
+        # DeltaOperator gradients
+        delta_params = list(attn.delta_operator.parameters())
+        assert any(p.grad is not None for p in delta_params), "Δ(x) has no gradients"
+
+        print("✅ PhysicalFlashAttention test passed")
+        print(f"Output mean: {y.mean().item():.4f}")
+        print(f"x.grad norm: {x.grad.norm().item():.4f}")
+        print(f"p.grad norm: {p.grad.norm().item():.4f}")
 
     test_physical_flash_attention()

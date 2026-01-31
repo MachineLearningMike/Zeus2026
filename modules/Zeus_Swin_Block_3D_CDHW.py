@@ -70,7 +70,6 @@ def window_reverse_3d(windows, sWin, D, H, W):
     C = windows.shape[1]
 
     x = windows.view(B, nWd, nWh, nWw, C, win_D, win_H, win_W)
-    # (B, C, nWd, win_D, nWh, win_H, nWw, win_W) -> (B, C, D, H, W)
     x = x.permute(0, 4, 1, 5, 2, 6, 3, 7).contiguous().view(B, C, D, H, W)
     return x
 

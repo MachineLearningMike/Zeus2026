@@ -65,10 +65,10 @@ config = {
 
     "include_difficulty" : False,
     
-    "train_start_dt":   datetime(2015, 1, 1, 0) - timedelta(hours=1),
-    "vali_start_dt" :   datetime(2023, 1, 1, 0) - timedelta(hours=1),
-    "test_start_dt" :   datetime(2024, 1, 1, 0) - timedelta(hours=1),
-    "test_end_dt_inclusive": datetime(2025, 1, 1, 0) - timedelta(hours=1),
+    "train_start_dt":   datetime(2008, 1, 1, 0) - timedelta(hours=1),
+    "vali_start_dt" :   datetime(2025, 1, 1, 0) - timedelta(hours=1),
+    "test_start_dt" :   datetime(2026, 1, 1, 0) - timedelta(hours=1),
+    "test_end_dt_inclusive": datetime(2026, 1, 1, 0) - timedelta(hours=1),
     
     
     "snapshot_pair_on_cuda": False,     # False for light version
@@ -159,7 +159,9 @@ shared_model_params = {
 
 from pathlib import Path
 import platform
+
 if platform.system() == "Windows":  
+    
     if not config["dual_drive"]:
         config["dataset_path"] = "d:/zeus_data"
         config["management_path"] = "d:/zeus_data/management"
@@ -170,7 +172,7 @@ if platform.system() == "Windows":
     config["data_limit"] = 12
     config["dim_to_layerFFN_dim"] = 4
     
-    config["factor10"] = 2.5  # 
+    config["factor10"] = 2.5  # -------------------------- used for light projects
     config['nRawStepsPerBatch'] = 1
     
     # shared_model_params['nHeads'] = 4
@@ -192,10 +194,10 @@ if platform.system() == "Windows":
     config["steps_to_save"] = 2
     config["abundant_GPUs"] = False
     
-    config["train_start_dt"] = datetime(2015, 1, 1, 12)
-    config["vali_start_dt"] = datetime(2015, 1, 10, 12)
-    config["test_start_dt"] = datetime(2015, 1, 20, 12)
-    config["test_end_dt_inclusive"] = datetime(2015, 1, 30, 17)
+    config["train_start_dt"] = datetime(2008, 1, 1, 0)
+    config["vali_start_dt"] = datetime(2025, 1, 1, 0)
+    config["test_start_dt"] = datetime(2026, 1, 1, 0)
+    config["test_end_dt_inclusive"] = datetime(2026, 1, 1, 0)
     
 else:
     if not config["dual_drive"]:

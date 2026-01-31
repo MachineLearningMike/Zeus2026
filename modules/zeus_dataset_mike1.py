@@ -148,7 +148,7 @@ class Zeus_Dataset(Dataset):
         self.zeus_loss_weights_on_target_vars = self.load_era5_data_vars()
         
         self.train_hours, self.vali_hours, self.test_hours = self.split_data_hours_by_date_segents(
-            self.pm.train_start_dt, self.pm.vali_start_dt, self.pm.test_start_dt, self.pm.test_end_dt_inclusive,
+            self.pm.train_start_dt, self.pm.vali_start_dt, self.pm.test_start_dt, self.pm.test_end_dt_inclusive, modulo=self.pm.modulo,
             renew=True, save=True, seed=self.pm.seed
         )
         return
@@ -544,9 +544,7 @@ class Zeus_Dataset(Dataset):
         return
     
     def get_checkpoint_path(self, original, file_name_suffix, modulo, is_downsample_and_predict):
-        factor10 = self.pm.factor10 if is_downsample_and_predict else 10
-        
-        PhDn_module_factor = ("_PhDn" if is_downsample_and_predict else "") + "_m" + str(modulo) + "_f" + str(factor10)
+        PhDn_module_factor = ("_PhDn" if is_downsample_and_predict else "") + "_m" + str(modulo) + "_f" + str(self.pm.factor10)
         path = original.with_stem(original.stem + PhDn_module_factor) if file_name_suffix is None \
             else original.with_stem(original.stem + "_" + file_name_suffix + PhDn_module_factor)
         return path
@@ -558,12 +556,12 @@ class Zeus_Dataset(Dataset):
         cuda_available = torch.cuda.is_available()
         mean_dict = None
         
-        if is_downsample_and_predict:
-            Snapshot.set_original_settings(factor10=self.pm.factor10, 
-                geo_dense_variables = self.pm.geo_dense_variables,
-                geo_cat_variables = self.pm.geo_cat_variables,
-                tempo_variables = self.pm.tempo_variables,            
-                )
+
+        Snapshot.set_original_settings(factor10=self.pm.factor10, 
+            geo_dense_variables = self.pm.geo_dense_variables,
+            geo_cat_variables = self.pm.geo_cat_variables,
+            tempo_variables = self.pm.tempo_variables,            
+            )
         
         original = self.mean_meteo_onestop_checkpoint_path
         checkpoint_path = self.get_checkpoint_path(original, file_name_suffix, modulo, is_downsample_and_predict)
@@ -676,12 +674,12 @@ class Zeus_Dataset(Dataset):
         cuda_available = torch.cuda.is_available()
         mean_dict = None
         
-        if is_downsample_and_predict:
-            Snapshot.set_original_settings(factor10=self.pm.factor10, 
-                geo_dense_variables = self.pm.geo_dense_variables,
-                geo_cat_variables = self.pm.geo_cat_variables,
-                tempo_variables = self.pm.tempo_variables,            
-                )
+
+        Snapshot.set_original_settings(factor10=self.pm.factor10, 
+            geo_dense_variables = self.pm.geo_dense_variables,
+            geo_cat_variables = self.pm.geo_cat_variables,
+            tempo_variables = self.pm.tempo_variables,            
+            )
         
         original = self.mean_meteo_checkpoint_path
         checkpoint_path = self.get_checkpoint_path(original, file_name_suffix, modulo, is_downsample_and_predict)
@@ -788,12 +786,12 @@ class Zeus_Dataset(Dataset):
         cuda_available = torch.cuda.is_available()
         variance_dict = None
         
-        if is_downsample_and_predict:
-            Snapshot.set_original_settings(factor10=self.pm.factor10, 
-                geo_dense_variables = self.pm.geo_dense_variables,
-                geo_cat_variables = self.pm.geo_cat_variables,
-                tempo_variables = self.pm.tempo_variables,            
-                )
+
+        Snapshot.set_original_settings(factor10=self.pm.factor10, 
+            geo_dense_variables = self.pm.geo_dense_variables,
+            geo_cat_variables = self.pm.geo_cat_variables,
+            tempo_variables = self.pm.tempo_variables,            
+            )
         
         original = self.variance_meteo_checkpoint_path
         checkpoint_path = self.get_checkpoint_path(original, file_name_suffix, modulo, is_downsample_and_predict)
@@ -1949,7 +1947,7 @@ class Zeus_Dataset(Dataset):
         return train_hours, vali_hours, test_hours
 
 
-    def split_data_hours_by_date_segents(self, train_start_dt, valid_start_dt, test_start_dt, test_end_dt_inclusive, renew=False, save=True, seed=None):
+    def split_data_hours_by_date_segents(self, train_start_dt, valid_start_dt, test_start_dt, test_end_dt_inclusive, modulo=1, renew=False, save=True, seed=None):
         """
         Returns:
             train_hours, vali_hours, test_hours : list of datetime objects
@@ -1973,6 +1971,8 @@ class Zeus_Dataset(Dataset):
         def filter_hours(hours, inclusive_left, exclusive_right):
             filtered = []
             for h in hours:
+                if h.hour % modulo != 0:
+                    continue
                 if inclusive_left is not None and h < inclusive_left:
                     continue
                 if exclusive_right is not None and h >= exclusive_right:
@@ -1993,6 +1993,8 @@ class Zeus_Dataset(Dataset):
             all_hours = []
             for year, month, day, hour, _ in self.iter_hourly_paths():
                 dt = datetime(year, month, day, hour)
+                if hour % modulo != 0:
+                    continue
                 if inclusive_left is not None and dt < inclusive_left:
                     continue
                 if exclusive_right is not None and dt >= exclusive_right:
@@ -2025,7 +2027,7 @@ class Zeus_Dataset(Dataset):
     def generate_x_hours(self, seed=None):
         if self.train_hours is None or self.vali_hours is None or self.test_hours is None:
             print("Call split_data_hours_by_date_segents first")
-            return None, None, None
+            sys.exit(0)
 
         # Make copies so the original splits remain unchanged
         train_hours = self.train_hours[:]
@@ -2529,7 +2531,7 @@ if __name__ == "__main__":
 
     # dataset.play_weather_snapshots(inclusive_left, inclusive_right, modulo=6)
 
-    dataset.play_physical_prediction(inclusive_left, inclusive_right, modulo=6)
+    # dataset.play_physical_prediction(inclusive_left, inclusive_right, modulo=6)
 
     # dataset.download_meteo_variables(
     #     variables=VARIABLE_NAME_LIST_UNCHANGEABLE, var_name_map = var_name_map,
@@ -2556,27 +2558,27 @@ if __name__ == "__main__":
 
 
 
-    # modulo = 6; is_downsample_and_predict=True
+    modulo = 6; is_downsample_and_predict=True
+    dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=modulo, 
+            file_name_suffix="2008_2025", is_downsample_and_predict=is_downsample_and_predict)
 
-    # dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=modulo, 
-    #         file_name_suffix="2008_2025", is_downsample_and_predict=is_downsample_and_predict)
+    mean_meteo, std_meteo, mean_tempo, std_tempo, \
+    mean_meteo_ready_cpu, std_meteo_ready_cpu, mean_meteo_ready_cuda, std_meteo_ready_cuda, \
+    mean_tempo_ready_cpu, std_tempo_ready_cpu, mean_tempo_ready_cuda, std_tempo_ready_cuda, \
+    area_weights_cuda \
+    = dataset.load_dataset_params(file_name_suffix=f"2008_2025", modulo=modulo, is_downsample_and_predict=is_downsample_and_predict)
 
-    # mean_meteo, std_meteo, mean_tempo, std_tempo, \
-    # mean_meteo_ready_cpu, std_meteo_ready_cpu, mean_meteo_ready_cuda, std_meteo_ready_cuda, \
-    # mean_tempo_ready_cpu, std_tempo_ready_cpu, mean_tempo_ready_cuda, std_tempo_ready_cuda, \
-    # area_weights_cuda \
-    # = dataset.load_dataset_params(file_name_suffix=f"2008_2025", modulo=modulo, is_downsample_and_predict=is_downsample_and_predict)
-
-    # print("-------- mean_meteo: ", mean_meteo.shape, mean_meteo[:])
-    # print("-------- std_meteo: ", std_meteo.shape, std_meteo[:])
-    # print("-------- mean_tempo: ", mean_tempo.shape, mean_tempo[:])
-    # print("-------- std_tempo: ", std_tempo.shape, std_tempo[:])
+    print("-------- mean_meteo: ", mean_meteo.shape, mean_meteo[:])
+    print("-------- std_meteo: ", std_meteo.shape, std_meteo[:])
+    print("-------- mean_tempo: ", mean_tempo.shape, mean_tempo[:])
+    print("-------- std_tempo: ", std_tempo.shape, std_tempo[:])
 
 
 
     # train_hours, vali_hours, test_hours = dataset.split_data_hours_by_date_segents(
-    #     datetime(2015, 1, 1, 10), datetime(2015, 1, 10, 10), datetime(2015, 1, 20, 10), datetime(2015, 1, 30, 10),
-    #     renew=True, save=False, seed=523
+    #     # start_train, start_validation, start_test, end_test: inclusive
+    #     datetime(2008, 1, 1, 0), datetime(2025, 1, 1, 0), datetime(2026, 1, 1, 0), datetime(2026, 1, 1, 0), modulo=6,
+    #     renew=True, save=True, seed=523
     #     )
 
     # print("Lengths:", len(train_hours), len(vali_hours), len(test_hours))

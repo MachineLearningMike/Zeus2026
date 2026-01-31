@@ -31,7 +31,7 @@ class Zeus(nn.Module):
         
         # Stack multiple PhysicalFlashAttention layers
         self.attn_layers = nn.ModuleList([
-            PhysicalFlashAttention(dim=self.C, H=self.H, W=self.W, nHeads=self.nHeads, dropout=0.0).to(device=self.device, dtype=self.dtype)
+            PhysicalFlashAttention(dim=self.C, phys_channels=1,  H=self.H, W=self.W, nHeads=self.nHeads, dropout=0.0).to(device=self.device, dtype=self.dtype)
             for _ in range(self.nLayers)
         ])
         
@@ -142,7 +142,7 @@ class Zeus(nn.Module):
         
         # 1. get physical prediction of y_meteo_raw                
         # used: DnSS0.meteo_raw, DnSS0.geo_dense, DnSS0.geo_cat, DnSS0.tempo, DnSSY.tempo, DnSS0.datatime
-        physical_prediction_raw = self.physical_predict(self, DnSS0, DnSSY, self.pm.modulo, self.pm.targetVariables)   # 
+        physical_prediction_raw = self.physical_predict(self, DnSS0, DnSSY, self.pm.modulo, ["t2m"])   # 
 
         # 2. prediction_normal
         physical_prediction_normal = train_dict['fn_normalize_meteo_phdn'](physical_prediction_raw)        
