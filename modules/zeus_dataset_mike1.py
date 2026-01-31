@@ -2558,7 +2558,7 @@ if __name__ == "__main__":
 
 
 
-    modulo = 6; is_downsample_and_predict=True
+    modulo = 1; is_downsample_and_predict=False
     dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=modulo, 
             file_name_suffix="2008_2025", is_downsample_and_predict=is_downsample_and_predict)
 
