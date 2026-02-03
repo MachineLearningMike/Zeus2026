@@ -25,7 +25,7 @@ class Params:
 
         self.dual_drive = config['dual_drive']
         self.metrics = config['metrics']
-        self.max_cascade_step = config['max_cascade_step']
+        self.max_cascade_depth = config['max_cascade_depth']
 
         self.freeze_zeus1 = config['freeze_zeus1']
         self.skip_net_for_zeus2 = config['skip_net_for_zeus2']       

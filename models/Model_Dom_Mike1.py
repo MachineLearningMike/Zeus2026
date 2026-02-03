@@ -294,41 +294,46 @@ class Model_Dom():
             total_losses = []
         return total_losses
     
-    def try_load_state(self, name=None):    # Pairs with save_state
-        choose_best_loss_model=self.pm.choose_best_loss_model
+    def try_load_state(self, file_name=None):    # Pairs with save_state
         
-        if choose_best_loss_model:
-            name = self.get_best_loss_file_name()
-            logging.info("!!!!!!!!!!!!!!!!!! Best loss model chosen.     Turn back off the switch.")
-        elif name is None:
-            name = "train_state_" + str(self.md_id) #+ self.get_train_id_string()
+        if self.pm.choose_best_loss_model:
+            file_name = self.get_best_loss_file_name()
+            logging.info("!!!!!!!!!!!!!!!!!! Best loss model chosen. Don't forget turning the 'choose_best_loss_model' switch back off.")
+        elif file_name is None:
+            file_name = "train_state_" + str(self.md_id)
             logging.info("!!! Latest model chosen as usual.")
         else:
-            assert name == "train_state_" + str(self.md_id), name
+            assert file_name == "train_state_" + str(self.md_id), file_name
             logging.info("!!! Latest model chosen as usual.")
         
-        file_not_found = False; train_finished = False; file_loaded = False
+        checkpoint_file_found = True; train_finished = False; checkpoint_loaded = False
 
+        #------------- Check file ----------------------------------------------------------
         try:
-            checkpoint_path = self.project_path / (name + '.pth')
+            checkpoint_path = self.project_path / (file_name + '.pth')
+
+            # Load checkpoint to cpu
             checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
             # self.debug_scheduler_optimizer_alignment(checkpoint)
-            logging.info("Checkpoint loaded from the .pth file")
+            logging.info(f"Checkpoint loaded from the file {file_name}.pth")
         except Exception as e:
             logging.info(str(e))
-            file_not_found = True
-        print(f"file_not_found {file_not_found} {'!!!!!!!!!!!!!' if file_not_found else ''}")
+            checkpoint_file_found = False
+            
+        print(f"checkpoint_file_found: {checkpoint_file_found} {'!!!!!!!!!!!!!' if not checkpoint_file_found else ''}")
 
-        if not file_not_found:
+        #------------- Check train_finished -------------------------------------------------
+        if checkpoint_file_found:
             train_finished = checkpoint['train_finished']
-        print(f"train_finished {train_finished}")
-        
-        if file_not_found and not self.trainable:
-            logging.info("Train checkpoint not found")
+        print(f"train_finished {train_finished} {'!!!!!!!!!!!!!' if train_finished else ''}")
+
+        #------------- Exit if file not found in inference mode -----------------------------        
+        if not checkpoint_file_found and not self.trainable:
+            logging.info("Train checkpoint not found. Exiting...")
             sys.exit()
-        
-        if not file_not_found and (not train_finished or not self.trainable):
-            logging.info("========================= loading existing checkpoint --------------")
+                    
+        if checkpoint_file_found and (not train_finished or not self.trainable):
+            logging.info("========================= loading existing checkpoint...")
             
             try:
                 #------------------- model -------------------------
@@ -336,18 +341,17 @@ class Model_Dom():
                 # Load model parameters whetherr trainable or not.
                 old_state_dict = checkpoint['model']
                 
-                if len(self.pm.layers_to_enhance_in_enc_dec)> 0:
+                if len(self.pm.layers_to_enhance_in_enc_dec) > 0:
                     state_dict = self.enhance_state_dict(old_state_dict, layers_to_enhance=self.pm.layers_to_enhance_in_enc_dec, n_pairs_list=self.pm.nEnhancementPairs)
                 else:
                     state_dict = old_state_dict
 
+                # Move ALL model tensors to correct device
                 if self.device != torch.device('cpu'):
-                    # Move ALL model tensors to correct device
-                    state_dict = {k: v.to(self.device) if torch.is_tensor(v) else v 
-                                for k, v in state_dict.items()}
+                    state_dict = {k: v.to(self.device) if torch.is_tensor(v) else v for k, v in state_dict.items()}
                 
                 missing_keys, unexpected_keys = self.model.load_state_dict(state_dict, strict=False)
-                logging.info("-------Model loaded with saved state: \n_missing_keys: {}, \n_unexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
+                logging.info("------- Model loaded with saved state: \n_missing_keys: {}, \n_unexpected_keys: {}".format(len(missing_keys), len(unexpected_keys)))
                 
                 if len(missing_keys) > 0:
                     print("------------------ missing keys --------------------")
@@ -355,22 +359,19 @@ class Model_Dom():
                 if len(unexpected_keys) > 0:
                     print("------------------ unexpected keys --------------------")
                     print(unexpected_keys)
-                    
-                    
+                                        
                 #------------------------- This is a special code line --------------------
                 # We want to train other embeddings starting from the trained embeddings
                 # This code should be commented out after the embeddings are trained and saved.
                 # self.copy_trained_cascade_embedding_other_embeddings()
 
-
                 # # Check if model has normalization layers
                 # norm_layers = []
-                # for name, module in self.model.named_modules():
+                # for file_name, module in self.model.named_modules():
                 #     if isinstance(module, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d,
                 #                         nn.InstanceNorm1d, nn.InstanceNorm2d, nn.InstanceNorm3d,
                 #                         nn.LayerNorm, nn.GroupNorm)):
-                #         norm_layers.append(name)
-                        
+                #         norm_layers.append(file_name)                        
                 # logging.info(f"Model has {len(norm_layers)} normalization layers: {norm_layers[:5]}...")
 
                 # self.debug_normalization_issue()
@@ -378,12 +379,12 @@ class Model_Dom():
                 # # Check running stats for a sample layer
                 # if norm_layers:
                 #     sample_layer = norm_layers[0]
-                #     for name, module in self.model.named_modules():
-                #         if name == sample_layer:
+                #     for file_name, module in self.model.named_modules():
+                #         if file_name == sample_layer:
                 #             if hasattr(module, 'running_mean'):
-                #                 logging.info(f"{name} running_mean mean: {module.running_mean.mean().item():.6f}")
+                #                 logging.info(f"{file_name} running_mean mean: {module.running_mean.mean().item():.6f}")
                 #             if hasattr(module, 'running_var'):
-                #                 logging.info(f"{name} running_var mean: {module.running_var.mean().item():.6f}")
+                #                 logging.info(f"{file_name} running_var mean: {module.running_var.mean().item():.6f}")
                 #             break
 
                 # Check what normalization stats are saved
@@ -393,13 +394,11 @@ class Model_Dom():
                 # if norm_stats_keys:
                 #     logging.info(f"Sample: {norm_stats_keys[:5]}")
 
+
                 self.print_compare_parameters()
 
-                #---------------------------------------------------------------------------------------
-                packed_losses_metrics = None                
-                
+                #------------------------------- trainable -------------------                
                 if self.trainable:
-                    
                     epoch = checkpoint['epoch']
                     
                     #------------------- learning_rate -------------------------
@@ -413,11 +412,10 @@ class Model_Dom():
                     
                     if self.optimizer is not None and "optimizer" in checkpoint:
                         try:
-                            self.optimizer.load_state_dict(checkpoint["optimizer"])
-                            
+                            self.optimizer.load_state_dict(checkpoint["optimizer"])                            
                             # correct_step, num_fixed = self.fix_mixed_step_values()  # to the most comon step value.
 
-                            # Move optimizer state tensors to the same device as their parameters
+                            # Move optimizer parameter state tensors to the same device as their parameters
                             for group in self.optimizer.param_groups:
                                 for p in group["params"]:
                                     if p in self.optimizer.state:
@@ -449,7 +447,6 @@ class Model_Dom():
                     #     logging.info(f"Scheduler last_epoch: {self.scheduler.last_epoch}")
                     # if hasattr(self.scheduler, 'get_last_lr'):
                     #     logging.info(f"Scheduler last_lr: {self.scheduler.get_last_lr()}")
-
                     
                     #------------------- scaler -------------------------
                     
@@ -462,8 +459,8 @@ class Model_Dom():
                     self.epochs_since_improvement = checkpoint['epochs_since_improvement']
                     logging.info("weighted_metric_old and epochs_since_improvement loaded with saved values")
 
-                    packed_losses_metrics = checkpoint['packed_losses_metrics']
-                    logging.info(f"packed_losses_metrics loaded")
+                    packed_losses_and_metrics = checkpoint['packed_losses_metrics']
+                    logging.info(f"packed_losses_and_metrics loaded")
                         
                     if self.pm.overwrite_saved_lr:
                         self.learning_rate = self.pm.lr
@@ -476,48 +473,54 @@ class Model_Dom():
 
                     self.accum_iterations = checkpoint['accum_iterations']
                     logging.info(f"accum_iterations loaded {self.accum_iterations}")
+                    
+                    epoch_finished = checkpoint.get('epoch_finished', False)    # Newly introduced
 
-                # print('----------- packed_losses_metrics loaded is ', packed_losses_metrics)
-                if packed_losses_metrics is not None:  # The previous session was terminated after a new step was finished and before an epoch is finished.
+                #------------------------ Determine epoch ---------------------
+                if not epoch_finished:  # The previous session was terminated after a new step was finished and before its epoch was finished.
                     epoch = epoch
-                else:   # The previous session was terminated after an epoch was finished and before a new step was finished. 
+                else:   # The previous session was terminated after an epoch was finished and before a new step was finished.
                     epoch = epoch + 1
 
-                logging.info(f"Checkpoint '{name}' loaded to {self.device}, including model, optimizer, scheduler, scaler, weighted_metric_old, and datase state")
-                file_loaded = True
+                logging.info(f"Checkpoint '{file_name}' loaded to {self.device}, including model, optimizer, scheduler, scaler, weighted_metric_old, and datase state")
+                checkpoint_loaded = True
             
             except Exception as e:
-                logging.info(f"!!!!!!! failed to load the existing checkpoint. {e} Exiting...")
+                logging.info(f"======================== !!!!! failed to load the existing checkpoint. {e} Exiting...")
                 sys.exit(0)
                 
             logging.info("========================= Done with existing checkpoint --------------")
         
-        if file_not_found:
+        if not checkpoint_file_found:
             # Start a new training, creating the file.
-            epoch = 1; packed_losses_metrics = None    # This is the moment where an existing train will be overriden !!!
+            # This is the moment where a new train is created or an existing train will be overriden !!!
+            epoch = 1; packed_losses_and_metrics = None
             
         elif train_finished and self.trainable:
             # Keep the finished train intact.
-            logging.info("You tried to start/continue a finished training. Aborting... No! specially")
+            logging.info("You tried to start/continue a finished training. Aborting... ")
             sys.exit()
 
-        elif not file_loaded:
+        elif not checkpoint_loaded:
             # Start a new training, creating the file.
-            epoch = 1; packed_losses_metrics = None    # This is the moment where an existing train will be overriden !!!    
+            epoch = 1; packed_losses_and_metrics = None    # This is the moment where an existing train will be overriden !!!
+            logging.info("!!!!!!!!!!!!!!! Failed to load checkpoint file. Overriding the train with a new one.")
+            # logging.ingo("Failed to load checkpoint file. exiting...")
+            # sys.exit(0)
 
         else: # file found, train not finished, file loaded
             # Continue the loaded train.
-            epoch = epoch   # This is actually the previous epoch 
-            packed_losses_metrics = packed_losses_metrics
+            epoch = epoch   # epoch was determined above with 'epoch_finished'
+            packed_losses_and_metrics = packed_losses_and_metrics
                         
         self.total_losses = self.load_history()
         logging.info("train history loaded. length: {}".format(len(self.total_losses)))
 
-        self.unpack_losses_metrics(packed_losses_metrics)
+        self.unpack_losses_metrics(packed_losses_and_metrics)
 
-        self.epoch, self.packed_losses_metrics = epoch, packed_losses_metrics        
+        self.epoch, self.packed_losses_and_metrics = epoch, packed_losses_and_metrics        
         
-        return self.epoch, self.packed_losses_metrics
+        return self.epoch, self.packed_losses_and_metrics
     
     def copy_trained_cascade_embedding_other_embeddings(self):
         with torch.no_grad():

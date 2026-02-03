@@ -828,7 +828,7 @@ projects["Zeus_Swin_25Dec24"] = {
     "GPUWaitsData" : True,
     "models_to_play": [0,],
     "metrics" : "rmse", # "mae", "rmse"
-    'max_cascade_step' : 1,
+    'max_cascade_depth' : 1,
     },
     
     "data": {
@@ -872,7 +872,7 @@ projects["Zeus_Swin_25Dec25_2"] = {
     "GPUWaitsData" : True,
     "models_to_play": [0,],
     "metrics" : "rmse", # "mae", "rmse"
-    'max_cascade_step' : 1,
+    'max_cascade_depth' : 1,
     },
     
     "data": {
@@ -916,7 +916,7 @@ projects["Zeus_Swin_25Dec25_test"] = {
     "GPUWaitsData" : True,
     "models_to_play": [0,],
     "metrics" : "rmse", # "mae", "rmse"
-    'max_cascade_step' : 1,
+    'max_cascade_depth' : 1,
     },
     
     "data": {
@@ -960,7 +960,7 @@ projects["Zeus_Swin_25Dec26"] = {
     "GPUWaitsData" : True,
     "models_to_play": [0,],
     "metrics" : "rmse", # "mae", "rmse"
-    'max_cascade_step' : 1,
+    'max_cascade_depth' : 1,
     },
     
     "data": {
@@ -1004,7 +1004,7 @@ projects["Zeus_Swin_25Dec26_6x6"] = {
     "GPUWaitsData" : True,
     "models_to_play": [0,],
     "metrics" : "rmse", # "mae", "rmse"
-    'max_cascade_step' : 1,
+    'max_cascade_depth' : 1,
     },
     
     "data": {
@@ -1048,7 +1048,7 @@ projects["Zeus_Swin_25Dec26_6x6_no_codec_skip"] = {
     "GPUWaitsData" : True,
     "models_to_play": [0,],
     "metrics" : "rmse", # "mae", "rmse"
-    'max_cascade_step' : 1,
+    'max_cascade_depth' : 1,
     },
     
     "data": {
@@ -1092,7 +1092,7 @@ projects["Zeus_25Dec26_6x6_no_skip_learn"] = {
     "GPUWaitsData" : True,
     "models_to_play": [0,],
     "metrics" : "rmse", # "mae", "rmse"
-    'max_cascade_step' : 1,
+    'max_cascade_depth' : 1,
     },
     
     "data": {
@@ -1136,7 +1136,7 @@ projects["Zeus_25Dec26_6x6_skippable_learnable"] = {
     "GPUWaitsData" : True,
     "models_to_play": [0,],
     "metrics" : "rmse", # "mae", "rmse"
-    'max_cascade_step' : 1,
+    'max_cascade_depth' : 1,
     },
     
     "data": {
@@ -1183,7 +1183,7 @@ projects["Zeus_25Dec26_6x6_learn_skip_2"] = {
     "GPUWaitsData" : True,
     "models_to_play": [0,],
     "metrics" : "rmse", # "mae", "rmse"
-    'max_cascade_step' : 1,
+    'max_cascade_depth' : 1,
     },
     
     "data": {
@@ -1230,7 +1230,7 @@ projects["Zeus_25Dec26_6x6_learn_skip_3"] = {
     "GPUWaitsData" : True,
     "models_to_play": [0,],
     "metrics" : "rmse", # "mae", "rmse"
-    'max_cascade_step' : 1,
+    'max_cascade_depth' : 1,
     },
     
     "data": {
@@ -1277,7 +1277,7 @@ projects["Zeus_25Dec27_6x6_learn_skip_1"] = {
     "GPUWaitsData" : True,
     "models_to_play": [0,],
     "metrics" : "rmse", # "mae", "rmse"
-    'max_cascade_step' : 1,
+    'max_cascade_depth' : 1,
     },
     
     "data": {
@@ -1324,7 +1324,7 @@ projects["Zeus_25Dec27_6x6_learn_skip_2"] = {
     "GPUWaitsData" : True,
     "models_to_play": [0,],
     "metrics" : "rmse", # "mae", "rmse"
-    'max_cascade_step' : 1,
+    'max_cascade_depth' : 1,
     },
     
     "data": {
@@ -1375,7 +1375,7 @@ projects["Zeus_25Dec28_1"] = {
     "models_to_play": [0,],
     "metrics" : "rmse", # "mae", "rmse"
     # Let it be chosen by GPU rule 'nRawStepsPerBatch' : 2,       # Can be changed upto the type of GPU.
-    'max_cascade_step' : 1,     # max = nRawStepsPerBatch. 1 = no actual cascades, raw prediction only
+    'max_cascade_depth' : 1,     # max = nRawStepsPerBatch. 1 = no actual cascades, raw prediction only
     },
     
     "data": {
@@ -1432,7 +1432,7 @@ projects["Zeus_26Jan18"] = {    #-----------------------------------------------
     "models_to_play": [0,],
     "metrics" : "rmse", # "mae", "rmse"
     # Let it be chosen by GPU rule 'nRawStepsPerBatch' : 2,       # Can be changed upto the type of GPU.
-    'max_cascade_step' : 1,     # max = nRawStepsPerBatch. 1 = no actual cascades, raw prediction only
+    'max_cascade_depth' : 1,     # max = nRawStepsPerBatch. 1 = no actual cascades, raw prediction only
     },
     
     "data": {
@@ -1485,7 +1485,8 @@ projects["Zeus_26Jan30"] = {    #-----------------------------------------------
     "models_to_play": [0,],
     "metrics" : "rmse", # "mae", "rmse"
     # Let it be chosen by GPU rule 'nRawStepsPerBatch' : 2,       # Can be changed upto the type of GPU.
-    'max_cascade_step' : 1,     # max = nRawStepsPerBatch. 1 = no actual cascades, raw prediction only
+    "nRawStepsPerBatch": 2,
+    'max_cascade_depth' : 1,     # max = nRawStepsPerBatch. 1 = no actual cascades, raw prediction only
     },
     
     "data": {
@@ -1507,8 +1508,8 @@ projects["Zeus_26Jan30"] = {    #-----------------------------------------------
         'patch_stride' : 4,
 
         "batch_size": 1,
-        "nHeads" : 3,      #
-        "nLayers" : 1,     #
+        "nHeads" : 5,       #
+        "nLayers" : 10,     #
         
         'choose_best_loss_model' : False,
         'useLRLearner' : False,

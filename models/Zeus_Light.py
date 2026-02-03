@@ -42,7 +42,7 @@ class Zeus(nn.Module):
         
         self.H = pm.height
         self.W = pm.width
-        self.C = 12
+        self.C = 40         #--------------------------------------------
         self.nHeads = pm.nHeads
         self.device = device
         self.dtype = dtype
@@ -50,6 +50,13 @@ class Zeus(nn.Module):
 
         use_pos_encoding = True
         pos_type = "sinusodial"
+        
+        print("------------------------------------------ Zeus parameters ... ---------------------------------")
+        print(f"factor10 {pm.factor10}, pair_not_single_snapshot {self.pm.pair_not_single_snapshot}")
+        print(f"(H W C) ({self.H} {self.W} {self.C}), nHeads {self.nHeads} dtype {self.dtype} nLayers {self.nLayers}")
+        print(f"use_pe {use_pos_encoding}, pos_type {pos_type}, nRawStepsPerBatch {pm.nRawStepsPerBatch}, max_cascade_depth {pm.max_cascade_depth}")
+        print("------------------------------------------ ... Zeus parameters ---------------------------------")
+
         
         Snapshot.set_original_settings(factor10=self.pm.factor10,
             device=self.device, dtype=self.pm.torch_dtype,
@@ -60,7 +67,7 @@ class Zeus(nn.Module):
         
         attn_layers = []
         for idx in range(self.nLayers):
-            use_pos_encoding = True if idx == 1 else False
+            use_pos_encoding = True if idx == 0 else False
             pos_type = "sinusidial"
             
             attn_layers.append(
@@ -75,7 +82,7 @@ class Zeus(nn.Module):
         
         in_features = Snapshot.meteo_dims + Snapshot.tempo_dims + Snapshot.geo_dense_dims
         out_features = self.C
-        self.mntd_to_model_dims = Mlp(
+        self.mntd_to_model_dim = Mlp(
             in_features = in_features,
             hidden_features = 4 * in_features,
             out_features = out_features,      # Add in pm
@@ -83,7 +90,7 @@ class Zeus(nn.Module):
             drop = 0    
         )
         in_features = out_features
-        self.model_dims_to_meteo = Mlp(
+        self.model_dim_to_meteo = Mlp(
             in_features = in_features,
             hidden_features = 4 * in_features,
             out_features = Snapshot.meteo_dims,      # Add in pm
@@ -213,7 +220,7 @@ class Zeus(nn.Module):
         
         # 4. forward through model
         
-        mntd_x = self.mntd_to_model_dims(mntd_x)
+        mntd_x = self.mntd_to_model_dim(mntd_x)
 
         mntd_p = mntd_x
         mntd_x = mntd_x
@@ -221,7 +228,7 @@ class Zeus(nn.Module):
         mntd_pred = self(mntd_x, mntd_p)        #------------ forward --------- BHWC space
         
         # 5. Derich mntd_pred learnably
-        mn_pred = self.model_dims_to_meteo(mntd_pred)  # (B, H, W, dim) -> (B, H, W, C)
+        mn_pred = self.model_dim_to_meteo(mntd_pred)  # (B, H, W, dim) -> (B, H, W, C)
         mn_pred = mn_pred.permute(0, 3, 1, 2).squeeze(0)  # from BHWC o CHW
         
         #--------------------------------------------------------------------------------------------------------

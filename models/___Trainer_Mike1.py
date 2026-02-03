@@ -398,8 +398,8 @@ class Model_Trainer():
 
                                 cascade_step += 1   # The top of currentQ, or futureQ, which is non-cascade actually, is assigned cascade_step = 1.
                                 
-                                #--- 3.1. Stop consuming currentQ if we overgo self.pm.max_cascade_step
-                                if cascade_step > self.pm.max_cascade_step:     # self.pm.max_cascade_step == 1 when we don't allow true cascade steps.
+                                #--- 3.1. Stop consuming currentQ if we overgo self.pm.max_cascade_depth
+                                if cascade_step > self.pm.max_cascade_depth:     # self.pm.max_cascade_depth == 1 when we don't allow true cascade steps.
                                     break
                                 
                                 #--- 3.2. pop currentQ
@@ -414,7 +414,7 @@ class Model_Trainer():
                                 #--- 3.3. choose if to request the prediction of Y
                                 # Don't request the predictio X unless we have future Y. 
                                 # It will be one-step deeper cascade, than the current, if the prediction is used as X, because it used the Y prediction of the current prediction as X.
-                                we_can_have_deeper_cascade_than_current = (cascade_step < self.pm.max_cascade_step)
+                                we_can_have_deeper_cascade_than_current = (cascade_step < self.pm.max_cascade_depth)
                                 predicted_snapshot_required = we_have_future_y and we_can_have_deeper_cascade_than_current
 
                                 #--- 3.4. use X0 and X1 to predict Y
@@ -451,7 +451,7 @@ class Model_Trainer():
                             
                         #+++ verification --- works!                
                         # n_substeps_on_full_cascades = (self.pm.nRawStepsPerBatch) * (self.pm.nRawStepsPerBatch + 1) // 2
-                        # n_substep_cut_by_cascade_limit = (self.pm.nRawStepsPerBatch - self.pm.max_cascade_step) * (self.pm.nRawStepsPerBatch - self.pm.max_cascade_step + 1) // 2
+                        # n_substep_cut_by_cascade_limit = (self.pm.nRawStepsPerBatch - self.pm.max_cascade_depth) * (self.pm.nRawStepsPerBatch - self.pm.max_cascade_depth + 1) // 2
                         # n_substeps = n_substeps_on_full_cascades - n_substep_cut_by_cascade_limit
                         # assert n_actual_predictions == n_substeps
                             
