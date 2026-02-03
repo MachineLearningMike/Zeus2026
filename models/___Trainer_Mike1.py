@@ -331,7 +331,7 @@ class Model_Trainer():
 
             if not pbar.no_more_data():  pbar.prefetch(x_set_label)        # Prefetch ensures getting new bacthes.
             if batch is None: break     # just in case
-            batch_of_ss_lists, batch_diff, zeus_loss_weights_on_target_vars = batch   # (slots, B, T1FG, C, H, W), (B, T2FG, C, H, W), None or (B, C, H, W), (C,)
+            batch_of_ss_lists, batch_diff, zeus_weights = batch   # (slots, B, T1FG, C, H, W), (B, T2FG, C, H, W), None or (B, C, H, W), (C,)
 
             if False:
                 self.show_data(batch_x)
@@ -403,7 +403,7 @@ class Model_Trainer():
                                     break
                                 
                                 #--- 3.2. pop currentQ
-                                X0, X1 = currentQ[0]; currentQ = currentQ[1:]
+                                X0, X1 = currentQ[0][0], currentQ[0][1]; currentQ = currentQ[1:]
                                 
                                 #-------------------- avoid device control INTENTIONALLY here ----------
                                 # X0.to(device)
@@ -421,7 +421,7 @@ class Model_Trainer():
                                 
                                 substep_result, substep_loss, substep_metrics = md.forward_backward_no_optimizer_step(
                                     X0, X1, Y, batch_diff, cascade_step, trainable, md.scaler, predicted_snapshot_required,
-                                    zeus_loss_weights_on_target_vars, train_dict,
+                                    zeus_weights, train_dict,
                                 )
                                 
                                 #--- 3.5. count the actual predictions.

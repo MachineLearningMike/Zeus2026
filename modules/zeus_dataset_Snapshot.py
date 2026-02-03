@@ -49,18 +49,20 @@ class Snapshot:
     geo_cat = None
     cos_lat_sin_lon = None
     
-    def set_original_settings(factor10=10, increasing=True, packed_levels=7, device='cpu',
+    def set_original_settings(factor10=10, increasing=True, packed_levels=7, device='cpu', dtype=torch.bfloat16,
         geo_dense_variables = ["orograph", "sin_lat", "cos_lat", "sin_lon", "cos_lon"],
         geo_cat_variables = ["land_sea_mask", "soil_type"],
         tempo_variables = ["sin_orbit", "cos_orbit", "sin_zenith", "cos_zenith"],                            
         ):
         Snapshot.factor10 = factor10
-        Snapshot.meteo_dims = len(VARIABLE_NAME_LIST_UNCHANGEABLE)
+        Snapshot.device = device
+        Snapshot.dtype = dtype
         
         Snapshot.geo_dense_variables = geo_dense_variables
         Snapshot.geo_cat_variables = geo_cat_variables
         Snapshot.tempo_variables = tempo_variables
-        
+
+        Snapshot.meteo_dims = len(VARIABLE_NAME_LIST_UNCHANGEABLE)        
         Snapshot.tempo_dims = len(tempo_variables)    
         Snapshot.geo_dense_dims = len(geo_dense_variables)    
         Snapshot.geo_cat_dims = len(geo_cat_variables)
@@ -81,18 +83,18 @@ class Snapshot:
 
         #--------------------------------------------------------------------------------------------------------
         #-------------------- orograph_npy_path, cos(lat), sin(lon), cos(lon)
-        geo_dense = Snapshot.create_geo_dense(dense_npy_paths, geo_dense_variables).to(device)      #---------- to device 
+        geo_dense = Snapshot.create_geo_dense(dense_npy_paths, geo_dense_variables).to(device=device, dtype=dtype)      #---------- to device 
         Snapshot.geo_dense = geo_dense
         size = Snapshot.get_export_size()
         assert Snapshot.geo_dense.shape == (Snapshot.geo_dense_dims, size[0], size[1])
         
         #-------------------- orograph_npy_path, cos(lat), sin(lon), cos(lon)
-        geo_cat = Snapshot.create_geo_cat(categorical_npy_paths, geo_cat_variables).to(device)        #---------- to device
+        geo_cat = Snapshot.create_geo_cat(categorical_npy_paths, geo_cat_variables).to(device=device, dtype=dtype)        #---------- to device
         Snapshot.geo_cat = geo_cat
         size = Snapshot.get_export_size()
         assert Snapshot.geo_cat.shape == (Snapshot.geo_cat_dims, size[0], size[1])
         
-        cos_lat_sin_lon = Snapshot.create_cos_lat_sin_lon()
+        cos_lat_sin_lon = Snapshot.create_cos_lat_sin_lon().to(device=device, dtype=dtype)
         Snapshot.cos_lat_sin_lon = cos_lat_sin_lon
         size = Snapshot.get_export_size()
         assert Snapshot.cos_lat_sin_lon.shape == (2, size[0], size[1])
@@ -119,18 +121,18 @@ class Snapshot:
         # - dataset: (n, 721, 1440)
         # - prediction: (n, 720/10*factor10, 1440/10*factor10) = (n, exp_h, exp_w)
         if meteo_normal is None:
-            meteo_tensor = torch.rand(Snapshot.meteo_dims, exp_h, exp_w) - 0.5     # placeholder for tests.
+            meteo_tensor = torch.rand(Snapshot.meteo_dims, exp_h, exp_w).to(device=Snapshot.device, dtype=Snapshot.dtype) - 0.5     # placeholder for tests.
         else:
-            meteo_tensor = Snapshot.crop_tensor(meteo_normal, (Snapshot.original_720_h, Snapshot.original_1440_w))
+            meteo_tensor = Snapshot.crop_tensor(meteo_normal, (Snapshot.original_720_h, Snapshot.original_1440_w)).to(device=Snapshot.device, dtype=Snapshot.dtype)
             if Snapshot.factor10 != 10:
                 meteo_tensor = resize_continuous_bilinear_channel_wise_cylindric(meteo_tensor, Snapshot.get_export_size())
-        self.meteo_normal = meteo_tensor
+        self.meteo_normal = meteo_tensor.to(device=Snapshot.device, dtype=Snapshot.dtype)
 
         #--------------- meteo_rawized -------------
         # meteo_raw, if not None, comes from dataset: (n, 721, 1440)
         # 
         if meteo_raw is not None:
-            meteo_raw = Snapshot.crop_tensor(meteo_raw, full_size)
+            meteo_raw = Snapshot.crop_tensor(meteo_raw, full_size).to(device=Snapshot.device, dtype=Snapshot.dtype)
             if Snapshot.factor10 != 10:
                 meteo_raw = resize_continuous_bilinear_channel_wise_cylindric(meteo_raw, Snapshot.get_export_size())
 
@@ -139,7 +141,7 @@ class Snapshot:
         #--------------- tempo ---------------
 
         if with_tempo:
-            tempo = self.create_tempo(Snapshot.tempo_variables)        
+            tempo = self.create_tempo(Snapshot.tempo_variables).to(device=Snapshot.device, dtype=Snapshot.dtype)        
             self.tempo = tempo
 
         #---------------- geo ----------------
@@ -412,10 +414,10 @@ if __name__ == "__main__":
         plt.show()
 
     import time
-    s = time.time()
-    zenith = Geo_Tempo.get_zenithh_angle_faster(dt_utc = datetime.now(timezone.utc))
-    e = time.time()
-    show_on_map(zenith.numpy(), title=f"zenithh angle now. time taken: {e-s}")
+    # s = time.time()
+    # zenith = Geo_Tempo.get_zenithh_angle_faster(dt_utc = datetime.now(timezone.utc))
+    # e = time.time()
+    # show_on_map(zenith.numpy(), title=f"zenithh angle now. time taken: {e-s}")
 
     #------------- geo_cat, 2 -----------------
     # print(Snapshot.delevel_plan)
@@ -461,20 +463,20 @@ if __name__ == "__main__":
 
     surface_items = []; base = 0
 
-    for ss_id in range(nSnapshots):
-        base = (len(meteo_variables) + len(tempo_variables)) * ss_id
-        for dim in range(len(meteo_variables)):
-            slice = base + dim
-            # surface_items.append([slice, ss_id, meteo_variables[dim]])
-        base = slice + 1
-        for dim in range(len(tempo_variables)):
-            slice = base + dim
-            surface_items.append([slice, ss_id, tempo_variables[dim]])
+    # for ss_id in range(nSnapshots):
+    #     base = (len(meteo_variables) + len(tempo_variables)) * ss_id
+    #     for dim in range(len(meteo_variables)):
+    #         slice = base + dim
+    #         # surface_items.append([slice, ss_id, meteo_variables[dim]])
+    #     base = slice + 1
+    #     for dim in range(len(tempo_variables)):
+    #         slice = base + dim
+    #         surface_items.append([slice, ss_id, tempo_variables[dim]])
             
-    base = slice + 1
-    for dim in range(Snapshot.geo_dense_dims):
-        slice = base + dim
-        surface_items.append([slice, -1, geo_dense_variables[dim]])
+    # base = slice + 1
+    # for dim in range(Snapshot.geo_dense_dims):
+    #     slice = base + dim
+    #     surface_items.append([slice, -1, geo_dense_variables[dim]])
 
-    for [slice, ss_id, variable] in surface_items:
-        show_on_map(surface_paired[slice].numpy(), title=f"{variable}, ss {ss_id}")
+    # for [slice, ss_id, variable] in surface_items:
+    #     show_on_map(surface_paired[slice].numpy(), title=f"{variable}, ss {ss_id}")

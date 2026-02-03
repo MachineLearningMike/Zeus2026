@@ -106,22 +106,22 @@ class PhysicalFlashAttention(nn.Module):
         N = H * W
 
         # Flatten
-        x = x.view(B, N, self.dim)
-        p = p.view(B, N, self.dim)
+        _x = x.view(B, N, self.dim)
+        _p = p.view(B, N, self.dim)
 
         # Norm
-        x = self.norm_x(x)
-        p = self.norm_p(p)
+        _x = self.norm_x(_x)
+        _p = self.norm_p(_p)
 
         # Q, K
-        q = self.q_proj(x) * (self.head_dim ** -0.5)
-        k = self.k_proj(x)
+        q = self.q_proj(_x) * (self.head_dim ** -0.5)
+        k = self.k_proj(_x)
 
         q = self._reshape_heads(q, B, N)
         k = self._reshape_heads(k, B, N)
 
         # ---- Physics correction ----
-        p_corr = p + self.delta_operator(p.view(B, H, W, self.dim)).view(B, N, self.dim)
+        p_corr = _p + self.delta_operator(_p.view(B, H, W, self.dim)).view(B, N, self.dim)
 
         # ---- V: use corrected physical directly ----
         v = p_corr.view(B, N, self.nHeads, self.head_dim)  # split dims for multi-head
@@ -131,12 +131,21 @@ class PhysicalFlashAttention(nn.Module):
             # Cast v to match q's dtype (usually happens when norms are in float32)
             v = v.to(q.dtype)
 
-        # FlashAttention
-        att = flash_attn_func(
-            q, k, v,
-            dropout_p=self.dropout,
-            causal=False
-        )
+        use_FA = False
+
+        if use_FA:
+            # FlashAttention
+            att = flash_attn_func(
+                q, k, v,
+                dropout_p=self.dropout,
+                causal=False
+            )
+        else:        
+            att = self.flash_attn_func_equivalent(
+                q, k, v,
+                dropout_p=self.dropout,
+                causal=False
+            )
 
         # Merge heads
         att = att.reshape(B, N, self.dim)
@@ -145,6 +154,35 @@ class PhysicalFlashAttention(nn.Module):
         out = self.out_proj(att)
 
         return out.view(B, H, W, self.dim)
+
+    def flash_attn_func_equivalent(self, q, k, v, dropout_p=0.0, causal=False):
+        # q, k, v shapes: (batch_size, seq_len, num_heads, head_dim)
+        # or (batch_size, num_heads, seq_len, head_dim) depending on your implementation
+        
+        # Move head_dim dimension for matrix multiplication
+        # Assuming input shape: (batch_size, num_heads, seq_len, head_dim)
+        
+        # Compute attention scores
+        attn_scores = torch.matmul(q, k.transpose(-2, -1)) / (q.size(-1) ** 0.5)
+        
+        # Apply causal mask if needed
+        if causal:
+            seq_len = q.size(-2)
+            mask = torch.triu(torch.ones(seq_len, seq_len, device=q.device), diagonal=1)
+            mask = mask.masked_fill(mask == 1, float('-inf'))
+            attn_scores = attn_scores + mask.unsqueeze(0).unsqueeze(0)
+        
+        # Apply softmax
+        attn_weights = F.softmax(attn_scores, dim=-1)
+        
+        # Apply dropout
+        if dropout_p > 0.0:
+            attn_weights = F.dropout(attn_weights, p=dropout_p, training=self.training)
+        
+        # Apply attention weights to values
+        attn_output = torch.matmul(attn_weights, v)
+        
+        return attn_output
 
 
 def test_physical_flash_attention():

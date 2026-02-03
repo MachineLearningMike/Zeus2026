@@ -37,7 +37,7 @@ config = {
     #============================ data parameters ===========================================================================
     "dataset_name" : "2008_2025",
 
-    "dtype" : 32,   # 16 is complicated. deffered.
+    "dtype" : 16,
     "meteo_variables": VARIABLE_NAME_LIST_UNCHANGEABLE,   #!!!!!!!!!!!!!!!!!!!!!!!!!!!! The order of meteo_variables must consistent across training and inference !!!!!!
     "variable_groups" : VARIABLE_GROUP_LIST_UNCHANGEABLE,
     "hecta_pascals" : HECTA_PASCAL_UNCHANGEABLE,
@@ -72,7 +72,7 @@ config = {
     
     
     "snapshot_pair_on_cuda": False,     # False for light version
-    "pair_not_single_snapshot": True,
+    "pair_not_single_snapshot": False,
     "group_normalize": False,           # False for light version
     
     "geo_dense_variables": ["orograph", "sin_lat", "cos_lat", "sin_lon", "cos_lon"],
@@ -89,7 +89,7 @@ shared_model_params = {
     "tokens_per_chunk":    8,    #             ---------------------   optimization param,  Chunk
     "kv_full_sequence": True,
     "layerFFN" :    "GLU",  # "FFN", "GLU"    ----------------------  optimization param,  Chunk
-    "nLayers" :   5, # (10)            ----------------------  optimization param,  Chunk
+    "nLayers" :   1, # (10)            ----------------------  optimization param,  Chunk
     "zeusBlocks":   4,    #             ---------------------- optimization param
     "crossLayers":  6,
     "PE": "random",    # "random", "sinusodial"
@@ -172,7 +172,7 @@ if platform.system() == "Windows":
     config["data_limit"] = 12
     config["dim_to_layerFFN_dim"] = 4
     
-    config["factor10"] = 10  # -------------------------- used for light projects
+    config["factor10"] = 2.5  # -------------------------- used for light projects
     config['nRawStepsPerBatch'] = 1
     
     # shared_model_params['nHeads'] = 4
@@ -1507,8 +1507,8 @@ projects["Zeus_26Jan30"] = {    #-----------------------------------------------
         'patch_stride' : 4,
 
         "batch_size": 1,
-        "nHeads" : 3,      #    assuming 15 channels
-        "nLayers" : 2,     # This is a major upgrade, from 4.
+        "nHeads" : 3,      #
+        "nLayers" : 1,     #
         
         'choose_best_loss_model' : False,
         'useLRLearner' : False,

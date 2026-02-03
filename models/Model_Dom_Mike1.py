@@ -181,8 +181,8 @@ class Model_Dom():
     
     def load_era5_data_vars(self):
         vars = [ERA5_DATA_VARS[k] for k in self.pm.meteo_variables if k in ERA5_DATA_VARS.keys()]
-        self.zeus_loss_weights_on_target_vars = torch.tensor(vars)
-        return self.zeus_loss_weights_on_target_vars
+        self.zeus_weights = torch.tensor(vars)
+        return self.zeus_weights
     
     def set_learning_rate(self, lr):
         for param_group in self.optimizer.param_groups:
@@ -197,7 +197,7 @@ class Model_Dom():
         if vali_metric is not None:
             wasBestEpoch = False
 
-            weighted_metric = vali_metric * (self.zeus_loss_weights_on_target_vars.to(vali_metric.device))
+            weighted_metric = vali_metric * (self.zeus_weights.to(vali_metric.device))
 
             if torch.mean(weighted_metric) < torch.mean(self.weighted_metric_old):
                 wasBestEpoch = True
@@ -1152,11 +1152,11 @@ class Model_Dom():
 
     def forward_backward_no_optimizer_step(self,       
             X0, X1, Y, batch_diff, cascade_step, trainable, scaler, predicted_snapshot_required,
-            zeus_loss_weights_on_target_vars, train_dict,
+            zeus_weights, train_dict,
         ):        
         return self.model.forward_backward_no_optimizer_step(
             X0, X1, Y, batch_diff, cascade_step, trainable, scaler, predicted_snapshot_required,
-            zeus_loss_weights_on_target_vars, train_dict,
+            zeus_weights, train_dict,
         )
         
     def store_step_loss_and_metrics(self, step_loss, step_metrics): # [substep_loss...], [substep_metrics...]

@@ -8,7 +8,7 @@ import copy
 
 # Try to import FlashAttention-2
 try:
-    from flash_attn import flash_attn_qkvpacked_func
+    from flash_attn import flash_attn_func, flash_attn_qkvpacked_func
     HAS_FLASH_ATTN = True
 except ImportError:
     HAS_FLASH_ATTN = False
@@ -128,27 +128,28 @@ class WindowAttention2D(nn.Module):
         qkv = F.linear(x, self.qkv.weight, qkv_bias)
         
         if self.use_flash_attention:
-            # FlashAttention-2 expects qkv in shape [batch, seqlen, 3, nheads, headdim]
+            # Reshape qkv and split into q, k, v
             qkv = qkv.reshape(B_, N, 3, self.num_heads, self.head_dim)
+            q, k, v = qkv[:, :, 0], qkv[:, :, 1], qkv[:, :, 2]
             
             # Apply attention mask if provided
             dropout_p = self.attn_drop if self.training else 0.0
             
-            # REMOVED autocast from here - let outer context handle it
-            attn_output = flash_attn_qkvpacked_func(
-                qkv, 
-                dropout_p=dropout_p, 
+            # Use flash_attn_func with separate q, k, v
+            attn_output = flash_attn_func(
+                q, k, v,
+                dropout_p=dropout_p,
                 softmax_scale=self.scale,
                 causal=False
             )
-            
+
             # Reshape back
             attn_output = attn_output.reshape(B_, N, C)
         else:
             # Standard attention fallback
             qkv = qkv.reshape(B_, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
             q, k, v = qkv[0], qkv[1], qkv[2]
-            
+
             attn = (q @ k.transpose(-2, -1)) * self.scale
             
             # Apply attention mask if provided
@@ -165,6 +166,35 @@ class WindowAttention2D(nn.Module):
         x = self.proj(attn_output)
         x = self.proj_drop(x)
         return x
+    
+    def flash_attn_func_equivalent(self, q, k, v, dropout_p=0.0, causal=False):
+        # q, k, v shapes: (batch_size, seq_len, num_heads, head_dim)
+        # or (batch_size, num_heads, seq_len, head_dim) depending on your implementation
+        
+        # Move head_dim dimension for matrix multiplication
+        # Assuming input shape: (batch_size, num_heads, seq_len, head_dim)
+        
+        # Compute attention scores
+        attn_scores = torch.matmul(q, k.transpose(-2, -1)) / (q.size(-1) ** 0.5)
+        
+        # Apply causal mask if needed
+        if causal:
+            seq_len = q.size(-2)
+            mask = torch.triu(torch.ones(seq_len, seq_len, device=q.device), diagonal=1)
+            mask = mask.masked_fill(mask == 1, float('-inf'))
+            attn_scores = attn_scores + mask.unsqueeze(0).unsqueeze(0)
+        
+        # Apply softmax
+        attn_weights = F.softmax(attn_scores, dim=-1)
+        
+        # Apply dropout
+        if dropout_p > 0.0:
+            attn_weights = F.dropout(attn_weights, p=dropout_p, training=self.training)
+        
+        # Apply attention weights to values
+        attn_output = torch.matmul(attn_weights, v)
+        
+        return attn_output
     
     def flops(self, N):
         flops = 0
@@ -834,7 +864,7 @@ if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
     # Test configuration for 2D weather data
-    factor10, sWin = 2.5, (45, 45)  # Window size for 2D       # f=2.5 : (180, 360)
+    factor10, sWin = 2.5, (60, 60)  # Window size for 2D       # f=2.5 : (180, 360)
     depths, nHeads = (4,), (4,) # (4, 8, 4), (4, 8, 16)
     patch_size = 1
     H, W = int(int(720/patch_size)/10*factor10), int(int(1440/patch_size)/10*factor10)

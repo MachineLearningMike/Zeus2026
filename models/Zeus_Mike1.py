@@ -154,7 +154,7 @@ class Zeus(nn.Module):
     def forward_backward_no_optimizer_step(self,
             ss0, ss1, ssY, cascade_step,
             fn_loss, fn_nornalize, fn_rawize, 
-            batch_diff, zeus_loss_weights_on_target_vars, trainable,
+            batch_diff, zeus_weights, trainable,
             type_metrics, predicted_snapshot_required,
             air_level_pressure_indices, air_level_pressure_values,
             scaler, area_weights,
@@ -166,7 +166,7 @@ class Zeus(nn.Module):
         air_levels_mask[air_level_pressure_indices] = 0.0
         # air_levels_mask[-len(self.pm.targetVariables):] = self.pm.lossXtargets  # Weight amplifiled -------------------------
         
-        lossAndMetrics = fn_loss(ssY.meteo_normal, pred_normal, batch_diff, zeus_loss_weights_on_target_vars, vars_to_mask_on_loss=air_levels_mask, area_weights=area_weights)
+        lossAndMetrics = fn_loss(ssY.meteo_normal, pred_normal, batch_diff, zeus_weights, vars_to_mask_on_loss=air_levels_mask, area_weights=area_weights)
         normalized_loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics   #---- [0] picks loss
 
         if trainable:
@@ -185,7 +185,7 @@ class Zeus(nn.Module):
         fn_rawize(pred_normal, pred_raw)
         
         if type_metrics == "rmse":
-            lossAndMetrics = fn_loss(ssY.meteo_raw, pred_raw, batch_diff, zeus_loss_weights_on_target_vars=None, vars_to_mask_on_loss=air_levels_mask, area_weights=area_weights)
+            lossAndMetrics = fn_loss(ssY.meteo_raw, pred_raw, batch_diff, zeus_weights=None, vars_to_mask_on_loss=air_levels_mask, area_weights=area_weights)
             rawized_metrics = lossAndMetrics[1] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics   #---- [1] picks rmse
         elif type_metrics == "mae":
             rawized_metrics = torch.abs(ssY.meteo_raw - pred_raw).mean(dim=(1, 2))    # (C,)

@@ -10,7 +10,7 @@ class Params:
         #============================ project (data, models) ===============================
         self.dataset_name = config['dataset_name']
         
-        self.dtype = torch.float16 if config['dtype'] == 16 else torch.float32 if config['dtype'] == 32 else None
+        self.torch_dtype = torch.bfloat16 if config['dtype'] == 16 else torch.float32 if config['dtype'] == 32 else None
 
         self.bayesProject = config['bayesProject']
 

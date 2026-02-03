@@ -237,10 +237,10 @@ def show_two_arrays(arr1, arr2=None, variable1="", variable2="", dt=datetime(200
     
     # Resize arrays if they have different shapes
     if show_two and arr1.shape != arr2.shape:
-        print(f"Resizing arrays: {arr1.shape} -> common shape")
-        arr1_resized, arr2_resized = resize_larger_to_smaller_cylindric(arr1[None, :, :], arr2[None, :, :])
+        # print(f"Resizing arrays: {arr1.shape} -> common shape")
+        arr1_resized, arr2_resized = resize_one_to_other_cylindric(arr1[None, :, :], arr2[None, :, :], larger_to_smaller=True)
         arr1_resized, arr2_resized = arr1_resized[0], arr2_resized[0]
-        print(f"Resized to: {arr1_resized.shape}")
+        # print(f"Resized to: {arr1_resized.shape}")
         
         # Calculate difference with resized arrays (Array 2 - Array 1)
         diff_plot = arr2_resized - arr1_resized
@@ -690,7 +690,7 @@ def show_array_single(arr1, arr2=None, variable1="", variable2="", dt=datetime(2
     
     #--------------------------------------------------------
     
-def resize_larger_to_smaller_cylindric(arr1, arr2, mode='bilinear'):
+def resize_one_to_other_cylindric(arr1, arr2, mode='bilinear', larger_to_smaller=True):
     """
     Resize the larger tensor to match the smaller one with cylindrical horizontal resizing.
     
@@ -733,39 +733,39 @@ def resize_larger_to_smaller_cylindric(arr1, arr2, mode='bilinear'):
     
     if size1 > size2:
         # tensor1 is larger, resize it to match tensor2
-        target_size = (H2, W2)
-        tensor1_resized = resize_continuous_bilinear_channel_wise_cylindric(
-            tensor1, target_size, mode
-        )
-        tensor2_resized = tensor2
-        print(f"Resized tensor1: {tensor1.shape}->{tensor1_resized.shape} to match tensor2: {tensor2.shape}")
-    elif size2 > size1:
-        # tensor2 is larger, resize it to match tensor1
-        target_size = (H1, W1)
-        tensor2_resized = resize_continuous_bilinear_channel_wise_cylindric(
-            tensor2, target_size, mode
-        )
-        tensor1_resized = tensor1
-        print(f"Resized tensor2: {tensor2.shape}->{tensor2_resized.shape} to match tensor1: {tensor1.shape}")
-    else:
-        # Same size but different aspect ratio? Shouldn't happen with lat/lon grids
-        # But just in case, find minimum dimensions
-        target_h = min(H1, H2)
-        target_w = min(W1, W2)
-        
-        if H1 > target_h or W1 > target_w:
+        if larger_to_smaller:
+            target_size = (H2, W2)
             tensor1_resized = resize_continuous_bilinear_channel_wise_cylindric(
-                tensor1, (target_h, target_w), mode
+                tensor1, target_size, mode
             )
-        else:
-            tensor1_resized = tensor1
-            
-        if H2 > target_h or W2 > target_w:
-            tensor2_resized = resize_continuous_bilinear_channel_wise_cylindric(
-                tensor2, (target_h, target_w), mode
-            )
-        else:
             tensor2_resized = tensor2
+            # print(f"Resized tensor1: {tensor1.shape}->{tensor1_resized.shape} to match tensor2: {tensor2.shape}")
+        else:
+            target_size = (H1, W1)
+            tensor2_resized = resize_continuous_bilinear_channel_wise_cylindric(
+                tensor2, target_size, mode
+            )
+            tensor1_resized = tensor1
+            # print(f"Resized tensor2: {tensor2.shape}->{tensor2_resized.shape} to match tensor1: {tensor1.shape}")           
+            
+    elif size2 > size1:
+        if larger_to_smaller:
+            # tensor2 is larger, resize it to match tensor1
+            target_size = (H1, W1)
+            tensor2_resized = resize_continuous_bilinear_channel_wise_cylindric(
+                tensor2, target_size, mode
+            )
+            tensor1_resized = tensor1
+            # print(f"Resized tensor2: {tensor2.shape}->{tensor2_resized.shape} to match tensor1: {tensor1.shape}")
+        else:
+            target_size = (H2, W2)
+            tensor1_resized = resize_continuous_bilinear_channel_wise_cylindric(
+                tensor1, target_size, mode
+            )
+            tensor2_resized = tensor2
+            # print(f"Resized tensor1: {tensor1.shape}->{tensor1_resized.shape} to match tensor2: {tensor2.shape}")
+    else:
+        pass
     
     # Ensure both have same number of channels
     if tensor1_resized.dim() != tensor2_resized.dim():
@@ -925,3 +925,22 @@ def get_module_hash(module_name):
         content = f.read()
     
     return hashlib.sha256(content).hexdigest()
+
+def compare_two_arrays(arr1, arr2=None, dt=datetime(2000,1,1,0), modulo=6):
+    assert arr1 is not None
+    assert arr2 is not None
+    
+    assert len(arr1.shape) == 2
+    assert len(arr2.shape) == 2
+    
+    assert not np.isnan(arr1).any()
+    assert not np.isnan(arr2).any()
+    
+    # Resize arrays if they have different shapes
+    if arr1.shape != arr2.shape:
+        arr1_resized, arr2_resized = resize_one_to_other_cylindric(arr1[None, :, :], arr2[None, :, :], larger_to_smaller=False)
+        arr1_resized, arr2_resized = arr1_resized[0], arr2_resized[0]
+        
+    delta = arr2_resized - arr1_resized
+
+    return delta.mean(), delta.std()
