@@ -135,13 +135,13 @@ class Zeus_Dataset(Dataset):
         self.mean_meteo_ready_cpu, self.std_meteo_ready_cpu, self.mean_meteo_ready_cuda, self.std_meteo_ready_cuda, \
         self.mean_tempo_ready_cpu, self.std_tempo_ready_cpu, self.mean_tempo_ready_cuda, self.std_tempo_ready_cuda, \
         self.area_weights_cuda \
-        = self.load_dataset_params(file_name=self.pm.dataset_name, modulo=self.pm.modulo, is_downsample_and_predict=False)
+        = self.load_dataset_params(file_name=self.pm.dataset_name, modulo=self.pm.modulo, factor10=self.pm.factor10, is_downsample_and_predict=False)
 
-        self.mean_meteo_phdn, self.std_meteo_phdn, self.mean_tempo_phdn, self.std_tempo_phdn, \
-        self.mean_meteo_ready_cpu_phdn, self.std_meteo_ready_cpu_phdn, self.mean_meteo_ready_cuda_phdn, self.std_meteo_ready_cuda_phdn, \
-        self.mean_tempo_ready_cpu_phdn, self.std_tempo_ready_cpu_phdn, self.mean_tempo_ready_cuda_phdn, self.std_tempo_ready_cuda_phdn, \
-        self.area_weights_cuda_phdn \
-        = self.load_dataset_params(file_name=self.pm.dataset_name, modulo=self.pm.modulo, is_downsample_and_predict=True)
+        # self.mean_meteo_phdn, self.std_meteo_phdn, self.mean_tempo_phdn, self.std_tempo_phdn, \
+        # self.mean_meteo_ready_cpu_phdn, self.std_meteo_ready_cpu_phdn, self.mean_meteo_ready_cuda_phdn, self.std_meteo_ready_cuda_phdn, \
+        # self.mean_tempo_ready_cpu_phdn, self.std_tempo_ready_cpu_phdn, self.mean_tempo_ready_cuda_phdn, self.std_tempo_ready_cuda_phdn, \
+        # self.area_weights_cuda_phdn \
+        # = self.load_dataset_params(file_name=self.pm.dataset_name, modulo=self.pm.modulo, self.pm.factor10, is_downsample_and_predict=True)
         
         if self.pm.include_difficulty: 
             self.difficulties = self.load_difficulties()
@@ -544,15 +544,15 @@ class Zeus_Dataset(Dataset):
         torch.save(data, path)
         return
     
-    def get_checkpoint_path(self, original, file_name, file_type, modulo, is_downsample_and_predict):
-        path = original.with_stem(file_name + "_m" + str(modulo) + "_" + file_type + "_f" + str(self.pm.factor10) + ("_PhDn" if is_downsample_and_predict else ""))
+    def get_checkpoint_path(self, original, file_name, modulo, file_type, factor10, is_downsample_and_predict):
+        path = original.with_stem(file_name + "_m" + str(modulo) + "_" + file_type + "_f" + str(factor10) + ("_PhDn" if is_downsample_and_predict else ""))
         return path
     
-    def get_checkpoint_path_modulo_only(self, original, file_name, file_type, modulo):
+    def get_checkpoint_path_modulo_only(self, original, file_name, modulo, file_type):
         path = original.with_stem(file_name + "_m" + str(modulo) + "_" + file_type)
         return path
 
-    def get_mean_meteo_downloading_if_not_ready(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=10, modulo=6, file_name=None, is_downsample_and_predict=False):
+    def get_mean_meteo_downloading_if_not_ready(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=10, modulo=6, file_name=None, factor10=2, is_downsample_and_predict=False):
         """
         Compute the mean over all variables across hourly files, with checkpointing.
         """
@@ -560,7 +560,7 @@ class Zeus_Dataset(Dataset):
         mean_dict = None
         
 
-        Snapshot.set_original_settings(factor10=self.pm.factor10,
+        Snapshot.set_original_settings(factor10=factor10,
             dtype=self.pm.torch_dtype,
             geo_dense_variables = self.pm.geo_dense_variables,
             geo_cat_variables = self.pm.geo_cat_variables,
@@ -568,7 +568,7 @@ class Zeus_Dataset(Dataset):
             )
         
         original = self.mean_meteo_onestop_checkpoint_path
-        checkpoint_path = self.get_checkpoint_path(original, file_name, "meteo_mean", modulo, is_downsample_and_predict)
+        checkpoint_path = self.get_checkpoint_path(original, file_name, modulo, "meteo_mean", factor10, is_downsample_and_predict)
 
         task = "mean_meteo"
 
@@ -579,7 +579,7 @@ class Zeus_Dataset(Dataset):
             )
             
             assert checkpoint[4] == modulo
-            assert checkpoint[5] == self.pm.factor10
+            assert checkpoint[5] == factor10
             assert checkpoint[6] == is_downsample_and_predict
 
             mean_dict = checkpoint[0] if len(checkpoint) > 0 else None
@@ -682,7 +682,7 @@ class Zeus_Dataset(Dataset):
         return mean, step
 
 
-    def get_mean_meteo(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=10, modulo=6, file_name=None, is_downsample_and_predict=False):
+    def get_mean_meteo(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=10, modulo=6, file_name=None, factor10=2, is_downsample_and_predict=False):
         """
         Compute the mean over all variables across hourly files, with checkpointing.
         """
@@ -690,7 +690,7 @@ class Zeus_Dataset(Dataset):
         mean_dict = None
         
 
-        Snapshot.set_original_settings(factor10=self.pm.factor10, 
+        Snapshot.set_original_settings(factor10=factor10, 
             dtype=self.pm.torch_dtype,
             geo_dense_variables = self.pm.geo_dense_variables,
             geo_cat_variables = self.pm.geo_cat_variables,
@@ -698,7 +698,7 @@ class Zeus_Dataset(Dataset):
             )
         
         original = self.mean_meteo_checkpoint_path
-        checkpoint_path = self.get_checkpoint_path(original, file_name, "meteo_mean", modulo, is_downsample_and_predict)
+        checkpoint_path = self.get_checkpoint_path(original, file_name, modulo, "meteo_mean", factor10, is_downsample_and_predict)
 
         task = "mean_meteo"
         
@@ -709,7 +709,7 @@ class Zeus_Dataset(Dataset):
             )
             
             assert checkpoint[4] == modulo
-            assert checkpoint[5] == self.pm.factor10
+            assert checkpoint[5] == factor10
             assert checkpoint[6] == is_downsample_and_predict
 
             mean_dict = checkpoint[0] if len(checkpoint) > 0 else None
@@ -804,7 +804,7 @@ class Zeus_Dataset(Dataset):
         return mean, step
 
 
-    def get_var_meteo(self, mean, inclusive_left=None, inclusive_right=None, checkpoint_interval=10, modulo=6, file_name=None, is_downsample_and_predict=False):
+    def get_var_meteo(self, mean, inclusive_left=None, inclusive_right=None, checkpoint_interval=10, modulo=6, file_name=None, factor10=2, is_downsample_and_predict=False):
         """
         Compute the standard deviation over all variables across hourly files, with checkpointing.
         Uses incremental variance formula.
@@ -813,7 +813,7 @@ class Zeus_Dataset(Dataset):
         variance_dict = None
         
 
-        Snapshot.set_original_settings(factor10=self.pm.factor10, 
+        Snapshot.set_original_settings(factor10=factor10, 
             dtype=self.pm.torch_dtype,
             geo_dense_variables = self.pm.geo_dense_variables,
             geo_cat_variables = self.pm.geo_cat_variables,
@@ -821,7 +821,7 @@ class Zeus_Dataset(Dataset):
             )
         
         original = self.variance_meteo_checkpoint_path
-        checkpoint_path = self.get_checkpoint_path(original, file_name, "meteo_var", modulo, is_downsample_and_predict)
+        checkpoint_path = self.get_checkpoint_path(original, file_name, modulo, "meteo_var", factor10, is_downsample_and_predict)
 
         task = "variance_meteo"
         
@@ -832,7 +832,7 @@ class Zeus_Dataset(Dataset):
             )
             
             assert checkpoint[4] == modulo
-            assert checkpoint[5] == self.pm.factor10
+            assert checkpoint[5] == factor10
             assert checkpoint[6] == is_downsample_and_predict
 
             variance_dict = checkpoint[0] if len(checkpoint) > 0 else None
@@ -936,7 +936,7 @@ class Zeus_Dataset(Dataset):
         cuda_available = torch.cuda.is_available()
         mean_dict = None
         
-        Snapshot.set_original_settings(factor10=self.pm.factor10, 
+        Snapshot.set_original_settings(factor10=factor10, 
             dtype=self.pm.torch_dtype,
             geo_dense_variables = self.pm.geo_dense_variables,
             geo_cat_variables = self.pm.geo_cat_variables,
@@ -944,7 +944,7 @@ class Zeus_Dataset(Dataset):
             )
 
         original = self.mean_tempo_checkpoint_path
-        checkpoint_path = self.get_checkpoint_path_modulo_only(original, file_name, "tempo_mean", modulo)
+        checkpoint_path = self.get_checkpoint_path_modulo_only(original, file_name, modulo, "tempo_mean")
 
         task = "mean_tempo"
 
@@ -1048,7 +1048,7 @@ class Zeus_Dataset(Dataset):
         cuda_available = torch.cuda.is_available()
         variance_dict = None
         
-        Snapshot.set_original_settings(factor10=self.pm.factor10, 
+        Snapshot.set_original_settings(factor10=factor10, 
             dtype=self.pm.torch_dtype,
             geo_dense_variables = self.pm.geo_dense_variables,
             geo_cat_variables = self.pm.geo_cat_variables,
@@ -1056,7 +1056,7 @@ class Zeus_Dataset(Dataset):
             )
         
         original = self.variance_tempo_checkpoint_path
-        checkpoint_path = self.get_checkpoint_path_modulo_only(original, file_name, "tempo_var", modulo)
+        checkpoint_path = self.get_checkpoint_path_modulo_only(original, file_name, modulo, "tempo_var")
         
         task = "variance_tempo"
 
@@ -1153,7 +1153,7 @@ class Zeus_Dataset(Dataset):
         return variance, step
 
 
-    def analyze_hourly_dataset(self, save=False, inclusive_left=None, inclusive_right=None, modulo=6, file_name=None, is_downsample_and_predict=False):
+    def analyze_hourly_dataset(self, save=False, inclusive_left=None, inclusive_right=None, modulo=6, file_name=None, factor10=2, is_downsample_and_predict=False):
         """
         Analyze dataset over hourly paths: compute mean and std for all variables.
 
@@ -1179,7 +1179,7 @@ class Zeus_Dataset(Dataset):
         mean_meteo, m = self.get_mean_meteo(
             inclusive_left=inclusive_left,
             inclusive_right=inclusive_right,
-            modulo = modulo, file_name=file_name,
+            modulo = modulo, file_name=file_name, factor10=factor10,
             checkpoint_interval=check_interval,
             is_downsample_and_predict=is_downsample_and_predict
         )
@@ -1187,7 +1187,8 @@ class Zeus_Dataset(Dataset):
         # mean_meteo, m = self.get_mean_meteo_downloading_if_not_ready(
         #     inclusive_left=inclusive_left,
         #     inclusive_right=inclusive_right,
-        #     modulo = modulo, file_name=file_name,
+        #     modulo = modulo, file_name=file_name, fact10=factor10,
+        #     checkpoint_interval=check_interval,
         #     is_downsample_and_predict=is_downsample_and_predict
         # )
 
@@ -1196,7 +1197,7 @@ class Zeus_Dataset(Dataset):
             mean_meteo,
             inclusive_left=inclusive_left,
             inclusive_right=inclusive_right,
-            modulo = modulo, file_name=file_name,
+            modulo = modulo, file_name=file_name, factor10=factor10,
             checkpoint_interval=check_interval,
             is_downsample_and_predict=is_downsample_and_predict
         )
@@ -1208,7 +1209,7 @@ class Zeus_Dataset(Dataset):
             inclusive_left=inclusive_left,
             inclusive_right=inclusive_right,
             checkpoint_interval=check_interval,
-            modulo = modulo, file_name=file_name
+            modulo = modulo, file_name=file_name,
         )
 
         # Compute std with checkpointing
@@ -1217,7 +1218,7 @@ class Zeus_Dataset(Dataset):
             inclusive_left=inclusive_left,
             inclusive_right=inclusive_right,
             checkpoint_interval=check_interval,
-            modulo = modulo, file_name=file_name
+            modulo = modulo, file_name=file_name,
         )
 
         assert m == n, f"Step mismatch: mean step ({m}) vs std step ({n})"
@@ -1233,7 +1234,7 @@ class Zeus_Dataset(Dataset):
             variance_tempo_dict  = {var: float(val) for var, val in zip(Snapshot.tempo_variables, list(var_tempo))}   # var_, a numpy array, acts as a list
 
             original = self.param_path
-            save_path = self.get_checkpoint_path(original, file_name, "totals", modulo, is_downsample_and_predict)
+            save_path = self.get_checkpoint_path(original, file_name, modulo, "totals", factor10, is_downsample_and_predict)
 
             # Load old data if it exists
             if save_path.exists() and save_path.is_file():
@@ -1268,10 +1269,10 @@ class Zeus_Dataset(Dataset):
         return mean_tempo, var_tempo, mean_tempo, var_tempo
     
     
-    def load_dataset_params(self, file_name=None, modulo=1, is_downsample_and_predict=False):
+    def load_dataset_params(self, file_name=None, modulo=1, factor10=2, is_downsample_and_predict=False):
 
         original = self.param_path
-        params_path = self.get_checkpoint_path(original, file_name, "totals", modulo, is_downsample_and_predict)
+        params_path = self.get_checkpoint_path(original, file_name, modulo, "totals", factor10, is_downsample_and_predict)
 
         with open(params_path, "r") as f:
             data = json.load(f)
@@ -1603,7 +1604,7 @@ class Zeus_Dataset(Dataset):
     
     #------------------------------------------------ 
     
-    def assess_physical_prediction(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=10, modulo=6, file_name=None, is_downsample_and_predict=False):
+    def assess_physical_prediction(self, inclusive_left=None, inclusive_right=None, checkpoint_interval=10, modulo=6, file_name=None, facttor10=2, is_downsample_and_predict=False):
         """
         Compute the mean and var of delta = prediction-real over all variables across hourly files, with checkpointing.
         """
@@ -1618,7 +1619,7 @@ class Zeus_Dataset(Dataset):
             )
         
         original = self.comparison_path
-        checkpoint_path = self.get_checkpoint_path(original, file_name, "compare", modulo, is_downsample_and_predict)
+        checkpoint_path = self.get_checkpoint_path(original, file_name, modulo, "compare", factor10, is_downsample_and_predict)
 
         task = "comparison"
         
@@ -1629,7 +1630,7 @@ class Zeus_Dataset(Dataset):
             checkpoint = {key: data.get(key) for key in ["mean_delta_dict", "var_delta_dict", "step", "inclusive_left", "inclusive_right", "modulo", "factor10", "down_predict", "module_hashes"]}
 
             assert checkpoint["modulo"] == modulo
-            assert checkpoint["factor10"] == self.pm.factor10
+            assert checkpoint["factor10"] == factor10
             assert checkpoint["down_predict"] == is_downsample_and_predict
             
             if is_downsample_and_predict:
@@ -2761,34 +2762,35 @@ if __name__ == "__main__":
     # dict = dataset.analyze_hourly_paths(inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=1)
     # print(f"count: {dict['count']}, n_unexpected_hours: {dict['n_unexpected_hours']}, first_hour: {dict['first_hour']}, last_hour: {dict['last_hour']}, n_missing_hours: {len(dict['missing_hours'])}")
 
-    modulo = 6; is_downsample_and_predict=False; dataset.pm.factor10 = 2.5
+    modulo = 6; is_downsample_and_predict=False; factor10 = 2.5
     dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=modulo, 
-            file_name="2008_2025", is_downsample_and_predict=is_downsample_and_predict)
+            file_name="2008_2025", factor10=factor10, is_downsample_and_predict=is_downsample_and_predict)
 
-    modulo = 6; is_downsample_and_predict=True; dataset.pm.factor10 = 2.5
+    modulo = 6; is_downsample_and_predict=True; factor10 = 2.5
     dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=modulo, 
-            file_name="2008_2025", is_downsample_and_predict=is_downsample_and_predict)
+            file_name="2008_2025", factor10=factor10, is_downsample_and_predict=is_downsample_and_predict)
 
-    modulo = 1; is_downsample_and_predict=False; dataset.pm.factor10 = 10
+    modulo = 1; is_downsample_and_predict=False; factor10 = 10
     dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=modulo, 
-            file_name="2008_2025", is_downsample_and_predict=is_downsample_and_predict)
+            file_name="2008_2025", factor10=factor10, is_downsample_and_predict=is_downsample_and_predict)
 
+    factor10 = 10
     mean_meteo, std_meteo, mean_tempo, std_tempo, \
     mean_meteo_ready_cpu, std_meteo_ready_cpu, mean_meteo_ready_cuda, std_meteo_ready_cuda, \
     mean_tempo_ready_cpu, std_tempo_ready_cpu, mean_tempo_ready_cuda, std_tempo_ready_cuda, \
     area_weights_cuda \
-    = dataset.load_dataset_params(file_name=f"2008_2025", modulo=modulo, is_downsample_and_predict=is_downsample_and_predict)
+    = dataset.load_dataset_params(file_name=f"2008_2025", modulo=modulo, factor10=factor10, is_downsample_and_predict=is_downsample_and_predict)
 
     print("-------- mean_meteo: ", mean_meteo.shape, mean_meteo[:])
     print("-------- std_meteo: ", std_meteo.shape, std_meteo[:])
     print("-------- mean_tempo: ", mean_tempo.shape, mean_tempo[:])
     print("-------- std_tempo: ", std_tempo.shape, std_tempo[:])
 
-    modulo = 6; is_downsample_and_predict=False; dataset.pm.factor10 = 2.5
-    dataset.assess_physical_prediction(inclusive_left, inclusive_right, modulo, file_name="2008_2025", is_downsample_and_predict=is_downsample_and_predict)
+    modulo = 6; is_downsample_and_predict=False; factor10 = 2.5
+    dataset.assess_physical_prediction(inclusive_left, inclusive_right, modulo, file_name="2008_2025", facttor10=factor10, is_downsample_and_predict=is_downsample_and_predict)
 
-    modulo = 6; is_downsample_and_predict=True; dataset.pm.factor10 = 2.5
-    dataset.assess_physical_prediction(inclusive_left, inclusive_right, modulo, file_name="2008_2025", is_downsample_and_predict=is_downsample_and_predict)
+    modulo = 6; is_downsample_and_predict=True; factor10 = 2.5
+    dataset.assess_physical_prediction(inclusive_left, inclusive_right, modulo, file_name="2008_2025", facttor10=factor10, is_downsample_and_predict=is_downsample_and_predict)
 
     # train_hours, vali_hours, test_hours = dataset.split_data_hours_by_date_segents(
     #     # start_train, start_validation, start_test, end_test: inclusive
