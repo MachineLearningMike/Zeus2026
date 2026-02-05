@@ -1141,24 +1141,24 @@ class Model_Dom():
         else:
             _epoch_loss = np.array(self.epoch_losses).mean().item()  # (,)
             _epoch_metrics = np.array(self.epoch_metrics).mean(axis=0)       # (C,)
-            strC = ", ".join(f"{x:.5g}" for x in _epoch_metrics)
-            self.pbar_description = "md: {}, loss: {:.4f}, {}: ({})".format(self.md_id, _epoch_loss, self.pm.metrics, strC)
+            strC = " ".join(f"{x:.5g}" for x in _epoch_metrics)
+            self.pbar_description = "md: {} loss: {:.4f} {}: ({})".format(self.md_id, _epoch_loss, self.pm.metrics, strC)
 
     def get_pbar_description_step(self, step_loss, step_metrics):   # (,), (C,)
-        strC = ", ".join(f"{x:.3g}" for x in step_metrics[-len(self.pm.targetVariables):])
+        strC = " ".join(f"{x:.3g}" for x in step_metrics[-len(self.pm.targetVariables):])
         # self.pbar_description = "md {} loss {:.3f}, {} ({})".format(self.md_id, step_loss, self.pm.metrics, strC)
-        self.pbar_description = "loss {:.3g}, {} ({}), acc_substeps {}".format(step_loss, self.pm.metrics, strC, self.accum_iterations)
+        self.pbar_description = "loss {:.3g} {} ({}) acc_substeps {}".format(step_loss, self.pm.metrics, strC, self.accum_iterations)
         
     def stepOptimizer(self, loss_item):
         performed_step, lr, grad_norm = self.lr_controller.stepOptimizer(loss_item)
         
 
     def forward_backward_no_optimizer_step(self,       
-            X0, X1, Y, batch_diff, cascade_step, trainable, scaler, predicted_snapshot_required,
+            X0, X1, Y, batch_diff, cascade_depth, trainable, scaler, predicted_snapshot_required,
             zeus_weights, train_dict,
         ):        
         return self.model.forward_backward_no_optimizer_step(
-            X0, X1, Y, batch_diff, cascade_step, trainable, scaler, predicted_snapshot_required,
+            X0, X1, Y, batch_diff, cascade_depth, trainable, scaler, predicted_snapshot_required,
             zeus_weights, train_dict,
         )
         

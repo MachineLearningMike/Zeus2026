@@ -140,15 +140,15 @@ class AxialPositionalEncoding1D(nn.Module):
 # -------------------- Axial FlashAttention --------------------
 class AxialFlashAttention(nn.Module):
     def __init__(self, dim, H, W, n_heads=8, eps=1e-5, 
-                 use_pos_encoding=True, pos_type='learnable',
-                 pos_dropout=0.0):
+                use_pos_encoding=True, pos_type='learnable',
+                axial_loops=1, pos_dropout=0.0):
         super().__init__()
         assert dim % n_heads == 0, "dim must be divisible by n_heads"
         self.dim = dim
         self.n_heads = n_heads
         self.head_dim = dim // n_heads
         self.H, self.W = H, W
-        self.use_pos_encoding = use_pos_encoding
+        self.axial_loops = axial_loops
 
         self.norm_x = nn.LayerNorm(dim, eps=eps)        
         self.norm_p = nn.LayerNorm(dim, eps=eps)
@@ -303,7 +303,7 @@ class AxialFlashAttention(nn.Module):
     def forward(self, x, yp):
         # Axial attention: height then width, repeated
         x_org = x                
-        for _ in range(1):
+        for _ in range(self.axial_loops):
             x = self.forward_axis(x, yp, axis=1)
             x = self.forward_axis(x, yp, axis=2)
         x = x + x_org
@@ -357,7 +357,7 @@ if __name__ == "__main__":
             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                 for _ in range(loops):
                     optimizer.zero_grad(set_to_none=True)
-                    output = codec(x_bf16, yp_bf16, add_pe=use_pe)
+                    output = codec(x_bf16, yp_bf16)
                     loss = criterion(output, target_bf16)
                     loss.backward()
                     optimizer.step()

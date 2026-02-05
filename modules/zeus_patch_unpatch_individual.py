@@ -192,23 +192,23 @@ class PatchFeatureExtractor(nn.Module):
                 embedding_dim=max(1, self.dims_cascade_emb)
         )
         
-        geo_cat_indices = Snapshot.shared_geo_cat.to(torch.long)
-        self.register_buffer("geo_cat_indices", geo_cat_indices)
+        cat_indices = Snapshot.shared_cat.to(torch.long)
+        self.register_buffer("cat_indices", cat_indices)
 
-        #---------------- geo_cat embedding --------------------
-        vocab_sizes = (Snapshot.shared_geo_cat.amax(dim=(1, 2)) + 1).to(dtype=torch.int64).tolist()
+        #---------------- cat embedding --------------------
+        vocab_sizes = (Snapshot.shared_cat.amax(dim=(1, 2)) + 1).to(dtype=torch.int64).tolist()
         self.dims_list_cat_emb = [max(1, math.ceil(math.log2(nc))) for nc in vocab_sizes]
-        self.geo_cat_embeds = nn.ModuleList([
+        self.cat_embeds = nn.ModuleList([
             nn.Embedding(
                 num_embeddings=nc,
                 embedding_dim=dim   # dim = log2 N
             )
             for nc, dim in zip(vocab_sizes, self.dims_list_cat_emb)
         ])
-        self.total_dims_geo_cat = sum(self.dims_list_cat_emb)
+        self.total_dims_cat = sum(self.dims_list_cat_emb)
         
         # Create layer-wise feature extractors for upper air levels, sharing as much parameters as possible
-        self.channels = [level.shape[0] + self.dims_cascade_emb + self.total_dims_geo_cat for level in sample_level_list]
+        self.channels = [level.shape[0] + self.dims_cascade_emb + self.total_dims_cat for level in sample_level_list]
         self.level_extractors = nn.ModuleList()
         for idx, c_in in enumerate(self.channels):
             layer = PatchFeatureExtractor_Level(
@@ -223,7 +223,7 @@ class PatchFeatureExtractor(nn.Module):
             self.level_extractors.append(layer)
 
         # Create layer-wise feature extractors for surface.
-        c_in = sample_surface.shape[0] + self.dims_cascade_emb + self.total_dims_geo_cat        
+        c_in = sample_surface.shape[0] + self.dims_cascade_emb + self.total_dims_cat        
         self.surface_extractor = PatchFeatureExtractor_Surface(
             c_in,
             c_out,
@@ -238,18 +238,18 @@ class PatchFeatureExtractor(nn.Module):
         
         self.nTotalLevels = len(sample_level_list) + 1      # +1 for the surface
 
-    def embed_geo_cat(self):
-        # geo_cat: (C, H, W) float32, values in 0..N-1
-        geo_cat = Snapshot.shared_geo_cat
-        C, H, W = geo_cat.shape
+    def embed_cat(self):
+        # cat: (C, H, W) float32, values in 0..N-1
+        cat = Snapshot.shared_cat
+        C, H, W = cat.shape
 
         embeds = []
         for i in range(C):
-            idx = self.geo_cat_indices[i]           
-            # idx = torch.tensor(geo_cat[i], dtype=torch.long, device=next(self.geo_cat_embeds[i].parameters()).device)
+            idx = self.cat_indices[i]           
+            # idx = torch.tensor(cat[i], dtype=torch.long, device=next(self.cat_embeds[i].parameters()).device)
             
             # Apply embedding: (H, W) → (H, W, d)
-            emb = self.geo_cat_embeds[i](idx)   # (H, W, d)
+            emb = self.cat_embeds[i](idx)   # (H, W, d)
             # Move channel dimension to the front: (d, H, W)
             emb = emb.permute(2, 0, 1)
             embeds.append(emb)
@@ -257,7 +257,7 @@ class PatchFeatureExtractor(nn.Module):
         return torch.cat(embeds, dim=0)   # (sum(d_i), H, W)
 
 
-    def forward(self, level_list, surface, cascade_step):
+    def forward(self, level_list, surface, cascade_depth):
         """
         Args:
             level_list: list of tensors [(C1,H,W), (C2,H,W), ...] length == self.nLevels
@@ -266,11 +266,11 @@ class PatchFeatureExtractor(nn.Module):
         """
         C, H, W = level_list[0].shape
         
-        cascade_step = min(cascade_step, self.max_cascades)
-        idx = self.cascade_indices[cascade_step]    # The idx.item() == cascade_step
+        cascade_depth = min(cascade_depth, self.max_cascades)
+        idx = self.cascade_indices[cascade_depth]    # The idx.item() == cascade_depth
         cascade_emb = self.cascade_embeds(idx)[:, None, None].expand(-1, H, W)
         
-        geo_cat_emb = self.embed_geo_cat()   # (D_total, H, W)
+        cat_emb = self.embed_cat()   # (D_total, H, W)
 
         levels_ext = []
         # H_prev, W_prev = None, None
@@ -284,13 +284,13 @@ class PatchFeatureExtractor(nn.Module):
 
             # assert self.channels[idx] == C + self.dims_cascade_emb
 
-            level = torch.cat([level, cascade_emb, geo_cat_emb], dim=0)
+            level = torch.cat([level, cascade_emb, cat_emb], dim=0)
             level = level.unsqueeze(0)
             level = self.level_extractors[idx](level)
             level = level.squeeze(0)
             levels_ext.append(level)    # (c_out, H//8, W//8)
 
-        surface = torch.concat([surface, cascade_emb, geo_cat_emb])
+        surface = torch.concat([surface, cascade_emb, cat_emb])
         surface = surface.unsqueeze(0)
         surface_ext = self.surface_extractor(surface)
         surface_ext = surface_ext.squeeze(0)
@@ -369,7 +369,7 @@ if __name__ == "__main__":
     loops = 5
     s = time.time()
     for step in range(loops):
-        patches = patcher(levels, surface, cascade_step = step)        # (c_out, 14, 90, 180)
+        patches = patcher(levels, surface, cascade_depth = step)        # (c_out, 14, 90, 180)
     e = time.time()
     print("packined to: ", patches.shape, "time: ", (e-s)/loops) 
     

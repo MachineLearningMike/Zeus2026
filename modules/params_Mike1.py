@@ -81,8 +81,8 @@ class Params:
         self.group_normalize = config['group_normalize']
         self.lossXtargets = config['lossXtargets']
         
-        self.geo_dense_variables = config['geo_dense_variables']
-        self.geo_cat_variables = config['geo_cat_variables']
+        self.dense_variables = config['dense_variables']
+        self.cat_variables = config['cat_variables']
         self.tempo_variables = config['tempo_variables']
             
         #============================ model, individual ========================================================================

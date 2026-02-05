@@ -71,7 +71,7 @@ class PatchFeatureExtractor_Surface(nn.Module):
         return self.act(x)
 
 class PatchFeatureExtractor(nn.Module):
-    """Batch-free patch extractor for multiple levels + surface, with cascade_step"""
+    """Batch-free patch extractor for multiple levels + surface, with cascade_depth"""
     def __init__(self, levels_list, surface, c_out, dim_for_cascade_embedding=1, max_cascades=10, patch_kernel=(8,8), patch_stride=(8,8)):
         super().__init__()
         # Channels
@@ -102,9 +102,9 @@ class PatchFeatureExtractor(nn.Module):
             nn.Parameter(torch.randn(cascade_shape)) for _ in range(max_cascades)
         ])
 
-    def forward(self, levels_list, surface, cascade_step=0):
+    def forward(self, levels_list, surface, cascade_depth=0):
         # Get cascade embedding
-        cascade_embeds = self.cascade_embeds[min(cascade_step, self.max_cascades-1)]
+        cascade_embeds = self.cascade_embeds[min(cascade_depth, self.max_cascades-1)]
         cascade_embeds = cascade_embeds.unsqueeze(0)  # add batch dim for conv: (1, dim, H, W)
 
         # Process levels
@@ -190,7 +190,7 @@ if __name__ == "__main__":
     loops = 5
     s = time.time()
     for step in range(loops):
-        patches = patcher(levels, surface, cascade_step = step)        # (c_out, 14, 90, 180)
+        patches = patcher(levels, surface, cascade_depth = step)        # (c_out, 14, 90, 180)
     e = time.time()
     print("packined to: ", patches.shape, "time: ", (e-s)/loops) 
     

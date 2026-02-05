@@ -11,15 +11,15 @@ The time t is given in UTC.
 
 Now we have inputs for given current time t. They are:
     meteo_normal = torch.stack([t2m, tp, u100, v100, d2m, sp], dim=0),
-    geo_dense = torch.stack([orograph, sin_lat, cos_lat, sin_lon, cos_lon], dim=0),
-    geo_cat = torch.stack([land_sea_mask, soil_type], dim=0),
+    dense = torch.stack([orograph, sin_lat, cos_lat, sin_lon, cos_lon], dim=0),
+    cat = torch.stack([land_sea_mask, soil_type], dim=0),
     geo_tempo = torch.stack([sin_orbit, cos_orbit, sin_zenith, cos_zenith], dim=0).
 , where sin_xxx means sin(xxx) and cos_xxx means cos(xxx)
 We also have inputs for the given future time f. 
 The current and the future shares all inputs, except that the future has no meteo_normal and its own geo_tempo called geo_tempo_f.
 
-def predict(self, meteo_normal: torch.Tensor, geo_dense: torch.Tensor, 
-                geo_cat: torch.Tensor, geo_tempo: torch.Tensor, geo_tempo_f: torch.Tensor,
+def predict(self, meteo_normal: torch.Tensor, dense: torch.Tensor, 
+                cat: torch.Tensor, geo_tempo: torch.Tensor, geo_tempo_f: torch.Tensor,
                 current_dt: datetime, delta_hours: int) -> torch.Tensor
 
 Please write a Python class "V100mPredictor" that has the above predict(.) function, which predicts v100, 
@@ -84,8 +84,8 @@ class V100mPredictor:
         # Seasonal variation amplitude
         self.seasonal_amplitude = torch.tensor(1.5, device=self.device)
     
-    def predict(self, meteo_normal: torch.Tensor, geo_dense: torch.Tensor, 
-                geo_cat: torch.Tensor, geo_tempo: torch.Tensor,
+    def predict(self, meteo_normal: torch.Tensor, dense: torch.Tensor, 
+                cat: torch.Tensor, geo_tempo: torch.Tensor,
                 geo_tempo_f: torch.Tensor,
                 current_dt: datetime, delta_hours: int) -> torch.Tensor:
         """
@@ -100,8 +100,8 @@ class V100mPredictor:
         
         Args:
             meteo_normal: [t2m, tp, u100, v100, d2m, sp] at current time
-            geo_dense: [orograph, sin_lat, cos_lat, sin_lon, cos_lon]
-            geo_cat: [land_sea_mask, soil_type]
+            dense: [orograph, sin_lat, cos_lat, sin_lon, cos_lon]
+            cat: [land_sea_mask, soil_type]
             geo_tempo: [sin_orbit, cos_orbit, sin_zenith, cos_zenith] at current time
             geo_tempo_f: [sin_orbit, cos_orbit, sin_zenith, cos_zenith] at future time
             current_dt: current datetime in UTC
@@ -112,8 +112,8 @@ class V100mPredictor:
         """
         # Move to device
         meteo_normal = meteo_normal.to(self.device).float()
-        geo_dense = geo_dense.to(self.device).float()
-        geo_cat = geo_cat.to(self.device).float()
+        dense = dense.to(self.device).float()
+        cat = cat.to(self.device).float()
         geo_tempo = geo_tempo.to(self.device).float()
         geo_tempo_f = geo_tempo_f.to(self.device).float()
         
@@ -124,14 +124,14 @@ class V100mPredictor:
         sp = meteo_normal[5]  # Surface pressure (Pa)
         
         # Geographical information
-        orograph = geo_dense[0]  # Topography (m)
-        sin_lat = geo_dense[1]
-        cos_lat = geo_dense[2]
-        sin_lon = geo_dense[3]
-        cos_lon = geo_dense[4]
+        orograph = dense[0]  # Topography (m)
+        sin_lat = dense[1]
+        cos_lat = dense[2]
+        sin_lon = dense[3]
+        cos_lon = dense[4]
         
         # Land-sea mask and soil type
-        land_sea_mask = geo_cat[0]  # 0: sea, 1: land
+        land_sea_mask = cat[0]  # 0: sea, 1: land
         
         # Current time information
         sin_orbit = geo_tempo[0]

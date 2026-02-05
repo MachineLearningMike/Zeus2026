@@ -43,8 +43,8 @@ class Zeus(nn.Module):
         
         pair_bias_dim = pm.pair_bias_dim
         
-        geo_dense_variables = pm.geo_dense_variables
-        geo_cat_variables = pm.geo_cat_variables
+        dense_variables = pm.dense_variables
+        cat_variables = pm.cat_variables
         tempo_variables = pm.tempo_variables
         
         H, W = int(720/10 * factor10), int(1440/10 * factor10)
@@ -55,8 +55,8 @@ class Zeus(nn.Module):
         print(f"depth_list {depth_list}, head_list {head_list}, qkv_bias {qkv_bias}, skippable {skippable}, skip_learnable {skip_learnable}")
         print(f"nRawStepsPerBatch {nRawStepsPerBatch}, choose_best_loss_model {choose_best_loss_model}")
 
-        print(f"geo_dense_variables: {geo_dense_variables}")
-        print(f"geo_cat_variables: {geo_cat_variables}")
+        print(f"dense_variables: {dense_variables}")
+        print(f"cat_variables: {cat_variables}")
         print(f"tempo_variables: {tempo_variables}")
 
         print(".......................................................................................")
@@ -67,8 +67,8 @@ class Zeus(nn.Module):
         
         # Setup that will be persistent throughout
         Snapshot.set_original_settings(factor10=factor10, increasing=increasing, packed_levels=nLevels - 1, device=self.device,
-            geo_dense_variables = geo_dense_variables,
-            geo_cat_variables = geo_cat_variables,
+            dense_variables = dense_variables,
+            cat_variables = cat_variables,
             tempo_variables = tempo_variables,
             )  
         now = datetime.now(timezone.utc)
@@ -115,14 +115,14 @@ class Zeus(nn.Module):
                 stride=self.patch_stride
             )
 
-    def forward(self, ss1, ss2, cascade_step):    # Not batch-processing, as hard drives are always bottlenecks.       
-        # print(f"x befor patching: {ss1.meteo_normal.shape, ss1.tempo.shape, ss1.geo_dense.shape}")
+    def forward(self, ss1, ss2, cascade_depth):    # Not batch-processing, as hard drives are always bottlenecks.       
+        # print(f"x befor patching: {ss1.meteo_normal.shape, ss1.tempo.shape, ss1.dense.shape}")
 
         #----------- patch/extract level features ------------
         # s = time.time()
         device = next(self.patch_extractor.parameters()).device
         levels, surface = Snapshot.pack_pair_snapshots(ss1, ss2, device=device)
-        x = self.patch_extractor(levels, surface, cascade_step)
+        x = self.patch_extractor(levels, surface, cascade_depth)
         # e = time.time()
         # print(f"x after patching: {x.shape}, time: {e-s}")
 
@@ -152,7 +152,7 @@ class Zeus(nn.Module):
         return x
     
     def forward_backward_no_optimizer_step(self,
-            ss0, ss1, ssY, cascade_step,
+            ss0, ss1, ssY, cascade_depth,
             fn_loss, fn_nornalize, fn_rawize, 
             batch_diff, zeus_weights, trainable,
             type_metrics, predicted_snapshot_required,
@@ -160,7 +160,7 @@ class Zeus(nn.Module):
             scaler, area_weights,
         ):   
 
-        pred_normal = self(ss0, ss1, cascade_step)
+        pred_normal = self(ss0, ss1, cascade_depth)
         
         air_levels_mask = torch.ones(pred_normal.shape[0], dtype=torch.float32, device='cpu')
         air_levels_mask[air_level_pressure_indices] = 0.0

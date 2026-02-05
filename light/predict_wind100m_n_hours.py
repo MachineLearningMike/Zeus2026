@@ -11,15 +11,15 @@ The time t is given in UTC.
 
 Now we have inputs for given current time t. They are:
     meteo_normal = torch.stack([t2m, tp, u100, v100, d2m, sp], dim=0),
-    geo_dense = torch.stack([orograph, sin_lat, cos_lat, sin_lon, cos_lon], dim=0),
-    geo_cat = torch.stack([land_sea_mask, soil_type], dim=0),
+    dense = torch.stack([orograph, sin_lat, cos_lat, sin_lon, cos_lon], dim=0),
+    cat = torch.stack([land_sea_mask, soil_type], dim=0),
     geo_tempo = torch.stack([sin_orbit, cos_orbit, sin_zenith, cos_zenith], dim=0).
 , where sin_xxx means sin(xxx) and cos_xxx means cos(xxx)
 We also have inputs for the given future time f. 
 The current and the future shares all inputs, except that the future has no meteo_normal and its own geo_tempo called geo_tempo_f.
 
-def predict(self, meteo_normal: torch.Tensor, geo_dense: torch.Tensor, 
-                geo_cat: torch.Tensor, geo_tempo: torch.Tensor, geo_tempo_f: torch.Tensor,
+def predict(self, meteo_normal: torch.Tensor, dense: torch.Tensor, 
+                cat: torch.Tensor, geo_tempo: torch.Tensor, geo_tempo_f: torch.Tensor,
                 current_dt: datetime, delta_hours: int) -> torch.Tensor] - (torch.tensor)
 
 Please write a Python class "Wind100mPredictor" that has the above predict(.) function, 
@@ -98,9 +98,9 @@ class Wind100mPredictor:
                                            [0.1, 0.4, 0.1],
                                            [0.05, 0.1, 0.05]], device=self.device)
         
-    def predict(self, meteo_normal: torch.Tensor, geo_dense: torch.Tensor, 
-                geo_cat: torch.Tensor, geo_tempo: torch.Tensor,
-                current_dt: datetime, geo_cat_f: torch.Tensor, 
+    def predict(self, meteo_normal: torch.Tensor, dense: torch.Tensor, 
+                cat: torch.Tensor, geo_tempo: torch.Tensor,
+                current_dt: datetime, cat_f: torch.Tensor, 
                 delta_hours: int, return_tensor: Optional[bool] = None) -> Union[Tuple[torch.Tensor, torch.Tensor], 
                                                                                 Tuple[np.ndarray, np.ndarray]]:
         """
@@ -108,10 +108,10 @@ class Wind100mPredictor:
         """
         # Move to device
         meteo_normal = meteo_normal.to(self.device)
-        geo_dense = geo_dense.to(self.device)
-        geo_cat = geo_cat.to(self.device)
+        dense = dense.to(self.device)
+        cat = cat.to(self.device)
         geo_tempo = geo_tempo.to(self.device)
-        geo_cat_f = geo_cat_f.to(self.device)
+        cat_f = cat_f.to(self.device)
         
         # Extract components
         t2m = meteo_normal[0]
@@ -119,13 +119,13 @@ class Wind100mPredictor:
         current_v100 = meteo_normal[3]
         sp = meteo_normal[5]
         
-        orograph = geo_dense[0]
-        sin_lat = geo_dense[1]
-        cos_lat = geo_dense[2]
-        sin_lon = geo_dense[3]
-        cos_lon = geo_dense[4]
+        orograph = dense[0]
+        sin_lat = dense[1]
+        cos_lat = dense[2]
+        sin_lon = dense[3]
+        cos_lon = dense[4]
         
-        land_sea_mask = geo_cat[0]
+        land_sea_mask = cat[0]
         
         sin_orbit = geo_tempo[0]
         cos_orbit = geo_tempo[1]
@@ -199,7 +199,7 @@ class Wind100mPredictor:
         )
         
         # 10. Apply stabilization
-        land_sea_mask_future = geo_cat_f[0]
+        land_sea_mask_future = cat_f[0]
         predicted_u, predicted_v = self._apply_stabilization(
             predicted_u, predicted_v, current_u100, current_v100, land_sea_mask_future
         )

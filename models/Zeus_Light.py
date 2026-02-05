@@ -12,6 +12,8 @@ from modules.zeus_dateset_geo_tempo import Geo_Tempo
 # from modules.Flash_Nonlinear_Attention import PhysicalFlashAttention
 # from modules.Zeus_Axial_Non_Lin_Attn_From_Phys_FA_Axial import AxialFlashAttention
 from modules.Zeus_Axial_Attn_Phys_FA_Cross_PE import AxialFlashAttention
+from modules.Zeus_PatchMergintPreserveInfo import PatchMergingPreserveInfo, PatchSplittingRestoreInfo
+from modules.utils import resize_continuous_bilinear_channel_wise_cylindric
 # from modules.RoPE_LatLon import RoPE
 
 class Mlp(nn.Module):
@@ -42,27 +44,29 @@ class Zeus(nn.Module):
         
         self.H = pm.height
         self.W = pm.width
-        self.C = 40         #--------------------------------------------
+        self.C = pm.attn_dim         #--------------------------------------------
         self.nHeads = pm.nHeads
         self.device = device
         self.dtype = dtype
         self.nLayers = pm.nLayers
+        axial_loops = pm.axial_loops
 
         use_pos_encoding = True
         pos_type = "sinusodial"
         
         print("------------------------------------------ Zeus parameters ... ---------------------------------")
         print(f"factor10 {pm.factor10}, pair_not_single_snapshot {self.pm.pair_not_single_snapshot}")
-        print(f"(H W C) ({self.H} {self.W} {self.C}), nHeads {self.nHeads} dtype {self.dtype} nLayers {self.nLayers}")
+        print(f"(H W C) ({self.H} {self.W} {self.C}), nHeads {self.nHeads} dtype {self.dtype} nLayers {self.nLayers} axial_loops {pm.axial_loops}")
         print(f"use_pe {use_pos_encoding}, pos_type {pos_type}, nRawStepsPerBatch {pm.nRawStepsPerBatch}, max_cascade_depth {pm.max_cascade_depth}")
         print("------------------------------------------ ... Zeus parameters ---------------------------------")
 
         
         Snapshot.set_original_settings(factor10=self.pm.factor10,
             device=self.device, dtype=self.pm.torch_dtype,
-            geo_dense_variables = self.pm.geo_dense_variables,
-            geo_cat_variables = self.pm.geo_cat_variables,
-            tempo_variables = self.pm.tempo_variables,            
+            dense_variables = self.pm.dense_variables,
+            cat_variables = self.pm.cat_variables,
+            tempo_variables = self.pm.tempo_variables,
+            tempo_dense_cat_rel_size=(1/2, 1/2, 1/2),       # 10//self.pm.factor10)
             )
         
         attn_layers = []
@@ -75,14 +79,15 @@ class Zeus(nn.Module):
                     dim=self.C, H=self.H, W=self.W, n_heads=self.nHeads, 
                     use_pos_encoding=use_pos_encoding,
                     pos_type=pos_type if use_pos_encoding else 'none',
-                    pos_dropout=0.1 if use_pos_encoding else 0.0            #------------- be careful
+                    axial_loops=axial_loops,
+                    pos_dropout=0.1 if use_pos_encoding else 0.0,            #------------- be careful
                 )
             )
         self.attn_layers = nn.ModuleList(attn_layers)
         
-        in_features = Snapshot.meteo_dims + Snapshot.tempo_dims + Snapshot.geo_dense_dims
+        in_features = self.get_meteo4_tempo_dense_catemb_dim()
         out_features = self.C
-        self.mntd_to_model_dims = Mlp(
+        self.m4tdc_to_attn_dims = Mlp(
             in_features = in_features,
             hidden_features = 4 * in_features,
             out_features = out_features,      # Add in pm
@@ -90,32 +95,60 @@ class Zeus(nn.Module):
             drop = 0    
         )
         in_features = out_features
-        self.model_dim_to_meteo = Mlp(
+        out_features = self.get_meteo4_dim()
+        self.attn_dim_to_meteo4 = Mlp(
             in_features = in_features,
             hidden_features = 4 * in_features,
-            out_features = Snapshot.meteo_dims,      # Add in pm
+            out_features = Snapshot.meteo_dims * 4,      # Add in pm
             act_layer = nn.Tanh,
             drop = 0    
         )
         
-        self.to(self.pm.torch_dtype)
+        self.patch_merger = PatchMergingPreserveInfo()
+        self.patch_splitter = PatchSplittingRestoreInfo()
         
-        #-----------------------
         self.predict_fun_dict = None
+        self.meteo_dims = len(self.pm.targetVariables)
+        
+        self.to(self.pm.torch_dtype)
 
-    def forward(self, x, py):
-        """
-        p, x: (B, H, W, C)
-        p: simple physical prediction of y
-        """        
-        B, H, W, C = x.shape
-        assert (B, H, W, C) == py.shape
-        assert (H, W) == (self.H, self.W)
-        N = H * W
-                                        
+    def get_meteo4_dim(self):
+        return Snapshot.meteo_dims * 4
+        
+    def get_meteo4_tempo_dense_catemb_dim(self):
+        cat_dim = 2     # cat themselves at the moment
+        return Snapshot.meteo_dims * 4 + Snapshot.tempo_dims + Snapshot.dense_dims + cat_dim
+
+    def forward(self, x_mtdc, py_mtdc, cascase_depth=1):   # (H, W, ...) => (H, W, meteo_dim)
+
+        #----------- patch_merging ------------
+        if x_mtdc is py_mtdc:     # or if id(x) == id(py)       
+            meteo_mormal, _, tempo, dense, cat = x_mtdc     # all normalized, except cat
+            # (H, W, meteo_dim), (H, W, meteo_dim), (H//2, W//2, tempo_dim), (H//2, W//2, dense_dim), (H//2, W//2, cat_dim)
+            H, W, C = meteo_mormal.shape
+            meteo_mormal_4 = self.patch_merger(meteo_mormal.unsqueeze(0)).squeeze(0)    # (H, W, d) => (H//2, W//2, 4*d)
+            m4tdc = torch.concat([meteo_mormal_4, tempo, dense, cat], dim=-1).unsqueeze(0)   # 6*4 + 9 + cat_emb.dim
+            x = self.m4tdc_to_attn_dims(m4tdc)
+            py = x
+        else:
+            meteo_mormal, _, tempo, dense, cat = py_mtdc     # all normalized, except cat
+            # (H, W, meteo_dim), (H, W, meteo_dim), (H//2, W//2, tempo_dim), (H//2, W//2, dense_dim), (H//2, W//2, cat_dim)
+            H, W, C = meteo_mormal.shape
+            meteo_mormal_4 = self.patch_merger(meteo_mormal.unsqueeze(0)).squeeze(0)    # (H, W, d) => (H//2, W//2, 4*d)
+            m4tdc = torch.concat([meteo_mormal_4, tempo, dense, cat], dim=-1).unsqueeze(0)
+            py = self.m4tdc_to_attn_dims(m4tdc)
+                                                                        
+        #---------- attentions -----------------    
         for i, attn in enumerate(self.attn_layers):
             py = attn(x, py)
             x = py        
+
+        py_meteo4 = self.attn_dim_to_meteo4(py)
+
+        #----------- patch_splitting ------------
+        py = self.patch_splitter(py_meteo4).squeeze(0)      # (H, W, meteo_dim)
+        
+        # return
         return py
     
     def physical_predict(self, ss_x, ss_y, modulo, variables):
@@ -135,7 +168,7 @@ class Zeus(nn.Module):
         # for idx, var in enumerate(variables):
         #     if var in ["t2m", "v100m"]:         # OBSERVATION: predict(x) vs. x is better for "t2m" and "v100m" only.
         #         dt_x = ss_x.get_datetime()
-        #         var_tensor = self.predict_fun_dict[var].predict(ss_x.mr, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, ss_y.tempo, dt_x, delta_hours=modulo).to(device=self.device, dtype=self.pm.torch_dtype)
+        #         var_tensor = self.predict_fun_dict[var].predict(ss_x.mr, ss_x.dense, ss_x.cat, ss_x.tempo, ss_y.tempo, dt_x, delta_hours=modulo).to(device=self.device, dtype=self.pm.torch_dtype)
         #     else:
         #         var_tensor = ss_x.mr[idx]
 
@@ -154,7 +187,7 @@ class Zeus(nn.Module):
         device = pred.device
         target = target.to(device)
         # vars_to_mask_on_loss = vars_to_mask_on_loss.to(device)
-
+        
         C, H, W = target.shape
         error_sqaured = (pred - target) ** 2 * (area_weights[None, :, None] if area_weights is not None else 1.0)   # (C, H, W)
         sum_weights = area_weights.sum() * W  if area_weights is not None else H * W
@@ -195,7 +228,7 @@ class Zeus(nn.Module):
         return loss, rmse    
         
     def forward_backward_no_optimizer_step(self,       
-            DnSS0, DnSS1, DnSSY, batch_diff, cascade_step, trainable, scaler, predicted_snapshot_required,
+            DnSS0, DnSS1, DnSSY, batch_diff, cascade_depth, trainable, scaler, predicted_snapshot_required,
             zeus_weights, train_dict,
         ):
         
@@ -203,7 +236,7 @@ class Zeus(nn.Module):
         device = next(self.attn_layers[0].parameters()).device        
         
         # # 1. get physical prediction of y_mr                
-        # # used: DnSS0.mr, DnSS0.geo_dense, DnSS0.geo_cat, DnSS0.tempo, DnSSY.tempo, DnSS0.datatime
+        # # used: DnSS0.mr, DnSS0.dense, DnSS0.cat, DnSS0.tempo, DnSSY.tempo, DnSS0.datatime
         # physical_prediction_raw = self.physical_predict(DnSS0, DnSSY, self.pm.modulo, self.pm.meteo_variables)   # 
 
         # # 2. prediction_normal
@@ -217,50 +250,52 @@ class Zeus(nn.Module):
         # # mntd_p = self.enrich_mixer(mntd_p)
 
         # 4. get mntd_x                                                   #-------------  mntd = meteo_normal_tempo_dense
-        mntd_x = Snapshot.pack_pair_snapshots(DnSS0, DnSS0, device=device)
-        mntd_x = mntd_x.permute(1, 2, 0).unsqueeze(0)   # from CHW to BHWC
-        
-        # 4. forward through model
-        
-        mntd_x = self.mntd_to_model_dims(mntd_x)
+        # mntdc_x = Snapshot.pack_pair_snapshots(DnSS0, DnSS0, device=device)
+        # mntdc_x = mntdc_x.permute(1, 2, 0).unsqueeze(0)   # from CHW to BHWC
 
-        mntd_p = mntd_x
-        mntd_x = mntd_x
+        meteo_mormal, meteo_raw, tempo, dense, cat = DnSS0.meteo_normal, DnSS0.meteo_raw, DnSS0.tempo, DnSS0.dense, DnSS0.cat
+        # (meteo_dim, H, W), (meteo_dim, H, W), (tempo_dim, H//2, W//2), (dense_dim, H//2, W//2), (cat_dim, H//2, W//2)
+
+        #====================== from CHW to HWC
+        # Remember they are not contiguouse after this line. Don't call .view() on them, .but reshape().
+        x_mtdc = (meteo_mormal.permute(1, 2, 0), meteo_raw.permute(1, 2, 0), tempo.permute(1, 2, 0), dense.permute(1, 2, 0), cat.permute(1, 2, 0))
+        # (H, W, meteo_dim), (H, W, meteo_dim), (H//2, W//2, tempo_dim), (H//2, W//2, dense_dim), (H//2, W//2, cat_dim)
         
-        mntd_pred = self(mntd_x, mntd_p)        #------------ forward --------- BHWC space
+        py_mtdc = x_mtdc
         
-        # 5. Derich mntd_pred learnably
-        mn_pred = self.model_dim_to_meteo(mntd_pred)  # (B, H, W, dim) -> (B, H, W, C)
-        mn_pred = mn_pred.permute(0, 3, 1, 2).squeeze(0)  # from BHWC o CHW
+        pred_mn = self(x_mtdc, py_mtdc, cascade_depth)        #------------ forward --------- HWC space. forward: (H, W, _) => (H, W, m)
+        
+        #======================= from BHWC to CHW
+        pred_mn = pred_mn.permute(2, 0, 1).squeeze(0)
         
         #--------------------------------------------------------------------------------------------------------
         
-        mn_truth = DnSSY.meteo_normal
+        truth_mn = DnSSY.meteo_normal
                 
-        lossAndMetrics = self.loss(mn_truth, mn_pred, batch_diff, zeus_weights=zeus_weights, area_weights=train_dict['area_weights'])        
+        lossAndMetrics = self.loss(truth_mn, pred_mn, batch_diff, zeus_weights=zeus_weights, area_weights=train_dict['area_weights'])        
         normalized_loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics   #---- [0] picks loss
 
         if trainable:
             normalized_loss.backward(retain_graph=True) # instead of the below line.
             # scaler.scale(normalized_loss).backward(retain_graph=True) # scaler doesn't support bf16
 
-        mn_pred = mn_pred.detach()
+        pred_mn = pred_mn.detach()
             
         #------------------------------ pred_normal is no longer user below -------------------
-        mr_pred = mn_pred.clone()
-        train_dict['fn_rawize_meteo'](mn_pred, mr_pred)
+        pred_mr = pred_mn.clone()
+        train_dict['fn_rawize_meteo'](pred_mn, pred_mr)
 
         if predicted_snapshot_required:
-            predicted_ss = Snapshot(DnSSY.year, DnSSY.month, DnSSY.day, DnSSY.hour, meteo_normal=mn_pred, meteo_raw=mr_pred)
+            predicted_ss = Snapshot(DnSSY.year, DnSSY.month, DnSSY.day, DnSSY.hour, meteo_normal=pred_mn, meteo_raw=pred_mr)
         else:
             predicted_ss = None
 
         if train_dict['type_metrics'] == "rmse":
-            mr_truth = DnSSY.meteo_raw
-            lossAndMetrics = self.loss(mr_truth, mr_pred, batch_diff, area_weights=train_dict['area_weights'])
+            truth_mr = DnSSY.meteo_raw
+            lossAndMetrics = self.loss(truth_mr, pred_mr, batch_diff, area_weights=train_dict['area_weights'])
             rawized_metrics = lossAndMetrics[1] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics   #---- [1] picks rmse
         elif train_dict['type_metrics'] == "mae":
-            rawized_metrics = torch.abs(DnSSY.mr - mr_pred).mean(dim=(1, 2))    # (C,)
+            rawized_metrics = torch.abs(truth_mr - pred_mr).mean(dim=(1, 2))    # (C,)
         else:
             raise Exception("type_metrics is invalid")
                 

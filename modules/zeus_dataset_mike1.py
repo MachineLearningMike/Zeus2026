@@ -562,8 +562,8 @@ class Zeus_Dataset(Dataset):
 
         Snapshot.set_original_settings(factor10=factor10,
             dtype=self.pm.torch_dtype,
-            geo_dense_variables = self.pm.geo_dense_variables,
-            geo_cat_variables = self.pm.geo_cat_variables,
+            dense_variables = self.pm.dense_variables,
+            cat_variables = self.pm.cat_variables,
             tempo_variables = self.pm.tempo_variables,            
             )
         
@@ -692,8 +692,8 @@ class Zeus_Dataset(Dataset):
 
         Snapshot.set_original_settings(factor10=factor10, 
             dtype=self.pm.torch_dtype,
-            geo_dense_variables = self.pm.geo_dense_variables,
-            geo_cat_variables = self.pm.geo_cat_variables,
+            dense_variables = self.pm.dense_variables,
+            cat_variables = self.pm.cat_variables,
             tempo_variables = self.pm.tempo_variables,            
             )
         
@@ -815,8 +815,8 @@ class Zeus_Dataset(Dataset):
 
         Snapshot.set_original_settings(factor10=factor10, 
             dtype=self.pm.torch_dtype,
-            geo_dense_variables = self.pm.geo_dense_variables,
-            geo_cat_variables = self.pm.geo_cat_variables,
+            dense_variables = self.pm.dense_variables,
+            cat_variables = self.pm.cat_variables,
             tempo_variables = self.pm.tempo_variables,            
             )
         
@@ -938,8 +938,8 @@ class Zeus_Dataset(Dataset):
         
         Snapshot.set_original_settings(factor10=factor10, 
             dtype=self.pm.torch_dtype,
-            geo_dense_variables = self.pm.geo_dense_variables,
-            geo_cat_variables = self.pm.geo_cat_variables,
+            dense_variables = self.pm.dense_variables,
+            cat_variables = self.pm.cat_variables,
             tempo_variables = self.pm.tempo_variables,            
             )
 
@@ -1050,8 +1050,8 @@ class Zeus_Dataset(Dataset):
         
         Snapshot.set_original_settings(factor10=factor10, 
             dtype=self.pm.torch_dtype,
-            geo_dense_variables = self.pm.geo_dense_variables,
-            geo_cat_variables = self.pm.geo_cat_variables,
+            dense_variables = self.pm.dense_variables,
+            cat_variables = self.pm.cat_variables,
             tempo_variables = self.pm.tempo_variables,            
             )
         
@@ -1315,8 +1315,8 @@ class Zeus_Dataset(Dataset):
         
         Snapshot.set_original_settings(factor10=self.pm.factor10, 
             dtype=self.pm.torch_dtype,
-            geo_dense_variables = self.pm.geo_dense_variables,
-            geo_cat_variables = self.pm.geo_cat_variables,
+            dense_variables = self.pm.dense_variables,
+            cat_variables = self.pm.cat_variables,
             tempo_variables = self.pm.tempo_variables,            
             )
         
@@ -1502,8 +1502,8 @@ class Zeus_Dataset(Dataset):
         
         Snapshot.set_original_settings(factor10=self.pm.factor10, 
             dtype=self.pm.torch_dtype,
-            geo_dense_variables = self.pm.geo_dense_variables,
-            geo_cat_variables = self.pm.geo_cat_variables,
+            dense_variables = self.pm.dense_variables,
+            cat_variables = self.pm.cat_variables,
             tempo_variables = self.pm.tempo_variables,            
             )
         
@@ -1535,7 +1535,7 @@ class Zeus_Dataset(Dataset):
                     ss_x = Snapshot(dt_x.year, dt_x.month, dt_x.day, dt_x.hour, meteo_normal=None, meteo_raw=meteo_raw_x)
                     ss_y = Snapshot(dt.year, dt.month, dt.day, dt.hour, meteo_normal=None, meteo_raw=None)
                 
-                    pred = self.fun_dict[variable].predict(ss_x.meteo_raw, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, ss_y.tempo, dt_x, delta_hours=modulo).cpu().numpy()
+                    pred = self.fun_dict[variable].predict(ss_x.meteo_raw, ss_x.dense, ss_x.cat, ss_x.tempo, ss_y.tempo, dt_x, delta_hours=modulo).cpu().numpy()
                     # pred = ss_x.meteo_normal[0].numpy() works   # array_x[0].numpy works
             
             pred = pred # ss_x.meteo_raw[var_id].cpu().numpy() if ss_x is not None else None
@@ -1613,8 +1613,8 @@ class Zeus_Dataset(Dataset):
 
         Snapshot.set_original_settings(factor10=self.pm.factor10, 
             dtype=self.pm.torch_dtype,
-            geo_dense_variables = self.pm.geo_dense_variables,
-            geo_cat_variables = self.pm.geo_cat_variables,
+            dense_variables = self.pm.dense_variables,
+            cat_variables = self.pm.cat_variables,
             tempo_variables = self.pm.tempo_variables,            
             )
         
@@ -1709,7 +1709,7 @@ class Zeus_Dataset(Dataset):
                     #-----------------------------  get delta
 
                     if is_downsample_and_predict:
-                        pred = self.fun_dict[variable].predict(ss_x.meteo_raw, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, ss_y.tempo, dt_x, delta_hours=modulo).cpu().numpy()
+                        pred = self.fun_dict[variable].predict(ss_x.meteo_raw, ss_x.dense, ss_x.cat, ss_x.tempo, ss_y.tempo, dt_x, delta_hours=modulo).cpu().numpy()
                         pred = pred # ss_x.meteo_raw[var_id].cpu().numpy() if ss_x is not None else None
                     
                     else:
@@ -1805,7 +1805,7 @@ class Zeus_Dataset(Dataset):
         ss_y = Snapshot(dt_y.year, dt_y.month, dt_y.day, dt_y.hour, meteo_normal=None, meteo_raw=None)
 
         for var in variables:
-            dict_x[var] = self.fun_dict[var].predict(ss_x.meteo_raw, ss_x.geo_dense, ss_x.geo_cat, ss_x.tempo, ss_y.tempo, dt_x, delta_hours=modulo).cpu().numpy()
+            dict_x[var] = self.fun_dict[var].predict(ss_x.meteo_raw, ss_x.dense, ss_x.cat, ss_x.tempo, ss_y.tempo, dt_x, delta_hours=modulo).cpu().numpy()
 
         return dict_x
     
@@ -2375,7 +2375,7 @@ class Zeus_Dataset(Dataset):
                                                     
             ss = Snapshot(dt.year, dt.month, dt.day, dt.hour, meteo_normal=meteo_normal, meteo_raw=meteo_raw)
 
-            self.normalize_tempo(ss.tempo, ss.tempo)
+            self.normalize_tempo(ss.tempo, ss.tempo)    #----------- Normalize
                                         
         return ss
 
@@ -2722,10 +2722,10 @@ if __name__ == "__main__":
     # # arr = np.load(config["soil_type_npy_path"])
     # Snapshot.set_original_settings(factor10=10)
     # ss = Snapshot(2000,1,1,0, None, None)
-    # arr1 = ss.geo_cat[0]
+    # arr1 = ss.cat[0]
     # Snapshot.set_original_settings(factor10=2)
     # ss = Snapshot(2000,1,1,0, None, None)
-    # arr2 = ss.geo_cat[0]
+    # arr2 = ss.cat[0]
     # dataset.show_array_double(arr1, arr2, "Soil type", duration=15)
 
 

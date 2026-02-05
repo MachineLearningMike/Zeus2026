@@ -11,15 +11,15 @@ The time t is given in UTC.
 
 Now we have inputs for given current time t. They are:
     meteo_normal = torch.stack([t2m, tp, u100, v100, d2m, sp], dim=0),
-    geo_dense = torch.stack([orograph, sin_lat, cos_lat, sin_lon, cos_lon], dim=0),
-    geo_cat = torch.stack([land_sea_mask, soil_type], dim=0),
+    dense = torch.stack([orograph, sin_lat, cos_lat, sin_lon, cos_lon], dim=0),
+    cat = torch.stack([land_sea_mask, soil_type], dim=0),
     geo_tempo = torch.stack([sin_orbit, cos_orbit, sin_zenith, cos_zenith], dim=0).
 , where sin_xxx means sin(xxx) and cos_xxx means cos(xxx)
 We also have inputs for the given future time f. 
 The current and the future shares all inputs, except that the future has no meteo_normal and its own geo_tempo called geo_tempo_f.
 
-def predict(self, meteo_normal: torch.Tensor, geo_dense: torch.Tensor, 
-                geo_cat: torch.Tensor, geo_tempo: torch.Tensor, geo_tempo_f: torch.Tensor,
+def predict(self, meteo_normal: torch.Tensor, dense: torch.Tensor, 
+                cat: torch.Tensor, geo_tempo: torch.Tensor, geo_tempo_f: torch.Tensor,
                 current_dt: datetime, delta_hours: int) -> torch.Tensor
 
 Please write a Python class "T2mPredictor" that has the above predict(.) function, which predicts t2m 
@@ -79,8 +79,8 @@ class T2mPredictor:
         # WIND MIXING
         self.WIND_MIXING = torch.tensor(0.1, device=self.device)
         
-    def predict(self, meteo_normal: torch.Tensor, geo_dense: torch.Tensor, 
-                geo_cat: torch.Tensor, geo_tempo: torch.Tensor, geo_tempo_f: torch.Tensor,
+    def predict(self, meteo_normal: torch.Tensor, dense: torch.Tensor, 
+                cat: torch.Tensor, geo_tempo: torch.Tensor, geo_tempo_f: torch.Tensor,
                 current_dt: datetime, delta_hours: int) -> torch.Tensor:
         """
         Fix morning/evening banding by using absolute solar intensity,
@@ -91,8 +91,8 @@ class T2mPredictor:
         
         # Move to device
         meteo_normal = meteo_normal.to(self.device)
-        geo_dense = geo_dense.to(self.device)
-        geo_cat = geo_cat.to(self.device)
+        dense = dense.to(self.device)
+        cat = cat.to(self.device)
         geo_tempo = geo_tempo.to(self.device)
         geo_tempo_f = geo_tempo_f.to(self.device)
         
@@ -104,12 +104,12 @@ class T2mPredictor:
         Td = meteo_normal[4]
         
         # Geographical data
-        sin_lat = geo_dense[1]
-        cos_lat = geo_dense[2]
-        sin_lon = geo_dense[3]
-        cos_lon = geo_dense[4]
+        sin_lat = dense[1]
+        cos_lat = dense[2]
+        sin_lon = dense[3]
+        cos_lon = dense[4]
         
-        land_mask = geo_cat[0]
+        land_mask = cat[0]
         land_fraction = land_mask.float()
         
         # Solar geometry
@@ -342,8 +342,8 @@ def analyze_banding_fix():
     
     # Initialize tensors
     meteo_normal = torch.ones(6, H, W)
-    geo_dense = torch.ones(5, H, W)
-    geo_cat = torch.ones(2, H, W)
+    dense = torch.ones(5, H, W)
+    cat = torch.ones(2, H, W)
     geo_tempo = torch.ones(4, H, W)
     geo_tempo_f = torch.ones(4, H, W)
     
@@ -356,13 +356,13 @@ def analyze_banding_fix():
     # Simple continent at equator
     land_mask[(lat_grid > -30) & (lat_grid < 30) & 
               (lon_grid > -60) & (lon_grid < 60)] = 1.0
-    geo_cat[0] = land_mask
+    cat[0] = land_mask
     
     # Geographical data
-    geo_dense[1] = torch.sin(lat_grid * math.pi / 180.0)
-    geo_dense[2] = torch.cos(lat_grid * math.pi / 180.0)
-    geo_dense[3] = torch.sin(lon_grid * math.pi / 180.0)
-    geo_dense[4] = torch.cos(lon_grid * math.pi / 180.0)
+    dense[1] = torch.sin(lat_grid * math.pi / 180.0)
+    dense[2] = torch.cos(lat_grid * math.pi / 180.0)
+    dense[3] = torch.sin(lon_grid * math.pi / 180.0)
+    dense[4] = torch.cos(lon_grid * math.pi / 180.0)
     
     # Simulate solar geometry for 6 AM UTC
     # This will create morning band at some longitudes
@@ -396,7 +396,7 @@ def analyze_banding_fix():
             geo_tempo_f[3, i, j] = max(0.0, min(1.0, cos_z_future))
     
     # Make prediction (6-hour forecast)
-    pred = predictor.predict(meteo_normal, geo_dense, geo_cat, geo_tempo, geo_tempo_f,
+    pred = predictor.predict(meteo_normal, dense, cat, geo_tempo, geo_tempo_f,
                             current_dt, 6)
     
     # Analyze

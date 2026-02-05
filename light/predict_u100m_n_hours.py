@@ -11,15 +11,15 @@ The time t is given in UTC.
 
 Now we have inputs for given current time t. They are:
     meteo_normal = torch.stack([t2m, tp, u100, v100, d2m, sp], dim=0),
-    geo_dense = torch.stack([orograph, sin_lat, cos_lat, sin_lon, cos_lon], dim=0),
-    geo_cat = torch.stack([land_sea_mask, soil_type], dim=0),
+    dense = torch.stack([orograph, sin_lat, cos_lat, sin_lon, cos_lon], dim=0),
+    cat = torch.stack([land_sea_mask, soil_type], dim=0),
     geo_tempo = torch.stack([sin_orbit, cos_orbit, sin_zenith, cos_zenith], dim=0).
 , where sin_xxx means sin(xxx) and cos_xxx means cos(xxx)
 We also have inputs for the given future time f. 
 The current and the future shares all inputs, except that the future has no meteo_normal and its own geo_tempo called geo_tempo_f.
 
-def predict(self, meteo_normal: torch.Tensor, geo_dense: torch.Tensor, 
-                geo_cat: torch.Tensor, geo_tempo: torch.Tensor, geo_tempo_f: torch.Tensor,
+def predict(self, meteo_normal: torch.Tensor, dense: torch.Tensor, 
+                cat: torch.Tensor, geo_tempo: torch.Tensor, geo_tempo_f: torch.Tensor,
                 current_dt: datetime, delta_hours: int) -> torch.Tensor
 
 Please write a Python class "U100mPredictor" that has the above predict(.) function, which predicts u100m 
@@ -96,8 +96,8 @@ class U100mPredictor:
         self.STRIP_SMOOTHING = torch.tensor(0.4, device=self.device)
         self.COASTAL_BLEND_WIDTH = torch.tensor(3.0, device=self.device)
     
-    def predict(self, meteo_normal: torch.Tensor, geo_dense: torch.Tensor,
-                geo_cat: torch.Tensor, geo_tempo: torch.Tensor,
+    def predict(self, meteo_normal: torch.Tensor, dense: torch.Tensor,
+                cat: torch.Tensor, geo_tempo: torch.Tensor,
                 geo_tempo_f: torch.Tensor, current_dt: datetime,
                 delta_hours: int) -> torch.Tensor:
         """
@@ -105,8 +105,8 @@ class U100mPredictor:
         """
         # Move to device
         meteo_normal = meteo_normal.to(self.device).float()
-        geo_dense = geo_dense.to(self.device).float()
-        geo_cat = geo_cat.to(self.device).float()
+        dense = dense.to(self.device).float()
+        cat = cat.to(self.device).float()
         geo_tempo = geo_tempo.to(self.device).float()
         geo_tempo_f = geo_tempo_f.to(self.device).float()
         
@@ -115,13 +115,13 @@ class U100mPredictor:
         current_u100 = meteo_normal[2]
         sp = meteo_normal[5]
         
-        orograph = geo_dense[0]
-        sin_lat = geo_dense[1]
-        cos_lat = geo_dense[2]
-        sin_lon = geo_dense[3]
-        cos_lon = geo_dense[4]
+        orograph = dense[0]
+        sin_lat = dense[1]
+        cos_lat = dense[2]
+        sin_lon = dense[3]
+        cos_lon = dense[4]
         
-        land_sea_mask = geo_cat[0]
+        land_sea_mask = cat[0]
         
         height, width = t2m.shape
         
@@ -391,8 +391,8 @@ if __name__ == "__main__":
     
     # Test data
     meteo_normal = torch.randn(6, H, W)
-    geo_dense = torch.randn(5, H, W)
-    geo_cat = torch.randn(2, H, W)
+    dense = torch.randn(5, H, W)
+    cat = torch.randn(2, H, W)
     geo_tempo = torch.randn(4, H, W)
     geo_tempo_f = torch.randn(4, H, W)
     
@@ -400,7 +400,7 @@ if __name__ == "__main__":
     predictor = U100mPredictor()
     
     # Test prediction
-    result = predictor.predict(meteo_normal, geo_dense, geo_cat, geo_tempo, 
+    result = predictor.predict(meteo_normal, dense, cat, geo_tempo, 
                               geo_tempo_f, datetime.now(), 6)
     
     print(f"Prediction shape: {result.shape}")

@@ -54,10 +54,10 @@ class Train_6_hourly():
             substep_loss = []; substep_metrics = []
             while len(oldQ) > 0:     # loops at least once
                 X0, X1 = oldQ[0]; oldQ = oldQ[1:]    # assert X.device == device
-                cascade_step = len(newQ)
-                step_result, loss, metrics = fn_take_substep(model_dom, X0, X1, Y, cascade_step) # forward, backward, and optimizer.step
+                cascade_depth = len(newQ)
+                step_result, loss, metrics = fn_take_substep(model_dom, X0, X1, Y, cascade_depth) # forward, backward, and optimizer.step
                 nSubsteps += 1
-                nSubsteps_by_cascade[cascade_step-1] += 1
+                nSubsteps_by_cascade[cascade_depth-1] += 1
                 # assert (step_result.device == device or step_result.device is None)
 
                 newQ.append((X1, step_result))                      # +1 X
@@ -79,7 +79,7 @@ class Train_6_hourly():
 if __name__ == "__main__":
 
     from copy import copy
-    def take_substep(model_dom, X0, X1, Y, cascade_step):
+    def take_substep(model_dom, X0, X1, Y, cascade_depth):
         _Y = copy(Y); _Y.fresh = False; _Y.device = X0.device
         return _Y, 1.0, [2.0, 3.0]
 

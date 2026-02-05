@@ -75,8 +75,8 @@ config = {
     "pair_not_single_snapshot": False,
     "group_normalize": False,           # False for light version
     
-    "geo_dense_variables": ["orograph", "sin_lat", "cos_lat", "sin_lon", "cos_lon"],
-    "geo_cat_variables": ["land_sea_mask", "soil_type"],
+    "dense_variables": ["orograph", "sin_lat", "cos_lat", "sin_lon", "cos_lon"],
+    "cat_variables": ["land_sea_mask", "soil_type"],
     "tempo_variables": ["sin_orbit", "cos_orbit", "sin_zenith", "cos_zenith"], # ["sin_orbit", "cos_orbit", "sin_solor", "cos_solar"],
 }
 
@@ -172,7 +172,9 @@ if platform.system() == "Windows":
     config["data_limit"] = 12
     config["dim_to_layerFFN_dim"] = 4
     
-    config["factor10"] = 2.5  # -------------------------- used for light projects
+    config["factor10"] = 5  # -------------------------- used for light projects
+
+    # "factor10" : 5,  # 2 on Windows else 10.   3 works on 8GB, 10 will work on 80GB? Yes, barely.
     
     # shared_model_params['nHeads'] = 4
     # shared_model_params['patch_kernel'] = 4
@@ -1500,15 +1502,15 @@ projects["Zeus_26Jan30"] = {    #-----------------------------------------------
         "overwrite_saved_lr": False,
         "accum_steps" : 10,   
         "skip_validation" : True,
-        #----------------------------------- SWIN ------------------------
-        # 'factor10' : 2 on Windows else 10.   3 works on 8GB, 10 will work on 80GB? Yes, barely.
         
         'patch_kernel' : 4,
         'patch_stride' : 4,
 
         "batch_size": 1,
+        "attn_dim" : 40,
         "nHeads" : 5,       #
         "nLayers" : 20,     #
+        "axial_loops" : 1,
         
         'choose_best_loss_model' : False,
         'useLRLearner' : False,

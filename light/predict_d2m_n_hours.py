@@ -11,15 +11,15 @@ The time t is given in UTC.
 
 Now we have inputs for given current time t. They are:
     meteo_normal = torch.stack([t2m, tp, u100, v100, d2m, sp], dim=0),
-    geo_dense = torch.stack([orograph, sin_lat, cos_lat, sin_lon, cos_lon], dim=0),
-    geo_cat = torch.stack([land_sea_mask, soil_type], dim=0),
+    dense = torch.stack([orograph, sin_lat, cos_lat, sin_lon, cos_lon], dim=0),
+    cat = torch.stack([land_sea_mask, soil_type], dim=0),
     geo_tempo = torch.stack([sin_orbit, cos_orbit, sin_zenith, cos_zenith], dim=0).
 , where sin_xxx means sin(xxx) and cos_xxx means cos(xxx)
 We also have inputs for the given future time f. 
 The current and the future shares all inputs, except that the future has no meteo_normal and its own geo_tempo called geo_tempo_f.
 
-def predict(self, meteo_normal: torch.Tensor, geo_dense: torch.Tensor, 
-                geo_cat: torch.Tensor, geo_tempo: torch.Tensor, geo_tempo_f: torch.Tensor,
+def predict(self, meteo_normal: torch.Tensor, dense: torch.Tensor, 
+                cat: torch.Tensor, geo_tempo: torch.Tensor, geo_tempo_f: torch.Tensor,
                 current_dt: datetime, delta_hours: int) -> torch.Tensor
 
 Please write a Python class "D2mPredictor" that has the above predict(.) function, which predicts d2m 
@@ -146,16 +146,16 @@ class D2mPredictor:
         
         return Td_C + 273.15  # Convert to Kelvin
     
-    def predict(self, meteo_normal: torch.Tensor, geo_dense: torch.Tensor, 
-                geo_cat: torch.Tensor, geo_tempo: torch.Tensor, geo_tempo_f: torch.Tensor,
+    def predict(self, meteo_normal: torch.Tensor, dense: torch.Tensor, 
+                cat: torch.Tensor, geo_tempo: torch.Tensor, geo_tempo_f: torch.Tensor,
                 current_dt: datetime, delta_hours: int) -> torch.Tensor:
         """
         Predict dew point temperature (d2m) for time t + delta_hours.
         
         Args:
             meteo_normal: [t2m, tp, u100, v100, d2m, sp] shape (6, H, W)
-            geo_dense: [orograph, sin_lat, cos_lat, sin_lon, cos_lon] shape (5, H, W)
-            geo_cat: [land_sea_mask, soil_type] shape (2, H, W)
+            dense: [orograph, sin_lat, cos_lat, sin_lon, cos_lon] shape (5, H, W)
+            cat: [land_sea_mask, soil_type] shape (2, H, W)
             geo_tempo: [sin_orbit, cos_orbit, sin_zenith, cos_zenith] shape (4, H, W) for current time
             geo_tempo_f: [sin_orbit, cos_orbit, sin_zenith, cos_zenith] shape (4, H, W) for future time
             current_dt: datetime for current time t
@@ -169,8 +169,8 @@ class D2mPredictor:
         
         # Move to device
         meteo_normal = meteo_normal.to(self.device)
-        geo_dense = geo_dense.to(self.device)
-        geo_cat = geo_cat.to(self.device)
+        dense = dense.to(self.device)
+        cat = cat.to(self.device)
         geo_tempo = geo_tempo.to(self.device)
         geo_tempo_f = geo_tempo_f.to(self.device)
         
@@ -183,12 +183,12 @@ class D2mPredictor:
         sp = meteo_normal[5]          # Surface pressure [Pa]
         
         # Geographical data
-        sin_lat = geo_dense[1]   # sin(latitude)
-        cos_lat = geo_dense[2]   # cos(latitude)
-        sin_lon = geo_dense[3]   # sin(longitude)
-        cos_lon = geo_dense[4]   # cos(longitude)
+        sin_lat = dense[1]   # sin(latitude)
+        cos_lat = dense[2]   # cos(latitude)
+        sin_lon = dense[3]   # sin(longitude)
+        cos_lon = dense[4]   # cos(longitude)
         
-        land_mask = geo_cat[0]   # 0=sea, 1=land
+        land_mask = cat[0]   # 0=sea, 1=land
         land_fraction = land_mask.float()
         
         # Solar geometry (use future time for prediction)
@@ -463,8 +463,8 @@ def test_d2m_predictor():
     
     # Initialize tensors
     meteo_normal = torch.ones(6, H, W)
-    geo_dense = torch.ones(5, H, W)
-    geo_cat = torch.ones(2, H, W)
+    dense = torch.ones(5, H, W)
+    cat = torch.ones(2, H, W)
     geo_tempo = torch.ones(4, H, W)
     geo_tempo_f = torch.ones(4, H, W)
     
@@ -489,7 +489,7 @@ def test_d2m_predictor():
             
             meteo_normal[0, i, j] = T
             meteo_normal[4, i, j] = Td
-            geo_cat[0, i, j] = 1.0 if is_land else 0.0
+            cat[0, i, j] = 1.0 if is_land else 0.0
     
     # Other meteorological variables
     meteo_normal[1] = torch.rand(H, W) * 0.005  # Precipitation 0-5mm
@@ -498,13 +498,13 @@ def test_d2m_predictor():
     meteo_normal[5] = 101325.0  # Pressure
     
     # Geographical data
-    geo_dense[1] = torch.sin(lat_grid * math.pi / 180.0)
-    geo_dense[2] = torch.cos(lat_grid * math.pi / 180.0)
-    geo_dense[3] = torch.sin(lon_grid * math.pi / 180.0)
-    geo_dense[4] = torch.cos(lon_grid * math.pi / 180.0)
+    dense[1] = torch.sin(lat_grid * math.pi / 180.0)
+    dense[2] = torch.cos(lat_grid * math.pi / 180.0)
+    dense[3] = torch.sin(lon_grid * math.pi / 180.0)
+    dense[4] = torch.cos(lon_grid * math.pi / 180.0)
     
     # Soil type (random for now)
-    geo_cat[1] = torch.randint(0, 8, (H, W)).float()
+    cat[1] = torch.randint(0, 8, (H, W)).float()
     
     # Simulate solar geometry (like in T2mPredictor test)
     current_dt = datetime(2024, 6, 21, 6, 0, 0)  # 6 AM UTC
@@ -529,7 +529,7 @@ def test_d2m_predictor():
     
     # Make prediction
     print(f"Making 6-hour dew point forecast...")
-    pred = predictor.predict(meteo_normal, geo_dense, geo_cat, geo_tempo, geo_tempo_f,
+    pred = predictor.predict(meteo_normal, dense, cat, geo_tempo, geo_tempo_f,
                             current_dt, 6)
     
     # Analyze results

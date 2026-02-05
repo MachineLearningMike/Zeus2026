@@ -11,15 +11,15 @@ The time t is given in UTC.
 
 Now we have inputs for given current time t. They are:
     meteo_normal = torch.stack([t2m, tp, u100, v100, d2m, sp], dim=0),
-    geo_dense = torch.stack([orograph, sin_lat, cos_lat, sin_lon, cos_lon], dim=0),
-    geo_cat = torch.stack([land_sea_mask, soil_type], dim=0),
+    dense = torch.stack([orograph, sin_lat, cos_lat, sin_lon, cos_lon], dim=0),
+    cat = torch.stack([land_sea_mask, soil_type], dim=0),
     geo_tempo = torch.stack([sin_orbit, cos_orbit, sin_zenith, cos_zenith], dim=0).
 , where sin_xxx means sin(xxx) and cos_xxx means cos(xxx)
 We also have inputs for the given future time f. 
 The current and the future shares all inputs, except that the future has no meteo_normal and its own geo_tempo called geo_tempo_f.
 
-def predict(self, meteo_normal: torch.Tensor, geo_dense: torch.Tensor, 
-                geo_cat: torch.Tensor, geo_tempo: torch.Tensor, geo_tempo_f: torch.Tensor,
+def predict(self, meteo_normal: torch.Tensor, dense: torch.Tensor, 
+                cat: torch.Tensor, geo_tempo: torch.Tensor, geo_tempo_f: torch.Tensor,
                 current_dt: datetime, delta_hours: int) -> torch.Tensor
 
 Please write a Python class "SpPredictor" that has the above predict(.) function, which predicts sp 
@@ -85,16 +85,16 @@ class SpPredictor:
         # Elevation pressure correction
         self.ELEVATION_PRESSURE_FACTOR = torch.tensor(0.00012, device=self.device)  # Pa/m
         
-    def predict(self, meteo_normal: torch.Tensor, geo_dense: torch.Tensor,
-                geo_cat: torch.Tensor, geo_tempo: torch.Tensor, geo_tempo_f: torch.Tensor,
+    def predict(self, meteo_normal: torch.Tensor, dense: torch.Tensor,
+                cat: torch.Tensor, geo_tempo: torch.Tensor, geo_tempo_f: torch.Tensor,
                 current_dt: datetime, delta_hours: int) -> torch.Tensor:
         """
         Predict sp (surface pressure) for time t + delta_hours.
         
         Args:
             meteo_normal: Current meteorological data [t2m, tp, u100, v100, d2m, sp]
-            geo_dense: Dense geographical features [orograph, sin_lat, cos_lat, sin_lon, cos_lon]
-            geo_cat: Categorical geographical features [land_sea_mask, soil_type]
+            dense: Dense geographical features [orograph, sin_lat, cos_lat, sin_lon, cos_lon]
+            cat: Categorical geographical features [land_sea_mask, soil_type]
             geo_tempo: Current temporal features [sin_orbit, cos_orbit, sin_zenith, cos_zenith]
             geo_tempo_f: Future temporal features for prediction time
             current_dt: Current datetime
@@ -111,8 +111,8 @@ class SpPredictor:
         
         # Move to device
         meteo_normal = meteo_normal.to(self.device)
-        geo_dense = geo_dense.to(self.device)
-        geo_cat = geo_cat.to(self.device)
+        dense = dense.to(self.device)
+        cat = cat.to(self.device)
         geo_tempo = geo_tempo.to(self.device)
         geo_tempo_f = geo_tempo_f.to(self.device)
         
@@ -125,14 +125,14 @@ class SpPredictor:
         sp_current = meteo_normal[5]          # Current surface pressure (sp) in Pa
         
         # Extract geographical features
-        orograph = geo_dense[0]        # Orography (m²/s²) - geopotential
-        sin_lat = geo_dense[1]         # sin(latitude)
-        cos_lat = geo_dense[2]         # cos(latitude)
-        sin_lon = geo_dense[3]         # sin(longitude)
-        cos_lon = geo_dense[4]         # cos(longitude)
+        orograph = dense[0]        # Orography (m²/s²) - geopotential
+        sin_lat = dense[1]         # sin(latitude)
+        cos_lat = dense[2]         # cos(latitude)
+        sin_lon = dense[3]         # sin(longitude)
+        cos_lon = dense[4]         # cos(longitude)
         
-        land_mask = geo_cat[0]         # 0=sea, 1=land
-        soil_type_idx = geo_cat[1].long()  # Soil type index
+        land_mask = cat[0]         # 0=sea, 1=land
+        soil_type_idx = cat[1].long()  # Soil type index
         
         # Convert orography from geopotential to approximate height in meters
         # geopotential = g * height, so height = geopotential / g

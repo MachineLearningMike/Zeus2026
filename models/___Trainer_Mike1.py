@@ -392,14 +392,14 @@ class Model_Trainer():
 
                             #=== 3. consume currentQ to predict Y
                             
-                            cascade_step = 0    # Our model has known the 1st cascade_step, which is non-cascade actually, as 1.
+                            cascade_depth = 0    # Our model has known the 1st cascade_depth, which is non-cascade actually, as 1.
                             
                             while len(currentQ) > 0:     # consume Xs for the shared Y
 
-                                cascade_step += 1   # The top of currentQ, or futureQ, which is non-cascade actually, is assigned cascade_step = 1.
+                                cascade_depth += 1   # The top of currentQ, or futureQ, which is non-cascade actually, is assigned cascade_depth = 1.
                                 
                                 #--- 3.1. Stop consuming currentQ if we overgo self.pm.max_cascade_depth
-                                if cascade_step > self.pm.max_cascade_depth:     # self.pm.max_cascade_depth == 1 when we don't allow true cascade steps.
+                                if cascade_depth > self.pm.max_cascade_depth:     # self.pm.max_cascade_depth == 1 when we don't allow true cascade steps.
                                     break
                                 
                                 #--- 3.2. pop currentQ
@@ -414,13 +414,13 @@ class Model_Trainer():
                                 #--- 3.3. choose if to request the prediction of Y
                                 # Don't request the predictio X unless we have future Y. 
                                 # It will be one-step deeper cascade, than the current, if the prediction is used as X, because it used the Y prediction of the current prediction as X.
-                                we_can_have_deeper_cascade_than_current = (cascade_step < self.pm.max_cascade_depth)
+                                we_can_have_deeper_cascade_than_current = (cascade_depth < self.pm.max_cascade_depth)
                                 predicted_snapshot_required = we_have_future_y and we_can_have_deeper_cascade_than_current
 
                                 #--- 3.4. use X0 and X1 to predict Y
                                 
                                 substep_result, substep_loss, substep_metrics = md.forward_backward_no_optimizer_step(
-                                    X0, X1, Y, batch_diff, cascade_step, trainable, md.scaler, predicted_snapshot_required,
+                                    X0, X1, Y, batch_diff, cascade_depth, trainable, md.scaler, predicted_snapshot_required,
                                     zeus_weights, train_dict,
                                 )
                                 
@@ -480,7 +480,7 @@ class Model_Trainer():
             substepsPerDollar = int(substeps_per_step * steps_per_hour / self.pm.dollarsPerHour)
             lr = md_focus.get_learning_rate()
             # gates = md_focus.get_abs_gates_mean()
-            pbar.set_description(f"{md_focus.pbar_description}, ms_wait/ms_step {ms_wait:.0f}/{ms_step:.0f} substeps/$ {substepsPerDollar} lr {lr:1.1e}")
+            pbar.set_description(f"{md_focus.pbar_description}, wait/step {ms_wait:.0f}/{ms_step:.0f} substeps/$ {substepsPerDollar} lr {lr:1.1e}")
             start1 = time.time()
 
             # This is to save the model in case it suddenly deviates to diverge.

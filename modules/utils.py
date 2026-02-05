@@ -776,6 +776,8 @@ def resize_one_to_other_cylindric(arr1, arr2, mode='bilinear', larger_to_smaller
     
     return tensor1_resized.numpy(), tensor2_resized.numpy()
 
+import torch
+import torch.nn.functional as F
 
 # Your original function (unchanged except for better comments)
 def resize_continuous_bilinear_channel_wise_cylindric(tensor, target_size, mode='bilinear'):
@@ -794,8 +796,6 @@ def resize_continuous_bilinear_channel_wise_cylindric(tensor, target_size, mode=
     Returns:
         Resized tensor (C, target_h, target_w) with preserved cyclic continuity
     """
-    import torch
-    import torch.nn.functional as F
     
     if tensor.dim() == 3:
         x = tensor.unsqueeze(0)  # Add batch: (1, C, H, W)
@@ -874,13 +874,28 @@ def resize_continuous_bilinear_channel_wise_cylindric(tensor, target_size, mode=
     return result
 
 def resize_categorical_nearest_channelwise_cylindric(tensor, target_resolution):
-    target_H, target_W = target_resolution
-    C, H, W = tensor.shape
-    
     """
     Perfect cylindrical resize for categorical data.
     Ensures left and right edges have similar distributions.
     """
+    
+    if tensor.dim() == 3:
+        x = tensor.unsqueeze(0)  # Add batch: (1, C, H, W)
+        has_batch = False
+    else:
+        x = tensor
+        has_batch = True
+    
+    target_h, target_w = target_resolution
+    B, C, H, W = x.shape
+    
+    # If already at target size, return
+    if H == target_h and W == target_w:
+        if not has_batch:
+            return tensor
+        else:
+            return x
+    
     target_H, target_W = target_resolution
     C, H, W = tensor.shape
     device = tensor.device
@@ -909,6 +924,10 @@ def resize_categorical_nearest_channelwise_cylindric(tensor, target_resolution):
     
     # Sample
     result = tensor[:, I, J]
+    
+    # Remove batch dimension if we added it
+    if not has_batch:
+        result = result.squeeze(0)
     
     return result
 
