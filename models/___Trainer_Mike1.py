@@ -470,7 +470,7 @@ class Model_Trainer():
                             # md.scaler.update()
             else:
                 pass
-                    
+
             md_focus = self.get_md_focus(mds)
             end1 = time.time()
             ms_wait = (end-start) * 1000
