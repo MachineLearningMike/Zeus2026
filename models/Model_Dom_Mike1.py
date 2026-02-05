@@ -115,7 +115,7 @@ class Model_Dom():
 
         # Define defaults clearly
         default_config = {
-            'lr': 1e-6,
+            'lr': 5e-4,
             'betas': (0.9, 0.999),
             'eps': 1e-8,
             'amsgrad': False
@@ -149,7 +149,7 @@ class Model_Dom():
         # div_factor = getattr(self.pm, 'div_factor', 25.0)
         # final_div_factor = getattr(self.pm, 'final_div_factor', 1e4)
 
-        initial_lr = 5e-5
+        initial_lr = self.pm.lr
         scheduler = AdaptiveLossStatLR(
             optimizer=optimizer,
             initial_lr=initial_lr,      # Optional, defaults to optimizer's lr
@@ -395,7 +395,7 @@ class Model_Dom():
                 #     logging.info(f"Sample: {norm_stats_keys[:5]}")
 
 
-                self.print_compare_parameters()
+                # self.print_compare_parameters()
 
                 #------------------------------- trainable -------------------                
                 if self.trainable:
@@ -1147,7 +1147,7 @@ class Model_Dom():
     def get_pbar_description_step(self, step_loss, step_metrics):   # (,), (C,)
         strC = ", ".join(f"{x:.3g}" for x in step_metrics[-len(self.pm.targetVariables):])
         # self.pbar_description = "md {} loss {:.3f}, {} ({})".format(self.md_id, step_loss, self.pm.metrics, strC)
-        self.pbar_description = "loss {:.3g}, {} ({}), acc {}".format(step_loss, self.pm.metrics, strC, self.accum_iterations)
+        self.pbar_description = "loss {:.3g}, {} ({}), acc_substeps {}".format(step_loss, self.pm.metrics, strC, self.accum_iterations)
         
     def stepOptimizer(self, loss_item):
         performed_step, lr, grad_norm = self.lr_controller.stepOptimizer(loss_item)

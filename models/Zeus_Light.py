@@ -11,7 +11,7 @@ from modules.zeus_dataset_Snapshot import Snapshot
 from modules.zeus_dateset_geo_tempo import Geo_Tempo
 # from modules.Flash_Nonlinear_Attention import PhysicalFlashAttention
 # from modules.Zeus_Axial_Non_Lin_Attn_From_Phys_FA_Axial import AxialFlashAttention
-from modules.Zeus_Axial_Non_Lin_Attn_From_Phys_FA_Cross_PE import AxialFlashAttention
+from modules.Zeus_Axial_Attn_Phys_FA_Cross_PE import AxialFlashAttention
 # from modules.RoPE_LatLon import RoPE
 
 class Mlp(nn.Module):
@@ -82,7 +82,7 @@ class Zeus(nn.Module):
         
         in_features = Snapshot.meteo_dims + Snapshot.tempo_dims + Snapshot.geo_dense_dims
         out_features = self.C
-        self.mntd_to_model_dim = Mlp(
+        self.mntd_to_model_dims = Mlp(
             in_features = in_features,
             hidden_features = 4 * in_features,
             out_features = out_features,      # Add in pm
@@ -97,6 +97,8 @@ class Zeus(nn.Module):
             act_layer = nn.Tanh,
             drop = 0    
         )
+        
+        self.to(self.pm.torch_dtype)
         
         #-----------------------
         self.predict_fun_dict = None
@@ -113,7 +115,7 @@ class Zeus(nn.Module):
                                         
         for i, attn in enumerate(self.attn_layers):
             py = attn(x, py)
-        
+            x = py        
         return py
     
     def physical_predict(self, ss_x, ss_y, modulo, variables):
@@ -220,7 +222,7 @@ class Zeus(nn.Module):
         
         # 4. forward through model
         
-        mntd_x = self.mntd_to_model_dim(mntd_x)
+        mntd_x = self.mntd_to_model_dims(mntd_x)
 
         mntd_p = mntd_x
         mntd_x = mntd_x
@@ -239,7 +241,8 @@ class Zeus(nn.Module):
         normalized_loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics   #---- [0] picks loss
 
         if trainable:
-            scaler.scale(normalized_loss).backward(retain_graph=True)
+            normalized_loss.backward(retain_graph=True) # instead of the below line.
+            # scaler.scale(normalized_loss).backward(retain_graph=True) # scaler doesn't support bf16
 
         mn_pred = mn_pred.detach()
             

@@ -173,7 +173,6 @@ if platform.system() == "Windows":
     config["dim_to_layerFFN_dim"] = 4
     
     config["factor10"] = 2.5  # -------------------------- used for light projects
-    config['nRawStepsPerBatch'] = 1
     
     # shared_model_params['nHeads'] = 4
     # shared_model_params['patch_kernel'] = 4
@@ -188,7 +187,7 @@ if platform.system() == "Windows":
     config["use_PE"] = True
     
     config['nRawStepsPerBatch'] = 2
-    config['dollarsPerHour'] = 0.1
+    config['dollarsPerHour'] = 0.1      # 3500$ computer for 8 years with daily use of 12 hours.
     
     config["epochs"] = 100
     config["steps_to_save"] = 2
@@ -1496,8 +1495,8 @@ projects["Zeus_26Jan30"] = {    #-----------------------------------------------
     },
     
     "model_0": {
-        "lr": 1e-4,
-        "max_lr": 1e-4,
+        "lr": 5e-4,
+        "max_lr": 5e-4,
         "overwrite_saved_lr": False,
         "accum_steps" : 10,   
         "skip_validation" : True,
@@ -1509,7 +1508,7 @@ projects["Zeus_26Jan30"] = {    #-----------------------------------------------
 
         "batch_size": 1,
         "nHeads" : 5,       #
-        "nLayers" : 10,     #
+        "nLayers" : 20,     #
         
         'choose_best_loss_model' : False,
         'useLRLearner' : False,

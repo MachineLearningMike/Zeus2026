@@ -132,14 +132,14 @@ class AxialFlashAttention(nn.Module):
         self.norm_x = nn.LayerNorm(dim, eps=eps)
         self.norm_p = nn.LayerNorm(dim, eps=eps)
 
-        self.q_proj = TwiGLU(dim, initial_eye=True, initial_scale=1.)
-        self.k_proj = TwiGLU(dim, initial_eye=True, initial_scale=0.01)
+        self.q_proj = LearnableEyeLayer(dim, init_scale=1.0) # TwiGLU(dim, initial_eye=True, initial_scale=1.)
+        self.k_proj = LearnableEyeLayer(dim, init_scale=1.0) # TwiGLU(dim, initial_eye=True, initial_scale=0.01)
         self.out_proj = LearnableEyeLayer(dim, init_scale=1.0)
 
         # Physics correction operator
         rate = 16
         latent_rank = (H * W * dim) // rate
-        self.delta_operator = TwiGLU(dim, initial_eye=True, initial_scale=0.01)
+        self.delta_operator = LearnableEyeLayer(dim, init_scale=0.1) # TwiGLU(dim, initial_eye=True, initial_scale=0.01)
         
         # Positional encodings for height and width axes
         if use_pos_encoding:

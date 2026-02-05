@@ -352,7 +352,7 @@ class Model_Trainer():
                 assert len(Xs) == self.pm.nRawStepsPerBatch + (2 if self.pm.pair_not_single_snapshot else 1)
                     
                 for md in mds:
-                    train_step_loss = []; train_step_metrics = []; n_actual_predictions = 0
+                    train_step_loss = []; train_step_metrics = []; substeps_per_step = 0
 
                     with autocast(device_type='cuda', dtype=torch.bfloat16):    # time: 97 -> 82, memory: little
                         #------------------------ this algorithm is studied in zeus_train_6_hourly.py -----------
@@ -425,7 +425,7 @@ class Model_Trainer():
                                 )
                                 
                                 #--- 3.5. count the actual predictions.
-                                n_actual_predictions += 1
+                                substeps_per_step += 1
 
                                 #--- 3.6. put the prediction of Y in futureQ, if we requested it.
                                 # Note if we requested it, futureQ is already have Y as the top.
@@ -453,7 +453,7 @@ class Model_Trainer():
                         # n_substeps_on_full_cascades = (self.pm.nRawStepsPerBatch) * (self.pm.nRawStepsPerBatch + 1) // 2
                         # n_substep_cut_by_cascade_limit = (self.pm.nRawStepsPerBatch - self.pm.max_cascade_depth) * (self.pm.nRawStepsPerBatch - self.pm.max_cascade_depth + 1) // 2
                         # n_substeps = n_substeps_on_full_cascades - n_substep_cut_by_cascade_limit
-                        # assert n_actual_predictions == n_substeps
+                        # assert substeps_per_step == n_substeps
                             
                         #------------------------------------------------ The set of steps finished.
                         md.store_step_loss_and_metrics(train_step_loss, train_step_metrics) # [substep_loss...], [substep_metrics...]
@@ -463,27 +463,30 @@ class Model_Trainer():
 
                             if md.pm.useLRLearner:
                                 md.scheduler.step_loss(torch.stack(train_step_loss).mean().item())
-                            md.scaler.step(md.optimizer)
-                            md.scaler.update()
+
+                            md.optimizer.step()     # # instead of the below lines
+                            # # scaler doesn't support bf16
+                            # md.scaler.step(md.optimizer)
+                            # md.scaler.update()
             else:
                 pass
                     
             md_focus = self.get_md_focus(mds)
             end1 = time.time()
-            data_wait = (end-start) * 1000
-            cycle = (end1-start1) * 1000
-            compute = (cycle - data_wait) / self.train_bombs
-            cyclesPerHour = 3600/(end1-start1)
-            substepsPerDollar = int(n_actual_predictions * cyclesPerHour / self.pm.dollarsPerHour)
+            ms_wait = (end-start) * 1000
+            ms_step = (end1-start1) * 1000
+            # compute = (ms_step - ms_wait) / self.train_bombs
+            steps_per_hour = 3600/(end1-start1)
+            substepsPerDollar = int(substeps_per_step * steps_per_hour / self.pm.dollarsPerHour)
             lr = md_focus.get_learning_rate()
-            gates = md_focus.get_abs_gates_mean()
-            pbar.set_description(f"{md_focus.pbar_description}, wait/cycle {data_wait:.0f}/{cycle:.0f} com {compute:.0f} S/D {substepsPerDollar} lr {lr:1.1e} gates {gates:.5f}")
+            # gates = md_focus.get_abs_gates_mean()
+            pbar.set_description(f"{md_focus.pbar_description}, ms_wait/ms_step {ms_wait:.0f}/{ms_step:.0f} substeps/$ {substepsPerDollar} lr {lr:1.1e}")
             start1 = time.time()
 
             # This is to save the model in case it suddenly deviates to diverge.
             if trainable is True:
                 [md.save_best_loss_model(loss) for md, loss in [(md, md.step_loss) for md in mds]]
-                for md in mds: md.accum_iterations += n_actual_predictions
+                for md in mds: md.accum_iterations += substeps_per_step
             
             if trainable is True and step % self.pm.steps_to_save == 0:
                 [(md.pack_losses_metrics(), md.save_state()) for md in mds]
