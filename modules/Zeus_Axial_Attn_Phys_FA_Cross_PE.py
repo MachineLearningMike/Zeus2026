@@ -182,7 +182,6 @@ class AxialFlashAttention(nn.Module):
         # (L    L    L    L      M    40   5  20 5e-4):       loss 0.8    after 11%   0:15 hrs    1.14 it/s
         # (L    L    L    L      M    40   5  20 5e-4) + 2 skips: loss 0.32     after 7% ):10 hrs   1.16 it/s   -------- Only skips cross the limit.
 
-        
                 
         self.height_pos_encoding, self.width_pos_encoding = None, None
         
