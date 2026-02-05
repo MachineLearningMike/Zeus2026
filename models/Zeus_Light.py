@@ -14,6 +14,8 @@ from modules.zeus_dateset_geo_tempo import Geo_Tempo
 from modules.Zeus_Axial_Attn_Phys_FA_Cross_PE import AxialFlashAttention
 from modules.Zeus_PatchMergintPreserveInfo import PatchMergingPreserveInfo, PatchSplittingRestoreInfo
 from modules.utils import resize_continuous_bilinear_channel_wise_cylindric
+from modules.zeus_embed_cascade import Embed_Cascade
+from modules.zeus_embed_category import Embed_Category
 # from modules.RoPE_LatLon import RoPE
 
 class Mlp(nn.Module):
@@ -85,6 +87,11 @@ class Zeus(nn.Module):
             )
         self.attn_layers = nn.ModuleList(attn_layers)
         
+        self.cascade_depth_embeder = Embed_Cascade(self.H//2, self.W//2, max_cascade_depth=10, dims_cascade_emb=2)
+        self.catetory_embedder = Embed_Category()
+        self.cascade_depth_emb_dim = self.cascade_depth_embeder.dims_cascade_emb
+        self.category_emb_dim = self.catetory_embedder.dims_category_emb
+        
         in_features = self.get_meteo4_tempo_dense_catemb_dim()
         out_features = self.C
         self.m4tdc_to_attn_dims = Mlp(
@@ -116,18 +123,20 @@ class Zeus(nn.Module):
         return Snapshot.meteo_dims * 4
         
     def get_meteo4_tempo_dense_catemb_dim(self):
-        cat_dim = 2     # cat themselves at the moment
-        return Snapshot.meteo_dims * 4 + Snapshot.tempo_dims + Snapshot.dense_dims + cat_dim
+        return Snapshot.meteo_dims * 4 + Snapshot.tempo_dims + Snapshot.dense_dims + self.category_emb_dim + self.cascade_depth_emb_dim
 
     def forward(self, x_mtdc, py_mtdc, cascase_depth=1):   # (H, W, ...) => (H, W, meteo_dim)
 
+        category_emb = self.catetory_embedder()
+        cascade_emb = self.cascade_depth_embeder(cascase_depth)
+
         #----------- patch_merging ------------
         if x_mtdc is py_mtdc:     # or if id(x) == id(py)       
-            meteo_mormal, _, tempo, dense, cat = x_mtdc     # all normalized, except cat
+            meteo_mormal, _, tempo, dense, _ = x_mtdc     # all normalized, except cat
             # (H, W, meteo_dim), (H, W, meteo_dim), (H//2, W//2, tempo_dim), (H//2, W//2, dense_dim), (H//2, W//2, cat_dim)
             H, W, C = meteo_mormal.shape
             meteo_mormal_4 = self.patch_merger(meteo_mormal.unsqueeze(0)).squeeze(0)    # (H, W, d) => (H//2, W//2, 4*d)
-            m4tdc = torch.concat([meteo_mormal_4, tempo, dense, cat], dim=-1).unsqueeze(0)   # 6*4 + 9 + cat_emb.dim
+            m4tdc = torch.concat([meteo_mormal_4, tempo, dense, category_emb, cascade_emb], dim=-1).unsqueeze(0)   # 6*4 + 9 + cat_emb.dim
             x = self.m4tdc_to_attn_dims(m4tdc)
             py = x
         else:
@@ -135,7 +144,7 @@ class Zeus(nn.Module):
             # (H, W, meteo_dim), (H, W, meteo_dim), (H//2, W//2, tempo_dim), (H//2, W//2, dense_dim), (H//2, W//2, cat_dim)
             H, W, C = meteo_mormal.shape
             meteo_mormal_4 = self.patch_merger(meteo_mormal.unsqueeze(0)).squeeze(0)    # (H, W, d) => (H//2, W//2, 4*d)
-            m4tdc = torch.concat([meteo_mormal_4, tempo, dense, cat], dim=-1).unsqueeze(0)
+            m4tdc = torch.concat([meteo_mormal_4, tempo, dense, category_emb, cascade_emb], dim=-1).unsqueeze(0)
             py = self.m4tdc_to_attn_dims(m4tdc)
                                                                         
         #---------- attentions -----------------    
