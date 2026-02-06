@@ -20,6 +20,7 @@ class Embed_Category(nn.Module):
         # Get vocabulary sizes (CPU computation)
         vocab_sizes = (cat_cpu.amax(dim=(1, 2)) + 1).long().tolist()
         dims_list = [max(1, math.ceil(math.log2(nc))) for nc in vocab_sizes]
+        # land_sea_maks: ceil log2(2) = 1, soil_type: ceil log2(7) = 3
         self.total_dims = sum(dims_list)
         
         # Create random embedding tensor (will move to device with model)
@@ -40,7 +41,6 @@ class Embed_Category(nn.Module):
 if __name__ == "__main__":
     # Mock the Snapshot module if it doesn't exist
     
-
     try:
         from modules.zeus_dataset_Snapshot import Snapshot
     except ImportError:
