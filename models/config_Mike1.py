@@ -45,7 +45,7 @@ config = {
     "pole_angle": 30.0,      #
     "hourly_offset": 0,     # exactly 0, 6, 12, 18
     "modulo": 6,
-    "nRawStepsPerBatch": 1,
+    "nSubstepsPerStep": 1,
 
     "org_height": 721,
     "org_width": 1440,
@@ -188,11 +188,11 @@ if platform.system() == "Windows":
         
     config["use_PE"] = True
     
-    config['nRawStepsPerBatch'] = 2
+    config['nSubstepsPerStep'] = 2
     config['dollarsPerHour'] = 0.1      # 3500$ computer for 8 years with daily use of 12 hours.
     
     config["epochs"] = 100
-    config["steps_to_save"] = 2
+    config["steps_to_save"] = 200       # 
     config["abundant_GPUs"] = False
     
     config["train_start_dt"] = datetime(2008, 1, 1, 0)
@@ -209,20 +209,20 @@ else:
         config["management_path"] = "/home/mike/zeus_management"
 
     config["factor10"] = 10  # 
-    config['nRawStepsPerBatch'] = 4        # 2 on A100, 4 on B200
+    config['nSubstepsPerStep'] = 4        # 2 on A100, 4 on B200
     
     from modules.utils import get_gpu_names
     gpu_names = get_gpu_names()
     if 'A100' in gpu_names:
-        config['nRawStepsPerBatch'] = 1
+        config['nSubstepsPerStep'] = 1
         config['dollarsPerHour'] = 0.58
-        print(f"A100 found!!! nRawStepsPerBatch {config['nRawStepsPerBatch']}")
+        print(f"A100 found!!! nSubstepsPerStep {config['nSubstepsPerStep']}")
     elif 'B200' in gpu_names:
-        config['nRawStepsPerBatch'] = 4
+        config['nSubstepsPerStep'] = 4
         config['dollarsPerHour'] = 0.9475
-        print(f"B200 found!!! nRawStepsPerBatch {config['nRawStepsPerBatch']}")
+        print(f"B200 found!!! nSubstepsPerStep {config['nSubstepsPerStep']}")
     else:
-        config['nRawStepsPerBatch'] = 2    # comeback 1
+        config['nSubstepsPerStep'] = 2    # comeback 1
         config['dollarsPerHour'] = 0.1
 
     
@@ -1375,8 +1375,8 @@ projects["Zeus_25Dec28_1"] = {
     "GPUWaitsData" : True,
     "models_to_play": [0,],
     "metrics" : "rmse", # "mae", "rmse"
-    # Let it be chosen by GPU rule 'nRawStepsPerBatch' : 2,       # Can be changed upto the type of GPU.
-    'max_cascade_depth' : 1,     # max = nRawStepsPerBatch. 1 = no actual cascades, raw prediction only
+    # Let it be chosen by GPU rule 'nSubstepsPerStep' : 2,       # Can be changed upto the type of GPU.
+    'max_cascade_depth' : 1,     # max = nSubstepsPerStep. 1 = no actual cascades, raw prediction only
     },
     
     "data": {
@@ -1432,8 +1432,8 @@ projects["Zeus_26Jan18"] = {    #-----------------------------------------------
     "GPUWaitsData" : True,
     "models_to_play": [0,],
     "metrics" : "rmse", # "mae", "rmse"
-    # Let it be chosen by GPU rule 'nRawStepsPerBatch' : 2,       # Can be changed upto the type of GPU.
-    'max_cascade_depth' : 1,     # max = nRawStepsPerBatch. 1 = no actual cascades, raw prediction only
+    # Let it be chosen by GPU rule 'nSubstepsPerStep' : 2,       # Can be changed upto the type of GPU.
+    'max_cascade_depth' : 1,     # max = nSubstepsPerStep. 1 = no actual cascades, raw prediction only
     },
     
     "data": {
@@ -1485,9 +1485,9 @@ projects["Zeus_26Jan30"] = {    #-----------------------------------------------
     "GPUWaitsData" : True,
     "models_to_play": [0,],
     "metrics" : "rmse", # "mae", "rmse"
-    # Let it be chosen by GPU rule 'nRawStepsPerBatch' : 2,       # Can be changed upto the type of GPU.
-    "nRawStepsPerBatch": 2,
-    'max_cascade_depth' : 1,     # max = nRawStepsPerBatch. 1 = no actual cascades, raw prediction only
+    # Let it be chosen by GPU rule 'nSubstepsPerStep' : 2,       # Can be changed upto the type of GPU.
+    "nSubstepsPerStep": 2,
+    'max_cascade_depth' : 1,     # max = nSubstepsPerStep. 1 = no actual cascades, raw prediction only
     },
     
     "data": {

@@ -229,8 +229,11 @@ class Model_Dom():
             logging.info("saving best-loss model... md {}, loss {:.3f}, iter {}".format(self.md_id, loss, self.accum_iterations))
             self.save_state(best_loss=True)
        
-    def save_state(self, name=None, train_finished=False, best_loss=False):
+    def save_state(self, name=None, train_finished=False, best_loss=False, epoch_finished=False):
     #-------------- My version
+    
+        if epoch_finished: self.epoch += 1    
+    
         assert self.trainable, "Non-trainable train object cannot be saved."
         
         if best_loss:
@@ -263,6 +266,7 @@ class Model_Dom():
             'epoch': self.epoch,
             'weighted_metric_old': self.weighted_metric_old,
             'epochs_since_improvement': self.epochs_since_improvement,
+            'epoch_finished': epoch_finished,
             'train_finished' : train_finished,
             'packed_losses_metrics': self.packed_losses_metrics,
             'best_loss' : self.best_loss,
@@ -399,6 +403,8 @@ class Model_Dom():
 
                 #------------------------------- trainable -------------------                
                 if self.trainable:
+                    epoch_finished = checkpoint.get("epoch_finished", False)
+                    
                     epoch = checkpoint['epoch']
                     
                     #------------------- learning_rate -------------------------
@@ -474,14 +480,7 @@ class Model_Dom():
                     self.accum_iterations = checkpoint['accum_iterations']
                     logging.info(f"accum_iterations loaded {self.accum_iterations}")
                     
-                    epoch_finished = checkpoint.get('epoch_finished', False)    # Newly introduced
-
                 #------------------------ Determine epoch ---------------------
-                if not epoch_finished:  # The previous session was terminated after a new step was finished and before its epoch was finished.
-                    epoch = epoch
-                else:   # The previous session was terminated after an epoch was finished and before a new step was finished.
-                    epoch = epoch + 1
-
                 logging.info(f"Checkpoint '{file_name}' loaded to {self.device}, including model, optimizer, scheduler, scaler, weighted_metric_old, and datase state")
                 checkpoint_loaded = True
             

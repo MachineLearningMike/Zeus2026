@@ -166,7 +166,7 @@ class Model_Trainer():
             if len(mds_to_train) <= 0: break            
             ran_epochs = True
                          
-            [logging.info("--------- Starting train epoch {} @ model {} ----------".format(md.epoch, md.md_id)) for md in mds_to_train]
+            [logging.info("============= Starting train epoch {} @ model {} ==============".format(md.epoch, md.md_id)) for md in mds_to_train]
             
             # md_focus_list = [md for md in mds_to_train if md.md_id == self.focus_md_id]
             # md_focus = md_focus_list[0] if len(md_focus_list) == 1 else mds_to_train[0]
@@ -302,7 +302,7 @@ class Model_Trainer():
 
         for md in mds:
             if md.packed_losses_metrics is not None:
-                logging.info("Continuing saved epoch... epoch/model {}/{}".format(md.epoch, md.md_id))
+                logging.info("--------- Continuing saved epoch... epoch/model {}/{}".format(md.epoch, md.md_id))
                         
         pbar = zeus_tqdm(self.dataset)
         pbar.start_prefetch_thread()
@@ -349,7 +349,7 @@ class Model_Trainer():
                 # for _ in  range(self.train_bombs):    # train_bomb cannot work because we destroy batch_of_ss_lists.
                     
                 Xs = batch_of_ss_lists[0]   # batch_of_ss_lists undergoes changes. This code doesn't know the content of X
-                assert len(Xs) == self.pm.nRawStepsPerBatch + (2 if self.pm.pair_not_single_snapshot else 1)
+                assert len(Xs) == self.pm.nSubstepsPerStep + (2 if self.pm.pair_not_single_snapshot else 1)
                     
                 for md in mds:
                     train_step_loss = []; train_step_metrics = []; substeps_per_step = 0
@@ -450,8 +450,8 @@ class Model_Trainer():
                             del Y
                             
                         #+++ verification --- works!                
-                        # n_substeps_on_full_cascades = (self.pm.nRawStepsPerBatch) * (self.pm.nRawStepsPerBatch + 1) // 2
-                        # n_substep_cut_by_cascade_limit = (self.pm.nRawStepsPerBatch - self.pm.max_cascade_depth) * (self.pm.nRawStepsPerBatch - self.pm.max_cascade_depth + 1) // 2
+                        # n_substeps_on_full_cascades = (self.pm.nSubstepsPerStep) * (self.pm.nSubstepsPerStep + 1) // 2
+                        # n_substep_cut_by_cascade_limit = (self.pm.nSubstepsPerStep - self.pm.max_cascade_depth) * (self.pm.nSubstepsPerStep - self.pm.max_cascade_depth + 1) // 2
                         # n_substeps = n_substeps_on_full_cascades - n_substep_cut_by_cascade_limit
                         # assert substeps_per_step == n_substeps
                             
@@ -504,7 +504,7 @@ class Model_Trainer():
         pbar.stop_prefetch_thread()
         
         if trainable is True: 
-            [(md.pack_losses_metrics(), md.save_state()) for md in mds]
+            [(md.pack_losses_metrics(), md.save_state(epoch_finished=True)) for md in mds]     # epoch-finalizing save
             self.save_state()
         if gpu_executor is not None: gpu_executor.shutdown()
 

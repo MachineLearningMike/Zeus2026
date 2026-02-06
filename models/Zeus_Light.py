@@ -57,9 +57,9 @@ class Zeus(nn.Module):
         pos_type = "sinusodial"
         
         print("------------------------------------------ Zeus parameters ... ---------------------------------")
-        print(f"factor10 {pm.factor10}, pair_not_single_snapshot {self.pm.pair_not_single_snapshot}")
+        print(f"factor10 {pm.factor10}, pair_not_single_snapshot {pm.pair_not_single_snapshot}, steps_to_save {pm.steps_to_save}, batch_size {pm.batch_size}")
         print(f"(H W C) ({self.H} {self.W} {self.C}), nHeads {self.nHeads} dtype {self.dtype} nLayers {self.nLayers} axial_loops {pm.axial_loops}")
-        print(f"use_pe {use_pos_encoding}, pos_type {pos_type}, nRawStepsPerBatch {pm.nRawStepsPerBatch}, max_cascade_depth {pm.max_cascade_depth}")
+        print(f"use_pe {use_pos_encoding}, pos_type {pos_type}, nSubstepsPerStep {pm.nSubstepsPerStep}, max_cascade_depth {pm.max_cascade_depth}")
         print("------------------------------------------ ... Zeus parameters ---------------------------------")
 
         

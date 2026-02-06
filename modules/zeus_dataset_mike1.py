@@ -94,11 +94,11 @@ class Zeus_Dataset(Dataset):
         if download: self.total_ds = self.get_normalized_dataset()   # For downloading
         
         #-------------------------------------------------------------------------
-        self.normal_meteo_buffers = [None] * (self.pm.nRawStepsPerBatch + 2)
-        self.raw_meteo_buffers = [None] * (self.pm.nRawStepsPerBatch + 2)
+        self.normal_meteo_buffers = [None] * (self.pm.nSubstepsPerStep + 2)
+        self.raw_meteo_buffers = [None] * (self.pm.nSubstepsPerStep + 2)
         
-        self.normal_tempo_buffers = [None] * (self.pm.nRawStepsPerBatch + 2)
-        self.raw_tempo_buffers = [None] * (self.pm.nRawStepsPerBatch + 2)
+        self.normal_tempo_buffers = [None] * (self.pm.nSubstepsPerStep + 2)
+        self.raw_tempo_buffers = [None] * (self.pm.nSubstepsPerStep + 2)
         
         self.air_level_pressure_indices = None
         self.air_level_pressure_values = None
@@ -2133,9 +2133,9 @@ class Zeus_Dataset(Dataset):
         new_test_hours  = shuffled_hours[train_size + vali_size:]
 
         # Combine inherited + new
-        train_hours = list(set(inherited_train_hours + new_train_hours))[:self.data_limit]
-        vali_hours  = list(set(inherited_vali_hours  + new_vali_hours))[:self.data_limit]
-        test_hours  = list(set(inherited_test_hours  + new_test_hours))[:self.data_limit]
+        train_hours = list(set(inherited_train_hours + new_train_hours))
+        vali_hours  = list(set(inherited_vali_hours  + new_vali_hours))
+        test_hours  = list(set(inherited_test_hours  + new_test_hours))
 
         random.shuffle(vali_hours)
         random.shuffle(test_hours)
@@ -2280,9 +2280,9 @@ class Zeus_Dataset(Dataset):
         
     def pack_state(self):
         """Pack the current x_set state for checkpointing."""
-        # We assume the take_batch thread has already taken some frrom self.x_set that that's not processed yet.
+        # We assume the take_batch thread has already taken some from self.x_set that's not processed yet.
         if self.taken is not None:
-            x_set = self.taken + self.x_set      # return back to self.x_set   
+            x_set = list(set(self.taken + self.x_set))      # return back to self.x_set
         else:
             x_set = self.x_set
         return {
@@ -2293,7 +2293,7 @@ class Zeus_Dataset(Dataset):
 
     def unpack_state(self, data):
         """Restore x_set state from checkpoint data."""    
-        self.x_set = [datetime.fromisoformat(s) for s in data["x_set"]][:self.data_limit]
+        self.x_set = [datetime.fromisoformat(s) for s in data["x_set"]]
         self._fetched_batches = 0
         # Recompute total_batches in case batch_size changed
         self.total_batches = math.ceil(len(self.x_set) / self.pm.batch_size)
@@ -2398,8 +2398,9 @@ class Zeus_Dataset(Dataset):
             with_normalized = True
             futures = [
                 self._disk_threadPool.submit(
+                    # The reason this range of dt exist in the dataset is that taken[b] exists in the training dataset, which is chronically followed by validation dataset.
                         self.load_meteo_create_snapshot, dt + timedelta(hours=self.pm.modulo*idx), self.pm.modulo, with_normalized, idx
-                    ) for idx in range(self.pm.nRawStepsPerBatch + (2 if self.pm.pair_not_single_snapshot else 1))
+                    ) for idx in range(self.pm.nSubstepsPerStep + (2 if self.pm.pair_not_single_snapshot else 1))
                 ]
 
             snapshots = []
