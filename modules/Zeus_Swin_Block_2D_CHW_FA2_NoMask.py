@@ -865,7 +865,7 @@ if __name__ == "__main__":
     
     # Test configuration for 2D weather data
     factor10, sWin = 2.5, (60, 60)  # Window size for 2D       # f=2.5 : (180, 360)
-    depths, nHeads = (4,), (4,) # (4, 8, 4), (4, 8, 16)
+    depths, nHeads = (2, 2), (4, 8) # (4, 8, 4), (4, 8, 16)
     patch_size = 1
     H, W = int(int(720/patch_size)/10*factor10), int(int(1440/patch_size)/10*factor10)
     C = 12

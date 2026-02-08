@@ -224,9 +224,9 @@ class Model_Dom():
         return "best_loss_model_" + str(self.md_id)
     
     def save_best_loss_model(self, loss):
-        if loss < 0.4 and loss < self.best_loss:    # 0.4: hard-coded.
+        if loss < 0.4 and loss < (1 - 0.005) * self.best_loss:    # 0.4: hard-coded.
             self.best_loss = loss
-            logging.info("saving best-loss model... md {}, loss {:.3f}, iter {}".format(self.md_id, loss, self.accum_iterations))
+            logging.info("!!!!!!!!!!!!!!! Saving best-loss model... md {}, loss {:.5f}, iter {} !!!!!!!!!!!!".format(self.md_id, loss, self.accum_iterations))
             self.save_state(best_loss=True)
        
     def save_state(self, name=None, train_finished=False, best_loss=False, epoch_finished=False):

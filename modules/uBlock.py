@@ -1,0 +1,34 @@
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.utils.checkpoint as checkpoint
+from timm.models.layers import DropPath, to_2tuple, trunc_normal_
+import numpy as np
+import copy
+
+from enum import Enum
+
+import sys
+from pathlib import Path
+sys.path
+
+from modules.uSide import uSide
+
+class uBlock(nn.Module):
+    def __init__(self, dict: dict) -> None:
+        super().__init__()
+
+        side_dict = dict
+        
+        self.enc = uSide(is_enc=True, dict=side_dict)
+        self.dec = uSide(is_enc=False, dict=side_dict)
+
+        assert self.enc.down_res == self.dec.down_res
+        assert self.enc.down_dim == self.dec.down_dim
+        
+        self.down_res = self.enc.down_res
+        self.down_dim = self.enc.down_dim
+        
+    def forward(self, x, is_enc=True):
+        x = self.enc(x) if is_enc else self.dec(x)
+        return x

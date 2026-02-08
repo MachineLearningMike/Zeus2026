@@ -5,25 +5,34 @@ import torch
 import torch.nn as nn
 
 class PatchMergingPreserveInfo(nn.Module):
-    def __init__(self, norm_layer=nn.LayerNorm):
-        super().__init__()
-        
+    anchor = 2
+    res_multiplier = (1/anchor, 1/anchor)
+    dim_multiplier = anchor ** 2
+
+    def __init__(self):
+        super().__init__()        
         # Temporarily remove norm for exact inversion test
         # self.norm = norm_layer(4 * dim)
 
     def forward(self, x):
         B, H, W, C = x.shape
+        
         x = x.view(B, H//2, 2, W//2, 2, C)
         x = x.permute(0, 1, 3, 2, 4, 5).contiguous()
         x = x.view(B, H//2, W//2, 4 * C)
         return x
 
-class PatchSplittingRestoreInfo(nn.Module):
+class PatchSplittingPreserveInfo(nn.Module):
+    anchor = 2    
+    res_multiplier = (anchor, anchor)
+    dim_multiplier = 1 / anchor**2
+
     def __init__(self):
         super().__init__()
     
     def forward(self, x):
         B, H, W, C = x.shape
+        
         # Reverse the operations
         x = x.view(B, H, W, 2, 2, C//4)
         x = x.permute(0, 1, 3, 2, 4, 5).contiguous()
@@ -48,7 +57,7 @@ if __name__ == "__main__":
         print("Merged values at position (0,0):", x_merged[0,0,0])
         
         # Split
-        split = PatchSplittingRestoreInfo()
+        split = PatchSplittingPreserveInfo()
         x_restored = split(x_merged)
         print(f"\nRestored shape: {x_restored.shape}")
         print("Restored tensor:")

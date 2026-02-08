@@ -12,7 +12,7 @@ from modules.zeus_dateset_geo_tempo import Geo_Tempo
 # from modules.Flash_Nonlinear_Attention import PhysicalFlashAttention
 # from modules.Zeus_Axial_Non_Lin_Attn_From_Phys_FA_Axial import AxialFlashAttention
 from modules.Zeus_Axial_Attn_Phys_FA_Cross_PE import AxialFlashAttention
-from modules.Zeus_PatchMergintPreserveInfo import PatchMergingPreserveInfo, PatchSplittingRestoreInfo
+from modules.PatchMergingtPreserveInfo import PatchMergingPreserveInfo, PatchSplittingPreserveInfo
 from modules.utils import resize_continuous_bilinear_channel_wise_cylindric
 from modules.zeus_embed_cascade import Embed_Cascade
 from modules.zeus_embed_category import Embed_Category
@@ -73,8 +73,8 @@ class Zeus(nn.Module):
         
         attn_layers = []
         for idx in range(self.nLayers):
-            use_pos_encoding = True if idx == 0 else False
-            pos_type = "sinusidial"
+            use_pos_encoding = True # if idx == 0 else False
+            pos_type = "learnable" # "sinusidial"
             
             attn_layers.append(
                 AxialFlashAttention(
@@ -112,12 +112,12 @@ class Zeus(nn.Module):
         )
         
         self.patch_merger = PatchMergingPreserveInfo()
-        self.patch_splitter = PatchSplittingRestoreInfo()
+        self.patch_splitter = PatchSplittingPreserveInfo()
         
         self.predict_fun_dict = None
         self.meteo_dims = len(self.pm.targetVariables)
         
-        self.to(self.pm.torch_dtype)
+        # self.to(self.pm.torch_dtype) # This line will causes no float32 master copy, breaks autocast's automatic management.
 
     def get_meteo4_dim(self):
         return Snapshot.meteo_dims * 4
