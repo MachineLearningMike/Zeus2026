@@ -64,7 +64,7 @@ class LearnableEyeLayer(nn.Module):
         return x @ self.weight.T + self.bias
 
 # -------------------- 1D Positional Encoding --------------------
-class AxialPositionalEncoding1D(nn.Module):
+class PositionalEncoding_1D(nn.Module):
     """
     1D Positional Encoding for axial attention.
     Adds position information to each row/column.
@@ -144,18 +144,18 @@ class AxialFlashAttention(nn.Module):
         # Positional encodings for height and width axes
         if use_pos_encoding:
             
-            self.height_pos_encoding = AxialPositionalEncoding1D(
+            self.height_pos_encoding = PositionalEncoding_1D(
                 max_len=H, dim=dim, dropout=pos_dropout,
                 pos_type=pos_type,
             )
-            self.width_pos_encoding = AxialPositionalEncoding1D(
+            self.width_pos_encoding = PositionalEncoding_1D(
                 max_len=W, dim=dim, dropout=pos_dropout,
                 pos_type=pos_type,
             )
         
         # DeltaOperatorMultiChannel(H=H, W=W, C=dim, latent_rank=latent_rank, gate_init_scale=0.01)
 
-    def add_positional_encoding(self, x, axis):
+    def add_positional_encoding_axial(self, x, axis):
         """Add 1D positional encoding to the input tensor."""
         if not self.use_pos_encoding:
             return x
@@ -198,8 +198,8 @@ class AxialFlashAttention(nn.Module):
 
         # ----- ADD POSITIONAL ENCODING HERE -----
         if add_pe:
-            _x = self.add_positional_encoding(_x, axis)
-            _yp = self.add_positional_encoding(_yp, axis)
+            _x = self.add_positional_encoding_axial(_x, axis)
+            _yp = self.add_positional_encoding_axial(_yp, axis)
         # ----------------------------------------
         
         # Layer norms (after positional encoding)

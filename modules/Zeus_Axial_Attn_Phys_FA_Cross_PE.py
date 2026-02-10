@@ -83,22 +83,22 @@ class LearnableEyeLayer(nn.Module):
         return x @ self.weight.T + self.bias
 
 # -------------------- 1D Positional Encoding --------------------
-class AxialPositionalEncoding1D(nn.Module):
+class PositionalEncoding_1D(nn.Module):
     """
     1D Positional Encoding for axial attention.
     Adds position information to each row/column.
     """
-    def __init__(self, max_len, dim, dropout=0.0, pos_type="learnable"):
+    def __init__(self, max_len, dim, dropout=0.0, pe_type="learnable"):
         super().__init__()
         self.max_len = max_len
         self.dim = dim
         self.dropout = nn.Dropout(dropout)
         
-        if pos_type == "learnable":
+        if pe_type == "learnable":
             # Learnable positional embeddings
             self.pe = nn.Parameter(torch.zeros(1, max_len, dim))
             nn.init.normal_(self.pe, mean=0.0, std=0.02)
-        elif pos_type == "sinusoidal":
+        elif pe_type == "sinusoidal":
             # Sinusoidal positional encoding (like Transformer)
             pe = torch.zeros(max_len, dim)
             position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
@@ -107,14 +107,14 @@ class AxialPositionalEncoding1D(nn.Module):
             pe[:, 1::2] = torch.cos(position * div_term)
             pe = pe.unsqueeze(0)  # [1, max_len, dim]
             self.register_buffer('pe', pe)
-        elif pos_type == "linear":
+        elif pe_type == "linear":
             # Linear positional encoding (simple)
             pe = torch.arange(max_len, dtype=torch.float).unsqueeze(1) / max_len
             pe = pe.expand(max_len, dim)
             pe = pe.unsqueeze(0)  # [1, max_len, dim]
             self.register_buffer('pe', pe)
         else:
-            self.register_buffer('pe', None)
+            self.pe = None
     
     def forward(self, x, positions=None):
         """
@@ -136,11 +136,70 @@ class AxialPositionalEncoding1D(nn.Module):
         
         x = self.dropout(x)
         return x
+    
+# -------------------- 2D Positional Encoding --------------------
+class PositionalEncoding_2D(nn.Module):
+    """
+    1D Positional Encoding for axial attention.
+    Adds position information to each row/column.
+    """
+    def __init__(self, max_height, max_width, dim, dropout=0.0, pe_type="learnable"):
+        super().__init__()
+        self.max_height = max_height
+        self.max_width = max_width
+        self.dim = dim
+        self.dropout = nn.Dropout(dropout)
+        
+        if pe_type == "learnable":
+            # Learnable positional embeddings
+            self.pe = nn.Parameter(torch.zeros(1, max_height, max_width, dim))
+            nn.init.normal_(self.pe, mean=0.0, std=0.02)
+        elif pe_type == "sinusoidal":
+            # Sinusoidal positional encoding (like Transformer)
+            # pe = torch.zeros(max_height, max_width, dim)
+            # position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+            # div_term = torch.exp(torch.arange(0, dim, 2).float() * (-math.log(10000.0) / dim))
+            # pe[:, 0::2] = torch.sin(position * div_term)
+            # pe[:, 1::2] = torch.cos(position * div_term)
+            # pe = pe.unsqueeze(0)  # [1, max_len, dim]
+            assert False, "Not implemented yet"
+            self.register_buffer('pe', None)
+        elif pe_type == "linear":
+            # Linear positional encoding (simple)
+            # pe = torch.arange(max_len, dtype=torch.float).unsqueeze(1) / max_len
+            # pe = pe.expand(max_len, dim)
+            # pe = pe.unsqueeze(0)  # [1, max_len, dim]
+            assert False, "Not implemented yet"
+            self.register_buffer('pe', None)
+        else:
+            self.pe = None
+    
+    def forward(self, x, positions=None):
+        """
+        x: [batch, seq_len, dim]
+        positions: optional positions to use (for variable length)
+        """
+        height_len = x.size(1)
+        width_len = x.size(2)
+        
+        if self.pe is not None:
+            if positions is None:
+                # Use first seq_len positions
+                pe = self.pe[:, :height_len, :width_len, :]
+            else:
+                # Use specified positions
+                pe = self.pe[:, positions, :]
+            
+            # Add positional encoding (cast to x's dtype)
+            x = x + pe.to(x.device).to(x.dtype)
+        
+        x = self.dropout(x)
+        return x
 
 # -------------------- Axial FlashAttention --------------------
 class AxialFlashAttention(nn.Module):
     def __init__(self, dim, H, W, n_heads=8, eps=1e-5, 
-                use_pos_encoding=True, pos_type='learnable',
+                axial_not_total_pe=True, pe_type='learnable',
                 axial_loops=1, pos_dropout=0.0):
         super().__init__()
         assert dim % n_heads == 0, "dim must be divisible by n_heads"
@@ -148,6 +207,7 @@ class AxialFlashAttention(nn.Module):
         self.n_heads = n_heads
         self.head_dim = dim // n_heads
         self.H, self.W = H, W
+        self.axial_not_total_pe = axial_not_total_pe
         self.axial_loops = axial_loops
 
         self.norm_x = nn.LayerNorm(dim, eps=eps)        
@@ -186,19 +246,15 @@ class AxialFlashAttention(nn.Module):
         self.height_pos_encoding, self.width_pos_encoding = None, None
         
         # Positional encodings for height and width axes
-        if use_pos_encoding:
-            self.height_pos_encoding = AxialPositionalEncoding1D(
-                max_len=H, dim=dim, dropout=pos_dropout,
-                pos_type=pos_type,
-            )
-            self.width_pos_encoding = AxialPositionalEncoding1D(
-                max_len=W, dim=dim, dropout=pos_dropout,
-                pos_type=pos_type,
-            )
+        if axial_not_total_pe:
+            self.height_pos_encoding = PositionalEncoding_1D(max_len=H, dim=dim, dropout=pos_dropout, pe_type=pe_type)
+            self.width_pos_encoding = PositionalEncoding_1D(max_len=W, dim=dim, dropout=pos_dropout,  pe_type=pe_type)
+        else:
+            self.total_pos_encoding =PositionalEncoding_2D(max_height=H, max_width=W, dim=dim, dropout=pos_dropout, pe_type=pe_type)
         
         # DeltaOperatorMultiChannel(H=H, W=W, C=dim, latent_rank=latent_rank, gate_init_scale=0.01)
 
-    def add_positional_encoding(self, x, axis):
+    def add_positional_encoding_axial(self, x, axis):
         """Add 1D positional encoding to the input tensor."""
         # if not self.use_pos_encoding:
         #     return x
@@ -210,6 +266,14 @@ class AxialFlashAttention(nn.Module):
             # x: [B*H, W, C] - each sequence is a row (width positions)
             x = self.width_pos_encoding(x)
         
+        return x
+
+    def add_positional_encoding_total(self, x):
+        """Add 2D positional encoding to the input tensor."""
+                
+        if self.total_pos_encoding is not None:
+            x = self.total_pos_encoding(x)
+
         return x
 
     def forward_axis(self, x, yp, axis):
@@ -237,8 +301,9 @@ class AxialFlashAttention(nn.Module):
             reshape_back = lambda out: out.reshape(B, H, W, C)
 
         # Add positional encoding
-        _x = self.add_positional_encoding(_x, axis)
-        _yp = self.add_positional_encoding(_yp, axis)
+        if self.axial_not_total_pe:
+            _x = self.add_positional_encoding_axial(_x, axis)
+            _yp = self.add_positional_encoding_axial(_yp, axis)
         
         # Layer norms (after positional encoding)
         dtype = _x.dtype
@@ -302,6 +367,10 @@ class AxialFlashAttention(nn.Module):
 
     def forward(self, x, yp):
         # Axial attention: height then width, repeated
+        
+        if self.axial_not_total_pe is False:
+            x = self.add_positional_encoding_total(x)
+        
         x_org = x                
         for _ in range(self.axial_loops):
             x = self.forward_axis(x, yp, axis=1)
@@ -322,12 +391,12 @@ if __name__ == "__main__":
     loops = 5
 
     # Test different positional encoding types
-    for pos_type in ['learnable', 'sinusoidal', 'linear', 'none']:
+    for pe_type in ['learnable', 'sinusoidal', 'linear', 'none']:
         print(f"\n{'='*60}")
-        print(f"Testing with positional encoding: {pos_type}")
+        print(f"Testing with positional encoding: {pe_type}")
         print('='*60)
         
-        use_pe = (pos_type != 'none')
+        use_pe = (pe_type != 'none')
         x = torch.randn(B, H, W, C, device=device)
         yp = torch.randn_like(x)
         target = torch.randn_like(x)
@@ -335,7 +404,7 @@ if __name__ == "__main__":
         codec = AxialFlashAttention(
             dim=C, H=H, W=W, n_heads=n_heads, 
             use_pos_encoding=use_pe,
-            pos_type=pos_type if use_pe else 'none',
+            pe_type=pe_type if use_pe else 'none',
             pos_dropout=0.1 if use_pe else 0.0
         ).to(device)
 
@@ -381,10 +450,10 @@ if __name__ == "__main__":
         print(f"Elapsed time: {elapsed_time:.4f} sec")
         print(f"With positional encoding: {use_pe}")
         if use_pe:
-            print(f"Positional encoding type: {pos_type}")
+            print(f"Positional encoding type: {pe_type}")
             
             # Show positional encoding statistics
-            if pos_type == 'learnable':
+            if pe_type == 'learnable':
                 height_pe = codec.height_pos_encoding.pe
                 width_pe = codec.width_pos_encoding.pe
                 print(f"Height PE stats: mean={height_pe.mean():.4f}, std={height_pe.std():.4f}")

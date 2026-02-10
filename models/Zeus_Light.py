@@ -52,14 +52,14 @@ class Zeus(nn.Module):
         self.dtype = dtype
         self.nLayers = pm.nLayers
         axial_loops = pm.axial_loops
-
-        use_pos_encoding = True
-        pos_type = "sinusodial"
+        axial_not_total_pe = pm.axial_not_total_pe
+        
+        pe_type = "learnable"
         
         print("------------------------------------------ Zeus parameters ... ---------------------------------")
         print(f"factor10 {pm.factor10}, pair_not_single_snapshot {pm.pair_not_single_snapshot}, steps_to_save {pm.steps_to_save}, batch_size {pm.batch_size}")
         print(f"(H W C) ({self.H} {self.W} {self.C}), nHeads {self.nHeads} dtype {self.dtype} nLayers {self.nLayers} axial_loops {pm.axial_loops}")
-        print(f"use_pe {use_pos_encoding}, pos_type {pos_type}, nSubstepsPerStep {pm.nSubstepsPerStep}, max_cascade_depth {pm.max_cascade_depth}")
+        print(f"axial_not_total_pe {axial_not_total_pe}, pos_type {pe_type}, nSubstepsPerStep {pm.nSubstepsPerStep}, max_cascade_depth {pm.max_cascade_depth}")
         print("------------------------------------------ ... Zeus parameters ---------------------------------")
 
         
@@ -73,16 +73,16 @@ class Zeus(nn.Module):
         
         attn_layers = []
         for idx in range(self.nLayers):
-            use_pos_encoding = True # if idx == 0 else False
-            pos_type = "learnable" # "sinusidial"
+            
+            pe_type = "learnable" # "sinusidial"            
             
             attn_layers.append(
                 AxialFlashAttention(
                     dim=self.C, H=self.H, W=self.W, n_heads=self.nHeads, 
-                    use_pos_encoding=use_pos_encoding,
-                    pos_type=pos_type if use_pos_encoding else 'none',
+                    pe_type=pe_type,
+                    axial_not_total_pe = axial_not_total_pe,
                     axial_loops=axial_loops,
-                    pos_dropout=0.1 if use_pos_encoding else 0.0,            #------------- be careful
+                    pos_dropout=0.0,            #------------- be careful
                 )
             )
         self.attn_layers = nn.ModuleList(attn_layers)

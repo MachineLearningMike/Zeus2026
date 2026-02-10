@@ -50,7 +50,7 @@ if __name__ == "__main__":
     H, W, C = 180, 360, 40
     
     from modules.uSide import Merge4
-    from modules.uSquare import Conn, Flash, PEnc
+    from modules.Transformer_Modes import Conn, Flash, PEnc, PBias
     
     block_dicts = [
         # block and side

@@ -10,28 +10,9 @@ from enum import Enum
 
 import sys
 from pathlib import Path
-sys.path
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-class Conn(Enum):
-    Nothig = 0
-    Global = 1
-    Axial = 3
-    Shift = 4
-    
-class Flash(Enum):
-    Nothing = 0
-    Flash = 1
-    NonFlash = 2
-    
-class PEnc(Enum):
-    Nothing = 0
-    Learnable = 1
-    Sinusodial = 2
-    Linear = 3
-    
-class PBias(Enum):
-    Nothing = 0
-    Learnable = 1
+from modules.Transformer_Modes import Conn, Flash, PEnc, PBias
 
 class uSquare(nn.Module):
     def __init__(self, dict: dict) -> None:
