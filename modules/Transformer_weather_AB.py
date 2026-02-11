@@ -23,7 +23,6 @@ class Conn(Enum):
     Shift = 4
     
 class Flash(Enum):
-    Nothing = 0
     UseFlash = 1
     NoFlash = 2
     
@@ -42,9 +41,9 @@ class PBias(Enum):
     Learnable = 1
 
 class TModes:
-    def __init__(self, conn=Conn.Nothing, 
-                 flash=Flash.Nothing, 
-                 penc=PEnc.Nothing, 
+    def __init__(self, conn=Conn.Global,
+                 flash=Flash.NoFlash, 
+                 penc=PEnc.Learnable, 
                  pshare=PShare.Global, 
                  pbias=PBias.Nothing) -> None:
         
@@ -1437,6 +1436,7 @@ class EnhancedWeatherForecastingTransformer(nn.Module):
 
 
 # ==================== Testing ====================
+# ==================== Testing ====================
 
 if __name__ == "__main__":
     print("Testing Enhanced Weather Forecasting Transformer with Axial Attention")
@@ -1473,10 +1473,10 @@ if __name__ == "__main__":
         'pos_encoding': 'axial',
         'tmodes': TModes(
             conn=Conn.Axial,
-            flash=Flash.NoFlash,  # FlashAttention not compatible with axial
-            penc=PEnc.Sinusoidal,
+            flash=Flash.UseFlash,
+            penc=PEnc.Learnable,
             pshare=PShare.Axial,
-            pbias=PBias.Learnable
+            pbias=PBias.Nothing
         )
     }
     
@@ -1668,6 +1668,270 @@ if __name__ == "__main__":
         print(f"    Output dtype: {output.dtype}")
         print(f"    Using axial attention: {grid_model.config['attention_type'] == 'axial'}")
     
+    # ==================== NEW TESTS: Capacity Control Examples ====================
     print("\n" + "=" * 60)
-    print("Enhanced Weather Forecasting Transformer testing completed!")
+    print("NEW TESTS: Capacity Control Examples")
+    print("=" * 60)
+    
+    # Example usage with capacity control
+    print("\n5. Capacity Control Examples:")
+    
+    # Small model configuration
+    small_config = {
+        'd_model': 256,
+        'num_layers_enc': 4,
+        'num_layers_dec': 4,
+        'num_heads': 4,
+        'd_ff_multiplier': 2,
+        'dropout': 0.1,
+        'use_flash_attention': True,
+        'activation': 'gelu',
+        'norm_type': 'layernorm',
+        'pre_norm': True,
+        'height': 32,
+        'width': 32,
+        'pos_encoding': '2d_sinusoidal',
+        'input_dim': 10,
+        'output_dim': 10,
+        'num_forecast_steps': 24,
+        'mixed_precision': False,  # Keep FP32 for parameter counting
+    }
+    
+    # Large model configuration
+    large_config = {
+        'd_model': 1024,
+        'num_layers_enc': 24,
+        'num_layers_dec': 24,
+        'num_heads': 16,
+        'd_ff_multiplier': 4,
+        'dropout': 0.2,
+        'layer_dropout': 0.1,
+        'use_flash_attention': True,
+        'activation': 'gelu',  # Using gelu instead of swish for compatibility
+        'norm_type': 'rmsnorm',
+        'pre_norm': True,
+        'ffn_bottleneck': 256,
+        'glu': True,
+        'attention_window': 512,
+        'height': 64,
+        'width': 64,
+        'pos_encoding': '2d_sinusoidal',  # Using 2d_sinusoidal instead of rotary
+        'input_dim': 10,
+        'output_dim': 10,
+        'num_forecast_steps': 24,
+        'mixed_precision': False,  # Keep FP32 for parameter counting
+    }
+    
+    print("\n5a. Creating Small Model:")
+    # Create small model
+    small_model = EnhancedWeatherForecastingTransformer(
+        input_dim=input_dim,
+        output_dim=output_dim,
+        capacity_config=small_config
+    ).to(device)
+    
+    print("\n5b. Creating Large Model:")
+    # Create large model
+    large_model = EnhancedWeatherForecastingTransformer(
+        input_dim=input_dim,
+        output_dim=output_dim,
+        capacity_config=large_config
+    ).to(device)
+    
+    # Test forward pass
+    print("\n5c. Testing Forward Pass:")
+    batch_size = 4
+    height, width = 32, 32
+    
+    # 2D input
+    input_2d = torch.randn(batch_size, height, width, input_dim).to(device)
+    
+    # For small model
+    with torch.no_grad():
+        small_output = small_model(input_2d)
+        print(f"  Small model output shape: {small_output.shape}")
+        print(f"  Small model parameters: {sum(p.numel() for p in small_model.parameters()):,}")
+    
+    # For large model - using smaller batch size to avoid memory issues
+    with torch.no_grad():
+        # Use smaller input for large model
+        small_input = torch.randn(1, 32, 32, input_dim).to(device)
+        large_output = large_model(small_input)
+        print(f"  Large model output shape: {large_output.shape}")
+        print(f"  Large model parameters: {sum(p.numel() for p in large_model.parameters()):,}")
+    
+    # Calculate and print capacity metrics
+    def print_capacity_metrics(model, config, name="Model"):
+        total_params = sum(p.numel() for p in model.parameters())
+        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        
+        print(f"\n  {'='*50}")
+        print(f"  {name} Capacity Metrics:")
+        print(f"  {'='*50}")
+        print(f"  Total parameters: {total_params:,}")
+        print(f"  Trainable parameters: {trainable_params:,}")
+        print(f"  d_model: {config.get('d_model', 'N/A')}")
+        print(f"  Encoder layers: {config.get('num_layers_enc', 'N/A')}")
+        print(f"  Decoder layers: {config.get('num_layers_dec', 'N/A')}")
+        print(f"  Heads: {config.get('num_heads', 'N/A')}")
+        print(f"  FFN multiplier: {config.get('d_ff_multiplier', 'N/A')}")
+        print(f"  Activation: {config.get('activation', 'N/A')}")
+        print(f"  Normalization: {config.get('norm_type', 'N/A')}")
+        print(f"  Attention type: {'FlashAttention' if config.get('use_flash_attention', False) else 'Standard'}")
+        print(f"  Positional encoding: {config.get('pos_encoding', 'N/A')}")
+        print(f"  Attention window: {config.get('attention_window', 'Global')}")
+        print(f"  FFN bottleneck: {config.get('ffn_bottleneck', 'None')}")
+        print(f"  GLU: {config.get('glu', False)}")
+        print(f"  Layer dropout: {config.get('layer_dropout', 0.0)}")
+        
+        # Estimate memory usage
+        param_memory = total_params * 4 / (1024**3)  # GB for float32
+        print(f"  Parameter memory: {param_memory:.2f} GB")
+        
+        # Add mixed precision info if enabled
+        if hasattr(model, 'get_mixed_precision_info'):
+            mp_info = model.get_mixed_precision_info()
+            if mp_info.get('enabled', False):
+                print(f"  Mixed precision: Enabled")
+                print(f"  Precision dtype: {mp_info.get('dtype', 'N/A')}")
+                print(f"  Loss scale: {mp_info.get('loss_scale', 'N/A')}")
+    
+    def estimate_activation_memory(model, config):
+        # Rough estimation of activation memory
+        seq_len = config.get('height', 32) * config.get('width', 32)
+        batch_size = 4
+        
+        # Attention activations
+        attn_memory = batch_size * seq_len * seq_len * config['num_heads'] * 4 / (1024**3)
+        
+        # FFN activations
+        ffn_hidden = config['d_model'] * config.get('d_ff_multiplier', 4)
+        if config.get('ffn_bottleneck'):
+            ffn_hidden = config['ffn_bottleneck']
+        
+        ffn_memory = batch_size * seq_len * ffn_hidden * 4 / (1024**3)
+        
+        # Total per layer
+        per_layer = (attn_memory + ffn_memory) * 2  # Encoder + Decoder
+        
+        # Multiply by number of layers
+        total_layers = config['num_layers_enc'] + config['num_layers_dec']
+        return per_layer * total_layers
+    
+    print("\n5d. Capacity Metrics:")
+    print_capacity_metrics(small_model, small_config, "Small Model")
+    print_capacity_metrics(large_model, large_config, "Large Model")
+    
+    # Test 6: TModes configuration testing
+    print("\n6. TModes Configuration Testing:")
+    
+    tmode_configs = [
+        ("Global + Learnable PE", TModes(conn=Conn.Global, penc=PEnc.Learnable)),
+        ("Axial + Sinusoidal", TModes(conn=Conn.Axial, penc=PEnc.Sinusoidal, pshare=PShare.Axial)),
+        ("Shift + Flash", TModes(conn=Conn.Axial, flash=Flash.UseFlash)),
+        ("Full Configuration", TModes(
+            conn=Conn.Axial,
+            flash=Flash.UseFlash,
+            penc=PEnc.Learnable,
+            pshare=PShare.Global,
+            pbias=PBias.Nothing
+        )),
+    ]
+    
+    for name, tmodes in tmode_configs:
+        print(f"\n  Testing {name}:")
+        
+        # Check if configuration is valid
+        try:
+            test_config = {
+                'd_model': 128,
+                'num_layers_enc': 2,
+                'num_layers_dec': 0,
+                'num_heads': 4,
+                'height': 16,
+                'width': 16,
+                'num_forecast_steps': 24,
+                'tmodes': tmodes
+            }
+            
+            model = EnhancedWeatherForecastingTransformer(
+                input_dim=input_dim,
+                output_dim=output_dim,
+                capacity_config=test_config
+            ).to(device)
+            
+            # Test forward pass
+            test_input = torch.randn(1, 16, 16, input_dim).to(device)
+            with torch.no_grad():
+                output = model(test_input)
+            
+            print(f"    Configuration: {tmodes}")
+            print(f"    Valid: Yes")
+            print(f"    Output shape: {output.shape}")
+            
+            # Print TModes effects
+            config_summary = model.get_config_summary()
+            if 'tmodes' in config_summary:
+                print(f"    Applied TModes:")
+                for key, value in config_summary['tmodes'].items():
+                    print(f"      {key}: {value}")
+            
+        except Exception as e:
+            print(f"    Configuration: {tmodes}")
+            print(f"    Valid: No - {e}")
+    
+    # Test 7: Mixed precision with different configurations
+    print("\n7. Mixed Precision with Different Configurations:")
+    
+    mp_configs = [
+        ("FP16 + Global", {'mixed_precision': True, 'precision_dtype': torch.float16, 'attention_type': 'global'}),
+        ("BF16 + Axial", {'mixed_precision': True, 'precision_dtype': torch.bfloat16, 'attention_type': 'axial'}),
+        ("FP16 + Flash", {'mixed_precision': True, 'precision_dtype': torch.float16, 'use_flash_attention': True}),
+    ]
+    
+    for name, config in mp_configs:
+        # Skip BF16 if not supported
+        if config.get('precision_dtype') == torch.bfloat16 and not torch.cuda.is_bf16_supported():
+            continue
+            
+        print(f"\n  Testing {name}:")
+        
+        mp_test_config = {
+            'd_model': 128,
+            'num_layers_enc': 2,
+            'num_layers_dec': 0,
+            'num_heads': 4,
+            'height': 16,
+            'width': 16,
+            'num_forecast_steps': 24,
+        }
+        mp_test_config.update(config)
+        
+        if config.get('attention_type') == 'axial':
+            mp_test_config['pos_encoding'] = 'axial'
+        
+        model = EnhancedWeatherForecastingTransformer(
+            input_dim=input_dim,
+            output_dim=output_dim,
+            capacity_config=mp_test_config
+        ).to(device)
+        
+        if config.get('mixed_precision', False):
+            dtype = config.get('precision_dtype', torch.float16)
+            model.enable_mixed_precision(dtype=dtype)
+        
+        # Test forward pass
+        test_input = torch.randn(1, 16, 16, input_dim).to(device)
+        with torch.no_grad():
+            if config.get('mixed_precision', False):
+                with torch.amp.autocast('cuda', enabled=True, dtype=config.get('precision_dtype', torch.float16)):
+                    output = model(test_input)
+            else:
+                output = model(test_input)
+        
+        print(f"    Output dtype: {output.dtype}")
+        print(f"    Mixed precision info: {model.get_mixed_precision_info()}")
+    
+    print("\n" + "=" * 60)
+    print("All tests completed successfully!")
     print("=" * 60)

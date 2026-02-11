@@ -50,7 +50,7 @@ if __name__ == "__main__":
     H, W, C = 180, 360, 40
     
     from modules.uSide import Merge4
-    from modules.Transformer_Modes import Conn, Flash, PEnc, PBias
+    from modules.Transformer_Modes import AttnConn, PEConn, PEType, Flash, PBias, TransForm
     
     block_dicts = [
         # block and side
@@ -62,7 +62,7 @@ if __name__ == "__main__":
                 # managed: 'res', 'dim'
                 'prime_size': [1, 1],         # (2, 2) 
                 'nLayers' : 1,
-                'attn': {'conn': Conn.Axial, 'penc': PEnc.Learnable, 'flash': Flash.Flash},
+                'transFrom': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes),
             },
         },
         {
@@ -73,20 +73,20 @@ if __name__ == "__main__":
                 # managed: 'res', 'dim'
                 'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
                 'nLayers' : 1,
-                'attn': {'conn': Conn.Axial, 'penc': PEnc.Learnable, 'flash': Flash.Flash},
+                'transFrom': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes),
             },
         },
-        {
-            # managed: 'top_res', 'top_dim'
-            'top_mersplit': Merge4.Nothing,
-            'down_mersplit': Merge4.Nothing,
-            'square' : {
-                # managed: 'res', 'dim'
-                'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
-                'nLayers' : 1,
-                'attn': {'conn': Conn.Global, 'penc': PEnc.Learnable, 'flash': Flash.NonFlash},
-            },
-        },
+        # {
+        #     # managed: 'top_res', 'top_dim'
+        #     'top_mersplit': Merge4.Nothing,
+        #     'down_mersplit': Merge4.Nothing,
+        #     'square' : {
+        #         # managed: 'res', 'dim'
+        #         'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
+        #         'nLayers' : 1,
+        #         'transFrom': TransForm(AttnConn.Global, PEConn.Axial, PEType.Learnable, Flash.No),
+        #     },
+        # },
     ]
     
     x = torch.randn(1, H, W, C).to(device=device, dtype=dtype)
@@ -110,25 +110,4 @@ if __name__ == "__main__":
     
     elapsed_time = start_event.elapsed_time(end_event) / 1000.0  # Convert ms to seconds
     
-    # class Merge4(Enum):
-    #     Nothig = 0
-    #     Dim4 = 1
-    #     Dim2 = 3
-
-    #     class Attn(Enum):
-    #         Nothig = 0
-    #         Global = 1
-    #         Axial = 3
-    #         Shift = 4
-            
-    #     class Flash(Enum):
-    #         Nothing = 0
-    #         Flash = 1
-    #         NonFlash = 2
-            
-    #     class PEnc(Enum):
-    #         Nothing = 0
-    #         Learnable = 1
-    #         Sinusodial = 2
-
     

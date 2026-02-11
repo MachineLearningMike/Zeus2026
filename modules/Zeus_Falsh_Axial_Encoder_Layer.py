@@ -1,0 +1,544 @@
+import torch
+import torch.nn as nn
+from flash_attn.flash_attn_interface import flash_attn_func
+import math
+
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+
+# -------------------- Utility Modules --------------------
+class SwiGLU(nn.Module):
+    def __init__(self, dimension):
+        super().__init__()
+        self.linear_1 = nn.Linear(dimension, dimension)
+        self.linear_2 = nn.Linear(dimension, dimension)
+
+    def forward(self, x):
+        output = self.linear_1(x)
+        swish = output * torch.sigmoid(output)
+        return swish * self.linear_2(x)
+
+class TwiGLU(nn.Module):
+    def __init__(self, dimension, initial_eye=False, initial_scale=1.0):
+        super().__init__()
+        self.dimension = dimension
+        self.linear_1 = nn.Linear(dimension, dimension)
+        self.linear_2 = nn.Linear(dimension, dimension)
+        
+        # Initialize the linear layers
+        self._init_weights(initial_eye, initial_scale)
+    
+    def _init_weights(self, initial_eye, initial_scale):
+        """Initialize weights based on the given parameters."""
+        if initial_eye:
+            # Initialize as scaled identity matrix: eye * initial_scale
+            scaled_eye = torch.eye(self.dimension) * initial_scale
+            with torch.no_grad():
+                self.linear_1.weight.data.copy_(scaled_eye)
+                self.linear_2.weight.data.copy_(scaled_eye)
+                
+                # Initialize biases to zero for scaled identity transformation
+                if self.linear_1.bias is not None:
+                    self.linear_1.bias.data.zero_()
+                if self.linear_2.bias is not None:
+                    self.linear_2.bias.data.zero_()
+        else:
+            # Initialize with normal distribution with specified std (initial_scale)
+            for linear in [self.linear_1, self.linear_2]:
+                nn.init.normal_(linear.weight, mean=0.0, std=initial_scale)
+                if linear.bias is not None:
+                    nn.init.zeros_(linear.bias)
+    
+    def forward(self, x):
+        output = self.linear_1(x)
+        twish = output * torch.tanh(output)  # Swish-like activation
+        return twish * self.linear_2(x)
+    
+class PositionwiseFeedForward(nn.Module):
+    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
+        super().__init__()
+        out_features = out_features or in_features
+        hidden_features = hidden_features or in_features
+        self.fc1 = nn.Linear(in_features, hidden_features)
+        self.act = act_layer()
+        self.fc2 = nn.Linear(hidden_features, out_features)
+        self.drop = nn.Dropout(drop)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = self.act(x)
+        x = self.drop(x)
+        x = self.fc2(x)
+        return x
+
+class LearnableEyeLayer(nn.Module):
+    def __init__(self, dim, init_scale=0.01):
+        super().__init__()
+        self.dim = dim
+        self.weight = nn.Parameter(torch.eye(dim))
+        self.bias = nn.Parameter(torch.zeros(dim))
+        with torch.no_grad():
+            self.weight.data *= init_scale
+            self.bias.data *= init_scale
+
+    def forward(self, x):
+        return x @ self.weight.T + self.bias
+
+
+#--------------- Positional embeddings ----------------------
+
+class PositionalEncoding_Axial_Axial(nn.Module):
+    # Goal: Create a 1D, axial position embedding from 1D, axial learnables or constants.
+
+    def __init__(self, max_len, dim, pe_type="learnable"):
+        super().__init__()
+        self.max_len = max_len
+        self.dim = dim
+        
+        if pe_type == "learnable":
+            # Learnable positional embeddings
+            self.pe = nn.Parameter(torch.zeros(1, max_len, dim))
+            nn.init.normal_(self.pe, mean=0.0, std=0.02)
+
+        elif pe_type == "sinusoidal":
+            # Sinusoidal positional encoding (like Transformer)
+            pe = torch.zeros(max_len, dim)
+            position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+            div_term = torch.exp(torch.arange(0, dim, 2).float() * (-math.log(10000.0) / dim))
+            pe[:, 0::2] = torch.sin(position * div_term)
+            pe[:, 1::2] = torch.cos(position * div_term)
+            pe = pe.unsqueeze(0)  # [1, max_len, dim]
+            self.register_buffer('pe', pe)
+
+        elif pe_type == "linear":
+            # Linear positional encoding (simple)
+            pe = torch.arange(max_len, dtype=torch.float).unsqueeze(1) / max_len
+            pe = pe.expand(max_len, dim)
+            pe = pe.unsqueeze(0)  # [1, max_len, dim]
+            self.register_buffer('pe', pe)
+
+        else:
+            self.pe = None
+    
+    def forward(self, x):
+        seq_len = x.size(1)
+        pe = self.pe[:, :seq_len, :]            
+        x = x + pe.to(x.device).to(x.dtype)
+
+        return x
+
+class PositionalEncoding_Global_Axial(nn.Module):
+    # Goal: Create a full 2D, global position embedding from 1D, axial learnables or constants.
+    
+    def __init__(self, max_height, max_width, dim, pe_type="learnable"):
+        super().__init__()
+        self.max_height = max_height
+        self.max_width = max_width
+        self.dim = dim
+        self.pe_type = pe_type
+        
+        if pe_type == "learnable":
+            assert dim % 2 == 0
+            self.pe_h = nn.Parameter(torch.randn(max_height, dim // 2) * 0.02)
+            self.pe_w = nn.Parameter(torch.randn(max_width, dim // 2) * 0.02)
+            
+        elif pe_type == "sinusoidal":
+            assert dim % 4 == 0
+            pe_h = self._get_1d_sinusoidal_pe(max_height, dim // 2)
+            pe_w = self._get_1d_sinusoidal_pe(max_width, dim // 2)
+            self.register_buffer('pe_h', pe_h)
+            self.register_buffer('pe_w', pe_w)
+            
+        elif pe_type == "linear":
+            assert dim % 2 == 0
+            pe_h = torch.arange(max_height, dtype=torch.float).unsqueeze(1) / max_height
+            pe_h = pe_h.expand(-1, dim // 2)
+            pe_w = torch.arange(max_width, dtype=torch.float).unsqueeze(1) / max_width
+            pe_w = pe_w.expand(-1, dim // 2)
+            self.register_buffer('pe_h', pe_h)
+            self.register_buffer('pe_w', pe_w)
+            
+        else:
+            raise ValueError(f"Unknown pe_type: {pe_type}")
+
+    def _get_1d_sinusoidal_pe(self, max_len, dim):
+        position = torch.arange(max_len).unsqueeze(1).float()
+        div_term = torch.exp(
+            torch.arange(0, dim, 2).float() * 
+            (-math.log(10000.0) / dim)
+        )
+        pe = torch.zeros(max_len, dim)
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        return pe
+    
+    def forward(self, x):
+        B, H, W, C = x.shape
+        assert C == self.dim, f"Input dim {C} != model dim {self.dim}"
+        assert H <= self.max_height, f"Height {H} > max {self.max_height}"
+        assert W <= self.max_width, f"Width {W} > max {self.max_width}"
+        
+        pe_h = self.pe_h[:H, :].unsqueeze(1).expand(-1, W, -1)
+        pe_w = self.pe_w[:W, :].unsqueeze(0).expand(H, -1, -1)
+        pe = torch.cat([pe_h, pe_w], dim=-1).unsqueeze(0)
+            
+        return x + pe.to(device=x.device, dtype=x.dtype)
+
+class PositionalEncoding_Global_Global(nn.Module):
+    # Goal: Create a 2D, full position embedding from 2D, global learning or constants.
+    
+    def __init__(self, max_height, max_width, dim, pe_type="learnable"):
+        super().__init__()
+        self.max_height = max_height
+        self.max_width = max_width
+        self.dim = dim
+        self.pe_type = pe_type
+        
+        if pe_type == "learnable":
+            # Learnable full 2D - TRUE 2D (learns any pattern)
+            self.pe = nn.Parameter(torch.randn(1, max_height, max_width, dim) * 0.02)
+            
+        elif pe_type == "sinusoidal_2d_true":
+            assert dim % 2 == 0
+            
+            # Step 1: Create UNIQUE 1D positions for each cell in the grid
+            n_positions = max_height * max_width
+            position_1d = torch.arange(n_positions, dtype=torch.float).unsqueeze(1)
+            
+            # Step 2: Apply 1D sinusoidal encoding
+            div_term = torch.exp(
+                torch.arange(0, dim, 2).float() * 
+                (-math.log(10000.0) / dim)
+            )
+            
+            pe = torch.zeros(n_positions, dim)
+            pe[:, 0::2] = torch.sin(position_1d * div_term)
+            pe[:, 1::2] = torch.cos(position_1d * div_term)
+            
+            # Step 3: Reshape into 2D grid - THIS CREATES TRUE 2D STRUCTURE!
+            pe = pe.reshape(max_height, max_width, dim)
+            
+            self.register_buffer('pe', pe.unsqueeze(0))
+                        
+        elif pe_type == "linear_2d_true":
+            assert dim % 2 == 0
+            
+            n_positions = max_height * max_width
+            position_1d = torch.arange(n_positions, dtype=torch.float).unsqueeze(1) / n_positions
+            pe_1d = position_1d.expand(-1, dim)
+            pe = pe_1d.reshape(max_height, max_width, dim)
+            
+            self.register_buffer('pe', pe.unsqueeze(0))
+            
+        else:
+            raise ValueError(f"Unknown pe_type: {pe_type}")
+    
+    def _get_1d_sinusoidal_pe(self, max_len, dim):
+        """1D sinusoidal helper - only for axial/legacy."""
+        position = torch.arange(max_len).unsqueeze(1).float()
+        div_term = torch.exp(
+            torch.arange(0, dim, 2).float() * 
+            (-math.log(10000.0) / dim)
+        )
+        pe = torch.zeros(max_len, dim)
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        return pe
+    
+    def forward(self, x):
+        """Add positional encoding to input tensor."""
+        B, H, W, C = x.shape
+        assert C == self.dim, f"Input dim {C} != model dim {self.dim}"
+        assert H <= self.max_height, f"Height {H} > max {self.max_height}"
+        assert W <= self.max_width, f"Width {W} > max {self.max_width}"
+        
+        pe = self.pe[:, :H, :W, :]
+        return x + pe.to(device=x.device, dtype=x.dtype)
+    
+    def extra_repr(self):
+        return f"pe_type={self.pe_type}, dim={self.dim}, max=({self.max_height}, {self.max_width})"
+    
+    
+class PositionalEncoding_Axial_Global(PositionalEncoding_Global_Global):
+    # Original Goal: Create a 1D, axial position embedding from 2D, global learnables or constants.
+    # Modified Goal: Create a 2D, full position embedding from 2D, global learning or constants, as PositionalEncoding_Global_Global does.
+    
+    def __init__(self, max_height, max_width, dim, pe_type="learnable"):
+        self = PositionalEncoding_Global_Global(max_height, max_width, dim, pe_type)
+
+    
+# -------------------- 2D Positional Encoding --------------------
+class PositionalEncoding_2D(nn.Module):
+
+    def __init__(self, max_height, max_width, dim, pe_type="learnable"):
+        super().__init__(max_height, max_width, dim, pe_type)
+        self.max_height = max_height
+        self.max_width = max_width
+        self.dim = dim
+        
+        if pe_type == "learnable":
+            # Learnable positional embeddings
+            self.pe = nn.Parameter(torch.zeros(1, max_height, max_width, dim))
+            nn.init.normal_(self.pe, mean=0.0, std=0.02)
+            
+        elif pe_type == "sinusoidal":
+            if dim % 4 != 0:
+                dim = ((dim + 3) // 4) * 4  # Ensure divisible by 4            
+            pe_h = self._get_1d_sinusodial_pe(max_height, dim // 2)
+            pe_w = self._get_1d_sinusodial_pe(max_width, dim // 2)
+            pe = torch.zeros(max_height, max_width, dim)
+            pe[:, :, :dim//2] = pe_h.unsqueeze(1).expand(-1, max_width, -1)
+            pe[:, :, dim//2:] = pe_w.unsqueeze(0).expand(max_height, -1, -1)
+            pe = pe.unsqueeze(0)  # Add batch dimension
+            self.register_buffer('pe', pe)
+
+        elif pe_type == "linear":
+            # Ensure dim is even for splitting
+            if dim % 2 != 0:
+                dim = ((dim + 1) // 2) * 2
+            # Height encoding (normalized row indices)
+            pe_h = torch.arange(max_height, dtype=torch.float).unsqueeze(1) / max_height
+            pe_h = pe_h.expand(-1, dim // 2)  # [H, h_dim]
+            # Width encoding (normalized column indices)
+            pe_w = torch.arange(max_width, dtype=torch.float).unsqueeze(1) / max_width
+            pe_w = pe_w.expand(-1, dim // 2)  # [W, h_dim]
+            # Combine into 2D grid
+            pe = torch.zeros(max_height, max_width, dim)
+            pe[:, :, :dim // 2] = pe_h.unsqueeze(1).expand(-1, max_width, -1)
+            pe[:, :, dim // 2:] = pe_w.unsqueeze(0).expand(max_height, -1, -1)
+            # Add batch dimension and register
+            pe = pe.unsqueeze(0)  # [1, H, W, dim]
+            self.register_buffer('pe', pe)
+            
+        else:
+            self.pe = None
+            
+    def _get_1d_sinusodial_pe(self, max_len, dim):
+        position = torch.arange(max_len).unsqueeze(1).float()
+        div_term = torch.exp(torch.arange(0, dim, 2).float() * 
+                           (-math.log(10000.0) / dim))
+        pe = torch.zeros(max_len, dim)
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        return pe
+    
+    def forward(self, x):
+        B, H, W, C = x.shape
+        pe = self.pe[:, :H, :W, :C].to(x.dtype)
+        return x + pe
+    
+class PositionalEncoding_Axial_2D(nn.Module):
+
+    def __init__(self, d_model, max_h=100, max_w=100):
+        super().__init__()
+        # Split dimensions for height and width encodings
+        if dim % 2 != 0:
+            dim = ((dim + 1) // 2) * 2
+        
+        # Height encoding (applied column-wise)
+        self.pe_h = self._get_1d_encoding(max_h, dim // 2)
+        # Width encoding (applied row-wise)
+        self.pe_w = self._get_1d_encoding(max_w, dim // 2)
+        
+        # Register buffers
+        self.register_buffer('pe_h_buffer', self.pe_h)
+        self.register_buffer('pe_w_buffer', self.pe_w)
+    
+    def _get_1d_encoding(self, max_len, dim):
+        position = torch.arange(max_len).unsqueeze(1).float()
+        div_term = torch.exp(torch.arange(0, dim, 2).float() * 
+                           (-math.log(10000.0) / dim))
+        pe = torch.zeros(max_len, dim)
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        return pe
+    
+    def forward(self, x):
+        B, H, W, C = x.shape
+        device = x.device
+        
+        # Create height encodings (applied to each column)
+        pe_h = self.pe_h_buffer[:H, :self.d_h].to(x.dtype).to(device)
+        pe_h = pe_h.unsqueeze(1).expand(-1, W, -1)  # (H, W, d_h)
+        
+        # Create width encodings (applied to each row)
+        pe_w = self.pe_w_buffer[:W, :self.d_w].to(x.dtype).to(device)
+        pe_w = pe_w.unsqueeze(0).expand(H, -1, -1)  # (H, W, d_w)
+        
+        # Combine height and width encodings
+        pe = torch.cat([pe_h, pe_w], dim=-1)  # (H, W, d_model)
+        pe = pe.unsqueeze(0)  # (1, H, W, d_model)
+        
+        return x + pe
+
+# -------------------- Axial FlashAttention --------------------
+
+from modules.Transformer_Modes import AttnConn, PEConn, PEType, Flash, PBias, TransForm
+from modules.Zeus_Flash_Encoder_Layer import FlashEncoderLayer
+
+class Axial_Flash_Attention(nn.Module):
+    def __init__(self, H, W, d_model, num_heads, dropout=0, eps=1e-9,
+            transFrom=TransForm(),
+    ):
+        super().__init__()
+        self.H, self.W = H, W
+        self.d_model = d_model
+        self.n_heads = num_heads
+        self.transForm = transFrom
+        assert d_model % num_heads == 0, "d_model must be divisible by num_heads"
+        self.head_dim = d_model // num_heads
+
+        self.encoder, self.encoder_h, self.encoder_w = None, None, None
+        self.pos_encoding, self.pos_encoding_h, self.pos_encoding_w = None, None, None
+
+        if transFrom.attnconn == AttnConn.Global:
+            self.encoder = FlashEncoderLayer(d_model=d_model, num_heads=n_heads, dropout=dropout, use_flash=transFrom.flash.value, eps=eps)
+            
+            if transFrom.peconn == PEConn.Global:   # output: global, intermal: global
+                self.pos_encoding = PositionalEncoding_Global_Global(max_height=H, max_width=W, dim=d_model, pe_type=transFrom.petype.value)
+            elif transFrom.peconn == PEConn.Axial:  # output: global, internal: axial
+                self.pos_encoding = PositionalEncoding_Global_Axial(max_height=H, max_width=W, dim=d_model, pe_type=transFrom.petype.value)
+            else: pass
+            
+        elif transFrom.attnconn == AttnConn.Axial:
+            self.encoder_h = FlashEncoderLayer(d_model=d_model, num_heads=n_heads, dropout=dropout, use_flash=transFrom.flash.value, eps=eps)
+            self.encoder_w = FlashEncoderLayer(d_model=d_model, num_heads=n_heads, dropout=dropout, use_flash=transFrom.flash.value, eps=eps)
+
+            self.pos_encoding, self.pos_encoding_h, self.pos_encoding_w = None, None, None
+            if transFrom.peconn == PEConn.Global:
+                self.pos_encoding = PositionalEncoding_Axial_Global(max_height=H, max_width=W, dim=d_model, pe_type=transFrom.petype.value)
+            elif transFrom.peconn == PEConn.Axial:
+                self.pos_encoding_h = PositionalEncoding_Axial_Axial(max_len=H, dim=d_model, pe_type=transFrom.petype.value)
+                self.pos_encoding_w = PositionalEncoding_Axial_Axial(max_len=W, dim=d_model, pe_type=transFrom.petype.value)
+            else: pass
+            
+        else: pass
+
+
+    def forward(self, x, mask=None):
+
+        B, H, W, C = x.shape
+        assert H == self.H
+        assert W == self.W
+        assert C == self.d_model
+        
+        if self.transForm.attnconn == AttnConn.Global:
+            if self.pos_encoding is not None:   x = self.pos_encoding(x)
+
+            x = x.view(B, H*W, C)
+            if self.encoder is not None:    x = self.encoder(x, mask=mask)
+            x = x.view(B, H, W, C)
+                        
+        elif self.transForm.attnconn == AttnConn.Axial:
+            if self.pos_encoding is not None: x = self.pos_encoding(x)
+            x = self.forward_axial(x, 'height', mask=mask)
+            x = self.forward_axial(x, 'width', mask=mask)
+
+        return x
+
+
+    def forward_axial(self, x, axis, mask=None):
+
+        # Take the standard shape
+        if axis == 'height':
+            # (B, H, W, C) -> (B, W, H, C) -> (B*W, H, C)
+            x = x.permute(0, 2, 1, 3).reshape(B * W, H, C)
+            reshape_back = lambda out: out.reshape(B, W, H, C).permute(0, 2, 1, 3)
+        elif axis == 'width':  # width attention (attend along rows)
+            # (B, H, W, C) -> (B*H, W, C)
+            x = x.reshape(B * H, W, C)
+            reshape_back = lambda out: out.reshape(B, H, W, C)
+        else: assert False
+
+        # Transformer.Encode, with possible positional encoding.
+        if axis == 'height':
+            if self.pos_encoding_h is not None: x = self.pos_encoding_h(x)
+            if self.encoder_h is not None: x = self.encoder_h(x)
+
+        elif axis == 'width':  
+            if self.pos_encoding_w is not None: x = self.pos_encoding_w(x)
+            if self.encoder_w is not None: x = self.pos_encoding_w(x)
+    
+        # Restore original shape
+        x = reshape_back(x)
+                    
+        return x  # (B, H, W, C)
+
+        
+# ------------------- Test Code -------------------
+if __name__ == "__main__":
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    B, H, W, C, n_heads = 1, 180, 360, 12, 4
+    loops = 5
+
+    # Test different positional encoding types
+    for petype in [PEType.Learnable, PEType.Sinusoidal, PEType.Linear, PEType.Nothing]:
+        print(f"\n{'='*60}")
+        print(f"Testing with positional encoding: {petype}")
+        print('='*60)
+        
+        use_pe = (petype != PEType.Nothing)
+        x = torch.randn(B, H, W, C, device=device)
+        target = torch.randn_like(x)
+        
+        tf = TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes)
+        
+        model = Axial_Flash_Attention(H=H, W=W, d_model=C, num_heads=n_heads, transFrom=tf).to(device)
+
+        optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+        criterion = nn.MSELoss()
+
+        # Use bfloat16 for training
+        x_bf16 = x.to(torch.bfloat16)
+        target_bf16 = target.to(torch.bfloat16)
+
+        if device.type == 'cuda':
+            start_event = torch.cuda.Event(enable_timing=True)
+            end_event = torch.cuda.Event(enable_timing=True)
+            torch.cuda.synchronize()
+            start_event.record()
+
+            # Use autocast for mixed precision training
+            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                for _ in range(loops):
+                    optimizer.zero_grad(set_to_none=True)
+                    output = model(x_bf16,)
+                    loss = criterion(output, target_bf16)
+                    loss.backward()
+                    optimizer.step()
+
+            end_event.record()
+            torch.cuda.synchronize()
+            elapsed_time = start_event.elapsed_time(end_event) / 1000.0
+        else:
+            import time
+            start_time = time.perf_counter()
+            with torch.autocast(device_type='cpu', dtype=torch.bfloat16):
+                for _ in range(loops):
+                    optimizer.zero_grad(set_to_none=True)
+                    output = model(x_bf16)
+                    loss = criterion(output, target_bf16)
+                    loss.backward()
+                    optimizer.step()
+            elapsed_time = time.perf_counter() - start_time
+
+        print(f"Output shape: {output.shape}")
+        print(f"Elapsed time: {elapsed_time:.4f} sec")
+        print(f"With positional encoding: {use_pe}")
+        if use_pe:
+            print(f"Positional encoding type: {petype}")
+            
+            # Show positional encoding statistics
+            if petype == 'learnable' and model.pos_encoding_h is not None:
+                height_pe = model.pos_encoding_h.pe
+                width_pe = model.pos_encoding_w.pe
+                print(f"Height PE stats: mean={height_pe.mean():.4f}, std={height_pe.std():.4f}")
+                print(f"Width PE stats: mean={width_pe.mean():.4f}, std={width_pe.std():.4f}")
+
+    print(f"\n{'='*60}")
+    print("Summary:")
+    print(f"Sequence lengths: Height={H}, Width={W}")
+    print(f"Positional encoding added: BEFORE LayerNorm")
+    print(f"FlashAttention requires fp16/bf16 - added explicit casting")
+    print('='*60)

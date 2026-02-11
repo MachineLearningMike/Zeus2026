@@ -23,25 +23,16 @@ class uSquare(nn.Module):
         self.padding_dim = [(win_size[i] - dict['res'][i] % win_size[i]) % win_size[i] for i in range(2)]
         self.internal_res = [dict['res'][i] + self.padding_dim[i] for i in range(2)]
         
-        attn = dict['attn']
-        conn = attn.get('conn', Conn.Axial)
-        penc = attn.get('penc', PEnc.Learnable)
-        flash = attn.get('flash', Flash.Flash)
-        pbias = attn.get('pbias', PBias.Nothing)
-
-        if conn == Conn.Axial:
-            assert pbias == PBias.Nothing 
-            
-            pass
-        elif conn == Conn.Shift:
-            assert flash != Flash.Flash     # shifted attention requires attn_mask, which is not supported by FlashAttention
-            
-            
-            pass
-        elif conn == Conn.Global:
-            assert flash != Flash.Flash     # Global attention is best with attn_mask, which is not supported by FlashAttention
+        res = dict['res']
+        dim = dict['dim']
+        prime_size = dict['prime_size']
+        n_layers = dict['n_layers']
+        transForm = dict['transForm']
+        # attnconn, peconn, petype, flash, pbias = transForm.attnconn, transForm.peconn, transForm.petype, transForm.flash, transForm.pbias        
+     
+     
         
-        else: assert False
+        model = Axial_Flash_Attention(H=H, W=W, d_model=C, num_heads=n_heads, transFrom=tf).to(device)
         
 
     def forward(self, x):
