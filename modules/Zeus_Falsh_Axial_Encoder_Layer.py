@@ -263,11 +263,8 @@ class PositionalEncoding_Global_Global(nn.Module):
 class PositionalEncoding_Axial_Global(PositionalEncoding_Global_Global):
     # Original Goal: Create a 1D, axial position embedding from 2D, global learnables or constants.
     # Modified Goal: Create a 2D, full position embedding from 2D, global learning or constants, as PositionalEncoding_Global_Global does.
-    
-    def __init__(self, max_height, max_width, dim, pe_type="learnable"):
-        self = PositionalEncoding_Global_Global(max_height, max_width, dim, pe_type)
+    pass
 
-    
 # -------------------- 2D Positional Encoding --------------------
 class PositionalEncoding_2D(nn.Module):
 
@@ -377,14 +374,14 @@ class PositionalEncoding_Axial_2D(nn.Module):
 from modules.Transformer_Modes import AttnConn, PEConn, PEType, Flash, PBias, TransForm
 from modules.Zeus_Flash_Encoder_Layer import FlashEncoderLayer
 
-class Axial_Flash_Attention(nn.Module):
+class Flash_Axial_Encoder_Layer(nn.Module):
     def __init__(self, H, W, d_model, num_heads, dropout=0, eps=1e-9,
             transFrom=TransForm(),
     ):
         super().__init__()
         self.H, self.W = H, W
         self.d_model = d_model
-        self.n_heads = num_heads
+        self.num_heads = num_heads
         self.transForm = transFrom
         assert d_model % num_heads == 0, "d_model must be divisible by num_heads"
         self.head_dim = d_model // num_heads
@@ -393,7 +390,7 @@ class Axial_Flash_Attention(nn.Module):
         self.pos_encoding, self.pos_encoding_h, self.pos_encoding_w = None, None, None
 
         if transFrom.attnconn == AttnConn.Global:
-            self.encoder = FlashEncoderLayer(d_model=d_model, num_heads=n_heads, dropout=dropout, use_flash=transFrom.flash.value, eps=eps)
+            self.encoder = FlashEncoderLayer(d_model=d_model, num_heads=num_heads, dropout=dropout, use_flash=transFrom.flash.value, eps=eps)
             
             if transFrom.peconn == PEConn.Global:   # output: global, intermal: global
                 self.pos_encoding = PositionalEncoding_Global_Global(max_height=H, max_width=W, dim=d_model, pe_type=transFrom.petype.value)
@@ -402,8 +399,8 @@ class Axial_Flash_Attention(nn.Module):
             else: pass
             
         elif transFrom.attnconn == AttnConn.Axial:
-            self.encoder_h = FlashEncoderLayer(d_model=d_model, num_heads=n_heads, dropout=dropout, use_flash=transFrom.flash.value, eps=eps)
-            self.encoder_w = FlashEncoderLayer(d_model=d_model, num_heads=n_heads, dropout=dropout, use_flash=transFrom.flash.value, eps=eps)
+            self.encoder_h = FlashEncoderLayer(d_model=d_model, num_heads=num_heads, dropout=dropout, use_flash=transFrom.flash.value, eps=eps)
+            self.encoder_w = FlashEncoderLayer(d_model=d_model, num_heads=num_heads, dropout=dropout, use_flash=transFrom.flash.value, eps=eps)
 
             self.pos_encoding, self.pos_encoding_h, self.pos_encoding_w = None, None, None
             if transFrom.peconn == PEConn.Global:
@@ -439,6 +436,7 @@ class Axial_Flash_Attention(nn.Module):
 
 
     def forward_axial(self, x, axis, mask=None):
+        B, H, W, C = x.shape
 
         # Take the standard shape
         if axis == 'height':
@@ -458,7 +456,7 @@ class Axial_Flash_Attention(nn.Module):
 
         elif axis == 'width':  
             if self.pos_encoding_w is not None: x = self.pos_encoding_w(x)
-            if self.encoder_w is not None: x = self.pos_encoding_w(x)
+            if self.encoder_w is not None: x = self.encoder_w(x)
     
         # Restore original shape
         x = reshape_back(x)
@@ -469,7 +467,7 @@ class Axial_Flash_Attention(nn.Module):
 # ------------------- Test Code -------------------
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    B, H, W, C, n_heads = 1, 180, 360, 12, 4
+    B, H, W, C, num_heads = 1, 180, 360, 12, 4
     loops = 5
 
     # Test different positional encoding types
@@ -484,7 +482,7 @@ if __name__ == "__main__":
         
         tf = TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes)
         
-        model = Axial_Flash_Attention(H=H, W=W, d_model=C, num_heads=n_heads, transFrom=tf).to(device)
+        model = Flash_Axial_Encoder_Layer(H=H, W=W, d_model=C, num_heads=num_heads, transFrom=tf).to(device)
 
         optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
         criterion = nn.MSELoss()

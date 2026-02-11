@@ -60,9 +60,10 @@ if __name__ == "__main__":
             'down_mersplit': Merge4.Dim2,
             'square' : {
                 # managed: 'res', 'dim'
-                'prime_size': [1, 1],         # (2, 2) 
-                'nLayers' : 1,
-                'transFrom': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes),
+                'num_heads' : 8,
+                'prime_size': [1, 1],         # (2, 2)
+                'nLayers' : 5,
+                'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes),
             },
         },
         {
@@ -71,22 +72,24 @@ if __name__ == "__main__":
             'down_mersplit': Merge4.Dim2,
             'square' : {
                 # managed: 'res', 'dim'
+                'num_heads' : 8,
                 'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
-                'nLayers' : 1,
-                'transFrom': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes),
+                'nLayers' : 5,
+                'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes),
             },
         },
-        # {
-        #     # managed: 'top_res', 'top_dim'
-        #     'top_mersplit': Merge4.Nothing,
-        #     'down_mersplit': Merge4.Nothing,
-        #     'square' : {
-        #         # managed: 'res', 'dim'
-        #         'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
-        #         'nLayers' : 1,
-        #         'transFrom': TransForm(AttnConn.Global, PEConn.Axial, PEType.Learnable, Flash.No),
-        #     },
-        # },
+        {
+            # managed: 'top_res', 'top_dim'
+            'top_mersplit': Merge4.Nothing,
+            'down_mersplit': Merge4.Nothing,
+            'square' : {
+                # managed: 'res', 'dim'
+                'num_heads' : 8,
+                'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
+                'nLayers' : 5,
+                'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes),     # Flash.No: 2.72 s, Flash.No 1.99 s
+            },
+        },
     ]
     
     x = torch.randn(1, H, W, C).to(device=device, dtype=dtype)
@@ -94,7 +97,7 @@ if __name__ == "__main__":
     net = uNet(H, W, C, block_dicts).to(device=device, dtype=dtype)
     
     
-    loops = 1
+    loops = 5
     start_event = torch.cuda.Event(enable_timing=True)
     end_event = torch.cuda.Event(enable_timing=True)
     
@@ -109,5 +112,7 @@ if __name__ == "__main__":
     torch.cuda.synchronize()
     
     elapsed_time = start_event.elapsed_time(end_event) / 1000.0  # Convert ms to seconds
+    
+    print(f"input {x.shape}, output {out.shape}, time {elapsed_time}")
     
     
