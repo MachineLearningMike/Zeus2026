@@ -13,7 +13,7 @@ class PatchMergingReduceInfo(nn.Module):
         self.norm = norm_layer(self.anchor ** 2 * dim)        
         self.reduction = nn.Linear(self.anchor ** 2 * dim, self.anchor * dim, bias=False)
         
-    def forward(self, x):
+    def forward(self, x, ss=None):
         B, H, W, C = x.shape
         # assert C == self.dim
         
@@ -42,7 +42,7 @@ class PatchSplittingReduceInfo(nn.Module):
         # Inverse of the linear projection: expand from 2*dim to 4*dim
         self.expansion = nn.Linear(dim, self.anchor * dim, bias=False)
 
-    def forward(self, x):
+    def forward(self, x, ss=None):
         B, H, W, C = x.shape       
         # assert self.dim == C
         

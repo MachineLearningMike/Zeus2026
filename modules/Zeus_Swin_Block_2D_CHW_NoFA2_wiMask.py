@@ -1014,6 +1014,13 @@ if __name__ == "__main__":
     depths, nHeads = (4,), (4,) # (4, 8, 4), (4, 8, 16)
     patch_size = 1
     H, W = int(int(720/patch_size)/10*factor10), int(int(1440/patch_size)/10*factor10)
+    
+    # H, W = 48, 90
+    # sWin = (16, 30)
+    
+    H, W = 45, 90
+    sWin = (45, 90)
+    
     C = 12
     i_reso = (H, W)
 

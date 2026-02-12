@@ -38,9 +38,10 @@ class uSquare(nn.Module):
             layer = Flash_Axial_Encoder_Layer(H=H, W=W, d_model=d_model, num_heads=num_heads, transFrom=transForm)
             self.layers.append(layer)
 
-    def forward(self, x):
+    def forward(self, x, ss=None):
 
         for layer in self.layers:
-            x = layer(x)
+            x = layer(x, ss=ss)
+            pass
         
         return x

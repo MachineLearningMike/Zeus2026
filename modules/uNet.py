@@ -25,19 +25,22 @@ class uNet(nn.Module):
         res, dim = (H, W), C    
         for i in range(self.depth):
             block_dict = block_dicts[i]
-            block_dict['top_res'] = res
+
             block_dict['top_dim'] = dim
+            block_dict['top_res'] = res     # top_res might be modified internally.
+
             block = uBlock(block_dict)
             self.uBlocks.append(block)
+
             res = block.down_res    # it might not simply a half of the previous block's res.
             dim = block.down_dim
             
-    def forward(self, x):
+    def forward(self, x, ss=None):
         for ub in self.uBlocks:
             ub.skip = x
-            x = ub(x, is_enc=True)
+            x = ub(x, is_enc=True, ss=ss)
         for ub in reversed(self.uBlocks):
-            x = ub(x, is_enc=False)
+            x = ub(x, is_enc=False, ss=ss)
             x = x + ub.skip
         return x
 
@@ -62,7 +65,7 @@ if __name__ == "__main__":
                 # managed: 'res', 'dim'
                 'num_heads' : 8,
                 'prime_size': [1, 1],         # (2, 2)
-                'nLayers' : 5,
+                'nLayers' : 3,
                 'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes),
             },
         },
@@ -74,7 +77,7 @@ if __name__ == "__main__":
                 # managed: 'res', 'dim'
                 'num_heads' : 8,
                 'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
-                'nLayers' : 5,
+                'nLayers' : 3,
                 'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes),
             },
         },
@@ -86,8 +89,8 @@ if __name__ == "__main__":
                 # managed: 'res', 'dim'
                 'num_heads' : 8,
                 'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
-                'nLayers' : 5,
-                'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes),     # Flash.No: 2.72 s, Flash.No 1.99 s
+                'nLayers' : 4,
+                'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes),     # Flash.No: 2.72 s, Flash.No 1.99 s
             },
         },
     ]

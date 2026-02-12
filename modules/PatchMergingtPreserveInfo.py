@@ -14,7 +14,7 @@ class PatchMergingPreserveInfo(nn.Module):
         # Temporarily remove norm for exact inversion test
         # self.norm = norm_layer(4 * dim)
 
-    def forward(self, x):
+    def forward(self, x, ss=None):
         B, H, W, C = x.shape
         
         x = x.view(B, H//2, 2, W//2, 2, C)
@@ -30,7 +30,7 @@ class PatchSplittingPreserveInfo(nn.Module):
     def __init__(self):
         super().__init__()
     
-    def forward(self, x):
+    def forward(self, x, ss=None):
         B, H, W, C = x.shape
         
         # Reverse the operations

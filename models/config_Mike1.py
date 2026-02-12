@@ -1727,9 +1727,104 @@ projects["Zeus_26Feb11_2"] = {    #---------------------------------------------
     "model_4": {},
 }
 
+from modules.uSide import Merge4
+from modules.Transformer_Modes import AttnConn, PEConn, PEType, Flash, PBias, TransForm
+
+projects["Zeus_uNet_Feb12"] = {    #---------------------------------------------------------- Micro-model for a single 8GB GPU -------
+    # ------------------------------- This overrides the above rules ----------------------
+    "management": {
+    "Zeus_Model_module" : "Zeus_Light_uNet",
+    "GPUWaitsData" : True,
+    "models_to_play": [0,],
+    "metrics" : "rmse", # "mae", "rmse"
+    # Let it be chosen by GPU rule 'nSubstepsPerStep' : 2,       # Can be changed upto the type of GPU.
+    "nSubstepsPerStep": 2,
+    'max_cascade_depth' : 1,     # max = nSubstepsPerStep. 1 = no actual cascades, raw prediction only
+    },
+    
+    "data": {
+    "org_height": 721,
+    "batch_size": 1,
+    'lossXtargets' : 5.0,
+    },
+    
+    "model_0": {
+        "lr": 5e-4,
+        "max_lr": 5e-4,
+        "overwrite_saved_lr": False,
+        "accum_steps" : 10,   
+        "skip_validation" : True,
+        
+        'patch_kernel' : 4,
+        'patch_stride' : 4,
+
+        "batch_size": 1,
+        
+        "attn_dim" : 40,
+        "nHeads" : 5,       #
+        "nLayers" : 30,     #
+        "axial_loops" : 1,
+        "axial_not_total_pe" : True,
+        
+        'choose_best_loss_model' : False,
+        'useLRLearner' : False,
+        'use_checkpoint' : False,
+        
+        # The current model goes OOM on A100, with layers_to_enhance_in_enc_dec = [0] and nEnhancementPairs = [1]
+        'layers_to_enhance_in_enc_dec' : [],
+        'nEnhancementPairs': [],  # pairs
+
+        'block_dicts' : [
+            # block and side
+            {
+                # managed: 'top_res', 'top_dim'
+                'top_mersplit': Merge4.Nothing,
+                'down_mersplit': Merge4.Dim2,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,
+                    'prime_size': [1, 1],         # (2, 2)
+                    'nLayers' : 3,
+                    'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes),
+                },
+            },
+            {
+                # managed: 'top_res', 'top_dim'
+                'top_mersplit': Merge4.Nothing,
+                'down_mersplit': Merge4.Dim2,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,
+                    'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
+                    'nLayers' : 3,
+                    'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes),
+                },
+            },
+            {
+                # managed: 'top_res', 'top_dim'
+                'top_mersplit': Merge4.Nothing,
+                'down_mersplit': Merge4.Nothing,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,
+                    'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
+                    'nLayers' : 4,
+                    'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes),     # Flash.No: 2.72 s, Flash.No 1.99 s
+                },
+            },
+        ]
+
+    }, 
+    
+    "model_1": {},
+    "model_2": {},
+    "model_3": {},
+    "model_4": {},
+}
+
 #-------------------------------- select proejct -----------------------
 
-project = "Zeus_26Feb11_2"   # "Zeus_Swin_25Dec25_2"
+project = "Zeus_26Feb09" # "Zeus_uNet_Feb12"   # "Zeus_Swin_25Dec25_2"
 config["bayesProject"] = project
 # updata 'management'
 config.update(projects[project]["management"])

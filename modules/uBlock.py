@@ -15,6 +15,7 @@ sys.path
 from modules.uSide import uSide
 
 class uBlock(nn.Module):
+    
     def __init__(self, dict: dict) -> None:
         super().__init__()
 
@@ -29,6 +30,6 @@ class uBlock(nn.Module):
         self.down_res = self.enc.down_res
         self.down_dim = self.enc.down_dim
         
-    def forward(self, x, is_enc=True):
-        x = self.enc(x) if is_enc else self.dec(x)
+    def forward(self, x, is_enc=True, ss=None):
+        x = self.enc(x, ss=ss) if is_enc else self.dec(x, ss=ss)
         return x

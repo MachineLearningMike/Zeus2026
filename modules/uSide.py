@@ -25,15 +25,35 @@ class uSide(nn.Module):
     """
     This class can decide to add pads to top_res.
     """
-    
     def __init__(self, is_enc: bool, dict: dict) -> None:
         super().__init__()
         self.dict = dict
         self.is_enc = is_enc
+        
+        self.res, self.input_dim = dict['top_res'], dict['top_dim']
 
-        #-------------------------- track dim
-        dim_enc_top, res_enc_top = dict['top_dim'], dict['top_res']
+        #----------------------- Track and modify res and dim -------------------------------
+        
+        res_enc_top, dim_enc_top = self.res, self.input_dim
+       
+        #--------------- Modify res_enc_top ----------
+        res = res_enc_top
+        
+        res_divisor = [1, 1]
+        if dict['top_mersplit'] == Merge4.Dim2:
+            res_divisor = [round(res_divisor[i] * 1 / PatchMergingReduceInfo.res_multiplier[i]) for i in range(2)]
+        elif dict['top_mersplit'] == Merge4.Dim4:
+            res_divisor = [round(res_divisor[i] * 1 / PatchMergingPreserveInfo.res_multiplier[i]) for i in range(2)]
 
+        if dict['down_mersplit'] == Merge4.Dim2:
+            res_divisor = [round(res_divisor[i] * 1 / PatchMergingReduceInfo.res_multiplier[i]) for i in range(2)]
+        elif dict['down_mersplit'] == Merge4.Dim4:
+            res_divisor = [round(res_divisor[i] * 1 / PatchMergingPreserveInfo.res_multiplier[i]) for i in range(2)]
+
+        padding = [0 if res[i] % res_divisor[i] == 0 else res_divisor[i] - res[i] % res_divisor[i] for i in range(2)]
+        res_enc_top = [res_enc_top[i] + padding[i] for i in range(2)]
+                       
+        #---------------- plan res and dim -----------------
         dim_enc_down, res_enc_down = dim_enc_top, res_enc_top
         if dict['top_mersplit'] == Merge4.Dim2:
             dim_enc_down = round(dim_enc_down * PatchMergingReduceInfo.dim_multiplier)
@@ -109,16 +129,16 @@ class uSide(nn.Module):
         #------------------------- elementary functions
 
         self.funs = [
-            lambda x: self.top_mersplit(x) if self.top_mersplit is not None else x,
-            lambda x: self.square(x) if self.square is not None else x,
-            lambda x: self.down_mersplit(x) if self.down_mersplit is not None else x
+            lambda x, ss: self.top_mersplit(x, ss=ss) if self.top_mersplit is not None else x,
+            lambda x, ss: self.square(x, ss=ss) if self.square is not None else x,
+            lambda x, ss: self.down_mersplit(x, ss=ss) if self.down_mersplit is not None else x
         ]
 
-    def forward(self, x):
+    def forward(self, x, ss=None):
         if self.is_enc:
             for fun in self.funs:
-                x = fun(x)
+                x = fun(x, ss=ss)
         else:
             for fun in reversed(self.funs):
-                x = fun(x)                    
+                x = fun(x, ss=ss)                    
         return x

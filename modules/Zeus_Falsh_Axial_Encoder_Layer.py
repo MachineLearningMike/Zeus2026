@@ -137,6 +137,8 @@ class PositionalEncoding_Global_Axial(nn.Module):
         self.max_width = max_width
         self.dim = dim
         self.pe_type = pe_type
+        self.faster = True
+        self.pe = None
         
         if pe_type == "learnable":
             assert dim % 2 == 0
@@ -175,10 +177,10 @@ class PositionalEncoding_Global_Axial(nn.Module):
     
     def forward(self, x):
         B, H, W, C = x.shape
-        assert C == self.dim, f"Input dim {C} != model dim {self.dim}"
-        assert H <= self.max_height, f"Height {H} > max {self.max_height}"
-        assert W <= self.max_width, f"Width {W} > max {self.max_width}"
-        
+        # assert C == self.dim, f"Input dim {C} != model dim {self.dim}"
+        # assert H <= self.max_height, f"Height {H} > max {self.max_height}"
+        # assert W <= self.max_width, f"Width {W} > max {self.max_width}"
+
         pe_h = self.pe_h[:H, :].unsqueeze(1).expand(-1, W, -1)
         pe_w = self.pe_w[:W, :].unsqueeze(0).expand(H, -1, -1)
         pe = torch.cat([pe_h, pe_w], dim=-1).unsqueeze(0)
@@ -249,9 +251,9 @@ class PositionalEncoding_Global_Global(nn.Module):
     def forward(self, x):
         """Add positional encoding to input tensor."""
         B, H, W, C = x.shape
-        assert C == self.dim, f"Input dim {C} != model dim {self.dim}"
-        assert H <= self.max_height, f"Height {H} > max {self.max_height}"
-        assert W <= self.max_width, f"Width {W} > max {self.max_width}"
+        # assert C == self.dim, f"Input dim {C} != model dim {self.dim}"
+        # assert H <= self.max_height, f"Height {H} > max {self.max_height}"
+        # assert W <= self.max_width, f"Width {W} > max {self.max_width}"
         
         pe = self.pe[:, :H, :W, :]
         return x + pe.to(device=x.device, dtype=x.dtype)
@@ -410,10 +412,23 @@ class Flash_Axial_Encoder_Layer(nn.Module):
                 self.pos_encoding_w = PositionalEncoding_Axial_Axial(max_len=W, dim=d_model, pe_type=transFrom.petype.value)
             else: pass
             
+        elif transFrom.attnconn == AttnConn.Shift:
+
+            self.encoder_h = FlashEncoderLayer(d_model=d_model, num_heads=num_heads, dropout=dropout, use_flash=transFrom.flash.value, eps=eps)
+            self.encoder_w = FlashEncoderLayer(d_model=d_model, num_heads=num_heads, dropout=dropout, use_flash=transFrom.flash.value, eps=eps)
+
+            self.pos_encoding, self.pos_encoding_h, self.pos_encoding_w = None, None, None
+            if transFrom.peconn == PEConn.Global:
+                self.pos_encoding = PositionalEncoding_Axial_Global(max_height=H, max_width=W, dim=d_model, pe_type=transFrom.petype.value)
+            elif transFrom.peconn == PEConn.Axial:
+                self.pos_encoding_h = PositionalEncoding_Axial_Axial(max_len=H, dim=d_model, pe_type=transFrom.petype.value)
+                self.pos_encoding_w = PositionalEncoding_Axial_Axial(max_len=W, dim=d_model, pe_type=transFrom.petype.value)
+            else: pass
+            
         else: pass
 
 
-    def forward(self, x, mask=None):
+    def forward(self, x, mask=None, ss=False):
 
         B, H, W, C = x.shape
         assert H == self.H
