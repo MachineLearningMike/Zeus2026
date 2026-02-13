@@ -30,11 +30,11 @@ class uSide(nn.Module):
         self.dict = dict
         self.is_enc = is_enc
         
-        self.res, self.input_dim = dict['top_res'], dict['top_dim']
+        self.input_res, self.input_dim = dict['top_res'], dict['top_dim']
 
         #----------------------- Track and modify res and dim -------------------------------
         
-        res_enc_top, dim_enc_top = self.res, self.input_dim
+        res_enc_top, dim_enc_top = self.input_res, self.input_dim
        
         #--------------- Modify res_enc_top ----------
         res = res_enc_top
@@ -50,10 +50,13 @@ class uSide(nn.Module):
         elif dict['down_mersplit'] == Merge4.Dim4:
             res_divisor = [round(res_divisor[i] * 1 / PatchMergingPreserveInfo.res_multiplier[i]) for i in range(2)]
 
-        padding = [0 if res[i] % res_divisor[i] == 0 else res_divisor[i] - res[i] % res_divisor[i] for i in range(2)]
-        res_enc_top = [res_enc_top[i] + padding[i] for i in range(2)]
+        self.padding = [0 if res[i] % res_divisor[i] == 0 else res_divisor[i] - res[i] % res_divisor[i] for i in range(2)]
+        res_enc_top = [res_enc_top[i] + self.padding[i] for i in range(2)]
+        
+        for i in range(2):
+            if self.padding[i] != 0: print(f"------ Resolution {self.input_res[i]} is padded with {self.padding[i]}")
                        
-        #---------------- plan res and dim -----------------
+        #---------------- plan res and dim with modified res_enc_top and dim_enc_top -----------------
         dim_enc_down, res_enc_down = dim_enc_top, res_enc_top
         if dict['top_mersplit'] == Merge4.Dim2:
             dim_enc_down = round(dim_enc_down * PatchMergingReduceInfo.dim_multiplier)
@@ -118,12 +121,17 @@ class uSide(nn.Module):
         self.down_res =  res_dec_down
         self.down_dim =  dim_dec_down
 
+        #------------------------- Implement padding (in enc) and depadding (in dec)
+
+
+
         #-------------------------- square: (res, dim) to (res, dim)
         self.square = None
         if dict['square'] is not None:
             square_dict = dict['square']
             square_dict['res'] = res_for_square
             square_dict['dim'] = dim_for_square
+            square_dict['padding'] = self.padding
             self.square = uSquare(square_dict)
             
         #------------------------- elementary functions
@@ -133,6 +141,10 @@ class uSide(nn.Module):
             lambda x, ss: self.square(x, ss=ss) if self.square is not None else x,
             lambda x, ss: self.down_mersplit(x, ss=ss) if self.down_mersplit is not None else x
         ]
+
+        
+        
+        
 
     def forward(self, x, ss=None):
         if self.is_enc:
