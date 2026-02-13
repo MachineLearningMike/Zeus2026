@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-class PatchMergingReduceInfo(nn.Module):        
+class PatchMerging_2X_Dim(nn.Module):        
     anchor = 2
     res_multiplier = [1 / anchor, 1 / anchor]
     dim_multiplier = anchor
@@ -30,7 +30,7 @@ class PatchMergingReduceInfo(nn.Module):
         
         return x
 
-class PatchSplittingReduceInfo(nn.Module):
+class PatchSplitting_2X_Dim(nn.Module):
     anchor = 2        
     res_multiplier = [anchor, anchor]
     dim_multiplier = 1 / anchor
@@ -66,12 +66,12 @@ if __name__ == "__main__":
         print(f"Original tensor shape: {x.shape}")
         
         # Merge
-        merge = PatchMergingReduceInfo(dim=C, norm_layer=nn.Identity)  # Use Identity for testing
+        merge = PatchMerging_2X_Dim(dim=C, norm_layer=nn.Identity)  # Use Identity for testing
         x_merged = merge(x)
         print(f"\nMerged shape: {x_merged.shape}")
         
         # Split
-        split = PatchSplittingReduceInfo(dim=2*C)
+        split = PatchSplitting_2X_Dim(dim=2*C)
         x_restored = split(x_merged)
         print(f"\nRestored shape: {x_restored.shape}")
         
@@ -93,7 +93,7 @@ if __name__ == "__main__":
         print(f"Original tensor shape: {x.shape}")
         
         # Create merge with identity reduction
-        merge = PatchMergingReduceInfo(dim=C, norm_layer=nn.Identity)
+        merge = PatchMerging_2X_Dim(dim=C, norm_layer=nn.Identity)
         # Set reduction to identity (4C -> 2C identity would need a specific selection)
         # For testing purposes, let's make it select first 2C channels
         identity_matrix = torch.eye(4*C, 2*C)
@@ -103,7 +103,7 @@ if __name__ == "__main__":
         print(f"Merged shape: {x_merged.shape}")
         
         # Create split with identity expansion
-        split = PatchSplittingReduceInfo(dim=2*C)
+        split = PatchSplitting_2X_Dim(dim=2*C)
         # Set expansion to transpose of reduction
         split.expansion.weight.data = identity_matrix.transpose(0, 1)
         
@@ -129,16 +129,16 @@ if __name__ == "__main__":
         print(f"Input shape: {x.shape}")
         
         # Merge
-        merge = PatchMergingReduceInfo(dim=C)
+        merge = PatchMerging_2X_Dim(dim=C)
         x_merged = merge(x)
-        print(f"After PatchMergingReduceInfo: {x_merged.shape}")
+        print(f"After PatchMerging_2X_Dim: {x_merged.shape}")
         print(f"  Spatial: {H}x{W} -> {H//2}x{W//2}")
         print(f"  Channels: {C} -> {x_merged.shape[-1]}")
         
         # Split
-        split = PatchSplittingReduceInfo(dim=2*C)
+        split = PatchSplitting_2X_Dim(dim=2*C)
         x_restored = split(x_merged)
-        print(f"\nAfter PatchSplittingReduceInfo: {x_restored.shape}")
+        print(f"\nAfter PatchSplitting_2X_Dim: {x_restored.shape}")
         print(f"  Spatial: {H//2}x{W//2} -> {x_restored.shape[1]}x{x_restored.shape[2]}")
         print(f"  Channels: {x_merged.shape[-1]} -> {x_restored.shape[-1]}")
         

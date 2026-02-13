@@ -12,7 +12,7 @@ from modules.uNet import uNet
 # from modules.Flash_Nonlinear_Attention import PhysicalFlashAttention
 # from modules.Zeus_Axial_Non_Lin_Attn_From_Phys_FA_Axial import AxialFlashAttention
 from modules.Zeus_Axial_Attn_Phys_FA_Cross_PE import AxialFlashAttention
-from modules.PatchMergingtPreserveInfo import PatchMergingPreserveInfo, PatchSplittingPreserveInfo
+from modules.PatchMergingtPreserveInfo import PatchMerging_4X_Dim, PatchSplitting_4X_Dim
 from modules.utils import resize_continuous_bilinear_channel_wise_cylindric
 from modules.zeus_embed_cascade import Embed_Cascade
 from modules.zeus_embed_category import Embed_Category
@@ -100,8 +100,8 @@ class Zeus(nn.Module):
             drop = 0    
         )
         
-        self.patch_merger = PatchMergingPreserveInfo()
-        self.patch_splitter = PatchSplittingPreserveInfo()
+        self.patch_merger = PatchMerging_4X_Dim()
+        self.patch_splitter = PatchSplitting_4X_Dim()
         
         self.predict_fun_dict = None
         self.meteo_dims = len(self.pm.targetVariables)

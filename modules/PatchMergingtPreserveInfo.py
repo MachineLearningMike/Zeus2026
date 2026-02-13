@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch
 import torch.nn as nn
 
-class PatchMergingPreserveInfo(nn.Module):
+class PatchMerging_4X_Dim(nn.Module):
     anchor = 2
     res_multiplier = (1/anchor, 1/anchor)
     dim_multiplier = anchor ** 2
@@ -22,7 +22,7 @@ class PatchMergingPreserveInfo(nn.Module):
         x = x.view(B, H//2, W//2, 4 * C)
         return x
 
-class PatchSplittingPreserveInfo(nn.Module):
+class PatchSplitting_4X_Dim(nn.Module):
     anchor = 2    
     res_multiplier = (anchor, anchor)
     dim_multiplier = 1 / anchor**2
@@ -51,13 +51,13 @@ if __name__ == "__main__":
         print(x[0,:,:,0])
         
         # Merge
-        merge = PatchMergingPreserveInfo()
+        merge = PatchMerging_4X_Dim()
         x_merged = merge(x)
         print(f"\nMerged shape: {x_merged.shape}")
         print("Merged values at position (0,0):", x_merged[0,0,0])
         
         # Split
-        split = PatchSplittingPreserveInfo()
+        split = PatchSplitting_4X_Dim()
         x_restored = split(x_merged)
         print(f"\nRestored shape: {x_restored.shape}")
         print("Restored tensor:")

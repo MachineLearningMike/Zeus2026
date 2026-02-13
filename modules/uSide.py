@@ -13,8 +13,8 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.uSquare import uSquare
-from modules.PatchMergingtPreserveInfo import PatchMergingPreserveInfo, PatchSplittingPreserveInfo
-from modules.PatchMergingReduceInto import PatchMergingReduceInfo, PatchSplittingReduceInfo
+from modules.PatchMergingtPreserveInfo import PatchMerging_4X_Dim, PatchSplitting_4X_Dim
+from modules.PatchMergingReduceInto import PatchMerging_2X_Dim, PatchSplitting_2X_Dim
 
 class Merge4(Enum):
     Nothing = 0
@@ -41,14 +41,14 @@ class uSide(nn.Module):
         
         res_divisor = [1, 1]
         if dict['top_mersplit'] == Merge4.Dim2:
-            res_divisor = [round(res_divisor[i] * 1 / PatchMergingReduceInfo.res_multiplier[i]) for i in range(2)]
+            res_divisor = [round(res_divisor[i] * 1 / PatchMerging_2X_Dim.res_multiplier[i]) for i in range(2)]
         elif dict['top_mersplit'] == Merge4.Dim4:
-            res_divisor = [round(res_divisor[i] * 1 / PatchMergingPreserveInfo.res_multiplier[i]) for i in range(2)]
+            res_divisor = [round(res_divisor[i] * 1 / PatchMerging_4X_Dim.res_multiplier[i]) for i in range(2)]
 
         if dict['down_mersplit'] == Merge4.Dim2:
-            res_divisor = [round(res_divisor[i] * 1 / PatchMergingReduceInfo.res_multiplier[i]) for i in range(2)]
+            res_divisor = [round(res_divisor[i] * 1 / PatchMerging_2X_Dim.res_multiplier[i]) for i in range(2)]
         elif dict['down_mersplit'] == Merge4.Dim4:
-            res_divisor = [round(res_divisor[i] * 1 / PatchMergingPreserveInfo.res_multiplier[i]) for i in range(2)]
+            res_divisor = [round(res_divisor[i] * 1 / PatchMerging_4X_Dim.res_multiplier[i]) for i in range(2)]
 
         self.padding = [0 if res[i] % res_divisor[i] == 0 else res_divisor[i] - res[i] % res_divisor[i] for i in range(2)]
         res_enc_top = [res_enc_top[i] + self.padding[i] for i in range(2)]
@@ -59,36 +59,36 @@ class uSide(nn.Module):
         #---------------- plan res and dim with modified res_enc_top and dim_enc_top -----------------
         dim_enc_down, res_enc_down = dim_enc_top, res_enc_top
         if dict['top_mersplit'] == Merge4.Dim2:
-            dim_enc_down = round(dim_enc_down * PatchMergingReduceInfo.dim_multiplier)
-            res_enc_down = [round(res_enc_down[i] * PatchMergingReduceInfo.res_multiplier[i]) for i in range(2)]
+            dim_enc_down = round(dim_enc_down * PatchMerging_2X_Dim.dim_multiplier)
+            res_enc_down = [round(res_enc_down[i] * PatchMerging_2X_Dim.res_multiplier[i]) for i in range(2)]
         elif dict['top_mersplit'] == Merge4.Dim4:
-            dim_enc_down = round(dim_enc_down * PatchMergingPreserveInfo.dim_multiplier)
-            res_enc_down = [round(res_enc_down[i] * PatchMergingPreserveInfo.res_multiplier[i]) for i in range(2)]
+            dim_enc_down = round(dim_enc_down * PatchMerging_4X_Dim.dim_multiplier)
+            res_enc_down = [round(res_enc_down[i] * PatchMerging_4X_Dim.res_multiplier[i]) for i in range(2)]
 
             
         dim_dec_down, res_dec_down = dim_enc_down, res_enc_down
         if dict['down_mersplit'] == Merge4.Dim2:
-            dim_dec_down = round(dim_dec_down * PatchMergingReduceInfo.dim_multiplier)
-            res_dec_down = [round(res_dec_down[i] * PatchMergingReduceInfo.res_multiplier[i]) for i in range(2)]
+            dim_dec_down = round(dim_dec_down * PatchMerging_2X_Dim.dim_multiplier)
+            res_dec_down = [round(res_dec_down[i] * PatchMerging_2X_Dim.res_multiplier[i]) for i in range(2)]
         elif dict['down_mersplit'] == Merge4.Dim4:
-            dim_dec_down = round(dim_dec_down * PatchMergingPreserveInfo.dim_multiplier)
-            res_dec_down = [round(res_dec_down[i] * PatchMergingPreserveInfo.res_multiplier[i]) for i in range(2)]
+            dim_dec_down = round(dim_dec_down * PatchMerging_4X_Dim.dim_multiplier)
+            res_dec_down = [round(res_dec_down[i] * PatchMerging_4X_Dim.res_multiplier[i]) for i in range(2)]
 
         dim_dec_top, res_dec_top = dim_dec_down, res_dec_down
         if dict['down_mersplit'] == Merge4.Dim2:
-            dim_dec_top = round(dim_dec_top * PatchSplittingReduceInfo.dim_multiplier)
-            res_dec_top = [round(res_dec_top[i] * PatchSplittingReduceInfo.res_multiplier[i]) for i in range(2)]
+            dim_dec_top = round(dim_dec_top * PatchSplitting_2X_Dim.dim_multiplier)
+            res_dec_top = [round(res_dec_top[i] * PatchSplitting_2X_Dim.res_multiplier[i]) for i in range(2)]
         elif dict['down_mersplit'] == Merge4.Dim4:
-            dim_dec_top = round(dim_dec_top * PatchSplittingPreserveInfo.dim_multiplier)
-            res_dec_top = [round(res_dec_top[i] * PatchSplittingPreserveInfo.res_multiplier[i]) for i in range(2)]
+            dim_dec_top = round(dim_dec_top * PatchSplitting_4X_Dim.dim_multiplier)
+            res_dec_top = [round(res_dec_top[i] * PatchSplitting_4X_Dim.res_multiplier[i]) for i in range(2)]
 
         dim_enc_top_back, res_enc_top_back = dim_dec_top, res_dec_top
         if dict['top_mersplit'] == Merge4.Dim2:
-            dim_enc_top_back = round(dim_enc_top_back * PatchSplittingReduceInfo.dim_multiplier)
-            res_enc_top_back = [round(res_enc_top_back[i] * PatchSplittingReduceInfo.res_multiplier[i]) for i in range(2)]
+            dim_enc_top_back = round(dim_enc_top_back * PatchSplitting_2X_Dim.dim_multiplier)
+            res_enc_top_back = [round(res_enc_top_back[i] * PatchSplitting_2X_Dim.res_multiplier[i]) for i in range(2)]
         elif dict['top_mersplit'] == Merge4.Dim4:
-            dim_enc_top_back = round(dim_enc_top_back * PatchSplittingPreserveInfo.dim_multiplier)
-            res_enc_top_back = [round(res_enc_top_back[i] * PatchSplittingPreserveInfo.res_multiplier[i]) for i in range(2)]
+            dim_enc_top_back = round(dim_enc_top_back * PatchSplitting_4X_Dim.dim_multiplier)
+            res_enc_top_back = [round(res_enc_top_back[i] * PatchSplitting_4X_Dim.res_multiplier[i]) for i in range(2)]
             
         assert dim_enc_top == dim_enc_top_back
         assert res_enc_top[0] == res_enc_top_back[0] and res_enc_top[1] == res_enc_top_back[1]      # Fails if dict['top_res'] has an odd number.
@@ -97,18 +97,18 @@ class uSide(nn.Module):
         
         self.top_mersplit = None
         if dict['top_mersplit'] == Merge4.Dim2:
-            self.top_mersplit = PatchMergingReduceInfo(dim_enc_top) if is_enc else PatchSplittingReduceInfo(dim_dec_top)
+            self.top_mersplit = PatchMerging_2X_Dim(dim_enc_top) if is_enc else PatchSplitting_2X_Dim(dim_dec_top)
         elif dict['top_mersplit'] == Merge4.Dim4:
-            self.top_mersplit = PatchMergingPreserveInfo() if is_enc else PatchSplittingPreserveInfo()
+            self.top_mersplit = PatchMerging_4X_Dim() if is_enc else PatchSplitting_4X_Dim()
         else:
             pass
         
         #-------------------------- down_mersplit, Luck, it's resolution-agnostic
         self.down_mersplit = None
         if dict['down_mersplit'] == Merge4.Dim2:
-            self.down_mersplit = PatchMergingReduceInfo(dim_enc_down) if is_enc else PatchSplittingReduceInfo(dim_dec_down)
+            self.down_mersplit = PatchMerging_2X_Dim(dim_enc_down) if is_enc else PatchSplitting_2X_Dim(dim_dec_down)
         elif dict['down_mersplit'] == Merge4.Dim4:
-            self.down_mersplit = PatchMergingPreserveInfo() if is_enc else PatchSplittingPreserveInfo()
+            self.down_mersplit = PatchMerging_4X_Dim() if is_enc else PatchSplitting_4X_Dim()
         else:
             pass
 
