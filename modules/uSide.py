@@ -15,11 +15,13 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 from modules.uSquare import uSquare
 from modules.PatchMergingtPreserveInfo import PatchMerging_4X_Dim, PatchSplitting_4X_Dim
 from modules.PatchMergingReduceInto import PatchMerging_2X_Dim, PatchSplitting_2X_Dim
+from modules.Zeus_Interpolate import Interpolate_Down_1X_Dim, Interpolate_Up_1X_Dim
 
 class Merge4(Enum):
     Nothing = 0
     Dim4 = 1
     Dim2 = 3
+    Dim1 = 4
 
 class uSide(nn.Module):
     """
@@ -36,21 +38,39 @@ class uSide(nn.Module):
         
         res_enc_top, dim_enc_top = self.input_res, self.input_dim
        
+        #------------------------ create shortcuts ---
+        top_mersplit_class = None        
+        if dict['top_mersplit'] == Merge4.Dim2:
+            top_mersplit_class = PatchMerging_2X_Dim
+        elif dict['top_mersplit'] == Merge4.Dim4:
+            top_mersplit_class = PatchMerging_4X_Dim
+        elif dict['top_mersplit'] == Merge4.Dim1:
+            top_mersplit_class = Interpolate_Down_1X_Dim
+
+        top_mersplit_res_multiplier = top_mersplit_class.res_multiplier if top_mersplit_class is not None else [1, 1]
+        top_mersplit_dim_multiplier = top_mersplit_class.dim_multiplier if top_mersplit_class is not None else 1
+
+        down_mersplit_class = None
+        if dict['down_mersplit'] == Merge4.Dim2:
+            down_mersplit_class = PatchMerging_2X_Dim
+        elif dict['down_mersplit'] == Merge4.Dim4:
+            down_mersplit_class = PatchMerging_4X_Dim
+        elif dict['down_mersplit'] == Merge4.Dim1:
+            down_mersplit_class = Interpolate_Down_1X_Dim
+
+        down_mersplit_res_multiplier = down_mersplit_class.res_multiplier if down_mersplit_class is not None else [1, 1]
+        down_mersplit_dim_multiplier = down_mersplit_class.dim_multiplier if down_mersplit_class is not None else 1
+
         #--------------- Modify res_enc_top ----------
         res = res_enc_top
         
         res_divisor = [1, 1]
-        if dict['top_mersplit'] == Merge4.Dim2:
-            res_divisor = [round(res_divisor[i] * 1 / PatchMerging_2X_Dim.res_multiplier[i]) for i in range(2)]
-        elif dict['top_mersplit'] == Merge4.Dim4:
-            res_divisor = [round(res_divisor[i] * 1 / PatchMerging_4X_Dim.res_multiplier[i]) for i in range(2)]
-
-        if dict['down_mersplit'] == Merge4.Dim2:
-            res_divisor = [round(res_divisor[i] * 1 / PatchMerging_2X_Dim.res_multiplier[i]) for i in range(2)]
-        elif dict['down_mersplit'] == Merge4.Dim4:
-            res_divisor = [round(res_divisor[i] * 1 / PatchMerging_4X_Dim.res_multiplier[i]) for i in range(2)]
+        res_divisor = [round(res_divisor[i] * 1 / top_mersplit_res_multiplier[i]) for i in range(2)]
+        res_divisor = [round(res_divisor[i] * 1 / down_mersplit_res_multiplier[i]) for i in range(2)]
 
         self.padding = [0 if res[i] % res_divisor[i] == 0 else res_divisor[i] - res[i] % res_divisor[i] for i in range(2)]
+        if not is_enc: self.padding = [- self.padding[i] for i in range(2)]
+
         res_enc_top = [res_enc_top[i] + self.padding[i] for i in range(2)]
         
         for i in range(2):
@@ -58,37 +78,20 @@ class uSide(nn.Module):
                        
         #---------------- plan res and dim with modified res_enc_top and dim_enc_top -----------------
         dim_enc_down, res_enc_down = dim_enc_top, res_enc_top
-        if dict['top_mersplit'] == Merge4.Dim2:
-            dim_enc_down = round(dim_enc_down * PatchMerging_2X_Dim.dim_multiplier)
-            res_enc_down = [round(res_enc_down[i] * PatchMerging_2X_Dim.res_multiplier[i]) for i in range(2)]
-        elif dict['top_mersplit'] == Merge4.Dim4:
-            dim_enc_down = round(dim_enc_down * PatchMerging_4X_Dim.dim_multiplier)
-            res_enc_down = [round(res_enc_down[i] * PatchMerging_4X_Dim.res_multiplier[i]) for i in range(2)]
-
+        dim_enc_down = round(dim_enc_down * top_mersplit_dim_multiplier)
+        res_enc_down = [round(res_enc_down[i] * top_mersplit_res_multiplier[i]) for i in range(2)]
             
         dim_dec_down, res_dec_down = dim_enc_down, res_enc_down
-        if dict['down_mersplit'] == Merge4.Dim2:
-            dim_dec_down = round(dim_dec_down * PatchMerging_2X_Dim.dim_multiplier)
-            res_dec_down = [round(res_dec_down[i] * PatchMerging_2X_Dim.res_multiplier[i]) for i in range(2)]
-        elif dict['down_mersplit'] == Merge4.Dim4:
-            dim_dec_down = round(dim_dec_down * PatchMerging_4X_Dim.dim_multiplier)
-            res_dec_down = [round(res_dec_down[i] * PatchMerging_4X_Dim.res_multiplier[i]) for i in range(2)]
+        dim_dec_down = round(dim_dec_down * down_mersplit_dim_multiplier)
+        res_dec_down = [round(res_dec_down[i] * down_mersplit_res_multiplier[i]) for i in range(2)]
 
         dim_dec_top, res_dec_top = dim_dec_down, res_dec_down
-        if dict['down_mersplit'] == Merge4.Dim2:
-            dim_dec_top = round(dim_dec_top * PatchSplitting_2X_Dim.dim_multiplier)
-            res_dec_top = [round(res_dec_top[i] * PatchSplitting_2X_Dim.res_multiplier[i]) for i in range(2)]
-        elif dict['down_mersplit'] == Merge4.Dim4:
-            dim_dec_top = round(dim_dec_top * PatchSplitting_4X_Dim.dim_multiplier)
-            res_dec_top = [round(res_dec_top[i] * PatchSplitting_4X_Dim.res_multiplier[i]) for i in range(2)]
+        dim_dec_top = round(dim_dec_top * 1 / down_mersplit_dim_multiplier)
+        res_dec_top = [round(res_dec_top[i] * 1 / down_mersplit_res_multiplier[i]) for i in range(2)]
 
         dim_enc_top_back, res_enc_top_back = dim_dec_top, res_dec_top
-        if dict['top_mersplit'] == Merge4.Dim2:
-            dim_enc_top_back = round(dim_enc_top_back * PatchSplitting_2X_Dim.dim_multiplier)
-            res_enc_top_back = [round(res_enc_top_back[i] * PatchSplitting_2X_Dim.res_multiplier[i]) for i in range(2)]
-        elif dict['top_mersplit'] == Merge4.Dim4:
-            dim_enc_top_back = round(dim_enc_top_back * PatchSplitting_4X_Dim.dim_multiplier)
-            res_enc_top_back = [round(res_enc_top_back[i] * PatchSplitting_4X_Dim.res_multiplier[i]) for i in range(2)]
+        dim_enc_top_back = round(dim_enc_top_back * 1 / top_mersplit_dim_multiplier)
+        res_enc_top_back = [round(res_enc_top_back[i] * 1 / top_mersplit_res_multiplier[i]) for i in range(2)]
             
         assert dim_enc_top == dim_enc_top_back
         assert res_enc_top[0] == res_enc_top_back[0] and res_enc_top[1] == res_enc_top_back[1]      # Fails if dict['top_res'] has an odd number.
@@ -100,6 +103,8 @@ class uSide(nn.Module):
             self.top_mersplit = PatchMerging_2X_Dim(dim_enc_top) if is_enc else PatchSplitting_2X_Dim(dim_dec_top)
         elif dict['top_mersplit'] == Merge4.Dim4:
             self.top_mersplit = PatchMerging_4X_Dim() if is_enc else PatchSplitting_4X_Dim()
+        elif dict['top_mersplit'] == Merge4.Dim1:
+            self.top_mersplit = Interpolate_Down_1X_Dim() if is_enc else Interpolate_Up_1X_Dim()
         else:
             pass
         
@@ -109,6 +114,8 @@ class uSide(nn.Module):
             self.down_mersplit = PatchMerging_2X_Dim(dim_enc_down) if is_enc else PatchSplitting_2X_Dim(dim_dec_down)
         elif dict['down_mersplit'] == Merge4.Dim4:
             self.down_mersplit = PatchMerging_4X_Dim() if is_enc else PatchSplitting_4X_Dim()
+        elif dict['down_mersplit'] == Merge4.Dim1:
+            self.down_mersplit = Interpolate_Down_1X_Dim() if is_enc else Interpolate_Up_1X_Dim()
         else:
             pass
 
@@ -137,6 +144,7 @@ class uSide(nn.Module):
         #------------------------- elementary functions
 
         self.funs = [
+            # implement self.padding here
             lambda x, ss: self.top_mersplit(x, ss=ss) if self.top_mersplit is not None else x,
             lambda x, ss: self.square(x, ss=ss) if self.square is not None else x,
             lambda x, ss: self.down_mersplit(x, ss=ss) if self.down_mersplit is not None else x
@@ -147,6 +155,8 @@ class uSide(nn.Module):
         
 
     def forward(self, x, ss=None):
+        
+        
         if self.is_enc:
             for fun in self.funs:
                 x = fun(x, ss=ss)
