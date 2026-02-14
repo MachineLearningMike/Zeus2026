@@ -13,8 +13,8 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.uSquare import uSquare
-from modules.PatchMergingtPreserveInfo import PatchMerging_4X_Dim, PatchSplitting_4X_Dim
-from modules.PatchMergingReduceInto import PatchMerging_2X_Dim, PatchSplitting_2X_Dim
+from modules.Resize_2X_4X import PatchMerging_4X_Dim, PatchSplitting_4X_Dim
+from modules.Resize_2X_2X import PatchMerging_2X_Dim, PatchSplitting_2X_Dim
 from modules.Zeus_Interpolate import Interpolate_Down_1X_Dim, Interpolate_Up_1X_Dim
 
 class Merge4(Enum):
@@ -47,8 +47,8 @@ class uSide(nn.Module):
         elif dict['top_mersplit'] == Merge4.Dim1:
             top_mersplit_class = Interpolate_Down_1X_Dim
 
-        top_mersplit_res_multiplier = top_mersplit_class.res_multiplier if top_mersplit_class is not None else [1, 1]
-        top_mersplit_dim_multiplier = top_mersplit_class.dim_multiplier if top_mersplit_class is not None else 1
+        top_ms_res_mul = top_mersplit_class.res_multiplier if top_mersplit_class is not None else [1, 1]
+        top_ms_dim_mul = top_mersplit_class.dim_multiplier if top_mersplit_class is not None else 1
 
         down_mersplit_class = None
         if dict['down_mersplit'] == Merge4.Dim2:
@@ -58,40 +58,52 @@ class uSide(nn.Module):
         elif dict['down_mersplit'] == Merge4.Dim1:
             down_mersplit_class = Interpolate_Down_1X_Dim
 
-        down_mersplit_res_multiplier = down_mersplit_class.res_multiplier if down_mersplit_class is not None else [1, 1]
-        down_mersplit_dim_multiplier = down_mersplit_class.dim_multiplier if down_mersplit_class is not None else 1
+        down_ms_res_mul = down_mersplit_class.res_multiplier if down_mersplit_class is not None else [1, 1]
+        down_ms_dim_mul = down_mersplit_class.dim_multiplier if down_mersplit_class is not None else 1
 
-        #--------------- Modify res_enc_top ----------
-        res = res_enc_top
+        #--------------- Planning for res and dim ----------
+
+        # dim_enc_top, res_enc_top ----- virtual input to enc_top
         
-        res_divisor = [1, 1]
-        res_divisor = [round(res_divisor[i] * 1 / top_mersplit_res_multiplier[i]) for i in range(2)]
-        res_divisor = [round(res_divisor[i] * 1 / down_mersplit_res_multiplier[i]) for i in range(2)]
+        divisor = [1, 1]
+        divisor = [round(divisor[i] * 1 / top_ms_res_mul[i]) for i in range(2)]
+        pad = [0 if res_enc_top[i] % divisor[i] == 0 else divisor[i] - res_enc_top[i] % divisor[i] for i in range(2)]
+        assert sum(pad) == 0
 
-        self.padding = [0 if res[i] % res_divisor[i] == 0 else res_divisor[i] - res[i] % res_divisor[i] for i in range(2)]
-        if not is_enc: self.padding = [- self.padding[i] for i in range(2)]
-
-        res_enc_top = [res_enc_top[i] + self.padding[i] for i in range(2)]
-        
-        for i in range(2):
-            if self.padding[i] != 0: print(f"------ Resolution {self.input_res[i]} is padded with {self.padding[i]}")
-                       
-        #---------------- plan res and dim with modified res_enc_top and dim_enc_top -----------------
+        # dim_enc_top, res_enc_top ------ actual input to enc_top
+                
         dim_enc_down, res_enc_down = dim_enc_top, res_enc_top
-        dim_enc_down = round(dim_enc_down * top_mersplit_dim_multiplier)
-        res_enc_down = [round(res_enc_down[i] * top_mersplit_res_multiplier[i]) for i in range(2)]
-            
+        dim_enc_down = round(dim_enc_down * top_ms_dim_mul)
+        res_enc_down = [round(res_enc_down[i] * top_ms_res_mul[i]) for i in range(2)]
+        
+        # dim_enc_down, res_enc_down ----- actual output from enc_top, virtual input to enc_down
+
+        divisor = [1, 1]
+        divisor = [round(divisor[i] * 1 / down_ms_res_mul[i]) for i in range(2)]
+        pad = [0 if res_enc_down[i] % divisor[i] == 0 else divisor[i] - res_enc_down[i] % divisor[i] for i in range(2)]
+        assert sum(pad) == 0
+        
+        # dim_enc_down, res_enc_down ----- actual input to enc_down
+        
         dim_dec_down, res_dec_down = dim_enc_down, res_enc_down
-        dim_dec_down = round(dim_dec_down * down_mersplit_dim_multiplier)
-        res_dec_down = [round(res_dec_down[i] * down_mersplit_res_multiplier[i]) for i in range(2)]
+        dim_dec_down = round(dim_dec_down * down_ms_dim_mul)
+        res_dec_down = [round(res_dec_down[i] * down_ms_res_mul[i]) for i in range(2)]
+
+        # dim_dec_down, res_dec_down ----- actual output from inc_down, virtual input to dec_down
+
+        # dim_dec_down, res_dec_down ----- actual input to dec_down
 
         dim_dec_top, res_dec_top = dim_dec_down, res_dec_down
-        dim_dec_top = round(dim_dec_top * 1 / down_mersplit_dim_multiplier)
-        res_dec_top = [round(res_dec_top[i] * 1 / down_mersplit_res_multiplier[i]) for i in range(2)]
+        dim_dec_top = round(dim_dec_top * 1 / down_ms_dim_mul)
+        res_dec_top = [round(res_dec_top[i] * 1 / down_ms_res_mul[i]) for i in range(2)]
+
+        # dim_dec_top, res_dec_top ----- actual output from down_dec, virtual input to dec_top
+
+        # dim_dec_top, res_dec_top ----- actual input to dec_top
 
         dim_enc_top_back, res_enc_top_back = dim_dec_top, res_dec_top
-        dim_enc_top_back = round(dim_enc_top_back * 1 / top_mersplit_dim_multiplier)
-        res_enc_top_back = [round(res_enc_top_back[i] * 1 / top_mersplit_res_multiplier[i]) for i in range(2)]
+        dim_enc_top_back = round(dim_enc_top_back * 1 / top_ms_dim_mul)
+        res_enc_top_back = [round(res_enc_top_back[i] * 1 / top_ms_res_mul[i]) for i in range(2)]
             
         assert dim_enc_top == dim_enc_top_back
         assert res_enc_top[0] == res_enc_top_back[0] and res_enc_top[1] == res_enc_top_back[1]      # Fails if dict['top_res'] has an odd number.
@@ -138,7 +150,7 @@ class uSide(nn.Module):
             square_dict = dict['square']
             square_dict['res'] = res_for_square
             square_dict['dim'] = dim_for_square
-            square_dict['padding'] = self.padding
+            square_dict['padding'] = 0          #----------------
             self.square = uSquare(square_dict)
             
         #------------------------- elementary functions
