@@ -1869,10 +1869,10 @@ projects["Zeus_uNet_Feb14"] = {    #--------------------------------------------
 
         'block_dicts' : [
             # block and side
-            {
+            {   #---------------------------------- block 1
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Merge4.Nothing,
-                'down_mersplit': Merge4.Dim2,
+                'down_mersplit': Merge4.Dim2, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -1881,10 +1881,10 @@ projects["Zeus_uNet_Feb14"] = {    #--------------------------------------------
                     'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes),
                 },
             },
-            {
+            {   #---------------------------------- block 2
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Merge4.Nothing,
-                'down_mersplit': Merge4.Dim2,
+                'down_mersplit': Merge4.Dim2, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -1893,10 +1893,10 @@ projects["Zeus_uNet_Feb14"] = {    #--------------------------------------------
                     'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes),
                 },
             },
-            {
+            {   #---------------------------------- block 3
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Merge4.Nothing,
-                'down_mersplit': Merge4.Dim1,
+                'down_mersplit': Merge4.Dim1, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -1905,7 +1905,31 @@ projects["Zeus_uNet_Feb14"] = {    #--------------------------------------------
                     'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes),     # Flash.No: 2.72 s, Flash.No 1.99 s
                 },
             },
-            {
+            {   #---------------------------------- block 4
+                # managed: 'top_res', 'top_dim'
+                'top_mersplit': Merge4.Nothing,
+                'down_mersplit': Merge4.Dim1, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,
+                    'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
+                    'nLayers' : 3,
+                    'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes),     # Flash.No: 2.72 s, Flash.No 1.99 s
+                },
+            },
+            {   #---------------------------------- block 5
+                # managed: 'top_res', 'top_dim'
+                'top_mersplit': Merge4.Nothing,
+                'down_mersplit': Merge4.Dim1, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,
+                    'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
+                    'nLayers' : 3,
+                    'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes),     # Flash.No: 2.72 s, Flash.No 1.99 s
+                },
+            },
+            {   #---------------------------------- block 6
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Merge4.Nothing,
                 'down_mersplit': Merge4.Nothing,
@@ -1929,7 +1953,7 @@ projects["Zeus_uNet_Feb14"] = {    #--------------------------------------------
 
 #-------------------------------- select proejct -----------------------
 
-project = "Zeus_uNet_Feb12" # "Zeus_26Feb09" # "Zeus_uNet_Feb12"   # "Zeus_Swin_25Dec25_2"
+project = "Zeus_uNet_Feb14" # "Zeus_26Feb09" # "Zeus_uNet_Feb12"   # "Zeus_Swin_25Dec25_2"
 config["bayesProject"] = project
 # updata 'management'
 config.update(projects[project]["management"])

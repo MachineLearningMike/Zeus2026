@@ -2,16 +2,23 @@ import torch
 import torch.nn as nn
 
 class PatchMerging_2X_Dim(nn.Module):        
-    anchor: int = 2
-    res_multiplier = [1 / anchor, 1 / anchor]
-    dim_multiplier: int = anchor
+   
+    @staticmethod
+    def get_output_shape(input_shape, nWin, pWin):
+        # Do not attempt to add padding !!!
+        in_res, in_dim = input_shape
+        assert in_res[0] % 2 == 0 and in_res[1] % 2 == 0, "Input must have even resolution."
+        out_res = tuple([in_res[i] // 2 for i in range(2)])
+        assert out_res[0] % nWin[0] == 0 and out_res[1] % nWin[1] == 0, f"Output must have exactly {nWin} windows."
+        assert out_res[0] % pWin == 0 and out_res[1] % pWin == 0, f"Output must be divisible with {pWin}."
+        out_dim = in_dim * 2
+        return (out_res, out_dim)
     
-    def __init__(self, dim, norm_layer=nn.LayerNorm):
+    def __init__(self, dim, output_shape=None):
         super().__init__()
         self.dim = dim
 
-        self.norm = norm_layer(self.anchor ** 2 * dim)        
-        self.reduction = nn.Linear(self.anchor ** 2 * dim, self.anchor * dim, bias=False)
+        self.reduction = nn.Linear(2 ** 2 * dim, 2 * dim, bias=False)
         
     def forward(self, x, ss=None):
         B, H, W, C = x.shape
@@ -21,26 +28,31 @@ class PatchMerging_2X_Dim(nn.Module):
         x = x.view(B, H//2, 2, W//2, 2, C)
         x = x.permute(0, 1, 3, 2, 4, 5).contiguous()
         x = x.view(B, H//2, W//2, 4 * C)  # Fixed: W//2 instead of W/2
-        
-        # Apply norm
-        x = self.norm(x)
-        
+                
         # Reduce dimension: (B, H/2, W/2, 4C) -> (B, H/2, W/2, 2C)
         x = self.reduction(x)
         
         return x
 
 class PatchSplitting_2X_Dim(nn.Module):
-    anchor: int = 2        
-    res_multiplier: int = [anchor, anchor]
-    dim_multiplier = 1 / anchor
 
-    def __init__(self, dim):
+    @staticmethod
+    def get_output_shape(input_shape, nWin, pWin):
+        # Do not attempt to add padding !!!
+        in_res, in_dim = input_shape
+        assert in_dim % 2 == 0 , "Input must have even dimensions."
+        out_res = tuple([in_res[i] * 2 for i in range(2)])
+        assert out_res[0] % nWin[0] == 0 and out_res[1] % nWin[1] == 0, f"Output must have exactly {nWin} windows."
+        assert out_res[0] % pWin == 0 and out_res[1] % pWin == 0, f"Output must be divisible with {pWin}."
+        out_dim = in_dim // 2
+        return (out_res, out_dim)
+
+    def __init__(self, dim, output_shape=None):
         super().__init__()
         self.dim = dim
         
         # Inverse of the linear projection: expand from 2*dim to 4*dim
-        self.expansion = nn.Linear(dim, self.anchor * dim, bias=False)
+        self.expansion = nn.Linear(dim, 2 * dim, bias=False)
 
     def forward(self, x, ss=None):
         B, H, W, C = x.shape       

@@ -3,24 +3,35 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from pathlib import Path
+import sys
+sys.path.append(str(Path(__file__).resolve().parent.parent))
+
+from modules.Resize_halve_flexibly import halve_window_size_optimized_flexibly
+
 class Interpolate_Down_1X_Dim(nn.Module):
-    anchor = 2
-    res_multiplier = [1 / anchor, 1 / anchor]   # clients should use math.ceil(res * res_multiplier)
-    dim_multiplier = 1
     
-    def __init__(self):
+    @staticmethod
+    def get_output_shape(input_shape, nWin, pWin):
+        # Do not attempt to add padding !!!
+        in_res, in_dim = input_shape
+        out_res = halve_window_size_optimized_flexibly(in_res, nWin, pWin)
+        out_dim = in_dim
+        return (out_res, out_dim)
+    
+    def __init__(self, dim, output_shape):
         super().__init__()
-        self.original_size = None
-        self.target_size = None
+        self.output_shape = output_shape
         
     def forward(self, x, ss=None):
         B, H, W, C = x.shape
         self.original_size = (H, W)
-        self.target_size = (math.ceil(H / self.anchor), math.ceil(W / self.anchor))
+
+        target_size, _ = self.output_shape
         
         # Convert to (B, C, H, W) for interpolate
         x_permuted = x.permute(0, 3, 1, 2)
-        x_down = resize_continuous_bilinear_channel_wise_cylindric(x_permuted, self.target_size)
+        x_down = resize_continuous_bilinear_channel_wise_cylindric(x_permuted, target_size)
         
         # Convert back to (B, H, W, C)
         x_down = x_down.permute(0, 2, 3, 1)
@@ -28,37 +39,19 @@ class Interpolate_Down_1X_Dim(nn.Module):
         return x_down
 
 class Interpolate_Up_1X_Dim(nn.Module):
-    anchor = 2
-    res_multiplier = [anchor, anchor]   # clients should use math.ceil(res * res_multiplier)
-    dim_multiplier = 1
 
-    def __init__(self, down_layer=None):
-        """
-        Args:
-            down_layer: The corresponding Interpolate_Down_1X_Dim layer (optional)
-        """
+    def __init__(self, dim, output_shape):
         super().__init__()
-        self.original_size = None
-        self.target_size = None
-        self.down_layer = down_layer
+        self.output_shape = output_shape
         
     def forward(self, x, ss=None):
         B, H, W, C = x.shape
         
-        # Use the down layer's original size as target for perfect reconstruction
-        if self.down_layer is not None and self.down_layer.original_size is not None:
-            # This ensures level-wise shape matching
-            target_res = self.down_layer.original_size
-        else:
-            # Fallback - but this shouldn't happen in a paired network
-            target_res = (math.ceil(H * self.anchor), math.ceil(W * self.anchor))
-        
-        self.target_size = target_res
-        self.original_size = (H, W)
+        target_size, _ = self.output_shape
         
         # Convert to (B, C, H, W) for interpolate
         x_permuted = x.permute(0, 3, 1, 2)
-        x_up = resize_continuous_bilinear_channel_wise_cylindric(x_permuted, target_res)
+        x_up = resize_continuous_bilinear_channel_wise_cylindric(x_permuted, target_size)
         
         # Convert back to (B, H, W, C)
         x_up = x_up.permute(0, 2, 3, 1)

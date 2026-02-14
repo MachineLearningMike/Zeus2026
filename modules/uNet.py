@@ -29,6 +29,7 @@ class uNet(nn.Module):
             block_dict['top_dim'] = dim
             block_dict['top_res'] = res     # top_res might be modified internally.
 
+            print(f"Creating block with resolution {res} and dim {dim}...")
             block = uBlock(block_dict)
             self.uBlocks.append(block)
 
@@ -60,7 +61,7 @@ if __name__ == "__main__":
         {
             # managed: 'top_res', 'top_dim'
             'top_mersplit': Merge4.Nothing,
-            'down_mersplit': Merge4.Dim2,
+            'down_mersplit': Merge4.Dim2, 'down_nWin': [1, 2], 'down_pWin': 1,
             'square' : {
                 # managed: 'res', 'dim'
                 'num_heads' : 8,
@@ -72,7 +73,7 @@ if __name__ == "__main__":
         {
             # managed: 'top_res', 'top_dim'
             'top_mersplit': Merge4.Nothing,
-            'down_mersplit': Merge4.Dim2,
+            'down_mersplit': Merge4.Dim2, 'down_nWin': [1, 2], 'down_pWin': 1,
             'square' : {
                 # managed: 'res', 'dim'
                 'num_heads' : 8,

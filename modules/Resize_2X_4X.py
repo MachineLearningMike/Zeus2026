@@ -5,11 +5,19 @@ import torch
 import torch.nn as nn
 
 class PatchMerging_4X_Dim(nn.Module):
-    anchor: int = 2
-    res_multiplier = [1/anchor, 1/anchor]
-    dim_multiplier: int = anchor ** 2
+    
+    @staticmethod
+    def get_output_shape(input_shape, nWin, pWin):
+        # Do not attempt to add padding !!!
+        in_res, in_dim = input_shape
+        assert in_res[0] % 2 == 0 and in_res[1] % 2 == 0, "Input must have even resolution."
+        out_res = tuple([in_res[i] // 2 for i in range(2)])
+        assert out_res[0] % nWin[0] == 0 and out_res[1] % nWin[1] == 0, f"Output must have exactly {nWin} windows."
+        assert out_res[0] % pWin == 0 and out_res[1] % pWin == 0, f"Output must be divisible with {pWin}."
+        out_dim = in_dim * 4
+        return (out_res, out_dim)
 
-    def __init__(self):
+    def __init__(self, dim, output_shape=None):
         super().__init__()        
         # Temporarily remove norm for exact inversion test
         # self.norm = norm_layer(4 * dim)
@@ -23,11 +31,19 @@ class PatchMerging_4X_Dim(nn.Module):
         return x
 
 class PatchSplitting_4X_Dim(nn.Module):
-    anchor: int = 2    
-    res_multiplier: int = [anchor, anchor]
-    dim_multiplier = 1 / anchor**2
 
-    def __init__(self):
+    @staticmethod
+    def get_output_shape(input_shape, nWin, pWin):
+        # Do not attempt to add padding !!!
+        in_res, in_dim = input_shape
+        assert in_dim % 2 == 0 , "Input must have even dimensions."
+        out_res = tuple([in_res[i] * 2 for i in range(2)])
+        assert out_res[0] % nWin[0] == 0 and out_res[1] % nWin[1] == 0, f"Output must have exactly {nWin} windows."
+        assert out_res[0] % pWin == 0 and out_res[1] % pWin == 0, f"Output must be divisible with {pWin}."
+        out_dim = in_dim // 4
+        return (out_res, out_dim)
+
+    def __init__(self, dim, output_shape=None):
         super().__init__()
     
     def forward(self, x, ss=None):

@@ -100,8 +100,8 @@ class Zeus(nn.Module):
             drop = 0    
         )
         
-        self.patch_merger = PatchMerging_4X_Dim()
-        self.patch_splitter = PatchSplitting_4X_Dim()
+        self.patch_merger = PatchMerging_4X_Dim(self.C)
+        self.patch_splitter = PatchSplitting_4X_Dim(self.C)
         
         self.predict_fun_dict = None
         self.meteo_dims = len(self.pm.targetVariables)
