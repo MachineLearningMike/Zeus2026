@@ -13,9 +13,10 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.uSquare import uSquare
-from modules.Resize_2X_4X import PatchMerging_4X_Dim, PatchSplitting_4X_Dim
-from modules.Resize_2X_2X import PatchMerging_2X_Dim, PatchSplitting_2X_Dim
-from modules.Resize_XX_1X import Interpolate_Down_1X_Dim, Interpolate_Up_1X_Dim
+from modules.Resize_R_Half_D_4X import PatchMerging_4X_Dim, PatchSplitting_4X_Dim
+from modules.Reshape_R_Half_D_2X import PatchMerging_2X_Dim, PatchSplitting_2X_Dim
+from modules.Resize_R_Half_Flex_D_1X_Interpol import Interpolate_Down_1X_Dim, Interpolate_Up_1X_Dim
+from modules.Resize_R_Half_Flex_D_1X_MHA import EmbeddedQuery_MHA_Down_1X_Dim, EmbeddedQuery_MHA_Up_1X_Dim
 
 class Reshape(Enum):
     Nothing = 0
@@ -43,6 +44,8 @@ class uSide(nn.Module):
             enc_top_mersplit_class = PatchMerging_4X_Dim
         elif dict['top_mersplit'] == Reshape.R_Any_D_1X:
             enc_top_mersplit_class = Interpolate_Down_1X_Dim
+        elif dict['top_mersplit'] == Reshape.R_Any_MHA:
+            enc_top_mersplit_class = EmbeddedQuery_MHA_Down_1X_Dim
 
         enc_down_mersplit_class = None
         if dict['down_mersplit'] == Reshape.R_2X_D_2X:
@@ -51,7 +54,8 @@ class uSide(nn.Module):
             enc_down_mersplit_class = PatchMerging_4X_Dim
         elif dict['down_mersplit'] == Reshape.R_Any_D_1X:
             enc_down_mersplit_class = Interpolate_Down_1X_Dim
-
+        elif dict['down_mersplit'] == Reshape.R_Any_MHA:
+            enc_down_mersplit_class = EmbeddedQuery_MHA_Down_1X_Dim
 
         dec_top_mersplit_class = None
         if dict['top_mersplit'] == Reshape.R_2X_D_2X:
@@ -60,6 +64,8 @@ class uSide(nn.Module):
             dec_top_mersplit_class = PatchSplitting_4X_Dim
         elif dict['top_mersplit'] == Reshape.R_Any_D_1X:
             dec_top_mersplit_class = Interpolate_Up_1X_Dim
+        elif dict['top_mersplit'] == Reshape.R_Any_MHA:
+            dec_top_mersplit_class = EmbeddedQuery_MHA_Up_1X_Dim
 
         dec_down_mersplit_class = None
         if dict['down_mersplit'] == Reshape.R_2X_D_2X:
@@ -68,6 +74,8 @@ class uSide(nn.Module):
             dec_down_mersplit_class = PatchSplitting_4X_Dim
         elif dict['down_mersplit'] == Reshape.R_Any_D_1X:
             dec_down_mersplit_class = Interpolate_Up_1X_Dim
+        elif dict['down_mersplit'] == Reshape.R_Any_MHA:
+            dec_down_mersplit_class = EmbeddedQuery_MHA_Up_1X_Dim
 
         #--------------- Planning for res and dim ----------
         enc_top_input_shape = (dict['top_res'], dict['top_dim'])
@@ -131,12 +139,7 @@ class uSide(nn.Module):
             lambda x, ss: self.down_mersplit(x, ss=ss) if self.down_mersplit is not None else x
         ]
 
-        
-        
-        
-
     def forward(self, x, ss=None):
-        
         
         if self.is_enc:
             for fun in self.funs:

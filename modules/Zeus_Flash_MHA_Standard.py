@@ -51,6 +51,8 @@ class FlashMultiHeadAttention(nn.Module):
 
         if self.use_flash:
             assert mask is None
+            assert Q.is_contiguous() and K.is_contiguous() and V.is_contiguous()
+            
             att_out = flash_attn_func(Q, K, V, dropout_p=0.0, softmax_scale=softmax_scale, causal=False)    # (B, seq_len, num_heads, head_dim)
             if not att_out.is_contiguous(): att_out = att_out.contiguous()
             

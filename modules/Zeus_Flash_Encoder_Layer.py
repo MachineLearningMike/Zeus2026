@@ -42,7 +42,7 @@ class PositionwiseFeedForward(nn.Module):
         return x
 
 
-from modules.Zeus_Flash_Multihead_Attention import FlashMultiHeadAttention
+from modules.Zeus_Flash_MHA_Standard import FlashMultiHeadAttention
 
 class FlashEncoderLayer(nn.Module):
     def __init__(self, d_model, num_heads, dropout=0, use_flash=False, eps=1e-9):

@@ -7,7 +7,7 @@ from pathlib import Path
 import sys
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from modules.Resize_halve_flexibly import halve_window_size_optimized_flexibly
+from modules.Reshape_Half_Flex import halve_window_size_optimized_flexibly
 
 class Interpolate_Down_1X_Dim(nn.Module):
     
@@ -25,7 +25,6 @@ class Interpolate_Down_1X_Dim(nn.Module):
         
     def forward(self, x, ss=None):
         B, H, W, C = x.shape
-        self.original_size = (H, W)
 
         target_size, _ = self.output_shape
         
