@@ -17,11 +17,12 @@ from modules.Resize_2X_4X import PatchMerging_4X_Dim, PatchSplitting_4X_Dim
 from modules.Resize_2X_2X import PatchMerging_2X_Dim, PatchSplitting_2X_Dim
 from modules.Resize_XX_1X import Interpolate_Down_1X_Dim, Interpolate_Up_1X_Dim
 
-class Merge4(Enum):
+class Reshape(Enum):
     Nothing = 0
-    Dim4 = 1
-    Dim2 = 3
-    Dim1 = 4
+    R_2X_D_4X = 1
+    R_2X_D_2X = 3
+    R_Any_D_1X = 4
+    R_Any_MHA = 5
 
 class uSide(nn.Module):
     """
@@ -36,36 +37,36 @@ class uSide(nn.Module):
        
         #------------------------ create shortcuts ---
         enc_top_mersplit_class = None
-        if dict['top_mersplit'] == Merge4.Dim2:
+        if dict['top_mersplit'] == Reshape.R_2X_D_2X:
             enc_top_mersplit_class = PatchMerging_2X_Dim
-        elif dict['top_mersplit'] == Merge4.Dim4:
+        elif dict['top_mersplit'] == Reshape.R_2X_D_4X:
             enc_top_mersplit_class = PatchMerging_4X_Dim
-        elif dict['top_mersplit'] == Merge4.Dim1:
+        elif dict['top_mersplit'] == Reshape.R_Any_D_1X:
             enc_top_mersplit_class = Interpolate_Down_1X_Dim
 
         enc_down_mersplit_class = None
-        if dict['down_mersplit'] == Merge4.Dim2:
+        if dict['down_mersplit'] == Reshape.R_2X_D_2X:
             enc_down_mersplit_class = PatchMerging_2X_Dim
-        elif dict['down_mersplit'] == Merge4.Dim4:
+        elif dict['down_mersplit'] == Reshape.R_2X_D_4X:
             enc_down_mersplit_class = PatchMerging_4X_Dim
-        elif dict['down_mersplit'] == Merge4.Dim1:
+        elif dict['down_mersplit'] == Reshape.R_Any_D_1X:
             enc_down_mersplit_class = Interpolate_Down_1X_Dim
 
 
         dec_top_mersplit_class = None
-        if dict['top_mersplit'] == Merge4.Dim2:
+        if dict['top_mersplit'] == Reshape.R_2X_D_2X:
             dec_top_mersplit_class = PatchSplitting_2X_Dim
-        elif dict['top_mersplit'] == Merge4.Dim4:
+        elif dict['top_mersplit'] == Reshape.R_2X_D_4X:
             dec_top_mersplit_class = PatchSplitting_4X_Dim
-        elif dict['top_mersplit'] == Merge4.Dim1:
+        elif dict['top_mersplit'] == Reshape.R_Any_D_1X:
             dec_top_mersplit_class = Interpolate_Up_1X_Dim
 
         dec_down_mersplit_class = None
-        if dict['down_mersplit'] == Merge4.Dim2:
+        if dict['down_mersplit'] == Reshape.R_2X_D_2X:
             dec_down_mersplit_class = PatchSplitting_2X_Dim
-        elif dict['down_mersplit'] == Merge4.Dim4:
+        elif dict['down_mersplit'] == Reshape.R_2X_D_4X:
             dec_down_mersplit_class = PatchSplitting_4X_Dim
-        elif dict['down_mersplit'] == Merge4.Dim1:
+        elif dict['down_mersplit'] == Reshape.R_Any_D_1X:
             dec_down_mersplit_class = Interpolate_Up_1X_Dim
 
         #--------------- Planning for res and dim ----------

@@ -1727,7 +1727,7 @@ projects["Zeus_26Feb11_2"] = {    #---------------------------------------------
     "model_4": {},
 }
 
-from modules.uSide import Merge4
+from modules.uSide import Reshape
 from modules.Transformer_Modes import AttnConn, PEConn, PEType, Flash, PBias, TransForm
 
 projects["Zeus_uNet_Feb12"] = {    #---------------------------------------------------------- Micro-model for a single 8GB GPU -------
@@ -1778,8 +1778,8 @@ projects["Zeus_uNet_Feb12"] = {    #--------------------------------------------
             # block and side
             {
                 # managed: 'top_res', 'top_dim'
-                'top_mersplit': Merge4.Nothing,
-                'down_mersplit': Merge4.Dim2,
+                'top_mersplit': Reshape.Nothing,
+                'down_mersplit': Reshape.R_2X_D_2X,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -1790,8 +1790,8 @@ projects["Zeus_uNet_Feb12"] = {    #--------------------------------------------
             },
             {
                 # managed: 'top_res', 'top_dim'
-                'top_mersplit': Merge4.Nothing,
-                'down_mersplit': Merge4.Dim2,
+                'top_mersplit': Reshape.Nothing,
+                'down_mersplit': Reshape.R_2X_D_2X,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -1802,8 +1802,8 @@ projects["Zeus_uNet_Feb12"] = {    #--------------------------------------------
             },
             {
                 # managed: 'top_res', 'top_dim'
-                'top_mersplit': Merge4.Nothing,
-                'down_mersplit': Merge4.Nothing,
+                'top_mersplit': Reshape.Nothing,
+                'down_mersplit': Reshape.Nothing,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -1871,8 +1871,8 @@ projects["Zeus_uNet_Feb14"] = {    #--------------------------------------------
             # block and side
             {   #---------------------------------- block 1
                 # managed: 'top_res', 'top_dim'
-                'top_mersplit': Merge4.Nothing,
-                'down_mersplit': Merge4.Dim2, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'top_mersplit': Reshape.Nothing,
+                'down_mersplit': Reshape.R_2X_D_2X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -1883,8 +1883,8 @@ projects["Zeus_uNet_Feb14"] = {    #--------------------------------------------
             },
             {   #---------------------------------- block 2
                 # managed: 'top_res', 'top_dim'
-                'top_mersplit': Merge4.Nothing,
-                'down_mersplit': Merge4.Dim2, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'top_mersplit': Reshape.Nothing,
+                'down_mersplit': Reshape.R_2X_D_2X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -1895,8 +1895,8 @@ projects["Zeus_uNet_Feb14"] = {    #--------------------------------------------
             },
             {   #---------------------------------- block 3
                 # managed: 'top_res', 'top_dim'
-                'top_mersplit': Merge4.Nothing,
-                'down_mersplit': Merge4.Dim1, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'top_mersplit': Reshape.Nothing,
+                'down_mersplit': Reshape.R_Any_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -1907,8 +1907,8 @@ projects["Zeus_uNet_Feb14"] = {    #--------------------------------------------
             },
             {   #---------------------------------- block 4
                 # managed: 'top_res', 'top_dim'
-                'top_mersplit': Merge4.Nothing,
-                'down_mersplit': Merge4.Dim1, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'top_mersplit': Reshape.Nothing,
+                'down_mersplit': Reshape.R_Any_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -1919,8 +1919,8 @@ projects["Zeus_uNet_Feb14"] = {    #--------------------------------------------
             },
             {   #---------------------------------- block 5
                 # managed: 'top_res', 'top_dim'
-                'top_mersplit': Merge4.Nothing,
-                'down_mersplit': Merge4.Dim1, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'top_mersplit': Reshape.Nothing,
+                'down_mersplit': Reshape.R_Any_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -1931,8 +1931,8 @@ projects["Zeus_uNet_Feb14"] = {    #--------------------------------------------
             },
             {   #---------------------------------- block 6
                 # managed: 'top_res', 'top_dim'
-                'top_mersplit': Merge4.Nothing,
-                'down_mersplit': Merge4.Nothing,
+                'top_mersplit': Reshape.Nothing,
+                'down_mersplit': Reshape.Nothing,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,

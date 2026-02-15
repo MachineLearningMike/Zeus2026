@@ -53,15 +53,15 @@ if __name__ == "__main__":
     
     H, W, C = 180, 360, 40
     
-    from modules.uSide import Merge4
+    from modules.uSide import Reshape
     from modules.Transformer_Modes import AttnConn, PEConn, PEType, Flash, PBias, TransForm
     
     block_dicts = [
         # block and side
         {
             # managed: 'top_res', 'top_dim'
-            'top_mersplit': Merge4.Nothing,
-            'down_mersplit': Merge4.Dim2, 'down_nWin': [1, 2], 'down_pWin': 1,
+            'top_mersplit': Reshape.Nothing,
+            'down_mersplit': Reshape.R_2X_D_2X, 'down_nWin': [1, 2], 'down_pWin': 1,
             'square' : {
                 # managed: 'res', 'dim'
                 'num_heads' : 8,
@@ -72,8 +72,8 @@ if __name__ == "__main__":
         },
         {
             # managed: 'top_res', 'top_dim'
-            'top_mersplit': Merge4.Nothing,
-            'down_mersplit': Merge4.Dim2, 'down_nWin': [1, 2], 'down_pWin': 1,
+            'top_mersplit': Reshape.Nothing,
+            'down_mersplit': Reshape.R_2X_D_2X, 'down_nWin': [1, 2], 'down_pWin': 1,
             'square' : {
                 # managed: 'res', 'dim'
                 'num_heads' : 8,
@@ -84,8 +84,8 @@ if __name__ == "__main__":
         },
         {
             # managed: 'top_res', 'top_dim'
-            'top_mersplit': Merge4.Nothing,
-            'down_mersplit': Merge4.Nothing,
+            'top_mersplit': Reshape.Nothing,
+            'down_mersplit': Reshape.Nothing,
             'square' : {
                 # managed: 'res', 'dim'
                 'num_heads' : 8,
