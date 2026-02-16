@@ -20,6 +20,7 @@ class FlashMultiHeadAttention(nn.Module):
         self.W_v = nn.Linear(d_model, d_model)
         self.W_o = nn.Linear(d_model, d_model)
         
+        self.stable_softmax = True
         
     def _stable_softmax(self, x, dim=-1):
         """Stable softmax implementation for 16-bit precision"""
@@ -66,7 +67,10 @@ class FlashMultiHeadAttention(nn.Module):
             scores = torch.matmul(Q, K.transpose(-2, -1)) * softmax_scale   # (B, num_heads, seq_len, seq_len)
             if mask is not None:
                 scores = scores.masked_fill(mask == 0, -1e9)                # (B, num_heads, seq_len, seq_len)
+
             attn = F.softmax(scores, dim=-1)                                # (B, num_heads, seq_len, seq_len)
+            # attn = self._stable_softmax(scores, dim=-1)
+
             att_out = torch.matmul(attn, V)                                 # (B, num_heads, seq_len, head_dim)
             att_out = att_out.transpose(1, 2).contiguous()  # (B, seq_len, num_heads, head_dim)
 

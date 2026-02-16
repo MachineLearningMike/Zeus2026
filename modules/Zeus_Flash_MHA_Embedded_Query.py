@@ -48,7 +48,7 @@ class EmbeddedQueryMultiHeadAttention(nn.Module):
         
         # For tracking attention method used
         self.flash_used = False
-        self._debug_printed = False
+        self._debug_printed = True
     
     def _init_parameters(self):
         """Initialize parameters for stable training"""
