@@ -269,15 +269,77 @@ class PositionalEncoding_Axial_Global(PositionalEncoding_Global_Global):
 
 # -------------------- 2D Positional Bias --------------------
 
+class PositionalBias_er_Global_Global(nn.Module):
+    # Goal: Create a 2D, full position embedding from 2D, global learning or constants.
+    
+    def __init__(self, num_heads, seq_len, pe_type="learnable"):
+        super().__init__()
+        
+        if pe_type == "learnable":
+            # Learnable full 2D - TRUE 2D (learns any pattern)
+            self.pe = nn.Parameter(torch.randn(1, num_heads, seq_len, seq_len) * 0.02)
+            
+        elif pe_type == "sinusoidal_2d_true":
+            pass    # not implemented
 
+            # assert dim % 2 == 0
+            
+            # # Step 1: Create UNIQUE 1D positions for each cell in the grid
+            # n_positions = max_height * max_width
+            # position_1d = torch.arange(n_positions, dtype=torch.float).unsqueeze(1)
+            
+            # # Step 2: Apply 1D sinusoidal encoding
+            # div_term = torch.exp(
+            #     torch.arange(0, dim, 2).float() * 
+            #     (-math.log(10000.0) / dim)
+            # )
+            
+            # pe = torch.zeros(n_positions, dim)
+            # pe[:, 0::2] = torch.sin(position_1d * div_term)
+            # pe[:, 1::2] = torch.cos(position_1d * div_term)
+            
+            # # Step 3: Reshape into 2D grid - THIS CREATES TRUE 2D STRUCTURE!
+            # pe = pe.reshape(max_height, max_width, dim)
+            
+            # self.register_buffer('pe', pe.unsqueeze(0))
+                        
+        elif pe_type == "linear_2d_true":
+            pass    # not implemented
 
+            # assert dim % 2 == 0
+            
+            # n_positions = max_height * max_width
+            # position_1d = torch.arange(n_positions, dtype=torch.float).unsqueeze(1) / n_positions
+            # pe_1d = position_1d.expand(-1, dim)
+            # pe = pe_1d.reshape(max_height, max_width, dim)
+            
+            # self.register_buffer('pe', pe.unsqueeze(0))
+            
+        else:
+            raise ValueError(f"Unknown pe_type: {pe_type}")
+    
+    def _get_1d_sinusoidal_pe(self, max_len, dim):
+        """1D sinusoidal helper - only for axial/legacy."""
+        position = torch.arange(max_len).unsqueeze(1).float()
+        div_term = torch.exp(
+            torch.arange(0, dim, 2).float() * 
+            (-math.log(10000.0) / dim)
+        )
+        pe = torch.zeros(max_len, dim)
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        return pe
+    
+    def forward(self, score):
+        score = score + self.pe.to(device=x.device, dtype=x.dtype)
+        return score
 
 # -------------------- Axial FlashAttention --------------------
 
 from modules.Transformer_Modes import AttnConn, PEConn, PEType, Flash, PBias, TransForm
 from modules.Zeus_Flash_Encoder_Layer import FlashEncoderLayer
 
-class Flash_Axial_Encoder_Layer(nn.Module):
+class Flash_Axial_Encoder_Layer(nn.Module):         # The lowest ranking module that knows H and W.
     def __init__(self, H, W, d_model, num_heads, dropout=0, eps=1e-9,
             transFrom=TransForm(),
     ):
@@ -327,6 +389,12 @@ class Flash_Axial_Encoder_Layer(nn.Module):
             else: pass
             
         else: pass
+        
+        pb_allowed = transFrom.attnconn == AttnConn.Global and transFrom.flash == Flash.No and transFrom.pbias == PBias.Learnable
+        if pb_allowed:
+            self.pos_bias_er = PositionalBias_er_Global_Global(num_heads, seq_len = H * W, pe_type = "learnable")
+        else:
+            self.pos_bias_er = None
 
 
     def forward(self, x, mask=None, ss=False):
@@ -349,7 +417,6 @@ class Flash_Axial_Encoder_Layer(nn.Module):
             x = self.forward_axial(x, 'width', mask=mask)
 
         return x
-
 
     def forward_axial(self, x, axis, mask=None):
         B, H, W, C = x.shape

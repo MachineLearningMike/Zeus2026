@@ -40,6 +40,12 @@ class TransForm:
         self.petype = petype
         self.flash = flash
         self.pbias = pbias
+        
+    def __eq__(self, other):
+        if not isinstance(other, TransForm):
+            return False
+        return self.attnconn == other.attnconn and self.peconn == other.peconn \
+            and self.flash == other.flash and self.pbias == other.pbias
     
     @staticmethod
     def is_valid(conn, flash, penc, pshare, pbias):

@@ -38,7 +38,7 @@ class FlashMultiHeadAttention(nn.Module):
         return exp_x / (sum_exp_x + 1e-12)
     
         
-    def forward(self, Q, K, V, mask=None):
+    def forward(self, Q, K, V, mask=None, pos_bias_er=None):
         # Q, K, V: (B, seq_len, d_model)
         
         batch_size, seq_len, dim = Q.shape
@@ -65,6 +65,11 @@ class FlashMultiHeadAttention(nn.Module):
         
             # Scaled dot-product attention
             scores = torch.matmul(Q, K.transpose(-2, -1)) * softmax_scale   # (B, num_heads, seq_len, seq_len)
+            
+            if pos_bias_er is not None:
+                pass
+            #     scores = pos_bias_er(scores)
+            
             if mask is not None:
                 scores = scores.masked_fill(mask == 0, -1e9)                # (B, num_heads, seq_len, seq_len)
 

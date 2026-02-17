@@ -62,11 +62,11 @@ class FlashEncoderLayer(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
         
-    def forward(self, x, mask=None):
+    def forward(self, x, mask=None, pos_bias_er=None):
         # x: (B, seq_len, d_model)        
 
         x_skip = x
-        x = self.attention(x, x, x, mask=mask)
+        x = self.attention(x, x, x, mask=mask, pos_bias_er=pos_bias_er)
         x = x + x_skip
         dtype = x.dtype
         x = self.norm_after_attn(x).to(dtype=dtype)

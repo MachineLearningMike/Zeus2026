@@ -2312,7 +2312,7 @@ projects["Zeus_uNet_Feb17"] = {    #--------------------------------------------
                     'num_heads' : 8,
                     'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
                     'nLayers' : 3,
-                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No),     # Flash.No: 2.72 s, Flash.No 1.99 s
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Learnable),     # Flash.No: 2.72 s, Flash.No 1.99 s
                 },
             },
             {   #---------------------------------- block 5
@@ -2327,7 +2327,7 @@ projects["Zeus_uNet_Feb17"] = {    #--------------------------------------------
                     'num_heads' : 8,
                     'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
                     'nLayers' : 3,
-                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No),     # Flash.No: 2.72 s, Flash.No 1.99 s
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Learnable),     # Flash.No: 2.72 s, Flash.No 1.99 s
                 },
             },
             {   #---------------------------------- block 6
@@ -2342,7 +2342,7 @@ projects["Zeus_uNet_Feb17"] = {    #--------------------------------------------
                     'num_heads' : 8,
                     'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
                     'nLayers' : 3,
-                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No),     # Flash.No: 2.72 s, Flash.No 1.99 s
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Learnable),     # Flash.No: 2.72 s, Flash.No 1.99 s
                 },
             },
             {   #---------------------------------- block 7
@@ -2357,7 +2357,7 @@ projects["Zeus_uNet_Feb17"] = {    #--------------------------------------------
                     'num_heads' : 8,
                     'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
                     'nLayers' : 3,
-                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No),     # Flash.No: 2.72 s, Flash.No 1.99 s
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Learnable),     # Flash.No: 2.72 s, Flash.No 1.99 s
                 },
             },
         ]
