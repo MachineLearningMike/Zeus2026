@@ -2212,13 +2212,158 @@ projects["Zeus_uNet_Feb16"] = {    #--------------------------------------------
         ]
 
     }, 
-    
-    "model_1": {},
-    "model_2": {},
-    "model_3": {},
-    "model_4": {},
 }
 
+
+projects["Zeus_uNet_Feb17"] = {    #---------------------------------------------------------- Micro-model for a single 8GB GPU -------
+    # ------------------------------- This overrides the above rules ----------------------
+    "management": {
+    "Zeus_Model_module" : "Zeus_Light_uNet",
+    "GPUWaitsData" : True,
+    "models_to_play": [0,],
+    "metrics" : "rmse", # "mae", "rmse"
+    # Let it be chosen by GPU rule 'nSubstepsPerStep' : 2,       # Can be changed upto the type of GPU.
+    "nSubstepsPerStep": 2,
+    'max_cascade_depth' : 1,     # max = nSubstepsPerStep. 1 = no actual cascades, raw prediction only
+    },
+    
+    "data": {
+    "org_height": 721,
+    "batch_size": 1,
+    'lossXtargets' : 5.0,
+    },
+    
+    "model_0": {
+        "lr": 5e-4,
+        "max_lr": 5e-4,
+        "overwrite_saved_lr": False,
+        "accum_steps" : 10,   
+        "skip_validation" : True,
+        
+        'patch_kernel' : 4,
+        'patch_stride' : 4,
+
+        "batch_size": 1,
+        
+        "attn_dim" : 40,
+        "nHeads" : 5,       #
+        "nLayers" : 30,     #
+        "axial_loops" : 1,
+        "axial_not_total_pe" : True,
+        
+        'choose_best_loss_model' : False,
+        'useLRLearner' : False,
+        'use_checkpoint' : False,
+        
+        # The current model goes OOM on A100, with layers_to_enhance_in_enc_dec = [0] and nEnhancementPairs = [1]
+        'layers_to_enhance_in_enc_dec' : [],
+        'nEnhancementPairs': [],  # pairs
+
+        'block_dicts' : [
+            # block and side
+            {   #---------------------------------- block 1
+                # managed: 'top_res', 'top_dim'
+                'top_mersplit': Reshape.Nothing,
+                'down_mersplit': Reshape.R_2X_D_2X, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,
+                    'prime_size': [1, 1],         # (2, 2)
+                    'nLayers' : 3,
+                    'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes),
+                },
+            },
+            {   #---------------------------------- block 2
+                # managed: 'top_res', 'top_dim'
+                'top_mersplit': Reshape.Nothing,
+                'down_mersplit': Reshape.R_2X_D_2X, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,
+                    'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
+                    'nLayers' : 3,
+                    'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes),
+                },
+            },
+            {   #---------------------------------- block 3
+                # Flash.Yes is required when AttnConn.Global, as Flash.No slows down 10x.
+                # AttnConn.Shift is impossible, as it requiers attn_mask, which is not compatible with Flash.Yes.
+             
+                # managed: 'top_res', 'top_dim'
+                'top_mersplit': Reshape.Nothing,
+                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,
+                    'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
+                    'nLayers' : 3,
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.Yes),     # Flash.No: 2.72 s, Flash.No 1.99 s
+                },
+            },
+            {   #---------------------------------- block 4
+                # Shape: arount 23/45
+                # Flash.No doens't degradate speed.
+
+                # managed: 'top_res', 'top_dim'
+                'top_mersplit': Reshape.Nothing,
+                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,
+                    'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
+                    'nLayers' : 3,
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No),     # Flash.No: 2.72 s, Flash.No 1.99 s
+                },
+            },
+            {   #---------------------------------- block 5
+                # Shape: arount 12/24
+                # Flash.No doens't degradate speed.
+
+                # managed: 'top_res', 'top_dim'
+                'top_mersplit': Reshape.Nothing,
+                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,
+                    'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
+                    'nLayers' : 3,
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No),     # Flash.No: 2.72 s, Flash.No 1.99 s
+                },
+            },
+            {   #---------------------------------- block 6
+                # Shape: arount 6/12
+                # Flash.No doens't degradate speed.
+
+                # managed: 'top_res', 'top_dim'
+                'top_mersplit': Reshape.Nothing,
+                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,
+                    'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
+                    'nLayers' : 3,
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No),     # Flash.No: 2.72 s, Flash.No 1.99 s
+                },
+            },
+            {   #---------------------------------- block 7
+                # Shape: arount 3/6
+                # Flash.No doens't degradate speed.
+
+                # managed: 'top_res', 'top_dim'
+                'top_mersplit': Reshape.Nothing,
+                'down_mersplit': Reshape.Nothing,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,
+                    'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
+                    'nLayers' : 3,
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No),     # Flash.No: 2.72 s, Flash.No 1.99 s
+                },
+            },
+        ]
+
+    }, 
+}
 
 #-------------------------------- select proejct -----------------------
 
@@ -2229,7 +2374,7 @@ config.update(projects[project]["management"])
 # updata 'data
 config.update(projects[project]["data"])
 # update 'model_x'
-for id in range(5):
+for id in range(1):
     key = "model_" + str(id)
     config[key].update(projects[project][key])
 
