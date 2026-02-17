@@ -330,9 +330,9 @@ class PositionalBias_er_Global_Global(nn.Module):
         pe[:, 1::2] = torch.cos(position * div_term)
         return pe
     
-    def forward(self, score):
-        score = score + self.pe.to(device=x.device, dtype=x.dtype)
-        return score
+    def forward(self, scores):
+        scores = scores + self.pe.to(device=x.device, dtype=scores.dtype)
+        return scores
 
 # -------------------- Axial FlashAttention --------------------
 
@@ -408,7 +408,7 @@ class Flash_Axial_Encoder_Layer(nn.Module):         # The lowest ranking module 
             if self.pos_encoding is not None:   x = self.pos_encoding(x)
 
             x = x.view(B, H*W, C)
-            if self.encoder is not None:    x = self.encoder(x, mask=mask)
+            if self.encoder is not None:    x = self.encoder(x, mask=mask, pos_bias_er=self.pos_bias_er)
             x = x.view(B, H, W, C)
                         
         elif self.transForm.attnconn == AttnConn.Axial:
