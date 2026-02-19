@@ -2763,7 +2763,7 @@ if __name__ == "__main__":
     # dict = dataset.analyze_hourly_paths(inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=1)
     # print(f"count: {dict['count']}, n_unexpected_hours: {dict['n_unexpected_hours']}, first_hour: {dict['first_hour']}, last_hour: {dict['last_hour']}, n_missing_hours: {len(dict['missing_hours'])}")
 
-    modulo = 6; is_downsample_and_predict=False; factor10 = 5
+    modulo = 6; is_downsample_and_predict=False; factor10 = 10
     dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=modulo, 
             file_name="2008_2025", factor10=factor10, is_downsample_and_predict=is_downsample_and_predict)
 
@@ -2775,7 +2775,7 @@ if __name__ == "__main__":
     # dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=modulo, 
     #         file_name="2008_2025", factor10=factor10, is_downsample_and_predict=is_downsample_and_predict)
 
-    modulo = 6; is_downsample_and_predict=False; factor10 = 5
+    modulo = 6; is_downsample_and_predict=False; factor10 = 10
     mean_meteo, std_meteo, mean_tempo, std_tempo, \
     mean_meteo_ready_cpu, std_meteo_ready_cpu, mean_meteo_ready_cuda, std_meteo_ready_cuda, \
     mean_tempo_ready_cpu, std_tempo_ready_cpu, mean_tempo_ready_cuda, std_tempo_ready_cuda, \

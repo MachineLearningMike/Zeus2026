@@ -67,6 +67,7 @@ class Model_Trainer():
         self.transient_step = 0
         self.train_bombs = 1
         
+        self.elapse = 0.0
         self.train_start_time = time.time()
         
     def setup_logging(self, log_dir):
@@ -113,6 +114,7 @@ class Model_Trainer():
         checkpoint = {
             'dataset': self.dataset.pack_state(),
             'transient_step': self.transient_step,
+            'elapse': self.elapse,
         }
         utils.check_dir(self.project_path)
         torch.save(checkpoint, self.project_path / (name + '.pth'))
@@ -146,6 +148,9 @@ class Model_Trainer():
             if checkpoint.get('transient_step', None) is not None:
                 self.transient_step = checkpoint['transient_step']
                 logging.info("transient_step loaded: {}".format(self.transient_step))
+            if checkpoint.get('elapse', 0.0) is not 0.0:
+                self.elapse = checkpoint['elapse']
+                logging.info("elpase loaded: {}".format(self.elapse))
         else:
             pass
         
@@ -477,18 +482,20 @@ class Model_Trainer():
             end1 = time.time()
             ms_wait = (end-start) * 1000
             ms_step = (end1-start1) * 1000
+            self.elapse = self.elapse + (end1-start1)
+            elapse = f"{int(self.elapse) // 3600}:{(int(self.elapse) % 3600) // 60}"
             # compute = (ms_step - ms_wait) / self.train_bombs
             steps_per_hour = 3600/(end1-start1)
             substepsPerDollar = int(substeps_per_step * steps_per_hour / self.pm.dollarsPerHour)
             lr = md_focus.get_learning_rate()
             # gates = md_focus.get_abs_gates_mean()
             # pbar.set_description(f"{md_focus.pbar_description}, wait/step {ms_wait:.0f}/{ms_step:.0f} substeps/$ {substepsPerDollar} lr {lr:1.3e}")
-            pbar.set_description(f"{md_focus.pbar_description}, wait/step {ms_wait:.0f}/{ms_step:.0f} lr {lr:1.3e}")
+            pbar.set_description(f"{md_focus.pbar_description}, elapse {elapse} wait/step {ms_wait:.0f}/{ms_step:.0f} lr {lr:1.3e}")
             start1 = time.time()
 
             # This is to save the model in case it suddenly deviates to diverge.
             if trainable is True:
-                [md.save_best_loss_model(loss) for md, loss in [(md, md.step_loss) for md in mds]]
+                [md.save_best_loss_model(loss, elapse) for md, loss in [(md, md.step_loss) for md in mds]]
                 for md in mds: md.accum_iterations += substeps_per_step
             
             if trainable is True and step % self.pm.steps_to_save == 0:

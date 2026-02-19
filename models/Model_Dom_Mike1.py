@@ -162,10 +162,10 @@ class Model_Dom():
         # )
         # logging.info(f"Scheduler created: AdaptiveLossStatLR with initial_lr={initial_lr}")
         
-        steps_for_half = 25000
+        half_life = self.pm.half_life
         scheduler = torch.optim.lr_scheduler.LambdaLR(
             optimizer=optimizer,
-            lr_lambda = lambda step: math.pow(2, - step / steps_for_half)
+            lr_lambda = lambda step: math.pow(2, - step / half_life)
         )
         logging.info(f"Scheduler LambdaLR created with lr_lambda = lambda step: self.pm.lr * math.pow(2, - step / steps_for_half)")
 
@@ -232,10 +232,10 @@ class Model_Dom():
     def get_best_loss_file_name(self):
         return "best_loss_model_" + str(self.md_id)
     
-    def save_best_loss_model(self, loss):
+    def save_best_loss_model(self, loss, elapse):
         if loss < 0.4 and loss < (1 - 0.0005) * self.best_loss:    # 0.4: hard-coded.
             self.best_loss = loss
-            logging.info("!!!!!!!!!!!!!!! Saving best-loss model... md {}, loss {:.5f}, iter {} !!!!!!!!!!!!".format(self.md_id, loss, self.accum_iterations))
+            logging.info("!!!!!!!!!!!!!!! Saving best-loss model... md {}, loss {:.5f}, iter {} elapse {} !!!!!!!!!!!!".format(self.md_id, loss, self.accum_iterations, elapse))
             self.save_state(best_loss=True)
        
     def save_state(self, name=None, train_finished=False, best_loss=False, epoch_finished=False):
