@@ -12,7 +12,7 @@ from modules.uNet import uNet
 # from modules.Flash_Nonlinear_Attention import PhysicalFlashAttention
 # from modules.Zeus_Axial_Non_Lin_Attn_From_Phys_FA_Axial import AxialFlashAttention
 from modules.Zeus_Axial_Attn_Phys_FA_Cross_PE import AxialFlashAttention
-from modules.Resize_R_Half_D_4X import PatchMerging_4X_Dim, PatchSplitting_4X_Dim
+from modules.Reshape_R_Half_D_4X import PatchMerging_4X_Dim, PatchSplitting_4X_Dim
 from modules.utils import resize_continuous_bilinear_channel_wise_cylindric
 from modules.zeus_embed_cascade import Embed_Cascade
 from modules.zeus_embed_category import Embed_Category
@@ -276,8 +276,8 @@ class Zeus(nn.Module):
         normalized_loss = lossAndMetrics[0] if isinstance(lossAndMetrics, (tuple, list)) else lossAndMetrics   #---- [0] picks loss
 
         if trainable:
-            normalized_loss.backward(retain_graph=True) # instead of the below line.
-            # scaler.scale(normalized_loss).backward(retain_graph=True) # scaler doesn't support bf16
+            # normalized_loss.backward(retain_graph=True) # instead of the below line.
+            scaler.scale(normalized_loss).backward(retain_graph=True) # scaler doesn't support bf16
 
         pred_mn = pred_mn.detach()
             

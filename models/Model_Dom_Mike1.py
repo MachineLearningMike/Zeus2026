@@ -10,6 +10,7 @@ import sys
 import shutil
 from importlib import import_module
 import itertools
+import math
 
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
@@ -88,6 +89,7 @@ class Model_Dom():
             self.learning_rate = None
 
         # work variables            
+        self.recent_losses = []
         self.total_losses = []
         self.epoch_losses, self.epoch_metrics = [], []
         self.pbar_description = None
@@ -149,16 +151,23 @@ class Model_Dom():
         # div_factor = getattr(self.pm, 'div_factor', 25.0)
         # final_div_factor = getattr(self.pm, 'final_div_factor', 1e4)
 
-        initial_lr = self.pm.lr
-        scheduler = AdaptiveLossStatLR(
+        # initial_lr = self.pm.lr
+        # scheduler = AdaptiveLossStatLR(
+        #     optimizer=optimizer,
+        #     initial_lr=initial_lr,      # Optional, defaults to optimizer's lr
+        #     min_lr=1e-10,           # Minimum LR
+        #     max_lr=0.1,           # Maximum LR
+        #     window_size=30,        # Losses to track
+        #     warmup_steps=50       # Steps before adaptive adjustments
+        # )
+        # logging.info(f"Scheduler created: AdaptiveLossStatLR with initial_lr={initial_lr}")
+        
+        steps_for_half = 25000
+        scheduler = torch.optim.lr_scheduler.LambdaLR(
             optimizer=optimizer,
-            initial_lr=initial_lr,      # Optional, defaults to optimizer's lr
-            min_lr=1e-10,           # Minimum LR
-            max_lr=0.1,           # Maximum LR
-            window_size=30,        # Losses to track
-            warmup_steps=50       # Steps before adaptive adjustments
+            lr_lambda = lambda step: math.pow(2, - step / steps_for_half)
         )
-        logging.info(f"Scheduler created: AdaptiveLossStatLR with initial_lr={initial_lr}")
+        logging.info(f"Scheduler LambdaLR created with lr_lambda = lambda step: self.pm.lr * math.pow(2, - step / steps_for_half)")
 
         # scheduler = torch.optim.lr_scheduler.OneCycleLR(    # Mike!!! This is a per-batch scheduler.
         #     # A per-batch scheduler's time axis is on mini-batch, not on epochs.
@@ -1144,9 +1153,14 @@ class Model_Dom():
             self.pbar_description = "md: {} loss: {:.4f} {}: ({})".format(self.md_id, _epoch_loss, self.pm.metrics, strC)
 
     def get_pbar_description_step(self, step_loss, step_metrics):   # (,), (C,)
+        self.recent_losses.append(step_loss)
+        norm = 50
+        if len(self.recent_losses) > norm: self.recent_losses = self.recent_losses[-norm:]
+        ma_loss = sum(self.recent_losses) / len(self.recent_losses)
+        
         strC = " ".join(f"{x:.3g}" for x in step_metrics[-len(self.pm.targetVariables):])
         # self.pbar_description = "md {} loss {:.3f}, {} ({})".format(self.md_id, step_loss, self.pm.metrics, strC)
-        self.pbar_description = "loss {:.3g} {} ({}) acc_substeps {}".format(step_loss, self.pm.metrics, strC, self.accum_iterations)
+        self.pbar_description = "loss {:.3f} ma_loss {:.3f} {} ({}) substeps {}".format(step_loss, ma_loss, self.pm.metrics, strC, self.accum_iterations)
         
     def stepOptimizer(self, loss_item):
         performed_step, lr, grad_norm = self.lr_controller.stepOptimizer(loss_item)

@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.Transformer_Modes import AttnConn, PEConn, PEType, PBias, TransForm
-from modules.Zeus_Falsh_Axial_Encoder_Layer import Flash_Axial_Encoder_Layer
+from modules.Zeus_Versatile_Encoder_Layer import Flash_Versatile_Encoder_Layer
 
 class uSquare(nn.Module):
     def __init__(self, dict: dict) -> None:
@@ -28,6 +28,7 @@ class uSquare(nn.Module):
         padding = dict['padding']   # informing of having padded, not having to pad.
         d_model = dict['dim']
         num_heads = dict['num_heads']
+        nWin = dict.get('nWin', (1, 1))
         prime_size = dict['prime_size']
         n_layers = dict['nLayers']
         transForm = dict['transForm']
@@ -36,7 +37,7 @@ class uSquare(nn.Module):
         self.layers = nn.ModuleList()
         
         for idx in range(n_layers):
-            layer = Flash_Axial_Encoder_Layer(H=H, W=W, d_model=d_model, num_heads=num_heads, transFrom=transForm)
+            layer = Flash_Versatile_Encoder_Layer(H=H, W=W, d_model=d_model, num_heads=num_heads, nWin=nWin, transFrom=transForm)
             self.layers.append(layer)
 
     def forward(self, x, ss=None):

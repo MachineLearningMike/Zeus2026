@@ -267,19 +267,31 @@ class PositionalEncoding_Axial_Global(PositionalEncoding_Global_Global):
     # Modified Goal: Create a 2D, full position embedding from 2D, global learning or constants, as PositionalEncoding_Global_Global does.
     pass
 
+
+class PositionalEncoding_Shift_Global(PositionalEncoding_Global_Global):
+    # Original Goal: Create a 1D, axial position embedding from 2D, global learnables or constants.
+    # Modified Goal: Create a 2D, full position embedding from 2D, global learning or constants, as PositionalEncoding_Global_Global does.
+    pass
+
+class PositionalEncoding_Shift_Axial(PositionalEncoding_Global_Axial):
+    # Original Goal: Create a 1D, axial position embedding from 2D, global learnables or constants.
+    # Modified Goal: Create a 2D, full position embedding from 2D, global learning or constants, as PositionalEncoding_Global_Global does.
+    pass
+
+
 # -------------------- 2D Positional Bias --------------------
 
-class PositionalBias_er_Global_Global(nn.Module):
+class PositionalBias_er_Full(nn.Module):
     # Goal: Create a 2D, full position embedding from 2D, global learning or constants.
     
-    def __init__(self, num_heads, seq_len, pe_type="learnable"):
+    def __init__(self, num_heads, seq_len, pb_type="learnable"):
         super().__init__()
         
-        if pe_type == "learnable":
+        if pb_type == "learnable":
             # Learnable full 2D - TRUE 2D (learns any pattern)
-            self.pe = nn.Parameter(torch.randn(1, num_heads, seq_len, seq_len) * 0.02)
-            
-        elif pe_type == "sinusoidal_2d_true":
+            self.pb = nn.Parameter(torch.randn(1, num_heads, seq_len, seq_len) * 0.02 ) # 0.00002)    # (batch, num_heads, seq_len, seq_len)
+                        
+        elif pb_type == "sinusoidal_2d_true":
             pass    # not implemented
 
             # assert dim % 2 == 0
@@ -303,7 +315,7 @@ class PositionalBias_er_Global_Global(nn.Module):
             
             # self.register_buffer('pe', pe.unsqueeze(0))
                         
-        elif pe_type == "linear_2d_true":
+        elif pb_type == "linear_2d_true":
             pass    # not implemented
 
             # assert dim % 2 == 0
@@ -316,31 +328,118 @@ class PositionalBias_er_Global_Global(nn.Module):
             # self.register_buffer('pe', pe.unsqueeze(0))
             
         else:
-            raise ValueError(f"Unknown pe_type: {pe_type}")
+            raise ValueError(f"Unknown pb_type: {pb_type}")
     
-    def _get_1d_sinusoidal_pe(self, max_len, dim):
-        """1D sinusoidal helper - only for axial/legacy."""
-        position = torch.arange(max_len).unsqueeze(1).float()
-        div_term = torch.exp(
-            torch.arange(0, dim, 2).float() * 
-            (-math.log(10000.0) / dim)
-        )
-        pe = torch.zeros(max_len, dim)
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        return pe
     
     def forward(self, scores):
-        scores = scores + self.pe.to(device=x.device, dtype=scores.dtype)
+        # scores: (batch, num_heads, seq_len, seq_len)
+        scores = scores + self.pb.to(device=scores.device, dtype=scores.dtype)
         return scores
+    
+    
+class PositionalBias_er_Bandwise(nn.Module):
+    # Goal: Create a 2D, full position embedding from 2D, global learning or constants.
+    
+    def __init__(self, H, W, num_heads, sWin, pb_type="learnable"):
+        super().__init__()
+        
+        self.H, self.W = H, W
+        self.sWin_H, self.sWin_W = sWin
+        self.nBands_horizonal = H // sWin_H
+        self.nBands_vertical = W // sWin_W
+        self.num_heads = num_heads
+        
+        if pb_type == "learnable":
 
+            sWin_H, sWin_W = sWin
+            # (n_windows on a lon band of windows, win_vol, win_vol, num_heads)
+            self.pb = nn.Parameter(torch.empty(self.nBands_horizonal, sWin_H * sWin_H, 2 * sWin_W - 1, self.num_heads))  
+            # (nBands_horizonal, h**2, 2w-1, num_heads) Much less than H*W*H*W * num_heads
+
+            nn.init.trunc_normal_(self.pb, std=0.02)  # 0.02
+            
+        elif pb_type == "sinusoidal_2d_true":
+            pass    # not implemented
+
+            # assert dim % 2 == 0
+            
+            # # Step 1: Create UNIQUE 1D positions for each cell in the grid
+            # n_positions = max_height * max_width
+            # position_1d = torch.arange(n_positions, dtype=torch.float).unsqueeze(1)
+            
+            # # Step 2: Apply 1D sinusoidal encoding
+            # div_term = torch.exp(
+            #     torch.arange(0, dim, 2).float() * 
+            #     (-math.log(10000.0) / dim)
+            # )
+            
+            # pe = torch.zeros(n_positions, dim)
+            # pe[:, 0::2] = torch.sin(position_1d * div_term)
+            # pe[:, 1::2] = torch.cos(position_1d * div_term)
+            
+            # # Step 3: Reshape into 2D grid - THIS CREATES TRUE 2D STRUCTURE!
+            # pe = pe.reshape(max_height, max_width, dim)
+            
+            # self.register_buffer('pe', pe.unsqueeze(0))
+                        
+        elif pb_type == "linear_2d_true":
+            pass    # not implemented
+
+            # assert dim % 2 == 0
+            
+            # n_positions = max_height * max_width
+            # position_1d = torch.arange(n_positions, dtype=torch.float).unsqueeze(1) / n_positions
+            # pe_1d = position_1d.expand(-1, dim)
+            # pe = pe_1d.reshape(max_height, max_width, dim)
+            
+            # self.register_buffer('pe', pe.unsqueeze(0))
+            
+        else:
+            raise ValueError(f"Unknown pb_type: {pb_type}")
+    
+    def forward(self, scores):
+        
+        device = self.pb.device
+        G, _, _, num_heads = self.pb.shape
+        N = self.sWin_H * self.sWin_W
+
+        # --- Token coordinates inside a window
+        h = torch.arange(self.sWin_H, device=device)
+        w = torch.arange(self.sWin_W, device=device)
+        coords = torch.stack(torch.meshgrid(h, w, indexing="ij")).view(2, -1)  # (2, N)
+        h1, h2 = coords[0][:, None], coords[0][None, :]     # (N,), (N,)
+        w1, w2 = coords[1][:, None], coords[1][None, :]     # (N,), (N,)
+
+        idx_h = h1 * self.sWin_H + h2   # (N, N)
+        idx_w = (w1 - w2 + (self.sWin_W - 1)) % ( 2 * self.sWin_W - 1)  # (N, N)
+
+        # Expand along longitude
+        band_idx_horizontal_shaped = torch.arange(self.nBands_horizonal, device=device)[:, None, None, None]    # (nBands_horizonal,)
+        band_idx_vertical_shapedd = torch.arange(self.nBands_vertical, device=device)[None, :, None, None]  # (nBands_vertical,)
+
+        idx_h_shaped = idx_h[None, None, :, :]  # (N, N)
+        idx_w_shaped = idx_w[None, None, :, :]  # (N, N)
+
+        # repeat learnable_pair_types along longitude. # self.pb: (nBands_horizonal, h**2, 2w-1, num_heads)
+        pos_bias = self.pb[:, None, :, :, :].repeat(1, self.nBands_vertical, 1, 1, 1)  # (nBands_horizonal, nBands_vertical, h**2, 2w-1, num_heads)
+
+        # advanced indexing to select correct pair types
+        pos_bias = pos_bias[
+            band_idx_horizontal_shaped, band_idx_vertical_shapedd, idx_h_shaped, idx_w_shaped
+        ]  # (nBands_horizonal, nBands_vertical, N, N, num_heads)
+
+        # merge G and longitude dims
+        pos_bias = pos_bias.view(self.nBands_horizonal * self.nBands_vertical, N, N, num_heads)     # (total_nWin, N, N, num_heads)
+        return scores + pos_bias    
+    
 # -------------------- Axial FlashAttention --------------------
 
 from modules.Transformer_Modes import AttnConn, PEConn, PEType, Flash, PBias, TransForm
 from modules.Zeus_Flash_Encoder_Layer import FlashEncoderLayer
+from modules.Zeus_Shift_Encoder_Layer import ShiftEncoderLayer
 
-class Flash_Axial_Encoder_Layer(nn.Module):         # The lowest ranking module that knows H and W.
-    def __init__(self, H, W, d_model, num_heads, dropout=0, eps=1e-9,
+class Flash_Versatile_Encoder_Layer(nn.Module):         # The lowest ranking module that knows H and W.
+    def __init__(self, H, W, d_model, num_heads, nWin, dropout=0, eps=1e-9,
             transFrom=TransForm(),
     ):
         super().__init__()
@@ -351,17 +450,23 @@ class Flash_Axial_Encoder_Layer(nn.Module):         # The lowest ranking module 
         assert d_model % num_heads == 0, "d_model must be divisible by num_heads"
         self.head_dim = d_model // num_heads
 
-        self.encoder, self.encoder_h, self.encoder_w = None, None, None
+        self.encoder, self.encoder_h, self.encoder_w, self.encoder_normal, self.encoder_shifted = None, None, None, None, None
         self.pos_encoding, self.pos_encoding_h, self.pos_encoding_w = None, None, None
+        self.pos_bias_er, self.pos_bias_er_normal, self.pos_bias_er_shifted = None, None, None
 
         if transFrom.attnconn == AttnConn.Global:
             self.encoder = FlashEncoderLayer(d_model=d_model, num_heads=num_heads, dropout=dropout, use_flash=transFrom.flash.value, eps=eps)
             
             if transFrom.peconn == PEConn.Global:   # output: global, intermal: global
                 self.pos_encoding = PositionalEncoding_Global_Global(max_height=H, max_width=W, dim=d_model, pe_type=transFrom.petype.value)
+
+            if transFrom.flash == Flash.No and transFrom.pbias == PBias.Learnable:
+                self.pos_bias_er = PositionalBias_er_Full(num_heads, seq_len=H*W, pb_type="learnable")
+
             elif transFrom.peconn == PEConn.Axial:  # output: global, internal: axial
                 self.pos_encoding = PositionalEncoding_Global_Axial(max_height=H, max_width=W, dim=d_model, pe_type=transFrom.petype.value)
             else: pass
+            
             
         elif transFrom.attnconn == AttnConn.Axial:
             self.encoder_h = FlashEncoderLayer(d_model=d_model, num_heads=num_heads, dropout=dropout, use_flash=transFrom.flash.value, eps=eps)
@@ -377,25 +482,23 @@ class Flash_Axial_Encoder_Layer(nn.Module):         # The lowest ranking module 
             
         elif transFrom.attnconn == AttnConn.Shift:
 
-            self.encoder_h = FlashEncoderLayer(d_model=d_model, num_heads=num_heads, dropout=dropout, use_flash=transFrom.flash.value, eps=eps)
-            self.encoder_w = FlashEncoderLayer(d_model=d_model, num_heads=num_heads, dropout=dropout, use_flash=transFrom.flash.value, eps=eps)
-
-            self.pos_encoding, self.pos_encoding_h, self.pos_encoding_w = None, None, None
+            self.encoder_normal = ShiftEncoderLayer(H, W, d_model=d_model, num_heads=num_heads, nWin=nWin, shift=False)
+            self.encoder_shifted = FlashEncoderLayer(H, W, d_model=d_model, num_heads=num_heads, nWin=nWin, shift=True)
+ 
+            self.pos_encoding, self.pos_encoding_normal, self.pos_encoding_shifted = None, None, None
             if transFrom.peconn == PEConn.Global:
-                self.pos_encoding = PositionalEncoding_Axial_Global(max_height=H, max_width=W, dim=d_model, pe_type=transFrom.petype.value)
+                self.pos_encoding = PositionalEncoding_Shift_Global(max_height=H, max_width=W, dim=d_model, pe_type=transFrom.petype.value)
             elif transFrom.peconn == PEConn.Axial:
-                self.pos_encoding_h = PositionalEncoding_Axial_Axial(max_len=H, dim=d_model, pe_type=transFrom.petype.value)
-                self.pos_encoding_w = PositionalEncoding_Axial_Axial(max_len=W, dim=d_model, pe_type=transFrom.petype.value)
+                assert False, "AttnConn.Shift cannot have PEConn.Axial"
             else: pass
+            
+            if transFrom.pbias == PBias.Learnable and transFrom.flash == Flash.No:
+                sWin = (H//nWin[0], W//nWin[1])
+                self.pos_bias_er_normal = PositionalBias_er_Bandwise(H, W, num_heads, sWin, pb_type="learnable")
+                self.pos_bias_er_shifted = PositionalBias_er_Bandwise(H, W, num_heads, sWin, pb_type="learnable")
             
         else: pass
         
-        pb_allowed = transFrom.attnconn == AttnConn.Global and transFrom.flash == Flash.No and transFrom.pbias == PBias.Learnable
-        if pb_allowed:
-            self.pos_bias_er = PositionalBias_er_Global_Global(num_heads, seq_len = H * W, pe_type = "learnable")
-        else:
-            self.pos_bias_er = None
-
 
     def forward(self, x, mask=None, ss=False):
 
@@ -406,7 +509,7 @@ class Flash_Axial_Encoder_Layer(nn.Module):         # The lowest ranking module 
         
         if self.transForm.attnconn == AttnConn.Global:
             if self.pos_encoding is not None:   x = self.pos_encoding(x)
-
+            
             x = x.view(B, H*W, C)
             if self.encoder is not None:    x = self.encoder(x, mask=mask, pos_bias_er=self.pos_bias_er)
             x = x.view(B, H, W, C)
@@ -415,6 +518,11 @@ class Flash_Axial_Encoder_Layer(nn.Module):         # The lowest ranking module 
             if self.pos_encoding is not None: x = self.pos_encoding(x)
             x = self.forward_axial(x, 'height', mask=mask)
             x = self.forward_axial(x, 'width', mask=mask)
+            
+        elif self.transForm.attnconn == AttnConn.Shift:
+            if self.pos_encoding is not None: x = self.pos_encoding(x)
+            x = self.encoder_normal(x, pos_bias_er = self.pos_bias_er_normal)
+            x = self.encoder_shifted(x, pos_bias_er = self.pos_bias_er_shifted)
 
         return x
 

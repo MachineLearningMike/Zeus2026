@@ -50,7 +50,7 @@ class FlashMultiHeadAttention(nn.Module):
 
         softmax_scale = 1 / torch.sqrt(torch.tensor(self.d_k, dtype=torch.float32))
 
-        if self.use_flash:
+        if self.use_flash and mask is None and pos_bias_er is None:
             assert mask is None
             assert Q.is_contiguous() and K.is_contiguous() and V.is_contiguous()
             
@@ -66,15 +66,14 @@ class FlashMultiHeadAttention(nn.Module):
             # Scaled dot-product attention
             scores = torch.matmul(Q, K.transpose(-2, -1)) * softmax_scale   # (B, num_heads, seq_len, seq_len)
             
-            if pos_bias_er is not None:
-                pass
-            #     scores = pos_bias_er(scores)
+            if pos_bias_er is not None:         # pos_bias before masking
+                scores = pos_bias_er(scores)
             
             if mask is not None:
                 scores = scores.masked_fill(mask == 0, -1e9)                # (B, num_heads, seq_len, seq_len)
 
-            attn = F.softmax(scores, dim=-1)                                # (B, num_heads, seq_len, seq_len)
-            # attn = self._stable_softmax(scores, dim=-1)
+            # attn = F.softmax(scores, dim=-1)                                # (B, num_heads, seq_len, seq_len)
+            attn = self._stable_softmax(scores, dim=-1)
 
             att_out = torch.matmul(attn, V)                                 # (B, num_heads, seq_len, head_dim)
             att_out = att_out.transpose(1, 2).contiguous()  # (B, seq_len, num_heads, head_dim)

@@ -462,12 +462,14 @@ class Model_Trainer():
                             check_gradient(md.model)
 
                             if md.pm.useLRLearner:
+                                assert False
                                 md.scheduler.step_loss(torch.stack(train_step_loss).mean().item())
 
-                            md.optimizer.step()     # # instead of the below lines
-                            # # scaler doesn't support bf16
-                            # md.scaler.step(md.optimizer)
-                            # md.scaler.update()
+                            # md.optimizer.step()     # # instead of the below lines
+                            # scaler doesn't support bf16?  ---- this use of scaler is coupled with the use of scaler in  forward_backward_no_optimizer_step
+                            md.scaler.step(md.optimizer)
+                            md.scaler.update()
+                            md.scheduler.step()
             else:
                 pass
 
@@ -480,7 +482,8 @@ class Model_Trainer():
             substepsPerDollar = int(substeps_per_step * steps_per_hour / self.pm.dollarsPerHour)
             lr = md_focus.get_learning_rate()
             # gates = md_focus.get_abs_gates_mean()
-            pbar.set_description(f"{md_focus.pbar_description}, wait/step {ms_wait:.0f}/{ms_step:.0f} substeps/$ {substepsPerDollar} lr {lr:1.1e}")
+            # pbar.set_description(f"{md_focus.pbar_description}, wait/step {ms_wait:.0f}/{ms_step:.0f} substeps/$ {substepsPerDollar} lr {lr:1.3e}")
+            pbar.set_description(f"{md_focus.pbar_description}, wait/step {ms_wait:.0f}/{ms_step:.0f} lr {lr:1.3e}")
             start1 = time.time()
 
             # This is to save the model in case it suddenly deviates to diverge.

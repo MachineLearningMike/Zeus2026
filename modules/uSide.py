@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.uSquare import uSquare
-from modules.Resize_R_Half_D_4X import PatchMerging_4X_Dim, PatchSplitting_4X_Dim
+from modules.Reshape_R_Half_D_4X import PatchMerging_4X_Dim, PatchSplitting_4X_Dim
 from modules.Reshape_R_Half_D_2X import PatchMerging_2X_Dim, PatchSplitting_2X_Dim
 from modules.Resize_R_Half_Flex_D_1X_Interpol import Interpolate_Down_1X_Dim, Interpolate_Up_1X_Dim
 from modules.Resize_R_Half_Flex_D_1X_MHA import EmbeddedQuery_MHA_Down_1X_Dim, EmbeddedQuery_MHA_Up_1X_Dim
@@ -123,7 +123,7 @@ class uSide(nn.Module):
 
         #-------------------------- square: (res, dim) to (res, dim)
         self.square = None
-        if dict['square'] is not None:
+        if dict.get('square', None) is not None:
             square_dict = dict['square']
             square_dict['res'] = res_for_square
             square_dict['dim'] = dim_for_square
