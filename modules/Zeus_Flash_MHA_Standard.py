@@ -38,7 +38,7 @@ class FlashMultiHeadAttention(nn.Module):
         return exp_x / (sum_exp_x + 1e-12)
     
         
-    def forward(self, Q, K, V, mask=None, pos_bias_er=None):
+    def forward(self, Q, K, V, mask=None, pos_bias_er=None):    
         # Q, K, V: (B, seq_len, d_model)
         
         batch_size, seq_len, dim = Q.shape

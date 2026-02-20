@@ -345,8 +345,8 @@ class PositionalBias_er_Bandwise(nn.Module):
         
         self.H, self.W = H, W
         self.sWin_H, self.sWin_W = sWin
-        self.nBands_horizonal = H // sWin_H
-        self.nBands_vertical = W // sWin_W
+        self.nBands_horizonal = H // self.sWin_H
+        self.nBands_vertical = W // self.sWin_W
         self.num_heads = num_heads
         
         if pb_type == "learnable":
@@ -429,7 +429,7 @@ class PositionalBias_er_Bandwise(nn.Module):
         ]  # (nBands_horizonal, nBands_vertical, N, N, num_heads)
 
         # merge G and longitude dims
-        pos_bias = pos_bias.view(self.nBands_horizonal * self.nBands_vertical, N, N, num_heads)     # (total_nWin, N, N, num_heads)
+        pos_bias = pos_bias.view(self.nBands_horizonal * self.nBands_vertical, N, N, num_heads).permute(0, 3, 1, 2).contiguous()     # (total_nWin, N, N, num_heads)
         return scores + pos_bias    
     
 # -------------------- Axial FlashAttention --------------------
@@ -452,7 +452,7 @@ class Flash_Versatile_Encoder_Layer(nn.Module):         # The lowest ranking mod
 
         self.encoder, self.encoder_h, self.encoder_w, self.encoder_normal, self.encoder_shifted = None, None, None, None, None
         self.pos_encoding, self.pos_encoding_h, self.pos_encoding_w = None, None, None
-        self.pos_bias_er, self.pos_bias_er_normal, self.pos_bias_er_shifted = None, None, None
+        self.pos_bias_er, self.pos_bias_er_h, self.pos_bias_er_w, self.pos_bias_er_normal, self.pos_bias_er_shifted = None, None, None, None, None
 
         if transFrom.attnconn == AttnConn.Global:
             self.encoder = FlashEncoderLayer(d_model=d_model, num_heads=num_heads, dropout=dropout, use_flash=transFrom.flash.value, eps=eps)
@@ -460,13 +460,13 @@ class Flash_Versatile_Encoder_Layer(nn.Module):         # The lowest ranking mod
             if transFrom.peconn == PEConn.Global:   # output: global, intermal: global
                 self.pos_encoding = PositionalEncoding_Global_Global(max_height=H, max_width=W, dim=d_model, pe_type=transFrom.petype.value)
 
-            if transFrom.flash == Flash.No and transFrom.pbias == PBias.Learnable:
-                self.pos_bias_er = PositionalBias_er_Full(num_heads, seq_len=H*W, pb_type="learnable")
-
             elif transFrom.peconn == PEConn.Axial:  # output: global, internal: axial
                 self.pos_encoding = PositionalEncoding_Global_Axial(max_height=H, max_width=W, dim=d_model, pe_type=transFrom.petype.value)
-            else: pass
-            
+
+            if transFrom.flash == Flash.No and transFrom.pbias == PBias.Learnable:
+                # self.pos_bias_er = PositionalBias_er_Full(num_heads, seq_len=H*W, pb_type="learnable")
+                sWin = (H, W)
+                self.pos_bias_er = PositionalBias_er_Bandwise(H, W, num_heads, sWin, pb_type="learnable")
             
         elif transFrom.attnconn == AttnConn.Axial:
             self.encoder_h = FlashEncoderLayer(d_model=d_model, num_heads=num_heads, dropout=dropout, use_flash=transFrom.flash.value, eps=eps)
@@ -475,22 +475,25 @@ class Flash_Versatile_Encoder_Layer(nn.Module):         # The lowest ranking mod
             self.pos_encoding, self.pos_encoding_h, self.pos_encoding_w = None, None, None
             if transFrom.peconn == PEConn.Global:
                 self.pos_encoding = PositionalEncoding_Axial_Global(max_height=H, max_width=W, dim=d_model, pe_type=transFrom.petype.value)
+                
             elif transFrom.peconn == PEConn.Axial:
                 self.pos_encoding_h = PositionalEncoding_Axial_Axial(max_len=H, dim=d_model, pe_type=transFrom.petype.value)
                 self.pos_encoding_w = PositionalEncoding_Axial_Axial(max_len=W, dim=d_model, pe_type=transFrom.petype.value)
-            else: pass
+
+            if transFrom.pbias == PBias.Learnable and transFrom.flash == Flash.No:
+                self.pos_bias_er_h = PositionalBias_er_Full(num_heads, seq_len=H, pb_type="learnable")  
+                self.pos_bias_er_w = PositionalBias_er_Full(num_heads, seq_len=W, pb_type="learnable")  
             
         elif transFrom.attnconn == AttnConn.Shift:
 
             self.encoder_normal = ShiftEncoderLayer(H, W, d_model=d_model, num_heads=num_heads, nWin=nWin, shift=False)
-            self.encoder_shifted = FlashEncoderLayer(H, W, d_model=d_model, num_heads=num_heads, nWin=nWin, shift=True)
+            self.encoder_shifted = ShiftEncoderLayer(H, W, d_model=d_model, num_heads=num_heads, nWin=nWin, shift=True)
  
             self.pos_encoding, self.pos_encoding_normal, self.pos_encoding_shifted = None, None, None
             if transFrom.peconn == PEConn.Global:
                 self.pos_encoding = PositionalEncoding_Shift_Global(max_height=H, max_width=W, dim=d_model, pe_type=transFrom.petype.value)
             elif transFrom.peconn == PEConn.Axial:
                 assert False, "AttnConn.Shift cannot have PEConn.Axial"
-            else: pass
             
             if transFrom.pbias == PBias.Learnable and transFrom.flash == Flash.No:
                 sWin = (H//nWin[0], W//nWin[1])
@@ -543,11 +546,11 @@ class Flash_Versatile_Encoder_Layer(nn.Module):         # The lowest ranking mod
         # Transformer.Encode, with possible positional encoding.
         if axis == 'height':
             if self.pos_encoding_h is not None: x = self.pos_encoding_h(x)
-            if self.encoder_h is not None: x = self.encoder_h(x)
+            if self.encoder_h is not None: x = self.encoder_h(x, mask=mask, pos_bias_er=self.pos_bias_er_h)
 
         elif axis == 'width':  
             if self.pos_encoding_w is not None: x = self.pos_encoding_w(x)
-            if self.encoder_w is not None: x = self.encoder_w(x)
+            if self.encoder_w is not None: x = self.encoder_w(x, mask=mask, pos_bias_er=self.pos_bias_er_w)
     
         # Restore original shape
         x = reshape_back(x)
@@ -558,11 +561,18 @@ class Flash_Versatile_Encoder_Layer(nn.Module):         # The lowest ranking mod
 # ------------------- Test Code -------------------
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    B, H, W, C, num_heads = 1, 180, 360, 12, 4
-    loops = 5
+    # B, H, W, C, num_heads = 1, 720, 1440, 20, 4
+    # B, H, W, C, num_heads = 1, 360, 720,  20, 4
+    # B, H, W, C, num_heads = 1, 180, 360,  40, 8
+    B, H, W, C, num_heads = 1, 96,  192,  80, 8
+    # B, H, W, C, num_heads = 1, 48,  96,  160, 8
+
+    nWin = (12, 12)   # (2, 2): OOM
+    
+    loops = 3
 
     # Test different positional encoding types
-    for petype in [PEType.Learnable, PEType.Sinusoidal, PEType.Linear, PEType.Nothing]:
+    for petype in [PEType.Nothing]: #[PEType.Learnable, PEType.Sinusoidal, PEType.Linear, PEType.Nothing]:
         print(f"\n{'='*60}")
         print(f"Testing with positional encoding: {petype}")
         print('='*60)
@@ -571,9 +581,9 @@ if __name__ == "__main__":
         x = torch.randn(B, H, W, C, device=device)
         target = torch.randn_like(x)
         
-        tf = TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes)
+        tf = TransForm(AttnConn.Shift, PEConn.Global, PEType.Learnable, Flash.No, PBias.Learnable)
         
-        model = Flash_Axial_Encoder_Layer(H=H, W=W, d_model=C, num_heads=num_heads, transFrom=tf).to(device)
+        model = Flash_Versatile_Encoder_Layer(H=H, W=W, d_model=C, num_heads=num_heads, nWin=nWin, transFrom=tf).to(device)
 
         optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
         criterion = nn.MSELoss()

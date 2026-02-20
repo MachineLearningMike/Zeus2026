@@ -169,25 +169,10 @@ class AttentionMask2D(nn.Module):
         w_size = sWin[idx]
         s_size = shift_size[idx]
         assert pad < w_size
-
-        if s_size != 0 and pad == 0:
-            w_slices = (slice(None),)
-        elif s_size == 0 and pad != 0:
-            w_slices = (slice(0, pad),
-                        slice(pad, None))
-        elif s_size != 0 and pad != 0:
-            if pad <= s_size:
-                w_slices = (slice(0, -pad),
-                            slice(-pad, None))
-            else:
-                w_slices = (slice(0, pad - s_size),
-                            slice(pad - s_size, -s_size),
-                            slice(-s_size, None))
-        else:
-            w_slices = (slice(None),)
+        w_slices = get_slices(s_size, w_size, pad)
 
         # Build mask
-        img_mask = torch.zeros((1, 1, H, W))
+        img_mask = torch.zeros((1, 1, H, W))  # torch.float32
         
         region_id = 0
         for h in h_slices:
@@ -200,10 +185,10 @@ class AttentionMask2D(nn.Module):
         windows, nWh, nWw = window_partition_2d(img_mask, sWin) # (total_nWin, 1, sWin_h, sWin_w)
         mask_windows = windows.view(-1, sWin[0]*sWin[1])    # (total_nWin, vWin)
         attn_mask = mask_windows.unsqueeze(1) - mask_windows.unsqueeze(2)   # (total_nWin, 1, vWin) - (total_nWin, vWin, 1) = (total_nWin, vWin, vWin)
-        unique = region_id
+        unique = region_id  # unique must meet abs(unique) > 4
         # Standards attention kills attentoins for zero-masked pairs.
-        attn_mask = attn_mask.masked_fill(attn_mask == 0, unique).masked_fill(attn_mask != unique, 0).masked_fill(attn_mask == unique, 1)
-        return attn_mask    # (total_nWin, vWin, vWin) with values 0 or 1.
+        attn_mask = attn_mask.masked_fill(attn_mask == 0, 1).masked_fill(attn_mask != 0, 0)
+        return attn_mask[:, None, :, :]    # (total_nWin, propagation to num_heads, vWin, vWin) with values 0 or 1.
 
 # ---------------------------
 # Swin Block 2D WITHOUT autocast inside
@@ -218,13 +203,13 @@ class ShiftEncoderLayer(nn.Module):
         assert d_model % num_heads == 0, f"d_model {d_model} is not divisible with num_heads {num_heads}"
 
         # We have techniques to asure this, eliminating padding.
-        assert H % nWin[0] == 0 and W % nWin[1] == 0, f"Total size ({H}, {W}) is not divisible with number of windows ({nWin[0]}, {nWin[1]}"
-        assert H % nWin[0] % 2 == 0 and W % nWin[1] % 2 == 0, f"Window size ({H % nWin[0]}, {W % nWin[1]}) are not even numbers."
+        assert H % nWin[0] == 0 and W % nWin[1] == 0, f"Total size ({H}, {W}) is not divisible with number of windows {nWin}"
+        assert H // nWin[0] % 2 == 0 and W // nWin[1] % 2 == 0, f"Window size ({H // nWin[0]}, {W // nWin[1]}) are not even numbers."
 
         self.d_model = d_model
         self.num_heads = num_heads
         
-        self.sWin = (H//nWin[0], W//nWin[1])
+        self.sWin = (H // nWin[0], W // nWin[1])
         
         self.input_vol = H * W
         self.vWin = self.sWin[0] * self.sWin[1]
