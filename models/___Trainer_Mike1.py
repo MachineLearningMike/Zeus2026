@@ -483,7 +483,7 @@ class Model_Trainer():
             ms_wait = (end-start) * 1000
             ms_step = (end1-start1) * 1000
             self.elapse = self.elapse + (end1-start1)
-            elapse = f"{int(self.elapse) // 3600}:{(int(self.elapse) % 3600) // 60}"
+            elapse = f"{int(self.elapse) // 3600}:{(int(self.elapse) % 3600) // 60 :02d}"
             # compute = (ms_step - ms_wait) / self.train_bombs
             steps_per_hour = 3600/(end1-start1)
             substepsPerDollar = int(substeps_per_step * steps_per_hour / self.pm.dollarsPerHour)
