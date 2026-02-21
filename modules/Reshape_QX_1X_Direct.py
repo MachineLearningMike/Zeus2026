@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
 
-class PatchDoubleMerging_4X_Dim(nn.Module):
-    
+class Reshape_QX_1X_Direct(nn.Module):
+
     @staticmethod
     def get_output_shape(input_shape, nWin, pWin):
         # Do not attempt to add padding !!!
@@ -37,7 +37,7 @@ class PatchDoubleMerging_4X_Dim(nn.Module):
         return x
 
 
-class PatchDoubleSplitting_4X_Dim(nn.Module):
+class Reshape_4X_1X_Direct(nn.Module):
 
     @staticmethod
     def get_output_shape(input_shape, nWin, pWin):
@@ -85,16 +85,16 @@ if __name__ == "__main__":
         print(f"Input shape: {x.shape}")
         
         # Merge
-        merge = PatchDoubleMerging_4X_Dim(dim=C)
+        merge = Reshape_QX_1X_Direct(dim=C)
         x_merged = merge(x)
-        print(f"After PatchDoubleMerging_4X_Dim: {x_merged.shape}")
+        print(f"After Reshape_QX_1X_Direct: {x_merged.shape}")
         print(f"  Spatial: {H}x{W} -> {H//4}x{W//4}")
         print(f"  Channels: {C} -> {x_merged.shape[-1]}")
         
         # Split
-        split = PatchDoubleSplitting_4X_Dim(dim=4*C)
+        split = Reshape_4X_1X_Direct(dim=4*C)
         x_restored = split(x_merged)
-        print(f"\nAfter PatchDoubleSplitting_4X_Dim: {x_restored.shape}")
+        print(f"\nAfter Reshape_4X_1X_Direct: {x_restored.shape}")
         print(f"  Spatial: {H//4}x{W//4} -> {x_restored.shape[1]}x{x_restored.shape[2]}")
         print(f"  Channels: {x_merged.shape[-1]} -> {x_restored.shape[-1]}")
         
@@ -110,7 +110,7 @@ if __name__ == "__main__":
         print(f"Original tensor shape: {x.shape}")
         print(f"First few values: {x[0, 0, 0, :]} ...")
         
-        merge = PatchDoubleMerging_4X_Dim(dim=C)
+        merge = Reshape_QX_1X_Direct(dim=C)
         
         # FIX: Create proper identity-like weights for the linear layer
         with torch.no_grad():
@@ -133,7 +133,7 @@ if __name__ == "__main__":
         x_merged = merge(x)
         print(f"\nAfter merge: {x_merged.shape}")  # Should be [1, 2, 2, 8]
         
-        split = PatchDoubleSplitting_4X_Dim(dim=4*C)
+        split = Reshape_4X_1X_Direct(dim=4*C)
         with torch.no_grad():
             # For splitting, we need to go from 4*C to 16*C
             # The transpose of the reduction matrix would work if reduction was square

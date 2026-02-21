@@ -18,18 +18,11 @@ from modules.Zeus_Versatile_Encoder_Layer import Flash_Versatile_Encoder_Layer
 class uSquare(nn.Module):
     def __init__(self, dict: dict) -> None:
         super().__init__()
-        
-        # top_res should be a multiple of win_size.        
-        win_size = dict.get('prime_size', [1, 1])     #
-        self.padding_dim = [(win_size[i] - dict['res'][i] % win_size[i]) % win_size[i] for i in range(2)]
-        self.internal_res = [dict['res'][i] + self.padding_dim[i] for i in range(2)]
-        
+                
         (H, W) = dict['res']
-        padding = dict['padding']   # informing of having padded, not having to pad.
         d_model = dict['dim']
         num_heads = dict['num_heads']
         nWin = dict.get('nWin', (1, 1))
-        prime_size = dict['prime_size']
         n_layers = dict['nLayers']
         transForm = dict['transForm']
         # attnconn, peconn, petype, flash, pbias = transForm.attnconn, transForm.peconn, transForm.petype, transForm.flash, transForm.pbias

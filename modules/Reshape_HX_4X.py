@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch
 import torch.nn as nn
 
-class Reshape_HX_4X(nn.Module):
+class Reshape_HX_4X(nn.Module):     # Half, 4X
     
     @staticmethod
     def get_output_shape(input_shape, nWin, pWin):

@@ -9,7 +9,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.Reshape_Half_Flex import halve_window_size_optimized_flexibly
 
-class Interpolate_Down_1X_Dim(nn.Module):
+class Reshape_HFX_1X_MHA_Interpolate(nn.Module):
     
     @staticmethod
     def get_output_shape(input_shape, nWin, pWin):
@@ -37,7 +37,7 @@ class Interpolate_Down_1X_Dim(nn.Module):
         
         return x_down
 
-class Interpolate_Up_1X_Dim(nn.Module):
+class Reshape_2FX_1X_MHA_Interpolate(nn.Module):
 
     def __init__(self, dim, output_shape):
         super().__init__()
@@ -118,17 +118,17 @@ if __name__ == "__main__":
     print("=" * 60)
     
     # Create pyramid with connected pairs - pass down_layer directly to up
-    down1 = Interpolate_Down_1X_Dim()  # 45×90 → 23×45
-    up1 = Interpolate_Up_1X_Dim(down_layer=down1)  # Connect at creation
+    down1 = Reshape_HFX_1X_MHA_Interpolate()  # 45×90 → 23×45
+    up1 = Reshape_2FX_1X_MHA_Interpolate(down_layer=down1)  # Connect at creation
     
-    down2 = Interpolate_Down_1X_Dim()  # 23×45 → 12×23
-    up2 = Interpolate_Up_1X_Dim(down_layer=down2)
+    down2 = Reshape_HFX_1X_MHA_Interpolate()  # 23×45 → 12×23
+    up2 = Reshape_2FX_1X_MHA_Interpolate(down_layer=down2)
     
-    down3 = Interpolate_Down_1X_Dim()  # 12×23 → 6×12
-    up3 = Interpolate_Up_1X_Dim(down_layer=down3)
+    down3 = Reshape_HFX_1X_MHA_Interpolate()  # 12×23 → 6×12
+    up3 = Reshape_2FX_1X_MHA_Interpolate(down_layer=down3)
     
-    down4 = Interpolate_Down_1X_Dim()  # 6×12 → 3×6
-    up4 = Interpolate_Up_1X_Dim(down_layer=down4)
+    down4 = Reshape_HFX_1X_MHA_Interpolate()  # 6×12 → 3×6
+    up4 = Reshape_2FX_1X_MHA_Interpolate(down_layer=down4)
     
     # Test data - Note: (batch, height, width, channels)
     x = torch.randn(2, 45, 90, 5)  # (B, H, W, C)

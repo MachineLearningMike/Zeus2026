@@ -13,8 +13,8 @@ from modules.uNet import uNet
 # from modules.Zeus_Axial_Non_Lin_Attn_From_Phys_FA_Axial import AxialFlashAttention
 from modules.Zeus_Axial_Attn_Phys_FA_Cross_PE import AxialFlashAttention
 # from modules.Reshape_R_Half_D_4X import Reshape_HX_4X, Reshape_2X_QX
-from modules.Reshape_R_Quarter_D_4X import PatchDoubleMerging_4X_Dim, PatchDoubleSplitting_4X_Dim
-from modules.Reshape_R_Quarter_D_1X import PatchDoubleMerging_1X_Dim
+from modules.Reshape_R_Quarter_D_4X import Reshape_QX_1X_Direct, Reshape_4X_1X_Direct
+from modules.Reshape_QX_1X import Reshape_QX_1X
 from modules.utils import resize_continuous_bilinear_channel_wise_cylindric
 from modules.zeus_embed_cascade import Embed_Cascade
 from modules.zeus_embed_category import Embed_Category

@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class Interpolate_Down_1X_Dim(nn.Module):
+class Reshape_HFX_1X_MHA_Interpolate(nn.Module):
     anchor = 2
     res_multiplier = [1 / anchor, 1 / anchor]   # clients should use math.ceil(res * res_multiplier)
     dim_multiplier = 1
@@ -26,7 +26,7 @@ class Interpolate_Down_1X_Dim(nn.Module):
         return x_down.permute(0, 2, 3, 1)
 
 
-class Interpolate_Up_1X_Dim(nn.Module):
+class Reshape_2FX_1X_MHA_Interpolate(nn.Module):
     anchor = 2
     res_multiplier = [anchor, anchor]   # clients should use math.ceil(res * res_multiplier)
     dim_multiplier = 1
@@ -123,20 +123,20 @@ if __name__ == "__main__":
     print("=" * 60)
     
     # Create pyramid with connected pairs
-    down1 = Interpolate_Down_1X_Dim()  # 45×90 → 23×45
-    up1 = Interpolate_Up_1X_Dim()
+    down1 = Reshape_HFX_1X_MHA_Interpolate()  # 45×90 → 23×45
+    up1 = Reshape_2FX_1X_MHA_Interpolate()
     up1.set_down_layer(down1)
     
-    down2 = Interpolate_Down_1X_Dim()  # 23×45 → 12×23
-    up2 = Interpolate_Up_1X_Dim()
+    down2 = Reshape_HFX_1X_MHA_Interpolate()  # 23×45 → 12×23
+    up2 = Reshape_2FX_1X_MHA_Interpolate()
     up2.set_down_layer(down2)
     
-    down3 = Interpolate_Down_1X_Dim()  # 12×23 → 6×12
-    up3 = Interpolate_Up_1X_Dim()
+    down3 = Reshape_HFX_1X_MHA_Interpolate()  # 12×23 → 6×12
+    up3 = Reshape_2FX_1X_MHA_Interpolate()
     up3.set_down_layer(down3)
     
-    down4 = Interpolate_Down_1X_Dim()  # 6×12 → 3×6
-    up4 = Interpolate_Up_1X_Dim()
+    down4 = Reshape_HFX_1X_MHA_Interpolate()  # 6×12 → 3×6
+    up4 = Reshape_2FX_1X_MHA_Interpolate()
     up4.set_down_layer(down4)
     
     # Test data

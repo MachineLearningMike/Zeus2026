@@ -13,8 +13,8 @@ from modules.uNet import uNet
 # from modules.Zeus_Axial_Non_Lin_Attn_From_Phys_FA_Axial import AxialFlashAttention
 from modules.Zeus_Axial_Attn_Phys_FA_Cross_PE import AxialFlashAttention
 # from modules.Reshape_R_Half_D_4X import Reshape_HX_4X, Reshape_2X_QX
-from modules.Reshape_R_Quarter_D_4X import PatchDoubleMerging_4X_Dim, PatchDoubleSplitting_4X_Dim
-from modules.Reshape_R_Quarter_D_1X import PatchDoubleMerging_1X_Dim
+from modules.Reshape_R_Quarter_D_4X import Reshape_QX_1X_Direct, Reshape_4X_1X_Direct
+from modules.Reshape_QX_1X import Reshape_QX_1X
 from modules.utils import resize_continuous_bilinear_channel_wise_cylindric
 from modules.zeus_embed_cascade import Embed_Cascade
 from modules.zeus_embed_category import Embed_Category
@@ -102,13 +102,13 @@ class Zeus(nn.Module):
             drop = 0    
         )
         
-        self.patch_double_merger_4x = PatchDoubleMerging_4X_Dim(dim = Snapshot.meteo_dims)
-        self.patch_double_splitter_4x = PatchDoubleSplitting_4X_Dim(dim = 4 * Snapshot.meteo_dims)
+        self.patch_double_merger_4x = Reshape_QX_1X_Direct(dim = Snapshot.meteo_dims)
+        self.patch_double_splitter_4x = Reshape_4X_1X_Direct(dim = 4 * Snapshot.meteo_dims)
         
-        self.patch_double_merger_1x_tempo = PatchDoubleMerging_1X_Dim(Snapshot.tempo_dims)
-        self.patch_double_merger_1x_dense = PatchDoubleMerging_1X_Dim(Snapshot.dense_dims)
-        self.patch_double_merger_1x_cat = PatchDoubleMerging_1X_Dim(self.category_emb_dim)
-        self.patch_double_merger_1x_cascade = PatchDoubleMerging_1X_Dim(self.cascade_depth_emb_dim)
+        self.patch_double_merger_1x_tempo = Reshape_QX_1X(Snapshot.tempo_dims)
+        self.patch_double_merger_1x_dense = Reshape_QX_1X(Snapshot.dense_dims)
+        self.patch_double_merger_1x_cat = Reshape_QX_1X(self.category_emb_dim)
+        self.patch_double_merger_1x_cascade = Reshape_QX_1X(self.cascade_depth_emb_dim)
                 
         self.predict_fun_dict = None
         self.meteo_dims = len(self.pm.targetVariables)

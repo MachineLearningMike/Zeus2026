@@ -13,20 +13,19 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.uSquare import uSquare
-from modules.Reshape_R_Half_D_4X import Reshape_HX_4X, Reshape_2X_QX
-from modules.Reshape_R_Half_D_2X import Reshape_HX_2X, Reshape_2X_HX
-from modules.Reshape_R_Half_Flex_D_1X_Interpol import Interpolate_Down_1X_Dim, Interpolate_Up_1X_Dim
-from modules.Reshape_R_Half_D_1X import Reshape_HX_1X, Reshape_2X_1X
-from modules.Reshape_R_Half_Flex_D_1X_MHA import Reshape_HFX_1X, Reshape_2FX_1X
-from modules.Reshape_R_Half_Flex_D_2X_MHA import Reshape_HFX_2X, Reshape_2FX_HX
+from modules.Reshape_HX_4X import Reshape_HX_4X, Reshape_2X_QX
+from modules.Reshape_HX_2X import Reshape_HX_2X, Reshape_2X_HX
+from modules.Reshape_HX_1X import Reshape_HX_1X, Reshape_2X_1X
+from modules.Reshape_HFX_1X_MHA import Reshape_HFX_1X_MHA, Reshape_2FX_1X_MHA
+from modules.Reshape_HFX_2X_MHA import Reshape_HFX_2X_MHA, Reshape_2FX_HX_MHA
 
 class Reshape(Enum):
     Nothing = 0
     HX_4X = 1
     HX_2X = 3
     HX_1X = 4
-    HFX_1X = 5
-    HFX_2X = 6
+    HFX_1X_MHA = 5
+    HFX_2X_MHA = 6
 
 class uSide(nn.Module):
     """
@@ -47,10 +46,10 @@ class uSide(nn.Module):
             enc_top_mersplit_class = Reshape_HX_4X
         elif dict['top_mersplit'] == Reshape.HX_1X:
             enc_top_mersplit_class = Reshape_HX_1X
-        elif dict['top_mersplit'] == Reshape.HFX_1X:
-            enc_top_mersplit_class = Reshape_HFX_1X
-        elif dict['top_mersplit'] == Reshape.HFX_2X:
-            enc_top_mersplit_class = Reshape_HFX_2X
+        elif dict['top_mersplit'] == Reshape.HFX_1X_MHA:
+            enc_top_mersplit_class = Reshape_HFX_1X_MHA
+        elif dict['top_mersplit'] == Reshape.HFX_2X_MHA:
+            enc_top_mersplit_class = Reshape_HFX_2X_MHA
 
         enc_down_mersplit_class = None
         if dict['down_mersplit'] == Reshape.HX_2X:
@@ -59,10 +58,10 @@ class uSide(nn.Module):
             enc_down_mersplit_class = Reshape_HX_4X
         elif dict['down_mersplit'] == Reshape.HX_1X:
             enc_down_mersplit_class = Reshape_HX_1X
-        elif dict['down_mersplit'] == Reshape.HFX_1X:
-            enc_down_mersplit_class = Reshape_HFX_1X
-        elif dict['down_mersplit'] == Reshape.HFX_2X:
-            enc_down_mersplit_class = Reshape_HFX_2X
+        elif dict['down_mersplit'] == Reshape.HFX_1X_MHA:
+            enc_down_mersplit_class = Reshape_HFX_1X_MHA
+        elif dict['down_mersplit'] == Reshape.HFX_2X_MHA:
+            enc_down_mersplit_class = Reshape_HFX_2X_MHA
 
         dec_top_mersplit_class = None
         if dict['top_mersplit'] == Reshape.HX_2X:
@@ -71,10 +70,10 @@ class uSide(nn.Module):
             dec_top_mersplit_class = Reshape_2X_QX
         elif dict['top_mersplit'] == Reshape.HX_1X:
             dec_top_mersplit_class = Reshape_2X_1X
-        elif dict['top_mersplit'] == Reshape.HFX_1X:
-            dec_top_mersplit_class = Reshape_2FX_1X
-        elif dict['top_mersplit'] == Reshape.HFX_2X:
-            dec_top_mersplit_class = Reshape_2FX_HX
+        elif dict['top_mersplit'] == Reshape.HFX_1X_MHA:
+            dec_top_mersplit_class = Reshape_2FX_1X_MHA
+        elif dict['top_mersplit'] == Reshape.HFX_2X_MHA:
+            dec_top_mersplit_class = Reshape_2FX_HX_MHA
 
         dec_down_mersplit_class = None
         if dict['down_mersplit'] == Reshape.HX_2X:
@@ -83,10 +82,10 @@ class uSide(nn.Module):
             dec_down_mersplit_class = Reshape_2X_QX
         elif dict['down_mersplit'] == Reshape.HX_1X:
             dec_down_mersplit_class = Reshape_2X_1X
-        elif dict['down_mersplit'] == Reshape.HFX_1X:
-            dec_down_mersplit_class = Reshape_2FX_1X
-        elif dict['down_mersplit'] == Reshape.HFX_2X:
-            dec_down_mersplit_class = Reshape_2FX_HX
+        elif dict['down_mersplit'] == Reshape.HFX_1X_MHA:
+            dec_down_mersplit_class = Reshape_2FX_1X_MHA
+        elif dict['down_mersplit'] == Reshape.HFX_2X_MHA:
+            dec_down_mersplit_class = Reshape_2FX_HX_MHA
 
         #--------------- Planning for res and dim ----------
         enc_top_input_shape = (dict['top_res'], dict['top_dim'])
