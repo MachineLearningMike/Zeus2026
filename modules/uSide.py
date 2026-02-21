@@ -13,20 +13,20 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from modules.uSquare import uSquare
-from modules.Reshape_R_Half_D_4X import PatchMerging_4X_Dim, PatchSplitting_4X_Dim
-from modules.Reshape_R_Half_D_2X import PatchMerging_2X_Dim, PatchSplitting_2X_Dim
+from modules.Reshape_R_Half_D_4X import Reshape_HX_4X, Reshape_2X_QX
+from modules.Reshape_R_Half_D_2X import Reshape_HX_2X, Reshape_2X_HX
 from modules.Reshape_R_Half_Flex_D_1X_Interpol import Interpolate_Down_1X_Dim, Interpolate_Up_1X_Dim
-from modules.Reshape_R_Half_D_1X import PatchMerging_1X_Dim, PatchSplitting_1X_Dim
-from modules.Reshape_R_Half_Flex_D_1X_MHA import EmbeddedQuery_MHA_Down_1X_Dim, EmbeddedQuery_MHA_Up_1X_Dim
-from modules.Reshape_R_Half_Flex_D_2X_MHA import EmbeddedQuery_MHA_Down_2X_Dim, EmbeddedQuery_MHA_Up_2X_Dim
+from modules.Reshape_R_Half_D_1X import Reshape_HX_1X, Reshape_2X_1X
+from modules.Reshape_R_Half_Flex_D_1X_MHA import Reshape_HFX_1X, Reshape_2FX_1X
+from modules.Reshape_R_Half_Flex_D_2X_MHA import Reshape_HFX_2X, Reshape_2FX_HX
 
 class Reshape(Enum):
     Nothing = 0
-    R_2X_D_4X = 1
-    R_2X_D_2X = 3
-    R_2X_D_1X = 4
-    R_Half_Flex_MHA_D_1X = 5
-    R_Half_Flex_MHA_D_2X = 6
+    HX_4X = 1
+    HX_2X = 3
+    HX_1X = 4
+    HFX_1X = 5
+    HFX_2X = 6
 
 class uSide(nn.Module):
     """
@@ -41,52 +41,52 @@ class uSide(nn.Module):
        
         #------------------------ create shortcuts ---
         enc_top_mersplit_class = None
-        if dict['top_mersplit'] == Reshape.R_2X_D_2X:
-            enc_top_mersplit_class = PatchMerging_2X_Dim
-        elif dict['top_mersplit'] == Reshape.R_2X_D_4X:
-            enc_top_mersplit_class = PatchMerging_4X_Dim
-        elif dict['top_mersplit'] == Reshape.R_2X_D_1X:
-            enc_top_mersplit_class = PatchMerging_1X_Dim
-        elif dict['top_mersplit'] == Reshape.R_Half_Flex_MHA_D_1X:
-            enc_top_mersplit_class = EmbeddedQuery_MHA_Down_1X_Dim
-        elif dict['top_mersplit'] == Reshape.R_Half_Flex_MHA_D_2X:
-            enc_top_mersplit_class = EmbeddedQuery_MHA_Down_2X_Dim
+        if dict['top_mersplit'] == Reshape.HX_2X:
+            enc_top_mersplit_class = Reshape_HX_2X
+        elif dict['top_mersplit'] == Reshape.HX_4X:
+            enc_top_mersplit_class = Reshape_HX_4X
+        elif dict['top_mersplit'] == Reshape.HX_1X:
+            enc_top_mersplit_class = Reshape_HX_1X
+        elif dict['top_mersplit'] == Reshape.HFX_1X:
+            enc_top_mersplit_class = Reshape_HFX_1X
+        elif dict['top_mersplit'] == Reshape.HFX_2X:
+            enc_top_mersplit_class = Reshape_HFX_2X
 
         enc_down_mersplit_class = None
-        if dict['down_mersplit'] == Reshape.R_2X_D_2X:
-            enc_down_mersplit_class = PatchMerging_2X_Dim
-        elif dict['down_mersplit'] == Reshape.R_2X_D_4X:
-            enc_down_mersplit_class = PatchMerging_4X_Dim
-        elif dict['down_mersplit'] == Reshape.R_2X_D_1X:
-            enc_down_mersplit_class = PatchMerging_1X_Dim
-        elif dict['down_mersplit'] == Reshape.R_Half_Flex_MHA_D_1X:
-            enc_down_mersplit_class = EmbeddedQuery_MHA_Down_1X_Dim
-        elif dict['down_mersplit'] == Reshape.R_Half_Flex_MHA_D_2X:
-            enc_down_mersplit_class = EmbeddedQuery_MHA_Down_2X_Dim
+        if dict['down_mersplit'] == Reshape.HX_2X:
+            enc_down_mersplit_class = Reshape_HX_2X
+        elif dict['down_mersplit'] == Reshape.HX_4X:
+            enc_down_mersplit_class = Reshape_HX_4X
+        elif dict['down_mersplit'] == Reshape.HX_1X:
+            enc_down_mersplit_class = Reshape_HX_1X
+        elif dict['down_mersplit'] == Reshape.HFX_1X:
+            enc_down_mersplit_class = Reshape_HFX_1X
+        elif dict['down_mersplit'] == Reshape.HFX_2X:
+            enc_down_mersplit_class = Reshape_HFX_2X
 
         dec_top_mersplit_class = None
-        if dict['top_mersplit'] == Reshape.R_2X_D_2X:
-            dec_top_mersplit_class = PatchSplitting_2X_Dim
-        elif dict['top_mersplit'] == Reshape.R_2X_D_4X:
-            dec_top_mersplit_class = PatchSplitting_4X_Dim
-        elif dict['top_mersplit'] == Reshape.R_2X_D_1X:
-            dec_top_mersplit_class = PatchSplitting_1X_Dim
-        elif dict['top_mersplit'] == Reshape.R_Half_Flex_MHA_D_1X:
-            dec_top_mersplit_class = EmbeddedQuery_MHA_Up_1X_Dim
-        elif dict['top_mersplit'] == Reshape.R_Half_Flex_MHA_D_2X:
-            dec_top_mersplit_class = EmbeddedQuery_MHA_Up_2X_Dim
+        if dict['top_mersplit'] == Reshape.HX_2X:
+            dec_top_mersplit_class = Reshape_2X_HX
+        elif dict['top_mersplit'] == Reshape.HX_4X:
+            dec_top_mersplit_class = Reshape_2X_QX
+        elif dict['top_mersplit'] == Reshape.HX_1X:
+            dec_top_mersplit_class = Reshape_2X_1X
+        elif dict['top_mersplit'] == Reshape.HFX_1X:
+            dec_top_mersplit_class = Reshape_2FX_1X
+        elif dict['top_mersplit'] == Reshape.HFX_2X:
+            dec_top_mersplit_class = Reshape_2FX_HX
 
         dec_down_mersplit_class = None
-        if dict['down_mersplit'] == Reshape.R_2X_D_2X:
-            dec_down_mersplit_class = PatchSplitting_2X_Dim
-        elif dict['down_mersplit'] == Reshape.R_2X_D_4X:
-            dec_down_mersplit_class = PatchSplitting_4X_Dim
-        elif dict['down_mersplit'] == Reshape.R_2X_D_1X:
-            dec_down_mersplit_class = PatchSplitting_1X_Dim
-        elif dict['down_mersplit'] == Reshape.R_Half_Flex_MHA_D_1X:
-            dec_down_mersplit_class = EmbeddedQuery_MHA_Up_1X_Dim
-        elif dict['down_mersplit'] == Reshape.R_Half_Flex_MHA_D_2X:
-            dec_down_mersplit_class = EmbeddedQuery_MHA_Up_2X_Dim
+        if dict['down_mersplit'] == Reshape.HX_2X:
+            dec_down_mersplit_class = Reshape_2X_HX
+        elif dict['down_mersplit'] == Reshape.HX_4X:
+            dec_down_mersplit_class = Reshape_2X_QX
+        elif dict['down_mersplit'] == Reshape.HX_1X:
+            dec_down_mersplit_class = Reshape_2X_1X
+        elif dict['down_mersplit'] == Reshape.HFX_1X:
+            dec_down_mersplit_class = Reshape_2FX_1X
+        elif dict['down_mersplit'] == Reshape.HFX_2X:
+            dec_down_mersplit_class = Reshape_2FX_HX
 
         #--------------- Planning for res and dim ----------
         enc_top_input_shape = (dict['top_res'], dict['top_dim'])

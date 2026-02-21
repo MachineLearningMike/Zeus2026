@@ -10,7 +10,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 from modules.Reshape_Half_Flex import halve_window_size_optimized_flexibly
 from modules.Zeus_Flash_MHA_Embedded_Query import EmbeddedQueryMultiHeadAttention
 
-class EmbeddedQuery_MHA_Down_2X_Dim(nn.Module):
+class Reshape_HFX_2X(nn.Module):
     
     @staticmethod
     def get_output_shape(input_shape, nWin, pWin):
@@ -44,7 +44,7 @@ class EmbeddedQuery_MHA_Down_2X_Dim(nn.Module):
         
         return x
 
-class EmbeddedQuery_MHA_Up_2X_Dim(nn.Module):
+class Reshape_2FX_HX(nn.Module):
 
     def __init__(self, dim, output_shape):
         super().__init__()

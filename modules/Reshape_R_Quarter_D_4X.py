@@ -5,7 +5,7 @@ from pathlib import Path
 import os, sys, gc
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from modules.Reshape_R_Half_D_2X import PatchMerging_2X_Dim, PatchSplitting_2X_Dim
+from modules.Reshape_R_Half_D_2X import Reshape_HX_2X, Reshape_2X_HX
 
 class PatchDoubleMerging_4X_Dim(nn.Module):        
    
@@ -25,8 +25,8 @@ class PatchDoubleMerging_4X_Dim(nn.Module):
         self.dim = dim
         
         # Two-stage merging: first 2x, then another 2x
-        self.stage1 = PatchMerging_2X_Dim(dim)
-        self.stage2 = PatchMerging_2X_Dim(dim * 2)
+        self.stage1 = Reshape_HX_2X(dim)
+        self.stage2 = Reshape_HX_2X(dim * 2)
         
         # Optional: Add normalization and activation between stages for better learning
         self.norm = nn.LayerNorm(dim * 2)
@@ -70,8 +70,8 @@ class PatchDoubleSplitting_4X_Dim(nn.Module):
         # Input has dim = 4 * original_dim
         # Stage1: (H, W, 4*orig) -> (H*2, W*2, 2*orig) = (H*2, W*2, dim//2)
         # Stage2: (H*2, W*2, 2*orig) -> (H*4, W*4, orig) = (H*4, W*4, dim//4)
-        self.stage1 = PatchSplitting_2X_Dim(dim)  # Input: 4*orig, Output: 2*orig
-        self.stage2 = PatchSplitting_2X_Dim(dim // 2)  # Input: 2*orig, Output: orig
+        self.stage1 = Reshape_2X_HX(dim)  # Input: 4*orig, Output: 2*orig
+        self.stage2 = Reshape_2X_HX(dim // 2)  # Input: 2*orig, Output: orig
         
         # Optional: Add normalization and activation between stages
         self.norm = nn.LayerNorm(dim // 2)  # 2*orig

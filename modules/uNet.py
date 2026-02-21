@@ -15,14 +15,14 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 from modules.uBlock import uBlock
 
 class uNet(nn.Module):
-    def __init__(self, H, W, C, block_dicts) -> None:
+    def __init__(self, H, W, C, block_dicts, inherited) -> None:
         super().__init__()
 
         self.depth = len(block_dicts)
         
         self.uBlocks = nn.ModuleList()
 
-        inherited = {'nWin': [1, 1], 'pWin': 1}
+        inherited = {'nWin': inherited['nWin'], 'pWin': inherited['pWin']}
 
         res, dim = (H, W), C    
         for i in range(self.depth):
@@ -65,7 +65,7 @@ if __name__ == "__main__":
         {
             # managed: 'top_res', 'top_dim'
             'top_mersplit': Reshape.Nothing,
-            'down_mersplit': Reshape.R_2X_D_2X, 'down_nWin': [1, 2], 'down_pWin': 1,
+            'down_mersplit': Reshape.HX_2X, 'down_nWin': [1, 2], 'down_pWin': 1,
             'square' : {
                 # managed: 'res', 'dim'
                 'num_heads' : 8,
@@ -77,7 +77,7 @@ if __name__ == "__main__":
         {
             # managed: 'top_res', 'top_dim'
             'top_mersplit': Reshape.Nothing,
-            'down_mersplit': Reshape.R_2X_D_2X, 'down_nWin': [1, 2], 'down_pWin': 1,
+            'down_mersplit': Reshape.HX_2X, 'down_nWin': [1, 2], 'down_pWin': 1,
             'square' : {
                 # managed: 'res', 'dim'
                 'num_heads' : 8,

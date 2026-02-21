@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-class PatchMerging_1X_Dim(nn.Module):        
+class Reshape_HX_1X(nn.Module):        
    
     @staticmethod
     def get_output_shape(input_shape, nWin, pWin):
@@ -18,25 +18,22 @@ class PatchMerging_1X_Dim(nn.Module):
         super().__init__()
         self.dim = dim
 
-        # Merge 2x2 patches (4 patches) and reduce back to original dim
         self.reduction = nn.Linear(2 ** 2 * dim, dim, bias=False)
         
     def forward(self, x, ss=None):
         B, H, W, C = x.shape
         # assert C == self.dim
         
-        # Merge patches: (B, H, W, C) -> (B, H/2, W/2, 4C)
         x = x.view(B, H//2, 2, W//2, 2, C)
         x = x.permute(0, 1, 3, 2, 4, 5).contiguous()
         x = x.view(B, H//2, W//2, 4 * C)
                 
-        # Reduce dimension: (B, H/2, W/2, 4C) -> (B, H/2, W/2, C)
         x = self.reduction(x)
         
         return x
 
 
-class PatchSplitting_1X_Dim(nn.Module):
+class Reshape_2X_1X(nn.Module):
 
     @staticmethod
     def get_output_shape(input_shape, nWin, pWin):
@@ -52,17 +49,14 @@ class PatchSplitting_1X_Dim(nn.Module):
         super().__init__()
         self.dim = dim
         
-        # Inverse of the linear projection: expand from dim to 4*dim
         self.expansion = nn.Linear(dim, 4 * dim, bias=False)
 
     def forward(self, x, ss=None):
         B, H, W, C = x.shape       
         # assert self.dim == C
         
-        # First, reverse the linear projection: (B, H, W, C) -> (B, H, W, 4C)
         x = self.expansion(x)
         
-        # Then reverse the patch merging: (B, H, W, 4C) -> (B, 2H, 2W, C)
         x = x.view(B, H, W, 2, 2, C)
         x = x.permute(0, 1, 3, 2, 4, 5).contiguous()
         x = x.view(B, H * 2, W * 2, C)
@@ -81,12 +75,12 @@ if __name__ == "__main__":
         print(f"Original tensor shape: {x.shape}")
         
         # Merge
-        merge = PatchMerging_1X_Dim(dim=C)
+        merge = Reshape_HX_1X(dim=C)
         x_merged = merge(x)
         print(f"\nMerged shape: {x_merged.shape}")
         
         # Split
-        split = PatchSplitting_1X_Dim(dim=C)
+        split = Reshape_2X_1X(dim=C)
         x_restored = split(x_merged)
         print(f"\nRestored shape: {x_restored.shape}")
         
@@ -104,7 +98,7 @@ if __name__ == "__main__":
         print(f"Original tensor shape: {x.shape}")
         
         # Create merge with identity reduction
-        merge = PatchMerging_1X_Dim(dim=C)
+        merge = Reshape_HX_1X(dim=C)
         # Set reduction to select first C channels from 4C
         identity_matrix = torch.eye(4*C, C)
         merge.reduction.weight.data = identity_matrix
@@ -113,7 +107,7 @@ if __name__ == "__main__":
         print(f"Merged shape: {x_merged.shape}")
         
         # Create split with identity expansion
-        split = PatchSplitting_1X_Dim(dim=C)
+        split = Reshape_2X_1X(dim=C)
         # Set expansion to transpose of reduction
         split.expansion.weight.data = identity_matrix.transpose(0, 1)
         
@@ -137,16 +131,16 @@ if __name__ == "__main__":
         print(f"Input shape: {x.shape}")
         
         # Merge
-        merge = PatchMerging_1X_Dim(dim=C)
+        merge = Reshape_HX_1X(dim=C)
         x_merged = merge(x)
-        print(f"After PatchMerging_1X_Dim: {x_merged.shape}")
+        print(f"After Reshape_HX_1X: {x_merged.shape}")
         print(f"  Spatial: {H}x{W} -> {H//2}x{W//2}")
         print(f"  Channels: {C} -> {x_merged.shape[-1]} (should be same)")
         
         # Split
-        split = PatchSplitting_1X_Dim(dim=C)
+        split = Reshape_2X_1X(dim=C)
         x_restored = split(x_merged)
-        print(f"\nAfter PatchSplitting_1X_Dim: {x_restored.shape}")
+        print(f"\nAfter Reshape_2X_1X: {x_restored.shape}")
         print(f"  Spatial: {H//2}x{W//2} -> {x_restored.shape[1]}x{x_restored.shape[2]}")
         print(f"  Channels: {x_merged.shape[-1]} -> {x_restored.shape[-1]} (should be same)")
         

@@ -5,7 +5,7 @@ from pathlib import Path
 import os, sys, gc
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from modules.Reshape_R_Half_D_2X import PatchMerging_2X_Dim, PatchSplitting_2X_Dim
+from modules.Reshape_R_Half_D_2X import Reshape_HX_2X, Reshape_2X_HX
 
 class PatchDoubleMerging_1X_Dim(nn.Module):   
    

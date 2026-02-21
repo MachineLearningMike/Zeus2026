@@ -12,7 +12,7 @@ from modules.uNet import uNet
 # from modules.Flash_Nonlinear_Attention import PhysicalFlashAttention
 # from modules.Zeus_Axial_Non_Lin_Attn_From_Phys_FA_Axial import AxialFlashAttention
 from modules.Zeus_Axial_Attn_Phys_FA_Cross_PE import AxialFlashAttention
-# from modules.Reshape_R_Half_D_4X import PatchMerging_4X_Dim, PatchSplitting_4X_Dim
+# from modules.Reshape_R_Half_D_4X import Reshape_HX_4X, Reshape_2X_QX
 from modules.Reshape_R_Quarter_D_4X import PatchDoubleMerging_4X_Dim, PatchDoubleSplitting_4X_Dim
 from modules.Reshape_R_Quarter_D_1X import PatchDoubleMerging_1X_Dim
 from modules.utils import resize_continuous_bilinear_channel_wise_cylindric
