@@ -7,10 +7,10 @@ class PatchMerging_2X_Dim(nn.Module):
     def get_output_shape(input_shape, nWin, pWin):
         # Do not attempt to add padding !!!
         in_res, in_dim = input_shape
-        assert in_res[0] % 2 == 0 and in_res[1] % 2 == 0, "Input must have even resolution."
+        assert in_res[0] % 2 == 0 and in_res[1] % 2 == 0, f"Input {in_res} must have even resolution."
         out_res = tuple([in_res[i] // 2 for i in range(2)])
-        assert out_res[0] % nWin[0] == 0 and out_res[1] % nWin[1] == 0, f"Output must have exactly {nWin} windows."
-        assert out_res[0] % pWin == 0 and out_res[1] % pWin == 0, f"Output must be divisible with {pWin}."
+        assert out_res[0] % nWin[0] == 0 and out_res[1] % nWin[1] == 0, f"Output ({out_res[0]}, {out_res[1]}) must have exactly {nWin} windows."
+        assert out_res[0] % pWin == 0 and out_res[1] % pWin == 0, f"Output ({out_res[0]}, {out_res[1]}) must be divisible with {pWin}."
         out_dim = in_dim * 2
         return (out_res, out_dim)
     

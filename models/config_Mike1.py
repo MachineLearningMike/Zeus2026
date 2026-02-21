@@ -2024,7 +2024,7 @@ projects["Zeus_uNet_Feb15"] = {    #--------------------------------------------
             {   #---------------------------------- block 3
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -2036,7 +2036,7 @@ projects["Zeus_uNet_Feb15"] = {    #--------------------------------------------
             {   #---------------------------------- block 4
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -2048,7 +2048,7 @@ projects["Zeus_uNet_Feb15"] = {    #--------------------------------------------
             {   #---------------------------------- block 5
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -2152,7 +2152,7 @@ projects["Zeus_uNet_Feb16"] = {    #--------------------------------------------
             {   #---------------------------------- block 3, (45, 90, 160)
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -2164,7 +2164,7 @@ projects["Zeus_uNet_Feb16"] = {    #--------------------------------------------
             {   #---------------------------------- block 4, (23, 45, 160)
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -2176,7 +2176,7 @@ projects["Zeus_uNet_Feb16"] = {    #--------------------------------------------
             {   #---------------------------------- block 5, (12, 24, 160)
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -2291,7 +2291,7 @@ projects["Zeus_uNet_Feb17"] = {    #--------------------------------------------
              
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -2306,7 +2306,7 @@ projects["Zeus_uNet_Feb17"] = {    #--------------------------------------------
 
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -2321,7 +2321,7 @@ projects["Zeus_uNet_Feb17"] = {    #--------------------------------------------
 
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -2336,7 +2336,7 @@ projects["Zeus_uNet_Feb17"] = {    #--------------------------------------------
 
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -2441,7 +2441,7 @@ projects["Zeus_uNet_Feb18"] = {    #--------------------------------------------
              
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -2456,7 +2456,7 @@ projects["Zeus_uNet_Feb18"] = {    #--------------------------------------------
 
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.Nothing,  # R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.Nothing,  # R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -2471,7 +2471,7 @@ projects["Zeus_uNet_Feb18"] = {    #--------------------------------------------
 
             #     # managed: 'top_res', 'top_dim'
             #     'top_mersplit': Reshape.Nothing,
-            #     'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+            #     'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
             #     'square' : {
             #         # managed: 'res', 'dim'
             #         'num_heads' : 8,
@@ -2486,7 +2486,7 @@ projects["Zeus_uNet_Feb18"] = {    #--------------------------------------------
 
             #     # managed: 'top_res', 'top_dim'
             #     'top_mersplit': Reshape.Nothing,
-            #     'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+            #     'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
             #     'square' : {
             #         # managed: 'res', 'dim'
             #         'num_heads' : 8,
@@ -2596,7 +2596,7 @@ projects["Zeus_uNet_Feb19"] = {    #--------------------------------------------
              
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -2611,7 +2611,7 @@ projects["Zeus_uNet_Feb19"] = {    #--------------------------------------------
 
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -2626,7 +2626,7 @@ projects["Zeus_uNet_Feb19"] = {    #--------------------------------------------
 
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -2641,7 +2641,7 @@ projects["Zeus_uNet_Feb19"] = {    #--------------------------------------------
 
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.Nothing,  # .R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.Nothing,  # .R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -2747,7 +2747,7 @@ projects["Zeus_uNet_Feb19_2"] = {    #------------------------------------------
              
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -2762,7 +2762,7 @@ projects["Zeus_uNet_Feb19_2"] = {    #------------------------------------------
 
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -2777,7 +2777,7 @@ projects["Zeus_uNet_Feb19_2"] = {    #------------------------------------------
 
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -2792,7 +2792,7 @@ projects["Zeus_uNet_Feb19_2"] = {    #------------------------------------------
 
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.Nothing,  # .R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.Nothing,  # .R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -2925,7 +2925,7 @@ projects["Zeus_uNet_Feb19_3"] = {    #------------------------------------------
              
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -2940,7 +2940,7 @@ projects["Zeus_uNet_Feb19_3"] = {    #------------------------------------------
 
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -2955,7 +2955,7 @@ projects["Zeus_uNet_Feb19_3"] = {    #------------------------------------------
 
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -2970,7 +2970,7 @@ projects["Zeus_uNet_Feb19_3"] = {    #------------------------------------------
 
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.Nothing,  # .R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.Nothing,  # .R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -3103,7 +3103,7 @@ projects["Zeus_uNet_Feb20"] = {    #--------------------------------------------
              
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -3118,7 +3118,7 @@ projects["Zeus_uNet_Feb20"] = {    #--------------------------------------------
 
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -3133,7 +3133,7 @@ projects["Zeus_uNet_Feb20"] = {    #--------------------------------------------
 
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -3148,7 +3148,7 @@ projects["Zeus_uNet_Feb20"] = {    #--------------------------------------------
 
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.Nothing,  # .R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.Nothing,  # .R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -3281,7 +3281,7 @@ projects["Zeus_uNet_Feb20_2"] = {    #------------------------------------------
              
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -3296,7 +3296,7 @@ projects["Zeus_uNet_Feb20_2"] = {    #------------------------------------------
 
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -3311,7 +3311,7 @@ projects["Zeus_uNet_Feb20_2"] = {    #------------------------------------------
 
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -3326,13 +3326,192 @@ projects["Zeus_uNet_Feb20_2"] = {    #------------------------------------------
 
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.Nothing,  # .R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'down_mersplit': Reshape.Nothing,  # .R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
                     'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
                     'nLayers' : 2,
                     'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Nothing),     # Flash.No: 2.72 s, Flash.No 1.99 s
+                },
+            },
+            # {   #---------------------------------- block 9
+            #     # Shape: arount 3/6
+            #     # Flash.No doens't degradate speed.
+
+            #     # managed: 'top_res', 'top_dim'
+            #     'top_mersplit': Reshape.Nothing,
+            #     'down_mersplit': Reshape.Nothing,
+            #     'square' : {
+            #         # managed: 'res', 'dim'
+            #         'num_heads' : 8,
+            #         'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
+            #         'nLayers' : 3,
+            #         'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Learnable),     # Flash.No: 2.72 s, Flash.No 1.99 s
+            #     },
+            # },
+        ]
+
+    }, 
+}
+
+
+projects["Zeus_uNet_Feb20_3"] = {    #---------------------------------------------------------- Micro-model for a single 8GB GPU -------
+    # ------------------------------- This overrides the above rules ----------------------
+    "management": {
+    "Zeus_Model_module" : "Zeus_Light_uNet_3",
+    "GPUWaitsData" : True,
+    "models_to_play": [0,],
+    "metrics" : "rmse", # "mae", "rmse"
+    # Let it be chosen by GPU rule 'nSubstepsPerStep' : 2,       # Can be changed upto the type of GPU.
+    "nSubstepsPerStep": 2,
+    'max_cascade_depth' : 1,     # max = nSubstepsPerStep. 1 = no actual cascades, raw prediction only
+    'half_life' : 10228 * 1,    # covers  epochs
+    },
+    
+    "data": {
+    "factor10": 10,
+    "org_height": 721,
+    "batch_size": 1,
+    'lossXtargets' : 5.0,
+    },
+    
+    "model_0": {
+        "lr": 5e-4,
+        "max_lr": 5e-4,
+        "overwrite_saved_lr": False,
+        "accum_steps" : 10,   
+        "skip_validation" : True,
+        
+        'patch_kernel' : 4,
+        'patch_stride' : 4,
+
+        "batch_size": 1,
+        
+        "attn_dim" : 40,
+        "nHeads" : 5,       #
+        "nLayers" : 30,     #
+        "axial_loops" : 1,
+        "axial_not_total_pe" : True,
+        
+        'choose_best_loss_model' : False,
+        'useLRLearner' : False,
+        'use_checkpoint' : False,
+        
+        # The current model goes OOM on A100, with layers_to_enhance_in_enc_dec = [0] and nEnhancementPairs = [1]
+        'layers_to_enhance_in_enc_dec' : [],
+        'nEnhancementPairs': [],  # pairs
+
+        'block_dicts' : [
+            # block and side
+            {   #---------------------------------- block 1, (720, 1440, 20)
+                # managed: 'top_res', 'top_dim'
+                'top_mersplit': Reshape.Nothing,
+                'down_mersplit': Reshape.R_2X_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
+                # 'square' : {  # takes prohivitively long !!! for RTX 4070
+                #     # managed: 'res', 'dim'
+                #     'num_heads' :4,
+                #     'prime_size': [1, 1],         # (2, 2)
+                #     'nLayers' : 2,
+                #     'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes),
+                # },
+            },
+            # block and side
+            {   #---------------------------------- block 2, (360, 720, 20)
+                # managed: 'top_res', 'top_dim'
+                'top_mersplit': Reshape.Nothing,
+                'down_mersplit': Reshape.R_2X_D_2X, 'down_nWin': [1, 1], 'down_pWin': 1,
+                # 'square' : {
+                #     # managed: 'res', 'dim'
+                #     'num_heads' : 4,
+                #     'prime_size': [1, 1],         # (2, 2)
+                #     'nLayers' : 2,
+                #     'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes),
+                # },
+            },
+            # block and side
+            {   #---------------------------------- block 3, (180, 360, 40)
+                # managed: 'top_res', 'top_dim'
+                'top_mersplit': Reshape.Nothing,
+                'down_mersplit': Reshape.R_2X_D_2X, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,
+                    'prime_size': [1, 1],         # (2, 2)
+                    'nLayers' : 2,
+                    'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes),
+                },
+            },
+            {   #---------------------------------- block 4, (90, 180, 80)
+                # managed: 'top_res', 'top_dim'
+                'top_mersplit': Reshape.Nothing,
+                'down_mersplit': Reshape.R_2X_D_2X, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,
+                    'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
+                    'nLayers' : 2,
+                    'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes),
+                },
+            },
+            {   #---------------------------------- block 5, (45, 90, 160)
+                # Flash.Yes is required when AttnConn.Global, as Flash.No slows down 10x.
+                # AttnConn.Shift is impossible, as it requiers attn_mask, which is not compatible with Flash.Yes.
+             
+                # managed: 'top_res', 'top_dim'
+                'top_mersplit': Reshape.Nothing,
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,
+                    'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
+                    'nLayers' : 2,
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.Yes),     # Flash.No: 2.72 s, Flash.No 1.99 s
+                },
+            },
+            {   #---------------------------------- block 6, (23, 45, 160)
+                # Shape: arount 23/45
+                # Flash.No doens't degradate speed.
+
+                # managed: 'top_res', 'top_dim'
+                'top_mersplit': Reshape.Nothing,
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,
+                    'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
+                    'nLayers' : 2,
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Learnable),
+                },
+            },
+            {   #---------------------------------- block 7, (12, 23, 160)
+                # Shape: arount 12/24
+                # Flash.No doens't degradate speed.
+
+                # managed: 'top_res', 'top_dim'
+                'top_mersplit': Reshape.Nothing,
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,
+                    'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
+                    'nLayers' : 2,
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Learnable),     # Flash.No: 2.72 s, Flash.No 1.99 s
+                },
+            },
+            {   #---------------------------------- block 8, (6, 12, 160)
+                # Shape: arount 6/12
+                # Flash.No doens't degradate speed.
+
+                # managed: 'top_res', 'top_dim'
+                'top_mersplit': Reshape.Nothing,
+                'down_mersplit': Reshape.Nothing,  # .R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,
+                    'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
+                    'nLayers' : 2,
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Learnable),     # Flash.No: 2.72 s, Flash.No 1.99 s
                 },
             },
             # {   #---------------------------------- block 9
@@ -3445,7 +3624,6 @@ projects["Zeus_uNet_Feb21"] = {    #--------------------------------------------
             {   #---------------------------------- block 4, (90, 180, 80)
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.R_2X_D_2X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
@@ -3453,6 +3631,7 @@ projects["Zeus_uNet_Feb21"] = {    #--------------------------------------------
                     'nLayers' : 2,
                     'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes),
                 },
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_2X, 'down_nWin': [4, 4], 'down_pWin': 2,
             },
             {   #---------------------------------- block 5, (45, 90, 160)
                 # Flash.Yes is required when AttnConn.Global, as Flash.No slows down 10x.
@@ -3460,14 +3639,14 @@ projects["Zeus_uNet_Feb21"] = {    #--------------------------------------------
              
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
                     'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
                     'nLayers' : 2,
-                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.Yes),     # Flash.No: 2.72 s, Flash.No 1.99 s
+                    'transForm': TransForm(AttnConn.Shift, PEConn.Global, PEType.Learnable, Flash.Yes),     # Flash.No: 2.72 s, Flash.No 1.99 s
                 },
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [2, 2], 'down_pWin': 2,
             },
             {   #---------------------------------- block 6, (23, 45, 160)
                 # Shape: arount 23/45
@@ -3475,14 +3654,14 @@ projects["Zeus_uNet_Feb21"] = {    #--------------------------------------------
 
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
                     'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
                     'nLayers' : 2,
-                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Nothing),
+                    'transForm': TransForm(AttnConn.Shift, PEConn.Nothing, PEType.Learnable, Flash.No, PBias.Learnable),
                 },
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 2,
             },
             {   #---------------------------------- block 7, (12, 23, 160)
                 # Shape: arount 12/24
@@ -3490,14 +3669,14 @@ projects["Zeus_uNet_Feb21"] = {    #--------------------------------------------
 
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
                     'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
                     'nLayers' : 2,
-                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Nothing),     # Flash.No: 2.72 s, Flash.No 1.99 s
+                    'transForm': TransForm(AttnConn.Shift, PEConn.Global, PEType.Learnable, Flash.No, PBias.Learnable),     # Flash.No: 2.72 s, Flash.No 1.99 s
                 },
+                'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 2,
             },
             {   #---------------------------------- block 8, (6, 12, 160)
                 # Shape: arount 6/12
@@ -3505,15 +3684,197 @@ projects["Zeus_uNet_Feb21"] = {    #--------------------------------------------
 
                 # managed: 'top_res', 'top_dim'
                 'top_mersplit': Reshape.Nothing,
-                'down_mersplit': Reshape.Nothing,  # .R_Any_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 8,
                     'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
                     'nLayers' : 2,
-                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Nothing),     # Flash.No: 2.72 s, Flash.No 1.99 s
+                    'transForm': TransForm(AttnConn.Shift, PEConn.Global, PEType.Learnable, Flash.No, PBias.Learnable),     # Flash.No: 2.72 s, Flash.No 1.99 s
                 },
+                'down_mersplit': Reshape.Nothing,  # .R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
             },
+            # {   #---------------------------------- block 9
+            #     # Shape: arount 3/6
+            #     # Flash.No doens't degradate speed.
+
+            #     # managed: 'top_res', 'top_dim'
+            #     'top_mersplit': Reshape.Nothing,
+            #     'down_mersplit': Reshape.Nothing,
+            #     'square' : {
+            #         # managed: 'res', 'dim'
+            #         'num_heads' : 8,
+            #         'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
+            #         'nLayers' : 3,
+            #         'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Learnable),     # Flash.No: 2.72 s, Flash.No 1.99 s
+            #     },
+            # },
+        ]
+
+    }, 
+}
+
+projects["Zeus_uNet_Feb21_2"] = {    #---------------------------------------------------------- Micro-model for a single 8GB GPU -------
+    # ------------------------------- This overrides the above rules ----------------------
+    "management": {
+    "Zeus_Model_module" : "Zeus_Light_uNet_3",
+    "GPUWaitsData" : True,
+    "models_to_play": [0,],
+    "metrics" : "rmse", # "mae", "rmse"
+    # Let it be chosen by GPU rule 'nSubstepsPerStep' : 2,       # Can be changed upto the type of GPU.
+    "nSubstepsPerStep": 2,
+    'max_cascade_depth' : 1,     # max = nSubstepsPerStep. 1 = no actual cascades, raw prediction only
+    'half_life' : 10228 * 1,    # covers  epochs
+    },
+    
+    "data": {
+    "factor10": 10,
+    "org_height": 721,
+    "batch_size": 1,
+    'lossXtargets' : 5.0,
+    },
+    
+    "model_0": {
+        "lr": 5e-4,
+        "max_lr": 5e-4,
+        "overwrite_saved_lr": False,
+        "accum_steps" : 10,   
+        "skip_validation" : True,
+        
+        'patch_kernel' : 4,
+        'patch_stride' : 4,
+
+        "batch_size": 1,
+        
+        "attn_dim" : 40,
+        "nHeads" : 5,       #
+        "nLayers" : 30,     #
+        "axial_loops" : 1,
+        "axial_not_total_pe" : True,
+        
+        'choose_best_loss_model' : False,
+        'useLRLearner' : False,
+        'use_checkpoint' : False,
+        
+        # The current model goes OOM on A100, with layers_to_enhance_in_enc_dec = [0] and nEnhancementPairs = [1]
+        'layers_to_enhance_in_enc_dec' : [],
+        'nEnhancementPairs': [],  # pairs
+
+        'block_dicts' : [
+            # block and side
+            {   #---------------------------------- block 1, (720, 1440, 20)
+                # managed: 'top_res', 'top_dim'
+                'top_mersplit': Reshape.Nothing,
+                # 'square' : {  # takes prohivitively long !!! for RTX 4070
+                #     # managed: 'res', 'dim'
+                #     'num_heads' :4,
+                #     'prime_size': [1, 1],         # (2, 2)
+                #     'nLayers' : 2,
+                #     'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes),
+                # },
+                'down_mersplit': Reshape.R_2X_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
+                # 'down_mersplit': Reshape.R_2X_D_1X, 'down_nWin': [60, 60], 'down_pWin': 2,
+            },
+            # block and side
+            {   #---------------------------------- block 2, (360, 720, 20)
+                # managed: 'top_res', 'top_dim'
+                'top_mersplit': Reshape.Nothing,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 4,
+                    'prime_size': [1, 1],         # (2, 2)
+                    'nLayers' : 1,
+                    'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                    # 'transForm': TransForm(AttnConn.Shift, PEConn.Nothing, PEType.Nothing, Flash.No, PBias.Learnable),
+                },
+                # ------------ Reshape_MHA takes prohivitively long here, breaks everything ...----------
+                'down_mersplit': Reshape.R_2X_D_2X, 'down_nWin': [30, 30], 'down_pWin': 1,
+            },
+            # block and side
+            {   #---------------------------------- block 3, (180, 360, 40)2
+                # managed: 'top_res', 'top_dim'
+                'top_mersplit': Reshape.Nothing,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,
+                    'prime_size': [1, 1],         # (2, 2)
+                    'nLayers' : 1,
+                    # 'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                    'transForm': TransForm(AttnConn.Shift, PEConn.Nothing, PEType.Nothing, Flash.No, PBias.Learnable),
+                },
+                'down_mersplit': Reshape.Nothing, # R_Half_Flex_MHA_D_2X, 'down_nWin': [4, 4], 'down_pWin': 2,
+            },
+            # {   #---------------------------------- block 4, (90, 180, 80)
+            #     # managed: 'top_res', 'top_dim'
+            #     'top_mersplit': Reshape.Nothing,
+            #     'square' : {
+            #         # managed: 'res', 'dim'
+            #         'num_heads' : 8,
+            #         'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
+            #         'nLayers' : 2,
+            #         'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+            #     },
+            #     'down_mersplit': Reshape.Nothing, # R_Half_Flex_MHA_D_2X, 'down_nWin': [16, 16], 'down_pWin': 2,
+            # },
+            # {   #---------------------------------- block 5, (45, 90, 160)
+            #     # Flash.Yes is required when AttnConn.Global, as Flash.No slows down 10x.
+            #     # AttnConn.Shift is impossible, as it requiers attn_mask, which is not compatible with Flash.Yes.
+             
+            #     # managed: 'top_res', 'top_dim'
+            #     'top_mersplit': Reshape.Nothing,
+            #     'square' : {
+            #         # managed: 'res', 'dim'
+            #         'num_heads' : 8,
+            #         'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
+            #         'nLayers' : 2,
+            #         'transForm': TransForm(AttnConn.Shift, PEConn.Nothing, PEType.Learnable, Flash.No, PBias.Learnable),     # Flash.No: 2.72 s, Flash.No 1.99 s
+            #     },
+            #     'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [2, 2], 'down_pWin': 2,
+            # },
+            # {   #---------------------------------- block 6, (23, 45, 160)
+            #     # Shape: arount 23/45
+            #     # Flash.No doens't degradate speed.
+
+            #     # managed: 'top_res', 'top_dim'
+            #     'top_mersplit': Reshape.Nothing,
+            #     'square' : {
+            #         # managed: 'res', 'dim'
+            #         'num_heads' : 8,
+            #         'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
+            #         'nLayers' : 2,
+            #         'transForm': TransForm(AttnConn.Shift, PEConn.Nothing, PEType.Learnable, Flash.No, PBias.Learnable),
+            #     },
+            #     'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 2,
+            # },
+            # {   #---------------------------------- block 7, (12, 23, 160)
+            #     # Shape: arount 12/24
+            #     # Flash.No doens't degradate speed.
+
+            #     # managed: 'top_res', 'top_dim'
+            #     'top_mersplit': Reshape.Nothing,
+            #     'square' : {
+            #         # managed: 'res', 'dim'
+            #         'num_heads' : 8,
+            #         'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
+            #         'nLayers' : 2,
+            #         'transForm': TransForm(AttnConn.Shift, PEConn.Global, PEType.Learnable, Flash.No, PBias.Learnable),     # Flash.No: 2.72 s, Flash.No 1.99 s
+            #     },
+            #     'down_mersplit': Reshape.R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 2,
+            # },
+            # {   #---------------------------------- block 8, (6, 12, 160)
+            #     # Shape: arount 6/12
+            #     # Flash.No doens't degradate speed.
+
+            #     # managed: 'top_res', 'top_dim'
+            #     'top_mersplit': Reshape.Nothing,
+            #     'square' : {
+            #         # managed: 'res', 'dim'
+            #         'num_heads' : 8,
+            #         'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
+            #         'nLayers' : 2,
+            #         'transForm': TransForm(AttnConn.Shift, PEConn.Global, PEType.Learnable, Flash.No, PBias.Learnable),     # Flash.No: 2.72 s, Flash.No 1.99 s
+            #     },
+            #     'down_mersplit': Reshape.Nothing,  # .R_Half_Flex_MHA_D_1X, 'down_nWin': [1, 1], 'down_pWin': 1,
+            # },
             # {   #---------------------------------- block 9
             #     # Shape: arount 3/6
             #     # Flash.No doens't degradate speed.
@@ -3536,7 +3897,7 @@ projects["Zeus_uNet_Feb21"] = {    #--------------------------------------------
 
 #-------------------------------- select proejct -----------------------
 
-project = "Zeus_uNet_Feb20_2" # "Zeus_26Feb09" # "Zeus_uNet_Feb12"   # "Zeus_Swin_25Dec25_2"
+project = "Zeus_uNet_Feb21_2" # "Zeus_26Feb09" # "Zeus_uNet_Feb12"   # "Zeus_Swin_25Dec25_2"
 config["bayesProject"] = project
 # updata 'management'
 config.update(projects[project]["management"])

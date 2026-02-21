@@ -464,9 +464,10 @@ class Flash_Versatile_Encoder_Layer(nn.Module):         # The lowest ranking mod
                 self.pos_encoding = PositionalEncoding_Global_Axial(max_height=H, max_width=W, dim=d_model, pe_type=transFrom.petype.value)
 
             if transFrom.flash == Flash.No and transFrom.pbias == PBias.Learnable:
-                # self.pos_bias_er = PositionalBias_er_Full(num_heads, seq_len=H*W, pb_type="learnable")
-                sWin = (H, W)
-                self.pos_bias_er = PositionalBias_er_Bandwise(H, W, num_heads, sWin, pb_type="learnable")
+                # self.pos_bias_er = PositionalBias_er_Full(num_heads, seq_len=H*W, pb_type="learnable")    # Used for versions older than "Feb21"
+                self.pos_bias_er = PositionalBias_er_Bandwise(H, W, num_heads, sWin=(H, W), pb_type="learnable")
+                
+            # consume: self.encoder, self.pos_encoding, self.pos_bias_er
             
         elif transFrom.attnconn == AttnConn.Axial:
             self.encoder_h = FlashEncoderLayer(d_model=d_model, num_heads=num_heads, dropout=dropout, use_flash=transFrom.flash.value, eps=eps)
@@ -483,6 +484,8 @@ class Flash_Versatile_Encoder_Layer(nn.Module):         # The lowest ranking mod
             if transFrom.pbias == PBias.Learnable and transFrom.flash == Flash.No:
                 self.pos_bias_er_h = PositionalBias_er_Full(num_heads, seq_len=H, pb_type="learnable")  
                 self.pos_bias_er_w = PositionalBias_er_Full(num_heads, seq_len=W, pb_type="learnable")  
+
+            # consume: self.encoder_h/w, self.pos_encoding, self.pos_encodding_h/w, self_pos_pias_er_h/w
             
         elif transFrom.attnconn == AttnConn.Shift:
 
@@ -499,6 +502,8 @@ class Flash_Versatile_Encoder_Layer(nn.Module):         # The lowest ranking mod
                 sWin = (H//nWin[0], W//nWin[1])
                 self.pos_bias_er_normal = PositionalBias_er_Bandwise(H, W, num_heads, sWin, pb_type="learnable")
                 self.pos_bias_er_shifted = PositionalBias_er_Bandwise(H, W, num_heads, sWin, pb_type="learnable")
+
+            # consume: self.encoder_normal/shifted, self.pos_encoding, self.pos_bias_er_normal/shifted
             
         else: pass
         
@@ -511,18 +516,25 @@ class Flash_Versatile_Encoder_Layer(nn.Module):         # The lowest ranking mod
         assert C == self.d_model
         
         if self.transForm.attnconn == AttnConn.Global:
+            # consume: self.encoder, self.pos_encoding, self.pos_bias_er
+            
             if self.pos_encoding is not None:   x = self.pos_encoding(x)
             
             x = x.view(B, H*W, C)
-            if self.encoder is not None:    x = self.encoder(x, mask=mask, pos_bias_er=self.pos_bias_er)
+            if self.encoder is not None:    
+                x = self.encoder(x, mask=mask, pos_bias_er=self.pos_bias_er)
             x = x.view(B, H, W, C)
                         
         elif self.transForm.attnconn == AttnConn.Axial:
+            # consume: self.encoder_h/w, self.pos_encoding, self.pos_encodding_h/w, self_pos_pias_er_h/w
+            
             if self.pos_encoding is not None: x = self.pos_encoding(x)
             x = self.forward_axial(x, 'height', mask=mask)
             x = self.forward_axial(x, 'width', mask=mask)
             
         elif self.transForm.attnconn == AttnConn.Shift:
+            # consume: self.encoder_normal/shifted, self.pos_encoding, self.pos_bias_er_normal/shifted
+            
             if self.pos_encoding is not None: x = self.pos_encoding(x)
             x = self.encoder_normal(x, pos_bias_er = self.pos_bias_er_normal)
             x = self.encoder_shifted(x, pos_bias_er = self.pos_bias_er_shifted)

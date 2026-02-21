@@ -52,8 +52,8 @@ class TransForm:
         """Check that no invalid pair of modes is active together."""
         
         invalid_modes = [
-            (Flash.Yes, AttnConn.Shift),        # Can't use flash with shift connection
-            (Flash.Yes, PBias.Learnable),       # Can't use flash with learnable bias
+            # (Flash.Yes, AttnConn.Shift),        # Can't use flash with shift connection
+            # (Flash.Yes, PBias.Learnable),       # Can't use flash with learnable bias
         ]
         
         for im in invalid_modes:

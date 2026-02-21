@@ -18,19 +18,21 @@ from modules.Reshape_R_Half_D_2X import PatchMerging_2X_Dim, PatchSplitting_2X_D
 from modules.Reshape_R_Half_Flex_D_1X_Interpol import Interpolate_Down_1X_Dim, Interpolate_Up_1X_Dim
 from modules.Reshape_R_Half_D_1X import PatchMerging_1X_Dim, PatchSplitting_1X_Dim
 from modules.Reshape_R_Half_Flex_D_1X_MHA import EmbeddedQuery_MHA_Down_1X_Dim, EmbeddedQuery_MHA_Up_1X_Dim
+from modules.Reshape_R_Half_Flex_D_2X_MHA import EmbeddedQuery_MHA_Down_2X_Dim, EmbeddedQuery_MHA_Up_2X_Dim
 
 class Reshape(Enum):
     Nothing = 0
     R_2X_D_4X = 1
     R_2X_D_2X = 3
     R_2X_D_1X = 4
-    R_Any_MHA = 5
+    R_Half_Flex_MHA_D_1X = 5
+    R_Half_Flex_MHA_D_2X = 6
 
 class uSide(nn.Module):
     """
     This class can decide to add pads to top_res.
     """
-    def __init__(self, is_enc: bool, dict: dict) -> None:
+    def __init__(self, is_enc: bool, dict: dict, inherited: dict = None) -> None:
         super().__init__()
         self.dict = dict
         self.is_enc = is_enc
@@ -45,8 +47,10 @@ class uSide(nn.Module):
             enc_top_mersplit_class = PatchMerging_4X_Dim
         elif dict['top_mersplit'] == Reshape.R_2X_D_1X:
             enc_top_mersplit_class = PatchMerging_1X_Dim
-        elif dict['top_mersplit'] == Reshape.R_Any_MHA:
+        elif dict['top_mersplit'] == Reshape.R_Half_Flex_MHA_D_1X:
             enc_top_mersplit_class = EmbeddedQuery_MHA_Down_1X_Dim
+        elif dict['top_mersplit'] == Reshape.R_Half_Flex_MHA_D_2X:
+            enc_top_mersplit_class = EmbeddedQuery_MHA_Down_2X_Dim
 
         enc_down_mersplit_class = None
         if dict['down_mersplit'] == Reshape.R_2X_D_2X:
@@ -55,8 +59,10 @@ class uSide(nn.Module):
             enc_down_mersplit_class = PatchMerging_4X_Dim
         elif dict['down_mersplit'] == Reshape.R_2X_D_1X:
             enc_down_mersplit_class = PatchMerging_1X_Dim
-        elif dict['down_mersplit'] == Reshape.R_Any_MHA:
+        elif dict['down_mersplit'] == Reshape.R_Half_Flex_MHA_D_1X:
             enc_down_mersplit_class = EmbeddedQuery_MHA_Down_1X_Dim
+        elif dict['down_mersplit'] == Reshape.R_Half_Flex_MHA_D_2X:
+            enc_down_mersplit_class = EmbeddedQuery_MHA_Down_2X_Dim
 
         dec_top_mersplit_class = None
         if dict['top_mersplit'] == Reshape.R_2X_D_2X:
@@ -65,8 +71,10 @@ class uSide(nn.Module):
             dec_top_mersplit_class = PatchSplitting_4X_Dim
         elif dict['top_mersplit'] == Reshape.R_2X_D_1X:
             dec_top_mersplit_class = PatchSplitting_1X_Dim
-        elif dict['top_mersplit'] == Reshape.R_Any_MHA:
+        elif dict['top_mersplit'] == Reshape.R_Half_Flex_MHA_D_1X:
             dec_top_mersplit_class = EmbeddedQuery_MHA_Up_1X_Dim
+        elif dict['top_mersplit'] == Reshape.R_Half_Flex_MHA_D_2X:
+            dec_top_mersplit_class = EmbeddedQuery_MHA_Up_2X_Dim
 
         dec_down_mersplit_class = None
         if dict['down_mersplit'] == Reshape.R_2X_D_2X:
@@ -75,19 +83,27 @@ class uSide(nn.Module):
             dec_down_mersplit_class = PatchSplitting_4X_Dim
         elif dict['down_mersplit'] == Reshape.R_2X_D_1X:
             dec_down_mersplit_class = PatchSplitting_1X_Dim
-        elif dict['down_mersplit'] == Reshape.R_Any_MHA:
+        elif dict['down_mersplit'] == Reshape.R_Half_Flex_MHA_D_1X:
             dec_down_mersplit_class = EmbeddedQuery_MHA_Up_1X_Dim
+        elif dict['down_mersplit'] == Reshape.R_Half_Flex_MHA_D_2X:
+            dec_down_mersplit_class = EmbeddedQuery_MHA_Up_2X_Dim
 
         #--------------- Planning for res and dim ----------
         enc_top_input_shape = (dict['top_res'], dict['top_dim'])
-        nWin = dict.get('top_nWin', [1, 1])
-        pWin = dict.get('top_pWin', 1)
+        nWin = dict.get('top_nWin', [1, 1] if inherited is None else inherited.get('nWin', [1,1]))
+        pWin = dict.get('top_pWin', 1 if inherited is None else inherited.get('pWin', 1) )
         enc_top_output_shape = enc_top_mersplit_class.get_output_shape(enc_top_input_shape, nWin, pWin) if enc_top_mersplit_class is not None else enc_top_input_shape
+        
+        nWin_for_square = nWin
+        pWin_for_square = pWin
 
         enc_down_input_shape = enc_top_output_shape
         nWin = dict.get('down_nWin', [1, 1])
         pWin = dict.get('down_pWin', 1)        
         enc_down_output_shape = enc_down_mersplit_class.get_output_shape(enc_down_input_shape, nWin, pWin) if enc_down_mersplit_class is not None else enc_down_input_shape
+        
+        self.nWin_to_inherit = nWin
+        self.pWin_to_inherit = pWin
 
         #-------------- We replace dec shapes with enc shapes, which is requiredd if dec shape is not uniquely calculated ---
 
@@ -129,6 +145,8 @@ class uSide(nn.Module):
             square_dict['res'] = res_for_square
             square_dict['dim'] = dim_for_square
             square_dict['padding'] = 0          #----------------
+            square_dict['nWin'] = nWin_for_square
+            square_dict['pWin'] = pWin_for_square
             self.square = uSquare(square_dict)
             
         #------------------------- elementary functions
@@ -139,6 +157,13 @@ class uSide(nn.Module):
             lambda x, ss: self.square(x, ss=ss) if self.square is not None else x,
             lambda x, ss: self.down_mersplit(x, ss=ss) if self.down_mersplit is not None else x
         ]
+        
+    def inherit(self):
+        return {'nWin': self.nWin_to_inherit, 'pWin': self.pWin_to_inherit}
+        
+    
+    inherited = {'nWin': (1, 1), 'pWin': 1}
+
 
     def forward(self, x, ss=None):
         

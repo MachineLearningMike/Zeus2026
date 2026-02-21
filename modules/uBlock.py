@@ -16,19 +16,22 @@ from modules.uSide import uSide
 
 class uBlock(nn.Module):
     
-    def __init__(self, dict: dict) -> None:
+    def __init__(self, dict: dict, inherited: dict = None) -> None:
         super().__init__()
 
         side_dict = dict
         
-        self.enc = uSide(is_enc=True, dict=side_dict)
-        self.dec = uSide(is_enc=False, dict=side_dict)
+        self.enc = uSide(is_enc=True, dict=side_dict, inherited=inherited)
+        self.dec = uSide(is_enc=False, dict=side_dict, inherited=inherited)
 
         assert self.enc.down_res == self.dec.down_res
         assert self.enc.down_dim == self.dec.down_dim
         
         self.down_res = self.enc.down_res
         self.down_dim = self.enc.down_dim
+        
+    def inherit(self):
+        return self.enc.inherit()
         
     def forward(self, x, is_enc=True, ss=None):
         x = self.enc(x, ss=ss) if is_enc else self.dec(x, ss=ss)

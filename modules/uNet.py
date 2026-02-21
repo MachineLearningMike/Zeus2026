@@ -22,6 +22,8 @@ class uNet(nn.Module):
         
         self.uBlocks = nn.ModuleList()
 
+        inherited = {'nWin': [1, 1], 'pWin': 1}
+
         res, dim = (H, W), C    
         for i in range(self.depth):
             block_dict = block_dicts[i]
@@ -30,7 +32,9 @@ class uNet(nn.Module):
             block_dict['top_res'] = res     # top_res might be modified internally.
 
             print(f"Creating block with resolution {res} and dim {dim}...")
-            block = uBlock(block_dict)
+            block = uBlock(block_dict, inherited=inherited)
+            inherited = block.inherit()
+            
             self.uBlocks.append(block)
 
             res = block.down_res    # it might not simply a half of the previous block's res.
