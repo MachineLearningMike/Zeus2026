@@ -124,8 +124,15 @@ class SnapshotAnalyzer:
     
     # ========== PLOT FUNCTIONS WITH KEY FILTERS ==========
     
-    def plot_all_lines(self, key_filters=None, match_all=True, figsize=(15, 8)):
-        """Plot variables as lines, optionally filtered by keys anywhere in name"""
+    def plot_all_lines(self, key_filters=None, match_all=True, value_type='both', figsize=(15, 8)):
+        """Plot variables as lines, optionally filtered by keys anywhere in name
+        
+        Args:
+            key_filters: Optional list of strings to filter variable names
+            match_all: If True, variable must contain ALL key_filters (AND)
+            value_type: 'mean', 'std', or 'both' (default)
+            figsize: Figure size
+        """
         if key_filters:
             history = self.filter_by_keys(key_filters, match_all=match_all)
             title_suffix = self.get_filter_description(key_filters, match_all)
@@ -144,14 +151,33 @@ class SnapshotAnalyzer:
         colors = plt.cm.tab20(np.linspace(0, 1, len(history)))
         
         for idx, (var, data) in enumerate(history.items()):
-            plt.plot(data['snapshots'], data['means'], 
-                    'o-', linewidth=1.5, markersize=3,
-                    color=colors[idx % len(colors)], 
-                    label=f'{var[-30:]}...' if len(var) > 30 else var)
+            color = colors[idx % len(colors)]
+            label = f'{var[-30:]}...' if len(var) > 30 else var
+            
+            if value_type in ['mean', 'both']:
+                plt.plot(data['snapshots'], data['means'], 
+                        '-', linewidth=2, markersize=4, marker='o',
+                        color=color, label=f'{label} (mean)' if value_type == 'both' else label)
+            
+            if value_type in ['std', 'both']:
+                linestyle = '--' if value_type == 'both' else '-'
+                linewidth = 1.5 if value_type == 'both' else 2
+                markersize = 3 if value_type == 'both' else 4
+                marker = 's' if value_type == 'both' else 'o'
+                alpha = 0.7 if value_type == 'both' else 1.0
+                
+                plt.plot(data['snapshots'], data['stds'], 
+                        linestyle, linewidth=linewidth, markersize=markersize, marker=marker,
+                        color=color, alpha=alpha, label=f'{label} (std)' if value_type == 'both' else None)
         
         plt.xlabel('Snapshot ID', fontsize=12)
-        plt.ylabel('Mean Value', fontsize=12)
-        plt.title(f'Variables{title_suffix} ({len(history)} total)', fontsize=14)
+        plt.ylabel('Value', fontsize=12)
+        
+        if value_type == 'both':
+            plt.title(f'Variables{title_suffix} - Mean (solid) vs Std (dashed) ({len(history)} variables)', fontsize=14)
+        else:
+            plt.title(f'Variables{title_suffix} - {value_type.capitalize()} ({len(history)} variables)', fontsize=14)
+        
         plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
@@ -521,7 +547,8 @@ if __name__ == "__main__":
     analyzer.print_summary()
     
     # Define multiple search keys - MUST contain ALL of them (AND logic)
-    search_keys = ['B1', 'e', 'sc']  # Variable must contain BOTH 'sc_b' AND 'B3'
+    search_keys = ['B1', '']  # Variable must contain BOTH 'sc_b' AND 'B3'
+    value_type = 'both' # 'both', 'mean', 'std'
     
     # Print summary for variables containing ALL keys
     analyzer.print_summary(key_filters=search_keys, match_all=True)
@@ -529,7 +556,7 @@ if __name__ == "__main__":
     # Plot only variables containing ALL keys:
     
     # 1. All variables with keys as lines
-    analyzer.plot_all_lines(key_filters=search_keys, match_all=True)
+    analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)
     
     # # 2. Heatmap of key variables
     # analyzer.plot_all_heatmap(key_filters=search_keys, match_all=True)

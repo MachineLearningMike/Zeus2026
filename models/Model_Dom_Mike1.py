@@ -1172,7 +1172,7 @@ class Model_Dom():
         ):        
         return self.model.forward_backward_no_optimizer_step(
             X0, X1, Y, batch_diff, cascade_depth, trainable, scaler, predicted_snapshot_required,
-            zeus_weights, train_dict,
+            zeus_weights, train_dict, self.accum_substeps
         )
         
     def store_step_loss_and_metrics(self, step_loss, step_metrics): # [substep_loss...], [substep_metrics...]

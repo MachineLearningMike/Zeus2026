@@ -114,7 +114,7 @@ class Zeus(nn.Module):
     def meteo_tempo_dense_cat_cas_dim(self):
         return Snapshot.meteo_dims + Snapshot.tempo_dims + Snapshot.dense_dims + self.category_emb_dim + self.cascade_depth_emb_dim
 
-    def forward(self, x_mtdc, cascase_depth=1):   # (H, W, ...) => (H, W, meteo_dim)
+    def forward(self, x_mtdc, cascase_depth, accum_substeps):   # (H, W, ...) => (H, W, meteo_dim)
 
         category_emb = self.catetory_embedder()
         cascade_emb = self.cascade_depth_embeder(cascase_depth)
@@ -127,8 +127,7 @@ class Zeus(nn.Module):
         
         x = self.all_dim_to_top_dim(mtdcc)
 
-        self.ss += 1
-        ss = self.ss if self.ss % 10 == 0 else None
+        ss = accum_substeps//100 if accum_substeps % 100 == 0 else None
 
         x = self.uNet(x, ss=ss)
 
@@ -217,7 +216,7 @@ class Zeus(nn.Module):
         
     def forward_backward_no_optimizer_step(self,       
             DnSS0, DnSS1, DnSSY, batch_diff, cascade_depth, trainable, scaler, predicted_snapshot_required,
-            zeus_weights, train_dict,
+            zeus_weights, train_dict, accum_substeps,
         ):
         
         assert DnSS0 == DnSS1   # for this task.
@@ -249,7 +248,7 @@ class Zeus(nn.Module):
         x_mtdc = (meteo_mormal.permute(1, 2, 0), meteo_raw.permute(1, 2, 0), tempo.permute(1, 2, 0), dense.permute(1, 2, 0), cat.permute(1, 2, 0))
         # (H, W, meteo_dim), (H, W, meteo_dim), (H//2, W//2, tempo_dim), (H//2, W//2, dense_dim), (H//2, W//2, cat_dim)
 
-        pred_mn = self(x_mtdc, cascade_depth)        #------------ forward --------- HWC space. forward: (H, W, _) => (H, W, m)
+        pred_mn = self(x_mtdc, cascade_depth, accum_substeps)        #------------ forward --------- HWC space. forward: (H, W, _) => (H, W, m)
         
         #======================= from BHWC to CHW
         pred_mn = pred_mn.permute(2, 0, 1)
