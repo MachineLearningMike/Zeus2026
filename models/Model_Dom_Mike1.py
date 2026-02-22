@@ -95,7 +95,7 @@ class Model_Dom():
         self.pbar_description = None
         self.step_loss = None
         self.best_loss = 1e9
-        self.accum_iterations = 0
+        self.accum_substeps = 0
     
     def _select_optimizer(self):
         optimizer_name = getattr(self.pm, 'optimizer', 'adam').lower()
@@ -235,7 +235,7 @@ class Model_Dom():
     def save_best_loss_model(self, loss, elapse):
         if loss < 0.4 and loss < (1 - 0.0005) * self.best_loss:    # 0.4: hard-coded.
             self.best_loss = loss
-            logging.info("!!!!!!!!!!!!!!! Saving best-loss model... md {}, loss {:.5f}, iter {} elapse {} !!!!!!!!!!!!".format(self.md_id, loss, self.accum_iterations, elapse))
+            logging.info("!!!!!!!!!!!!!!! Saving best-loss model... md {}, loss {:.5f}, iter {} elapse {} !!!!!!!!!!!!".format(self.md_id, loss, self.accum_substeps, elapse))
             self.save_state(best_loss=True)
        
     def save_state(self, name=None, train_finished=False, best_loss=False, epoch_finished=False):
@@ -279,7 +279,7 @@ class Model_Dom():
             'train_finished' : train_finished,
             'packed_losses_metrics': self.packed_losses_metrics,
             'best_loss' : self.best_loss,
-            'accum_iterations' : self.accum_iterations,
+            'accum_substeps' : self.accum_substeps,
             }
         utils.check_dir(self.project_path)
         temp_path = self.project_path / (name + '.pth.tmp')
@@ -486,8 +486,8 @@ class Model_Dom():
                     self.best_loss = checkpoint['best_loss']
                     logging.info(f"best_loss loaded {self.best_loss}")
 
-                    self.accum_iterations = checkpoint['accum_iterations']
-                    logging.info(f"accum_iterations loaded {self.accum_iterations}")
+                    self.accum_substeps = checkpoint['accum_substeps']
+                    logging.info(f"accum_substeps loaded {self.accum_substeps}")
                     
                 #------------------------ Determine epoch ---------------------
                 logging.info(f"Checkpoint '{file_name}' loaded to {self.device}, including model, optimizer, scheduler, scaler, weighted_metric_old, and datase state")
@@ -1160,7 +1160,7 @@ class Model_Dom():
         
         strC = " ".join(f"{x:.3g}" for x in step_metrics[-len(self.pm.targetVariables):])
         # self.pbar_description = "md {} loss {:.3f}, {} ({})".format(self.md_id, step_loss, self.pm.metrics, strC)
-        self.pbar_description = "loss {:.3f} ma_loss {:.3f} {} ({}) substeps {}".format(step_loss, ma_loss, self.pm.metrics, strC, self.accum_iterations)
+        self.pbar_description = "loss {:.3f} ma_loss {:.3f} {} ({}) substeps {}".format(step_loss, ma_loss, self.pm.metrics, strC, self.accum_substeps)
         
     def stepOptimizer(self, loss_item):
         performed_step, lr, grad_norm = self.lr_controller.stepOptimizer(loss_item)

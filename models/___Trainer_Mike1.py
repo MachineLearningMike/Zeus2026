@@ -496,7 +496,7 @@ class Model_Trainer():
             # This is to save the model in case it suddenly deviates to diverge.
             if trainable is True:
                 [md.save_best_loss_model(loss, elapse) for md, loss in [(md, md.step_loss) for md in mds]]
-                for md in mds: md.accum_iterations += substeps_per_step
+                for md in mds: md.accum_substeps += substeps_per_step
             
             if trainable is True and step % self.pm.steps_to_save == 0:
                 [(md.pack_losses_metrics(), md.save_state()) for md in mds]

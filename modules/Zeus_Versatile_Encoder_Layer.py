@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+from modules.util_snapshots_auto import save, ctx
+
 # -------------------- Utility Modules --------------------
 class SwiGLU(nn.Module):
     def __init__(self, dimension):
@@ -521,27 +523,29 @@ class Flash_Versatile_Encoder_Layer(nn.Module):         # The lowest ranking mod
             if self.pos_encoding is not None:   x = self.pos_encoding(x)
             
             x = x.view(B, H*W, C)
-            if self.encoder is not None:    
-                x = self.encoder(x, mask=mask, pos_bias_er=self.pos_bias_er)
+            if self.encoder is not None:
+                x = self.encoder(x, mask=mask, pos_bias_er=self.pos_bias_er, ss=ss)
             x = x.view(B, H, W, C)
                         
         elif self.transForm.attnconn == AttnConn.Axial:
             # consume: self.encoder_h/w, self.pos_encoding, self.pos_encodding_h/w, self_pos_pias_er_h/w
             
             if self.pos_encoding is not None: x = self.pos_encoding(x)
-            x = self.forward_axial(x, 'height', mask=mask)
-            x = self.forward_axial(x, 'width', mask=mask)
+            x = self.forward_axial(x, 'height', mask=mask, ss=ss)
+            x = self.forward_axial(x, 'width', mask=mask, ss=None)
             
         elif self.transForm.attnconn == AttnConn.Shift:
             # consume: self.encoder_normal/shifted, self.pos_encoding, self.pos_bias_er_normal/shifted
             
             if self.pos_encoding is not None: x = self.pos_encoding(x)
-            x = self.encoder_normal(x, pos_bias_er = self.pos_bias_er_normal)
-            x = self.encoder_shifted(x, pos_bias_er = self.pos_bias_er_shifted)
+            with ctx('ns', self.encoder_normal):
+                x = self.encoder_normal(x, pos_bias_er = self.pos_bias_er_normal, ss=ss)
+            with ctx('sh', self.encoder_shifted):
+                x = self.encoder_shifted(x, pos_bias_er = self.pos_bias_er_shifted, ss=ss)
 
         return x
 
-    def forward_axial(self, x, axis, mask=None):
+    def forward_axial(self, x, axis, mask=None, ss=None):
         B, H, W, C = x.shape
 
         # Take the standard shape
@@ -558,11 +562,15 @@ class Flash_Versatile_Encoder_Layer(nn.Module):         # The lowest ranking mod
         # Transformer.Encode, with possible positional encoding.
         if axis == 'height':
             if self.pos_encoding_h is not None: x = self.pos_encoding_h(x)
-            if self.encoder_h is not None: x = self.encoder_h(x, mask=mask, pos_bias_er=self.pos_bias_er_h)
+            if self.encoder_h is not None: 
+                with ctx('h', self.encoder_h):
+                    x = self.encoder_h(x, mask=mask, pos_bias_er=self.pos_bias_er_h, ss=ss)
 
         elif axis == 'width':  
             if self.pos_encoding_w is not None: x = self.pos_encoding_w(x)
-            if self.encoder_w is not None: x = self.encoder_w(x, mask=mask, pos_bias_er=self.pos_bias_er_w)
+            if self.encoder_w is not None: 
+                with ctx('w', self.encoder_w):
+                    x = self.encoder_w(x, mask=mask, pos_bias_er=self.pos_bias_er_w, ss=ss)
     
         # Restore original shape
         x = reshape_back(x)

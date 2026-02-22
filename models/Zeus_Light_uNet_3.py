@@ -107,6 +107,8 @@ class Zeus(nn.Module):
         self.predict_fun_dict = None
         self.meteo_dims = len(self.pm.targetVariables)
         
+        self.ss = -1
+        
         # self.to(self.pm.torch_dtype) # This line will causes no float32 master copy, breaks autocast's automatic management.
         
     def meteo_tempo_dense_cat_cas_dim(self):
@@ -125,7 +127,10 @@ class Zeus(nn.Module):
         
         x = self.all_dim_to_top_dim(mtdcc)
 
-        x = self.uNet(x)
+        self.ss += 1
+        ss = self.ss if self.ss % 10 == 0 else None
+
+        x = self.uNet(x, ss=ss)
 
         x = self.top_dim_to_meteo_dim(x)    # (1, H, W, meteo_dim)
         

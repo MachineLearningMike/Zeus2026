@@ -12,6 +12,8 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+from modules.util_snapshots_auto import save, ctx
+
 from modules.uBlock import uBlock
 
 class uNet(nn.Module):
@@ -41,12 +43,14 @@ class uNet(nn.Module):
             dim = block.down_dim
             
     def forward(self, x, ss=None):
-        for ub in self.uBlocks:
-            ub.skip = x
-            x = ub(x, is_enc=True, ss=ss)
-        for ub in reversed(self.uBlocks):
-            x = ub(x, is_enc=False, ss=ss)
-            x = x + ub.skip
+        for idx, ub in enumerate(self.uBlocks):
+            with ctx(f'B{idx}', ub):
+                ub.skip = x
+                x = ub(x, is_enc=True, ss=ss)
+        for idx, ub in enumerate(reversed(self.uBlocks)):
+            with ctx(f'B{self.depth-idx-1}', ub):
+                x = ub(x, is_enc=False, ss=ss)
+                x = x + ub.skip
         return x
 
 

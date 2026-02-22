@@ -12,6 +12,8 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+from modules.util_snapshots_auto import save, ctx
+
 from modules.uSquare import uSquare
 from modules.Reshape_HX_4X import Reshape_HX_4X, Reshape_2X_QX
 from modules.Reshape_HX_2X import Reshape_HX_2X, Reshape_2X_HX
@@ -156,6 +158,7 @@ class uSide(nn.Module):
             lambda x, ss: self.square(x, ss=ss) if self.square is not None else x,
             lambda x, ss: self.down_mersplit(x, ss=ss) if self.down_mersplit is not None else x
         ]
+        self.phases = ['top', 'square', 'down']
         
     def inherit(self):
         return {'nWin': self.nWin_to_inherit, 'pWin': self.pWin_to_inherit}
@@ -167,9 +170,17 @@ class uSide(nn.Module):
     def forward(self, x, ss=None):
         
         if self.is_enc:
-            for fun in self.funs:
-                x = fun(x, ss=ss)
+            if self.top_mersplit is not None:
+                x = self.top_mersplit(x)
+            if self.square is not None:
+                x = self.square(x, ss=ss)
+            if self.down_mersplit is not None:
+                x = self.down_mersplit(x)
         else:
-            for fun in reversed(self.funs):
-                x = fun(x, ss=ss)                    
+            if self.down_mersplit is not None:
+                x = self.down_mersplit(x)
+            if self.square is not None:
+                x = self.square(x, ss=ss)
+            if self.top_mersplit is not None:
+                x = self.top_mersplit(x)
         return x

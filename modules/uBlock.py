@@ -14,6 +14,8 @@ sys.path
 
 from modules.uSide import uSide
 
+from modules.util_snapshots_auto import save, ctx
+
 class uBlock(nn.Module):
     
     def __init__(self, dict: dict, inherited: dict = None) -> None:
@@ -34,5 +36,10 @@ class uBlock(nn.Module):
         return self.enc.inherit()
         
     def forward(self, x, is_enc=True, ss=None):
-        x = self.enc(x, ss=ss) if is_enc else self.dec(x, ss=ss)
+        if is_enc:
+            with ctx('e', self.enc):
+                x = self.enc(x, ss=ss)
+        else:
+            with ctx('d', self.dec):
+                x = self.dec(x, ss=ss)
         return x

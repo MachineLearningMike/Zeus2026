@@ -12,6 +12,8 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+from modules.util_snapshots_auto import save, ctx
+
 from modules.Transformer_Modes import AttnConn, PEConn, PEType, PBias, TransForm
 from modules.Zeus_Versatile_Encoder_Layer import Flash_Versatile_Encoder_Layer
 
@@ -35,8 +37,7 @@ class uSquare(nn.Module):
 
     def forward(self, x, ss=None):
 
-        for layer in self.layers:
-            x = layer(x, ss=ss)
-            pass
-        
+        for idx, layer in enumerate(self.layers):
+            with ctx(f'L{idx}', layer):
+                x = layer(x, ss = ss)    
         return x

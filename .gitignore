@@ -46,3 +46,7 @@ dist/
 
 #
 ~*
+
+# snapshots
+snapshots/
+*.jsonl

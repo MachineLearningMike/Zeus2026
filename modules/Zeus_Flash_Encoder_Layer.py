@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+from modules.util_snapshots_auto import save, ctx
+
 class StableLayerNorm(nn.Module):
     """LayerNorm with numerical stability improvements for mixed precision"""
     def __init__(self, normalized_shape, eps=1e-6):
@@ -62,11 +64,12 @@ class FlashEncoderLayer(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
         
-    def forward(self, x, mask=None, pos_bias_er=None):
+    def forward(self, x, mask=None, pos_bias_er=None, ss=None):
         # x: (B, seq_len, d_model)        
 
         x_skip = x
-        x = self.attention(x, x, x, mask=mask, pos_bias_er=pos_bias_er)
+        with ctx('mha', self.attention):
+            x = self.attention(x, x, x, mask=mask, pos_bias_er=pos_bias_er, ss=ss)
         x = x + x_skip
         dtype = x.dtype
         x = self.norm_after_attn(x).to(dtype=dtype)

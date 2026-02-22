@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+from modules.util_snapshots_auto import save, ctx
+
 from modules.Zeus_Flash_Encoder_Layer import FlashEncoderLayer
 
 # SwiGLU (unchanged)
@@ -162,14 +164,36 @@ class AttentionMask2D(nn.Module):
         s_size = shift_size[idx]
         assert pad < w_size
         h_slices = get_slices(s_size, w_size, pad)
-        
+
         # W dimension (with cylindrical handling)
         idx = 1
         pad = padding[idx] if padding is not None else 0
         w_size = sWin[idx]
         s_size = shift_size[idx]
         assert pad < w_size
-        w_slices = get_slices(s_size, w_size, pad)
+
+        if s_size != 0 and pad == 0:
+            w_slices = (slice(None),)
+        elif s_size == 0 and pad != 0:
+            w_slices = (slice(0, pad),
+                        slice(pad, None))
+        elif s_size != 0 and pad != 0:
+            if pad <= s_size:
+                w_slices = (slice(0, -pad),
+                            slice(-pad, None))
+            else:
+                w_slices = (slice(0, pad - s_size),
+                            slice(pad - s_size, -s_size),
+                            slice(-s_size, None))
+        else:
+            w_slices = (slice(None),)        
+        
+        # idx = 1
+        # pad = padding[idx] if padding is not None else 0
+        # w_size = sWin[idx]
+        # s_size = shift_size[idx]
+        # assert pad < w_size
+        # w_slices = get_slices(s_size, w_size, pad)
 
         # Build mask
         img_mask = torch.zeros((1, 1, H, W))  # torch.float32
@@ -229,7 +253,7 @@ class ShiftEncoderLayer(nn.Module):
         # mask_padding = None if sum(mask_padding) == 0 else mask_padding     
         self.attn_mask = AttentionMask2D((H, W), self.sWin, self.sShift, padding=None)
             
-    def forward(self, x, pos_bias_er=None):        
+    def forward(self, x, pos_bias_er=None, ss=None):        
         B, H, W, C = x.shape
         assert H == self.H and W == self.W, f"Input feature has wrong size ({H}, {W}), expected ({self.H}, {self.W})"
 
@@ -244,7 +268,7 @@ class ShiftEncoderLayer(nn.Module):
 
         mask=self.attn_mask.attn_mask if hasattr(self.attn_mask, 'attn_mask') else None
 
-        attn_windows = self.enc_layer(x_windows, mask=mask, pos_bias_er=pos_bias_er)    # (total_nWin, self.vWin, C) = (batch, seq_len, dim)
+        attn_windows = self.enc_layer(x_windows, mask=mask, pos_bias_er=pos_bias_er, ss=ss)    # (total_nWin, self.vWin, C) = (batch, seq_len, dim)
 
         # reverse windows
         attn_windows = attn_windows.permute(0,2,1).contiguous().view(-1, C, *self.sWin) # (total_nWin, C, win_H, win_W)
