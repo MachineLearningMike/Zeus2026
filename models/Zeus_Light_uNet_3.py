@@ -107,7 +107,7 @@ class Zeus(nn.Module):
         tdcc = torch.concat([tempo, dense, category_emb, cascade_emb], dim=-1).unsqueeze(0)   # 6*4 + 9 + cat_emb.dim
         assert tdcc.shape[3] == self.tempo_dense_cat_cas_dim()
         
-        ss = accum_substeps if accum_substeps % self.substeps_to_snapshot == 0 else None
+        ss = accum_substeps // self.substeps_to_snapshot if accum_substeps % self.substeps_to_snapshot == 0 else None
 
         x = meteo_mormal.unsqueeze(0)
 

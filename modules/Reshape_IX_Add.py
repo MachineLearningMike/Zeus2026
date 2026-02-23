@@ -64,9 +64,9 @@ class Reshape_IX_Add(nn.Module):     # Half, 4X
         # self.seq_len_changing_mha = Seq_Len_Changing_MHA(d_model=pad_dims, num_heads=num_heads, target_seq_len = self.out_H * self.out_W, use_flash=True)        
 
         # Instead of the above block...
-        self.latent_of_pad = SwiGLU(pad_dims)
+        self.latent_of_pad = nn.Linear(pad_dims, pad_dims//2, bias=True)
 
-        self.expansion = nn.Linear(dim + pad_dims, self.out_dim, bias=True)
+        self.expansion = nn.Linear(dim + pad_dims//2, self.out_dim, bias=True)
 
     def forward(self, x, ss=None):
         x_main, x_pad = x
@@ -81,13 +81,13 @@ class Reshape_IX_Add(nn.Module):     # Half, 4X
         # x_pad = x_pad.view(B, self.out_H, self.out_W, C)
 
         # Instead of the above block...
-        x_pad = self.latent_of_pad(x_pad)
+        x_pad = self.latent_of_pad(x_pad)   # (B, H, W, C//2)
         x_pad = x_pad.permute(0, 3, 1, 2).contiguous()   # (B, C, H, W)
         x_pad = resize_continuous_bilinear_channel_wise_cylindric(x_pad, (self.out_H, self.out_W), mode='bilinear')
-        x_pad = x_pad.permute(0, 2, 3, 1).contiguous()
+        x_pad = x_pad.permute(0, 2, 3, 1).contiguous()  # (B, out_H, out_W, C//2)
 
         #---------------------------- Concat m_main and x_pad at dim=-1
-        x = torch.concat([x_main, x_pad], dim=-1)
+        x = torch.concat([x_main, x_pad], dim=-1)   # (B, out_H, out_W, dim + C//2)
 
         #--------------------------- Redim x to self.out_dim
         x = self.expansion(x)

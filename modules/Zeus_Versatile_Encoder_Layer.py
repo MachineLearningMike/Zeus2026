@@ -532,7 +532,7 @@ class Flash_Versatile_Encoder_Layer(nn.Module):         # The lowest ranking mod
             
             if self.pos_encoding is not None: x = self.pos_encoding(x)
             x = self.forward_axial(x, 'height', mask=mask, ss=ss)
-            x = self.forward_axial(x, 'width', mask=mask, ss=None)
+            x = self.forward_axial(x, 'width', mask=mask, ss=ss)
             
         elif self.transForm.attnconn == AttnConn.Shift:
             # consume: self.encoder_normal/shifted, self.pos_encoding, self.pos_bias_er_normal/shifted

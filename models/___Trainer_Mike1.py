@@ -431,6 +431,7 @@ class Model_Trainer():
                                 
                                 #--- 3.5. count the actual predictions.
                                 substeps_per_step += 1
+                                md.accum_substeps += 1
 
                                 #--- 3.6. put the prediction of Y in futureQ, if we requested it.
                                 # Note if we requested it, futureQ is already have Y as the top.
@@ -496,7 +497,6 @@ class Model_Trainer():
             # This is to save the model in case it suddenly deviates to diverge.
             if trainable is True:
                 [md.save_best_loss_model(loss, elapse) for md, loss in [(md, md.step_loss) for md in mds]]
-                for md in mds: md.accum_substeps += substeps_per_step
             
             if trainable is True and step % self.pm.steps_to_save == 0:
                 [(md.pack_losses_metrics(), md.save_state()) for md in mds]
