@@ -4271,14 +4271,14 @@ projects["Zeus_uNet_Feb23"] = {    #--------------------------------------------
             },
 
             {   #-------------------------------- block P, (360, 720, 24)  padding dimensions
+                #!!! This is treating meteo and extra info equally, although meteo has denser info and more important.
                 'pad_dims': 15,     # Snapshot.tempo_dims + Snapshot.dense_dims + self.category_emb_dim + self.cascade_depth_emb_dim
                 'target_dims': 20,  # As you like in this phase
                 'down_mersplit': Reshape.IX_ADD, 'down_nWin': [90, 180], 'down_pWin': 2,
             },
 
             {   #---------------------------------- block 2, (360, 720, 20)
-                ### preceding: (Nsq,)
-                ### 1.28 s/it @ A GL YN /// 1.28 s/it @ A GL NL, /// 1.28 s/it @ ANN NL /// 1.19 s/it @ A NN YN
+                #!!! This square is very costly in FLOPS.
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 4,    'nLayers' : 1, 'act_layer': 'sigmoid',
@@ -4290,8 +4290,6 @@ projects["Zeus_uNet_Feb23"] = {    #--------------------------------------------
             },
 
             {   #---------------------------------- block 3, (180, 360, 40)
-                ### preceding: (NSq, AGLNL)
-                ### 1.34 s/it @ A GL YN /// 1.32 s/it @ A GL NL /// 1.30 s/it @ ANN NL /// 1.32 s/it @ A NN YN
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 4,    'nLayers' : 1, 'act_layer': 'sigmoid',
@@ -4303,8 +4301,6 @@ projects["Zeus_uNet_Feb23"] = {    #--------------------------------------------
             },
             
             {   #---------------------------------- block 4, (90, 180, 80)
-                ### preceding: (NSq, AGLNL, AGLNL)
-                ### 1.29 s/it @ A GL YN /// 1.33 s/it @ A GL NL /// 1.31 s/it @ ANN NL /// 1.33 s/it @ A NN YN
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 4,    'nLayers' : 2, 'act_layer': 'sigmoid',
@@ -4315,8 +4311,6 @@ projects["Zeus_uNet_Feb23"] = {    #--------------------------------------------
             },
 
             {   #---------------------------------- block 5, (45, 90, 160)
-                ### preceding: (NSq, AGLNL, AGLNL, AGLNL)
-                ### 1.33 s/it @ A GL YN /// 1.32 s/it @ A GL NL /// s/it @ ANN NL /// 1.34 s/it @ A NN YN
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 4,    'nLayers' : 2, 'act_layer': 'sigmoid',
@@ -4328,8 +4322,6 @@ projects["Zeus_uNet_Feb23"] = {    #--------------------------------------------
             },
 
             {   #---------------------------------- block 6, (23, 45, 160)
-                ## preceding: (NSq, AGLNL, AGLNL, AGLNL, AGLNL)
-                ## 1.35 s/it @ A GL YN /// 1.42 s/it @ A GL NL /// 1.30 s/it @ ANN NL /// s/it @ A NN YN
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 4,    'nLayers' : 2, 'act_layer': 'sigmoid',
@@ -4339,9 +4331,6 @@ projects["Zeus_uNet_Feb23"] = {    #--------------------------------------------
             },
 
             {   #---------------------------------- block 7, (12, 23, 160)
-                # Flash.No doens't slows down.
-                # preceding: (NSq, AGLNL, AGLNL, AGLNL, AGLNL, AGLNL)
-                ## s/it @ A GL YN /// s/it @ A GL NL /// s/it @ ANN NL /// s/it @ A NN YN
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 4,    'nLayers' : 2, 'act_layer': 'sigmoid',
@@ -4351,9 +4340,6 @@ projects["Zeus_uNet_Feb23"] = {    #--------------------------------------------
             },
 
             {   #---------------------------------- block 8, (6, 12, 160)
-                # Flash.No doens't slows down.
-                ## preceding: (NSq, AGLNL, AGLNL, AGLNL)
-                ## s/it @ A GL YN /// s/it @ A GL NL /// s/it @ ANN NL /// s/it @ A NN YN
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 4,    'nLayers' : 2, 'act_layer': 'sigmoid',
