@@ -27,12 +27,19 @@ class uSquare(nn.Module):
         nWin = dict.get('nWin', (1, 1))
         n_layers = dict['nLayers']
         transForm = dict['transForm']
+        act_layer = dict['act_layer']
         # attnconn, peconn, petype, flash, pbias = transForm.attnconn, transForm.peconn, transForm.petype, transForm.flash, transForm.pbias
+     
+        if act_layer == 'gelu':
+            act_layer = nn.GELU
+        elif act_layer == 'sigmoid':
+            act_layer = nn.Sigmoid
+        else: assert False
      
         self.layers = nn.ModuleList()
         
         for idx in range(n_layers):
-            layer = Flash_Versatile_Encoder_Layer(H=H, W=W, d_model=d_model, num_heads=num_heads, nWin=nWin, transFrom=transForm)
+            layer = Flash_Versatile_Encoder_Layer(H=H, W=W, d_model=d_model, num_heads=num_heads, nWin=nWin, transFrom=transForm, act_layer=act_layer)
             self.layers.append(layer)
 
     def forward(self, x, ss=None):

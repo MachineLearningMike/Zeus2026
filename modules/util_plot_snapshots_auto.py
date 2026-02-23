@@ -9,7 +9,7 @@ from matplotlib.widgets import CheckButtons  # Add this import!
 from tabulate import tabulate  # Optional, for nice tables
 
 class SnapshotAnalyzer:
-    def __init__(self, snapshot_dir='./snapshots'):
+    def __init__(self, snapshot_dir='D:\zeus_data\snapshots_Zeus_uNet_Feb22_300'): #'./snapshots'):
         self.snapshot_dir = Path(snapshot_dir)
         self.snapshots = {}
         

@@ -38,6 +38,7 @@ class Params:
         self.train_hours_limit = config['train_hours_limit']
         self.dollarsPerHour = config['dollarsPerHour']
         self.half_life = config['half_life']
+        self.substeps_to_snapshot = config['substeps_to_snapshot']
 
         #============================ data, shared ===========================================================================
         self.meteo_variables = config['meteo_variables']

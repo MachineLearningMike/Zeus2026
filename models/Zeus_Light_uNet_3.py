@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from datetime import datetime, timedelta, timezone
 import time
+import gc
 
 from pathlib import Path
 import os, sys
@@ -74,45 +75,26 @@ class Zeus(nn.Module):
             )
         
         
-        unet_top_dim = 20
+        unet_top_dim = Snapshot.meteo_dims
         self.uNet = uNet(self.H, self.W, unet_top_dim, pm.block_dicts, pm.inherited)   #.to(device=device, dtype=dtype)
         
         self.cascade_depth_embeder = Embed_Cascade(self.H, self.W, max_cascade_depth=10, dims_cascade_emb=2)
         self.catetory_embedder = Embed_Category()
         self.cascade_depth_emb_dim = self.cascade_depth_embeder.dims_cascade_emb
         self.category_emb_dim = self.catetory_embedder.dims_category_emb
-        
-        in_features = self.meteo_tempo_dense_cat_cas_dim()
-        out_features = unet_top_dim
-        
-        self.all_dim_to_top_dim = Mlp(
-            in_features = in_features,
-            hidden_features = 4 * in_features,
-            out_features = out_features,      # Add in pm
-            act_layer = nn.Tanh,
-            drop = 0
-        )
-        
-        in_features = unet_top_dim
-        out_features = Snapshot.meteo_dims
-
-        self.top_dim_to_meteo_dim = Mlp(
-            in_features = in_features,
-            hidden_features = 4 * in_features,
-            out_features = out_features,
-            act_layer = nn.Tanh,
-            drop = 0    
-        )
                 
         self.predict_fun_dict = None
         self.meteo_dims = len(self.pm.targetVariables)
         
-        self.ss = -1
+        self.substeps_to_snapshot = self.pm.substeps_to_snapshot
         
         # self.to(self.pm.torch_dtype) # This line will causes no float32 master copy, breaks autocast's automatic management.
         
     def meteo_tempo_dense_cat_cas_dim(self):
         return Snapshot.meteo_dims + Snapshot.tempo_dims + Snapshot.dense_dims + self.category_emb_dim + self.cascade_depth_emb_dim
+    def tempo_dense_cat_cas_dim(self):
+        return Snapshot.tempo_dims + Snapshot.dense_dims + self.category_emb_dim + self.cascade_depth_emb_dim
+
 
     def forward(self, x_mtdc, cascase_depth, accum_substeps):   # (H, W, ...) => (H, W, meteo_dim)
 
@@ -122,20 +104,20 @@ class Zeus(nn.Module):
         #----------- patch_merging ------------
         meteo_mormal, _, tempo, dense, _ = x_mtdc     # all normalized, except cat
         
-        mtdcc = torch.concat([meteo_mormal, tempo, dense, category_emb, cascade_emb], dim=-1).unsqueeze(0)   # 6*4 + 9 + cat_emb.dim
-        assert mtdcc.shape[3] == self.meteo_tempo_dense_cat_cas_dim()
+        tdcc = torch.concat([tempo, dense, category_emb, cascade_emb], dim=-1).unsqueeze(0)   # 6*4 + 9 + cat_emb.dim
+        assert tdcc.shape[3] == self.tempo_dense_cat_cas_dim()
         
-        x = self.all_dim_to_top_dim(mtdcc)
+        ss = accum_substeps if accum_substeps % self.substeps_to_snapshot == 0 else None
 
-        ss = accum_substeps//300 if accum_substeps % 300 == 0 else None
+        x = meteo_mormal.unsqueeze(0)
 
-        x = self.uNet(x, ss=ss)
-
-        x = self.top_dim_to_meteo_dim(x)    # (1, H, W, meteo_dim)
+        x = self.uNet(x, ss=ss, padding=tdcc)
         
         x = x.squeeze(0)    # (H, W, meteo_dim)
         
-        # return
+        gc.collect()
+        torch.cuda.empty_cache()
+        
         return x
     
     def physical_predict(self, ss_x, ss_y, modulo, variables):

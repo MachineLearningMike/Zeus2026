@@ -4,7 +4,7 @@ import torch.nn as nn
 class Reshape_HX_2X(nn.Module):     # Half, 2X
    
     @staticmethod
-    def get_output_shape(input_shape, nWin, pWin):
+    def get_output_shape(input_shape, nWin, pWin, target_dim=0):
         # Do not attempt to add padding !!!
         in_res, in_dim = input_shape
         assert in_res[0] % 2 == 0 and in_res[1] % 2 == 0, f"Input {in_res} must have even resolution."
@@ -14,11 +14,11 @@ class Reshape_HX_2X(nn.Module):     # Half, 2X
         out_dim = in_dim * 2
         return (out_res, out_dim)
     
-    def __init__(self, dim, output_shape=None):
+    def __init__(self, dim, output_shape=None, pad_dims=0):
         super().__init__()
         self.dim = dim
 
-        self.reduction = nn.Linear(2 ** 2 * dim, 2 * dim, bias=False)
+        self.reduction = nn.Linear(2 ** 2 * dim, 2 * dim, bias=True)
         
     def forward(self, x, ss=None):
         B, H, W, C = x.shape
@@ -35,7 +35,7 @@ class Reshape_HX_2X(nn.Module):     # Half, 2X
 class Reshape_2X_HX(nn.Module):
 
     @staticmethod
-    def get_output_shape(input_shape, nWin, pWin):
+    def get_output_shape(input_shape, nWin, pWin, target_dim=0):
         # Do not attempt to add padding !!!
         in_res, in_dim = input_shape
         assert in_dim % 2 == 0 , "Input must have even dimensions."
@@ -45,11 +45,11 @@ class Reshape_2X_HX(nn.Module):
         out_dim = in_dim // 2
         return (out_res, out_dim)
 
-    def __init__(self, dim, output_shape=None):
+    def __init__(self, dim, output_shape=None, pad_dims=0):
         super().__init__()
         self.dim = dim
         
-        self.expansion = nn.Linear(dim, 2 * dim, bias=False)
+        self.expansion = nn.Linear(dim, 2 * dim, bias=True)
 
     def forward(self, x, ss=None):
         B, H, W, C = x.shape       

@@ -4,7 +4,7 @@ import torch.nn as nn
 class Reshape_QX_1X_Direct(nn.Module):
 
     @staticmethod
-    def get_output_shape(input_shape, nWin, pWin):
+    def get_output_shape(input_shape, nWin, pWin, target_dim=0):
         # Do not attempt to add padding !!!
         in_res, in_dim = input_shape
         assert in_res[0] % 4 == 0 and in_res[1] % 4 == 0, "Input must have resolution divisible by 4."
@@ -14,12 +14,12 @@ class Reshape_QX_1X_Direct(nn.Module):
         out_dim = in_dim * 4
         return (out_res, out_dim)
     
-    def __init__(self, dim, output_shape=None):
+    def __init__(self, dim, output_shape=None, pad_dims=0):
         super().__init__()
         self.dim = dim
 
         # Merge 4x4 patches (16 patches) and reduce to 4*dim
-        self.reduction = nn.Linear(4 ** 2 * dim, 4 * dim, bias=False)
+        self.reduction = nn.Linear(4 ** 2 * dim, 4 * dim, bias=True)
         
     def forward(self, x, ss=None):
         B, H, W, C = x.shape
@@ -40,7 +40,7 @@ class Reshape_QX_1X_Direct(nn.Module):
 class Reshape_4X_1X_Direct(nn.Module):
 
     @staticmethod
-    def get_output_shape(input_shape, nWin, pWin):
+    def get_output_shape(input_shape, nWin, pWin, target_dim=0):
         # Do not attempt to add padding !!!
         in_res, in_dim = input_shape
         assert in_dim % 4 == 0, "Input must have dimensions divisible by 4."
@@ -50,12 +50,12 @@ class Reshape_4X_1X_Direct(nn.Module):
         out_dim = in_dim // 4
         return (out_res, out_dim)
 
-    def __init__(self, dim, output_shape=None):
+    def __init__(self, dim, output_shape=None, pad_dims=0):
         super().__init__()
         self.dim = dim
         
         # Inverse of the linear projection: expand from 4*dim to 16*dim
-        self.expansion = nn.Linear(dim, 4 * dim, bias=False)
+        self.expansion = nn.Linear(dim, 4 * dim, bias=True)
 
     def forward(self, x, ss=None):
         B, H, W, C = x.shape

@@ -10,7 +10,7 @@ from modules.Reshape_HX_2X import Reshape_HX_2X, Reshape_2X_HX
 class Reshape_QX_1X(nn.Module):     # Quarter, 1X
    
     @staticmethod
-    def get_output_shape(input_shape, nWin, pWin):
+    def get_output_shape(input_shape, nWin, pWin, target_dim=0):
         # Do not attempt to add padding !!!
         in_res, in_dim = input_shape
         assert in_res[0] % 4 == 0 and in_res[1] % 4 == 0, "Input must have resolution divisible by 4."
@@ -20,7 +20,7 @@ class Reshape_QX_1X(nn.Module):     # Quarter, 1X
         out_dim = in_dim  # Keep dimension constant
         return (out_res, out_dim)
     
-    def __init__(self, dim, output_shape=None):
+    def __init__(self, dim, output_shape=None, pad_dims=0):
         super().__init__()
         self.dim = dim
         
@@ -29,10 +29,10 @@ class Reshape_QX_1X(nn.Module):     # Quarter, 1X
         # Stage2: dim -> dim (but with another 2x spatial reduction)
         
         # For stage1: input dim, after merging 2x2 patches we get 4*dim, then reduce to dim
-        self.stage1_reduction = nn.Linear(4 * dim, dim, bias=False)
+        self.stage1_reduction = nn.Linear(4 * dim, dim, bias=True)
         
         # For stage2: input dim, after merging 2x2 patches we get 4*dim, then reduce to dim
-        self.stage2_reduction = nn.Linear(4 * dim, dim, bias=False)
+        self.stage2_reduction = nn.Linear(4 * dim, dim, bias=True)
         
         # Optional: Add normalization and activation between stages for better learning
         self.norm = nn.LayerNorm(dim)
@@ -71,7 +71,7 @@ class Reshape_QX_1X(nn.Module):     # Quarter, 1X
 class Reshape_4X_1X(nn.Module):
 
     @staticmethod
-    def get_output_shape(input_shape, nWin, pWin):
+    def get_output_shape(input_shape, nWin, pWin, target_dim=0):
         # Do not attempt to add padding !!!
         in_res, in_dim = input_shape
         out_res = tuple([in_res[i] * 4 for i in range(2)])
@@ -80,7 +80,7 @@ class Reshape_4X_1X(nn.Module):
         out_dim = in_dim  # Keep dimension constant
         return (out_res, out_dim)
 
-    def __init__(self, dim, output_shape=None):
+    def __init__(self, dim, output_shape=None, pad_dims=0):
         super().__init__()
         self.dim = dim
         
@@ -89,10 +89,10 @@ class Reshape_4X_1X(nn.Module):
         # Stage2: dim -> dim (but with another 2x spatial expansion)
         
         # For stage1: expand from dim to 4*dim, then split into 2x2 patches
-        self.stage1_expansion = nn.Linear(dim, 4 * dim, bias=False)
+        self.stage1_expansion = nn.Linear(dim, 4 * dim, bias=True)
         
         # For stage2: expand from dim to 4*dim, then split into 2x2 patches
-        self.stage2_expansion = nn.Linear(dim, 4 * dim, bias=False)
+        self.stage2_expansion = nn.Linear(dim, 4 * dim, bias=True)
         
         # Optional: Add normalization and activation between stages
         self.norm = nn.LayerNorm(dim)

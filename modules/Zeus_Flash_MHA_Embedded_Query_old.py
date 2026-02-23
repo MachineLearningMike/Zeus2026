@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import math
 from flash_attn.flash_attn_interface import flash_attn_func
 
-class EmbeddedQueryMultiHeadAttention(nn.Module):
+class Seq_Len_Changing_MHA(nn.Module):
     def __init__(self, d_model, num_heads, num_queries, use_flash=False, dropout=0.0):
         super().__init__()
         self.num_heads = num_heads
@@ -141,7 +141,7 @@ def test_embedded_query_attention():
     
     # Create model
     print("\n2. Creating model...")
-    model = EmbeddedQueryMultiHeadAttention(
+    model = Seq_Len_Changing_MHA(
         d_model=d_model,
         num_heads=num_heads,
         num_queries=num_queries,
@@ -273,7 +273,7 @@ def training_example():
     num_steps = 5
     
     # Create model
-    model = EmbeddedQueryMultiHeadAttention(
+    model = Seq_Len_Changing_MHA(
         d_model=d_model,
         num_heads=num_heads,
         num_queries=num_queries,
@@ -333,7 +333,7 @@ def benchmark_performance():
     seq_len = 1024
     batch_size = 4
     
-    model = EmbeddedQueryMultiHeadAttention(
+    model = Seq_Len_Changing_MHA(
         d_model=d_model,
         num_heads=num_heads,
         num_queries=num_queries,

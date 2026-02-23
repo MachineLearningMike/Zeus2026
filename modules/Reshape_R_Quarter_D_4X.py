@@ -10,7 +10,7 @@ from modules.Reshape_HX_2X import Reshape_HX_2X, Reshape_2X_HX
 class Reshape_QX_1X_Direct(nn.Module):        
    
     @staticmethod
-    def get_output_shape(input_shape, nWin, pWin):
+    def get_output_shape(input_shape, nWin, pWin, target_dim=0):
         # Do not attempt to add padding !!!
         in_res, in_dim = input_shape
         assert in_res[0] % 4 == 0 and in_res[1] % 4 == 0, "Input must have resolution divisible by 4."
@@ -20,7 +20,7 @@ class Reshape_QX_1X_Direct(nn.Module):
         out_dim = in_dim * 4
         return (out_res, out_dim)
     
-    def __init__(self, dim, output_shape=None):
+    def __init__(self, dim, output_shape=None, pad_dims=0):
         super().__init__()
         self.dim = dim
         
@@ -52,7 +52,7 @@ class Reshape_QX_1X_Direct(nn.Module):
 class Reshape_4X_1X_Direct(nn.Module):
 
     @staticmethod
-    def get_output_shape(input_shape, nWin, pWin):
+    def get_output_shape(input_shape, nWin, pWin, target_dim=0):
         # Do not attempt to add padding !!!
         in_res, in_dim = input_shape
         assert in_dim % 4 == 0, "Input must have dimensions divisible by 4."
@@ -62,7 +62,7 @@ class Reshape_4X_1X_Direct(nn.Module):
         out_dim = in_dim // 4
         return (out_res, out_dim)
 
-    def __init__(self, dim, output_shape=None):
+    def __init__(self, dim, output_shape=None, pad_dims=0):
         super().__init__()
         self.dim = dim
         

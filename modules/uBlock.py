@@ -34,6 +34,9 @@ class uBlock(nn.Module):
         
     def inherit(self):
         return self.enc.inherit()
+    
+    def is_padding(self):
+        return self.enc.is_padding()
         
     def forward(self, x, is_enc=True, ss=None):
         if is_enc:

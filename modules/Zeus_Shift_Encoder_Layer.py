@@ -218,7 +218,7 @@ class AttentionMask2D(nn.Module):
 # Swin Block 2D WITHOUT autocast inside
 # ---------------------------
 class ShiftEncoderLayer(nn.Module):
-    def __init__(self, H, W, d_model, num_heads, nWin, shift=False):
+    def __init__(self, H, W, d_model, num_heads, nWin, shift=False, act_layer=nn.Sigmoid):
         
         super().__init__()
         
@@ -242,7 +242,7 @@ class ShiftEncoderLayer(nn.Module):
         # self.shift = shift
         self.sShift = (self.sWin[0]//2, self.sWin[1]//2) if shift else (0, 0)
 
-        self.enc_layer = FlashEncoderLayer(d_model, num_heads, dropout=0., use_flash=True, eps=1e-9)
+        self.enc_layer = FlashEncoderLayer(d_model, num_heads, dropout=0., use_flash=True, act_layer=act_layer, eps=1e-9)
         
         # Remove position bias related code
         self.type_pos_bias = None
