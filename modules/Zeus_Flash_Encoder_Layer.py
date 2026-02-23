@@ -70,12 +70,14 @@ class FlashEncoderLayer(nn.Module):
         x_skip = x
         with ctx('mha', self.attention):
             x = self.attention(x, x, x, mask=mask, pos_bias_er=pos_bias_er, ss=ss)
+        save(ss, x, 'attn_out')
         x = x + x_skip
         dtype = x.dtype
         x = self.norm_after_attn(x).to(dtype=dtype)
         
         x_skip = x
         x = self.feed_forward(x)
+        save(ss, x, 'ffn_out')
         x = x + x_skip
         dtype = x.dtype
         x = self.norm_after_feed_forward(x).to(dtype=dtype)

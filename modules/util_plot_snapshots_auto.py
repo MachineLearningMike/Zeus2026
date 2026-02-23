@@ -5,6 +5,9 @@ from pathlib import Path
 from collections import defaultdict
 import re
 
+from matplotlib.widgets import CheckButtons  # Add this import!
+from tabulate import tabulate  # Optional, for nice tables
+
 class SnapshotAnalyzer:
     def __init__(self, snapshot_dir='./snapshots'):
         self.snapshot_dir = Path(snapshot_dir)
@@ -124,7 +127,7 @@ class SnapshotAnalyzer:
     
     # ========== PLOT FUNCTIONS WITH KEY FILTERS ==========
     
-    def plot_all_lines(self, key_filters=None, match_all=True, value_type='both', figsize=(15, 8)):
+    def plot_all_lines(self, key_filters=None, match_all=True, value_type='both', figsize=(12, 6)):
         """Plot variables as lines, optionally filtered by keys anywhere in name
         
         Args:
@@ -182,6 +185,74 @@ class SnapshotAnalyzer:
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
         plt.show()
+        
+    def plot_variable_list(self, var_list, value_type='both', figsize=(12, 6)):
+        """Plot a specific list of variables
+        
+        Args:
+            var_list: List of exact variable names to plot
+            value_type: 'mean', 'std', or 'both' (default)
+            figsize: Figure size
+        """
+        if not self.snapshots:
+            self.load_all_snapshots()
+        
+        # Get history for all variables
+        all_history = self.get_variable_history()
+        
+        # Filter to only the requested variables
+        history = {}
+        for var in var_list:
+            if var in all_history:
+                history[var] = all_history[var]
+            else:
+                print(f"Warning: Variable '{var}' not found in snapshots")
+        
+        if not history:
+            print("No valid variables found in the provided list")
+            return
+        
+        plt.figure(figsize=figsize)
+        
+        # Use a colormap for many lines
+        colors = plt.cm.tab20(np.linspace(0, 1, len(history)))
+        
+        for idx, (var, data) in enumerate(history.items()):
+            color = colors[idx % len(colors)]
+            label = f'{var[-30:]}...' if len(var) > 30 else var
+            
+            if value_type in ['mean', 'both']:
+                plt.plot(data['snapshots'], data['means'], 
+                        '-', linewidth=2, markersize=4, marker='o',
+                        color=color, label=f'{label} (mean)' if value_type == 'both' else label)
+            
+            if value_type in ['std', 'both']:
+                linestyle = '--' if value_type == 'both' else '-'
+                linewidth = 1.5 if value_type == 'both' else 2
+                markersize = 3 if value_type == 'both' else 4
+                marker = 's' if value_type == 'both' else 'o'
+                alpha = 0.7 if value_type == 'both' else 1.0
+                
+                plt.plot(data['snapshots'], data['stds'], 
+                        linestyle, linewidth=linewidth, markersize=markersize, marker=marker,
+                        color=color, alpha=alpha, label=f'{label} (std)' if value_type == 'both' else None)
+        
+        plt.xlabel('Snapshot ID', fontsize=12)
+        plt.ylabel('Value', fontsize=12)
+        
+        var_count = len(history)
+        if value_type == 'both':
+            plt.title(f'Selected Variables - Mean (solid) vs Std (dashed) ({var_count} variables)', fontsize=14)
+        else:
+            plt.title(f'Selected Variables - {value_type.capitalize()} ({var_count} variables)', fontsize=14)
+        
+        plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.show()
+        
+        # Return the list of variables that were actually plotted
+        return list(history.keys())
     
     def plot_all_heatmap(self, key_filters=None, match_all=True, figsize=(16, 10)):
         """Plot heatmap of variables, optionally filtered by keys anywhere in name"""
@@ -537,6 +608,385 @@ class SnapshotAnalyzer:
         
         print("="*70)
 
+    def interactive_variable_selector(self, key_filters=None, match_all=True, value_type='both', figsize=(14, 8)):
+        """Create an interactive plot with checkboxes to select which variables to display
+        
+        Args:
+            key_filters: Optional list of strings to filter variable names
+            match_all: If True, variable must contain ALL key_filters (AND)
+            value_type: 'mean', 'std', or 'both'
+            figsize: Figure size
+        """
+        if key_filters:
+            history = self.filter_by_keys(key_filters, match_all=match_all)
+            title_suffix = self.get_filter_description(key_filters, match_all)
+        else:
+            history = self.get_variable_history()
+            title_suffix = ""
+        
+        if not history:
+            filter_desc = self.get_filter_description(key_filters, match_all) if key_filters else "any"
+            print(f"No variables found{filter_desc}")
+            return
+        
+        # Get variable names and sort them
+        var_names = sorted(history.keys())
+        n_vars = len(var_names)
+        
+        # Limit to first 15 variables to keep checkbox manageable
+        if n_vars > 15:
+            print(f"Found {n_vars} variables. Showing first 15 for checkbox selection.")
+            var_names = var_names[:15]
+            n_vars = 15
+        
+        # Create figure with extra space for checkboxes
+        fig = plt.figure(figsize=figsize)
+        fig.subplots_adjust(left=0.4, bottom=0.1, right=0.95, top=0.95)
+        
+        # Main axis for plotting
+        ax = fig.add_subplot(111)
+        
+        # Colors for lines
+        colors = plt.cm.tab20(np.linspace(0, 1, n_vars))
+        
+        # Store line objects and their corresponding checkbox indices
+        lines = []
+        line_labels = []
+        line_to_checkbox_idx = {}
+        
+        # Initial plot (all variables shown)
+        line_idx = 0
+        for idx, var in enumerate(var_names):
+            data = history[var]
+            color = colors[idx % len(colors)]
+            label = f'{var[-30:]}...' if len(var) > 30 else var
+            
+            if value_type in ['mean', 'both']:
+                mean_line, = ax.plot(data['snapshots'], data['means'], 
+                                    '-', linewidth=2, markersize=4, marker='o',
+                                    color=color, visible=True, picker=True)
+                lines.append(mean_line)
+                line_labels.append(f'{label} (mean)')
+                line_to_checkbox_idx[mean_line] = line_idx
+                line_idx += 1
+            
+            if value_type in ['std', 'both']:
+                linestyle = '--' if value_type == 'both' else '-'
+                linewidth = 1.5 if value_type == 'both' else 2
+                markersize = 3 if value_type == 'both' else 4
+                marker = 's' if value_type == 'both' else 'o'
+                alpha = 0.7 if value_type == 'both' else 1.0
+                
+                std_line, = ax.plot(data['snapshots'], data['stds'], 
+                                linestyle, linewidth=linewidth, markersize=markersize, marker=marker,
+                                color=color, alpha=alpha, visible=True, picker=True)
+                lines.append(std_line)
+                line_labels.append(f'{label} (std)')
+                line_to_checkbox_idx[std_line] = line_idx
+                line_idx += 1
+        
+        # Set labels and title
+        ax.set_xlabel('Snapshot ID', fontsize=12)
+        ax.set_ylabel('Value', fontsize=12)
+        
+        if value_type == 'both':
+            ax.set_title(f'Interactive Variable Selection{title_suffix} - Click checkboxes to toggle', fontsize=14)
+        else:
+            ax.set_title(f'Interactive Variable Selection{title_suffix} - {value_type.capitalize()}', fontsize=14)
+        
+        ax.grid(True, alpha=0.3)
+        
+        # Create checkboxes axis
+        checkbox_height = min(0.8, 0.035 * len(line_labels))
+        checkbox_ax = fig.add_axes([0.02, 0.5 - checkbox_height/2, 0.3, checkbox_height])
+        
+        # Create checkboxes (all checked by default)
+        check = CheckButtons(checkbox_ax, line_labels, [True] * len(line_labels))
+        
+        # Define callback function for checkboxes
+        def toggle_visibility(label):
+            # Find the index of the label
+            idx = line_labels.index(label)
+            # Toggle the corresponding line
+            lines[idx].set_visible(not lines[idx].get_visible())
+            # Redraw
+            fig.canvas.draw_idle()
+        
+        check.on_clicked(toggle_visibility)
+        
+        # Also allow clicking on legend to toggle
+        def on_pick(event):
+            if event.artist in lines:
+                idx = lines.index(event.artist)
+                # Toggle the line
+                lines[idx].set_visible(not lines[idx].get_visible())
+                # Update checkbox
+                check.set_active(idx)  # This toggles the checkbox
+                fig.canvas.draw_idle()
+        
+        fig.canvas.mpl_connect('pick_event', on_pick)
+        
+        plt.show()
+        
+        return fig, check, lines, line_labels
+
+
+    def plot_with_legend_selector(self, key_filters=None, match_all=True, value_type='mean', figsize=(16, 8)):
+        """Plot with clickable legend to toggle variables - OPTIMIZED LAYOUT
+        
+        Args:
+            key_filters: Optional list of strings to filter variable names
+            match_all: If True, variable must contain ALL key_filters (AND)
+            value_type: 'mean', 'std', or 'both' (default 'mean' for cleaner plot)
+            figsize: Figure size (wider default to accommodate legend)
+        """
+        if key_filters:
+            history = self.filter_by_keys(key_filters, match_all=match_all)
+            title_suffix = self.get_filter_description(key_filters, match_all)
+        else:
+            history = self.get_variable_history()
+            title_suffix = ""
+        
+        if not history:
+            filter_desc = self.get_filter_description(key_filters, match_all) if key_filters else "any"
+            print(f"No variables found{filter_desc}")
+            return
+        
+        # Limit number of variables to prevent overcrowding
+        var_names = sorted(history.keys())
+        if len(var_names) > 20:
+            print(f"Found {len(var_names)} variables. Showing first 20 for clarity.")
+            var_names = var_names[:20]
+            # Rebuild history with limited vars
+            history = {k: history[k] for k in var_names}
+        
+        # Create figure with adjusted layout
+        fig = plt.figure(figsize=figsize)
+        
+        # Use gridspec for better control
+        gs = fig.add_gridspec(1, 2, width_ratios=[3, 1], wspace=0.05)
+        ax = fig.add_subplot(gs[0])  # Main plot on left
+        legend_ax = fig.add_subplot(gs[1])  # Legend on right
+        legend_ax.axis('off')  # Hide axes of legend subplot
+        
+        # Use a colormap for lines
+        colors = plt.cm.tab20(np.linspace(0, 1, len(history)))
+        
+        # Store plot lines and their corresponding legend lines
+        plot_lines = []
+        legend_lines = []
+        legend_labels = []
+        
+        for idx, (var, data) in enumerate(history.items()):
+            color = colors[idx % len(colors)]
+            
+            # Create short label (last 30 chars or less)
+            if len(var) > 40:
+                # Try to show meaningful parts
+                parts = var.split('.')
+                if len(parts) >= 3:
+                    short_label = '.'.join(parts[-3:])  # Last 3 components
+                else:
+                    short_label = var[-30:]
+            else:
+                short_label = var
+            
+            # Plot the line
+            if value_type == 'mean':
+                line, = ax.plot(data['snapshots'], data['means'], 
+                            '-o', linewidth=2, markersize=4,
+                            color=color, label=short_label, picker=True, pickradius=5)
+            elif value_type == 'std':
+                line, = ax.plot(data['snapshots'], data['stds'], 
+                            '-s', linewidth=2, markersize=4,
+                            color=color, label=short_label, picker=True, pickradius=5)
+            else:  # 'both'
+                mean_line, = ax.plot(data['snapshots'], data['means'], 
+                                    '-o', linewidth=2, markersize=4,
+                                    color=color, label=f'{short_label} (mean)', picker=True, pickradius=5)
+                std_line, = ax.plot(data['snapshots'], data['stds'], 
+                                '--s', linewidth=1.5, markersize=3,
+                                color=color, alpha=0.7, label=f'{short_label} (std)', picker=True, pickradius=5)
+                plot_lines.extend([mean_line, std_line])
+                continue
+            
+            plot_lines.append(line)
+        
+        # Create legend in the right subplot
+        if value_type == 'both':
+            # For 'both', we need to create custom legend entries
+            from matplotlib.lines import Line2D
+            legend_elements = []
+            for i, var in enumerate(history.keys()):
+                color = colors[i % len(colors)]
+                short_label = var.split('.')[-1] if len(var) > 40 else var
+                legend_elements.append(Line2D([0], [0], color=color, lw=2, 
+                                            label=f'{short_label} (mean)'))
+                legend_elements.append(Line2D([0], [0], color=color, lw=1.5, ls='--', 
+                                            label=f'{short_label} (std)'))
+            legend = legend_ax.legend(handles=legend_elements, loc='upper left', 
+                                    fontsize=9, frameon=True, fancybox=True, shadow=True)
+        else:
+            legend = legend_ax.legend(loc='upper left', fontsize=9, 
+                                    frameon=True, fancybox=True, shadow=True)
+            # Get the legend lines
+            legend_lines = legend.get_lines()
+        
+        # Store mapping from legend line to plot line
+        legend_to_plot = {}
+        if value_type != 'both':
+            for leg_line, plot_line in zip(legend_lines, plot_lines):
+                leg_line.set_picker(True)
+                leg_line.set_pickradius(5)
+                legend_to_plot[leg_line] = plot_line
+        
+        # Define pick event handler
+        def on_pick(event):
+            if value_type == 'both':
+                # For 'both', we need to handle differently
+                return
+            
+            legend_line = event.artist
+            if legend_line in legend_to_plot:
+                plot_line = legend_to_plot[legend_line]
+                # Toggle visibility
+                visible = not plot_line.get_visible()
+                plot_line.set_visible(visible)
+                # Change legend line alpha
+                legend_line.set_alpha(1.0 if visible else 0.3)
+                fig.canvas.draw_idle()
+        
+        fig.canvas.mpl_connect('pick_event', on_pick)
+        
+        # Set labels and title for main plot
+        ax.set_xlabel('Snapshot ID', fontsize=12)
+        ax.set_ylabel('Mean Value' if value_type == 'mean' else 
+                    'Std Value' if value_type == 'std' else 'Value', fontsize=12)
+        
+        if value_type == 'mean':
+            ax.set_title(f'Variables{title_suffix} - Mean Values (click legend to toggle)', fontsize=14)
+        elif value_type == 'std':
+            ax.set_title(f'Variables{title_suffix} - Std Values (click legend to toggle)', fontsize=14)
+        else:
+            ax.set_title(f'Variables{title_suffix} - Mean & Std (click legend to toggle)', fontsize=14)
+        
+        ax.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        plt.show()
+        
+        return fig
+
+    def list_variables_interactive(self, key_filters=None, match_all=True):
+        """Display an interactive list of variables with indices to select
+        
+        Args:
+            key_filters: Optional list of strings to filter variable names
+            match_all: If True, variable must contain ALL key_filters (AND)
+        """
+        if key_filters:
+            history = self.filter_by_keys(key_filters, match_all=match_all)
+            title = self.get_filter_description(key_filters, match_all)
+        else:
+            history = self.get_variable_history()
+            title = ""
+        
+        if not history:
+            filter_desc = self.get_filter_description(key_filters, match_all) if key_filters else "any"
+            print(f"No variables found{filter_desc}")
+            return None
+        
+        var_names = sorted(history.keys())
+        
+        print("\n" + "="*80)
+        print(f"AVAILABLE VARIABLES{title}")
+        print("="*80)
+        print(f"Total: {len(var_names)} variables\n")
+        
+        # Display variables in columns
+        from tabulate import tabulate
+        
+        # Create chunks of 3 columns
+        table_data = []
+        for i in range(0, len(var_names), 3):
+            row = []
+            for j in range(3):
+                if i + j < len(var_names):
+                    idx = i + j
+                    row.append(f"[{idx}] {var_names[idx][:40]}")
+                else:
+                    row.append("")
+            table_data.append(row)
+        
+        print(tabulate(table_data, tablefmt="grid"))
+        
+        print("\nEnter variable indices to plot (comma-separated), or 'q' to quit:")
+        
+        while True:
+            user_input = input(">> ").strip()
+            
+            if user_input.lower() == 'q':
+                return None
+            
+            try:
+                # Parse indices
+                indices = []
+                for part in user_input.split(','):
+                    part = part.strip()
+                    if '-' in part:
+                        # Handle range like "5-10"
+                        start, end = map(int, part.split('-'))
+                        indices.extend(range(start, end + 1))
+                    else:
+                        indices.append(int(part))
+                
+                # Remove duplicates and sort
+                indices = sorted(set(indices))
+                
+                # Validate indices
+                valid_indices = [i for i in indices if 0 <= i < len(var_names)]
+                invalid_indices = [i for i in indices if i not in valid_indices]
+                
+                if invalid_indices:
+                    print(f"Invalid indices: {invalid_indices}. Using valid indices only.")
+                
+                if not valid_indices:
+                    print("No valid indices selected.")
+                    continue
+                
+                selected_vars = [var_names[i] for i in valid_indices]
+                
+                print(f"\nSelected {len(selected_vars)} variables:")
+                for i, var in enumerate(selected_vars):
+                    print(f"  {i+1}. {var}")
+                
+                return selected_vars
+                
+            except ValueError:
+                print("Invalid input. Please enter numbers separated by commas (e.g., '1,3,5' or '2-7')")
+
+
+    def plot_selected_interactive(self, key_filters=None, match_all=True, value_type='both', figsize=(14, 8)):
+        """Interactive workflow: list variables, let user select by index, then plot
+        
+        Args:
+            key_filters: Optional list of strings to filter variable names
+            match_all: If True, variable must contain ALL key_filters (AND)
+            value_type: 'mean', 'std', or 'both'
+            figsize: Figure size
+        """
+        # First, list variables and get user selection
+        selected_vars = self.list_variables_interactive(key_filters, match_all)
+        
+        if selected_vars is None:
+            print("No variables selected.")
+            return
+        
+        # Then plot the selected variables
+        self.plot_variable_list(selected_vars, value_type=value_type, figsize=figsize)
+        
+        return selected_vars
+
 
 # ========== USAGE WITH AND LOGIC ==========
 if __name__ == "__main__":
@@ -546,17 +996,57 @@ if __name__ == "__main__":
     # Print summary for all variables
     analyzer.print_summary()
     
-    # Define multiple search keys - MUST contain ALL of them (AND logic)
-    search_keys = ['B1', '']  # Variable must contain BOTH 'sc_b' AND 'B3'
-    value_type = 'both' # 'both', 'mean', 'std'
+    for i in range(8):
+        search_keys = [f'Be{i}_out']  # Variable must contain BOTH 'sc_b' AND 'B3'
+        value_type = 'both' # 'both', 'mean', 'std'    
+        analyzer.print_summary(key_filters=search_keys, match_all=True)
+        analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)    
+
+        search_keys = [f'Bd{i}_out']  # Variable must contain BOTH 'sc_b' AND 'B3'
+        value_type = 'both' # 'both', 'mean', 'std'    
+        analyzer.print_summary(key_filters=search_keys, match_all=True)
+        analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)    
+
+    for i in range(8):
+        search_keys = [f"B{i}.e.L0.ns.attn_out"]  # Variable must contain BOTH 'sc_b' AND 'B3'
+        value_type = 'both' # 'both', 'mean', 'std'    
+        analyzer.print_summary(key_filters=search_keys, match_all=True)
+        analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)    
+
+        search_keys = [f"B{i}.d.L0.ns.attn_out"]  # Variable must contain BOTH 'sc_b' AND 'B3'
+        value_type = 'both' # 'both', 'mean', 'std'    
+        analyzer.print_summary(key_filters=search_keys, match_all=True)
+        analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)    
+
+    for i in range(8):
+        search_keys = [f"B{i}.e.L0.ns.ffn_out"]  # Variable must contain BOTH 'sc_b' AND 'B3'
+        value_type = 'both' # 'both', 'mean', 'std'    
+        analyzer.print_summary(key_filters=search_keys, match_all=True)
+        analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)    
+
+        search_keys = [f"B{i}.d.L0.ns.ffn_out"]  # Variable must contain BOTH 'sc_b' AND 'B3'
+        value_type = 'both' # 'both', 'mean', 'std'    
+        analyzer.print_summary(key_filters=search_keys, match_all=True)
+        analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)    
+
+
+    analyzer.plot_variable_list([f'Be{i}_out' for i in range(8)], value_type='both')
+    analyzer.plot_variable_list([f'Bd{i}_out' for i in range(8)], value_type='both')
     
-    # Print summary for variables containing ALL keys
-    analyzer.print_summary(key_filters=search_keys, match_all=True)
-    
-    # Plot only variables containing ALL keys:
-    
-    # 1. All variables with keys as lines
-    analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)
+    # # Method 1: Interactive checkbox selector
+    # analyzer.interactive_variable_selector(key_filters=['B1', 'mha'], value_type='both')
+
+    # # Method 2: Clickable legend (click on legend items to toggle)
+    # analyzer.plot_with_legend_selector(key_filters=['weight'], value_type='mean')
+
+    # # Method 3: List variables with indices, then select by number
+    # selected = analyzer.plot_selected_interactive(key_filters=['B1'])
+    # # Then enter indices like: 1,3,5 or 2-7
+
+    # # Method 4: First list, then plot manually
+    # vars_list = analyzer.list_variables_interactive(key_filters=['B1', 'L0'])
+    # # After seeing the list, plot specific ones:
+    # analyzer.plot_variable_list([vars_list[0], vars_list[2], vars_list[5]])
     
     # # 2. Heatmap of key variables
     # analyzer.plot_all_heatmap(key_filters=search_keys, match_all=True)

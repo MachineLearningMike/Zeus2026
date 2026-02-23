@@ -42,15 +42,17 @@ class uNet(nn.Module):
             res = block.down_res    # it might not simply a half of the previous block's res.
             dim = block.down_dim
             
-    def forward(self, x, ss=None):
+    def forward(self, x, ss=None):        
         for idx, ub in enumerate(self.uBlocks):
             with ctx(f'B{idx}', ub):
                 ub.skip = x
                 x = ub(x, is_enc=True, ss=ss)
+            save(ss, x, f'Be{idx}_out')
         for idx, ub in enumerate(reversed(self.uBlocks)):
             with ctx(f'B{self.depth-idx-1}', ub):
                 x = ub(x, is_enc=False, ss=ss)
                 x = x + ub.skip
+            save(ss, x, f'Bd{self.depth-idx-1}_out')
         return x
 
 

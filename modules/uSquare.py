@@ -39,5 +39,6 @@ class uSquare(nn.Module):
 
         for idx, layer in enumerate(self.layers):
             with ctx(f'L{idx}', layer):
-                x = layer(x, ss = ss)    
+                x = layer(x, ss = ss)
+                save(ss, x, 'vers_out')  
         return x

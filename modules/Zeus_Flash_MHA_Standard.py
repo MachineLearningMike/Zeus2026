@@ -76,16 +76,17 @@ class FlashMultiHeadAttention(nn.Module):
             if pos_bias_er is not None:         # pos_bias before masking
                 scores_org = scores
                 scores = pos_bias_er(scores)
-                save(ss, torch.abs(scores-scores_org)/(torch.abs(scores)+1e-9), "rate")
+                pb = scores-scores_org
+                save(ss, torch.abs(pb)/(torch.abs(scores)+1e-9), "rate")
             
             if mask is not None:
-                scores = scores.masked_fill(mask == 0, -1e9)                # (B, num_heads, seq_len, seq_len)           
+                scores = scores.masked_fill(mask == 0, -1e9)                # (B, num_heads, seq_len, seq_len)
+                save(ss, scores, "sc_m")     
 
             # attn = F.softmax(scores, dim=-1)                                # (B, num_heads, seq_len, seq_len)
             attn = self._stable_softmax(scores, dim=-1)
 
             att_out = torch.matmul(attn, V)                                 # (B, num_heads, seq_len, head_dim)
-            save(ss, att_out, 'out')
             att_out = att_out.transpose(1, 2).contiguous()  # (B, seq_len, num_heads, head_dim)
 
         # Concatenate heads and apply final linear

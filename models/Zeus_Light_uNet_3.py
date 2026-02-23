@@ -127,7 +127,7 @@ class Zeus(nn.Module):
         
         x = self.all_dim_to_top_dim(mtdcc)
 
-        ss = accum_substeps//100 if accum_substeps % 100 == 0 else None
+        ss = accum_substeps//300 if accum_substeps % 300 == 0 else None
 
         x = self.uNet(x, ss=ss)
 

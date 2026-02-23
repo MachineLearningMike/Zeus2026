@@ -4040,9 +4040,174 @@ projects["Zeus_uNet_Feb21_3"] = {    #------------------------------------------
 
     }, 
 }
+
+projects["Zeus_uNet_Feb22"] = {    #---------------------------------------------------------- Micro-model for a single 8GB GPU -------
+    # ------------------------------- This overrides the above rules ----------------------
+    "management": {
+    "Zeus_Model_module" : "Zeus_Light_uNet_3",
+    "GPUWaitsData" : True,
+    "models_to_play": [0,],
+    "metrics" : "rmse", # "mae", "rmse"
+    # Let it be chosen by GPU rule 'nSubstepsPerStep' : 2,       # Can be changed upto the type of GPU.
+    "nSubstepsPerStep": 2,
+    'max_cascade_depth' : 1,     # max = nSubstepsPerStep. 1 = no actual cascades, raw prediction only
+    'half_life' : int(10228 * 0.5),    # covers  epochs
+    'substeps_to_snapshot': 300,
+    },
+    
+    "data": {
+    "factor10": 10,
+    "org_height": 721,
+    "batch_size": 1,
+    'lossXtargets' : 5.0,
+    },
+    
+    "model_0": {
+        "lr": 5e-4,
+        "max_lr": 5e-4,
+        "overwrite_saved_lr": False,
+        "accum_steps" : 10,   
+        "skip_validation" : True,
+        
+        'patch_kernel' : 4,
+        'patch_stride' : 4,
+
+        "batch_size": 1,
+        
+        "attn_dim" : 40,
+        "nHeads" : 5,       #
+        "nLayers" : 30,     #
+        "axial_loops" : 1,
+        "axial_not_total_pe" : True,
+        
+        'choose_best_loss_model' : False,
+        'useLRLearner' : False,
+        'use_checkpoint' : False,
+        
+        # The current model goes OOM on A100, with layers_to_enhance_in_enc_dec = [0] and nEnhancementPairs = [1]
+        'layers_to_enhance_in_enc_dec' : [],
+        'nEnhancementPairs': [],  # pairs
+
+        'inherited': {'nWin': [360, 720], 'pWin': 2,},
+        # 'inherited': {'nWin': [180, 180], 'pWin': 2,},    # 10x slower
+
+        'block_dicts' : [
+
+            {   #---------------------------------- block 1, (720, 1440, 20)
+
+                'top_mersplit': Reshape.Nothing,
+                ### 5x slower
+                # 'square' : {  # takes prohivitively long !!! for RTX 4070
+                #     # managed: 'res', 'dim'
+                #     'num_heads' :4,
+                #     'prime_size': [1, 1],         # (2, 2)
+                #     'nLayers' : 1,
+                #     # 'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                #     'transForm': TransForm(AttnConn.Shift, PEConn.Nothing, PEType.Nothing, Flash.No, PBias.Learnable),
+                # },                
+                'down_mersplit': Reshape.HX_1X, 'down_nWin': [180, 360], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- block 2, (360, 720, 20)
+                'top_mersplit': Reshape.Nothing,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 4,    'nLayers' : 2,
+                    'transForm': TransForm(AttnConn.Shift, PEConn.Global, PEType.Learnable, Flash.No, PBias.Learnable),
+                },
+                # ------------ Reshape_MHA takes prohivitively longer here, breaks everything ...----------
+                'down_mersplit': Reshape.HX_2X, 'down_nWin': [90, 180], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- block 3, (180, 360, 40)
+                # managed: 'top_res', 'top_dim'
+                'top_mersplit': Reshape.Nothing,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 5,    'nLayers' : 2,
+                    # 'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                    'transForm': TransForm(AttnConn.Shift, PEConn.Nothing, PEType.Nothing, Flash.No, PBias.Learnable),
+                },
+                # 'down_mersplit': Reshape.Nothing, # HFX_2X_MHA, 'down_nWin': [4, 4], 'down_pWin': 2,
+                'down_mersplit': Reshape.HX_2X, 'down_nWin': [45, 90], 'down_pWin': 2,
+            },
+            
+            {   #---------------------------------- block 4, (90, 180, 80)
+                'top_mersplit': Reshape.Nothing,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 4,    'nLayers' : 2,
+                    # 'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                    'transForm': TransForm(AttnConn.Shift, PEConn.Nothing, PEType.Nothing, Flash.No, PBias.Learnable),
+                },
+                'down_mersplit': Reshape.HX_2X, 'down_nWin': [1, 1], 'down_pWin': 1,
+            },
+
+            {   #---------------------------------- block 5, (45, 90, 160)
+                'top_mersplit': Reshape.Nothing,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 2,
+                    # Flash.Yes is required for AttnConn.Global, as Flash.No slows down 10x.
+                    # AttnConn.Shift is impossible, as it requiers attn_mask, which is not compatible with Flash.Yes.
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),     # Flash.No: 2.72 s, Flash.No 1.99 s
+                },
+                'down_mersplit': Reshape.HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+            },
+
+            {   #---------------------------------- block 6, (23, 45, 160)
+                'top_mersplit': Reshape.Nothing,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 2,
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Learnable),
+                },
+                'down_mersplit': Reshape.HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- block 7, (12, 23, 160)
+                # Flash.No doens't slows down.
+                'top_mersplit': Reshape.Nothing,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 2,
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Learnable),
+                },
+                'down_mersplit': Reshape.HX_1X, # HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- block 8, (6, 12, 160)
+                # Flash.No doens't slows down.
+                'top_mersplit': Reshape.Nothing,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 2,
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Learnable),
+                },
+                'down_mersplit': Reshape.Nothing,  # .HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+            },
+
+            # {   #---------------------------------- block 9
+            #     # Shape: arount 3/6
+            #     # Flash.No doens't degradate speed.
+
+            #     # managed: 'top_res', 'top_dim'
+            #     'top_mersplit': Reshape.Nothing,
+            #     'down_mersplit': Reshape.Nothing,
+            #     'square' : {
+            #         # managed: 'res', 'dim'
+            #         'num_heads' : 8,
+            #         'nLayers' : 3,
+            #         'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Learnable),     # Flash.No: 2.72 s, Flash.No 1.99 s
+            #     },
+            # },
+        ]
+
+    }, 
+}
 #-------------------------------- select proejct -----------------------
 
-project = "Zeus_uNet_Feb21_3" # "Zeus_26Feb09" # "Zeus_uNet_Feb12"   # "Zeus_Swin_25Dec25_2"
+project = "Zeus_uNet_Feb22" # "Zeus_26Feb09" # "Zeus_uNet_Feb12"   # "Zeus_Swin_25Dec25_2"
 config["bayesProject"] = project
 # updata 'management'
 config.update(projects[project]["management"])
