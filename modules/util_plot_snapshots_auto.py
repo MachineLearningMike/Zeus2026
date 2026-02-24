@@ -998,6 +998,18 @@ if __name__ == "__main__":
 
     for i in range(8):
         for j in range(12):
+            search_keys = [f"B{i}.e.L{j}.mha.rate"]  # Variable must contain BOTH 'sc_b' AND 'B3'
+            value_type = 'both' # 'both', 'mean', 'std' 
+            analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)
+            
+            search_keys = [f"B{i}.d.L{j}.mha.rate"]  # Variable must contain BOTH 'sc_b' AND 'B3'
+            value_type = 'both' # 'both', 'mean', 'std' 
+            analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)
+
+
+
+    for i in range(8):
+        for j in range(12):
             search_keys = [f"B{i}.e.L{j}.sh.mha.rate"]  # Variable must contain BOTH 'sc_b' AND 'B3'
             value_type = 'both' # 'both', 'mean', 'std' 
             analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)
