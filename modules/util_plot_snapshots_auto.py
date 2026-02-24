@@ -990,11 +990,64 @@ class SnapshotAnalyzer:
 
 # ========== USAGE WITH AND LOGIC ==========
 if __name__ == "__main__":
-    analyzer = SnapshotAnalyzer()
+    analyzer = SnapshotAnalyzer(snapshot_dir = './snapshots')
     analyzer.load_all_snapshots()
     
     # Print summary for all variables
     analyzer.print_summary()
+
+    for i in range(8):
+        for j in range(12):
+            search_keys = [f"B{i}.e.L{j}.sh.mha.rate"]  # Variable must contain BOTH 'sc_b' AND 'B3'
+            value_type = 'both' # 'both', 'mean', 'std' 
+            analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)
+            
+            search_keys = [f"B{i}.d.L{j}.sh.mha.rate"]  # Variable must contain BOTH 'sc_b' AND 'B3'
+            value_type = 'both' # 'both', 'mean', 'std' 
+            analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)
+
+    for i in range(8):
+        for j in range(12):
+            search_keys = [f'B{i}.d.L{j}.h.mha.wv.weight']  # Variable must contain BOTH 'sc_b' AND 'B3'
+            value_type = 'both' # 'both', 'mean', 'std' 
+            analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)
+            
+            search_keys = [f'B{i}.d.L{j}.h.mha.wv.weight']  # Variable must contain BOTH 'sc_b' AND 'B3'
+            value_type = 'both' # 'both', 'mean', 'std' 
+            analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)
+
+
+    for i in range(8):
+        for j in range(12):
+            search_keys = [f'B{i}.d.L{j}.h.mha.wk.weight']  # Variable must contain BOTH 'sc_b' AND 'B3'
+            value_type = 'both' # 'both', 'mean', 'std' 
+            analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)
+            
+            search_keys = [f'B{i}.d.L{j}.h.mha.wk.weight']  # Variable must contain BOTH 'sc_b' AND 'B3'
+            value_type = 'both' # 'both', 'mean', 'std' 
+            analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)
+
+
+    for i in range(8):
+        for j in range(12):
+            search_keys = [f'B{i}.d.L{j}.h.mha.wq.weight']  # Variable must contain BOTH 'sc_b' AND 'B3'
+            value_type = 'both' # 'both', 'mean', 'std' 
+            analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)
+            
+            search_keys = [f'B{i}.d.L{j}.h.mha.wq.weight']  # Variable must contain BOTH 'sc_b' AND 'B3'
+            value_type = 'both' # 'both', 'mean', 'std' 
+            analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)
+
+    for i in range(8):
+        for j in range(12):
+            search_keys = [f'B{i}.e.L{j}.h.pre_act']  # Variable must contain BOTH 'sc_b' AND 'B3'
+            value_type = 'both' # 'both', 'mean', 'std' 
+            analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)
+            
+            search_keys = [f'B{i}.d.L{j}.h.pre_act']  # Variable must contain BOTH 'sc_b' AND 'B3'
+            value_type = 'both' # 'both', 'mean', 'std' 
+            analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)
+        
     
     for i in range(8):
         search_keys = [f'Be{i}_out']  # Variable must contain BOTH 'sc_b' AND 'B3'
