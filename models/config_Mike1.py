@@ -5162,7 +5162,7 @@ projects["Zeus_uNet_Feb25_2"] = {    #------------------------------------------
 projects["F16_F26"] = {    #---------------------------------------------------------- Micro-model for a single 8GB GPU -------
     # ------------------------------- This overrides the above rules ----------------------
     "management": {
-    "Zeus_Model_module" : "Zeus_Light_uNet",
+    "Zeus_Model_module" : "Zeus_Light_uNet_3",
     "GPUWaitsData" : True,
     "models_to_play": [0,],
     "metrics" : "rmse", # "mae", "rmse"
@@ -5174,6 +5174,7 @@ projects["F16_F26"] = {    #----------------------------------------------------
     },
     
     "data": {
+    "factor10": 10,
     "org_height": 721,
     "batch_size": 1,
     'lossXtargets' : 5.0,
@@ -5205,8 +5206,11 @@ projects["F16_F26"] = {    #----------------------------------------------------
         'layers_to_enhance_in_enc_dec' : [],
         'nEnhancementPairs': [],  # pairs
 
+        'inherited': {'nWin': [360, 720], 'pWin': 2,},
+        # 'inherited': {'nWin': [180, 180], 'pWin': 2,},    # 10x slower
+
         'block_dicts' : [
-            
+
             {   #---------------------------------- block 1, (720, 1440, 6)                
                 ### 5x slower @ SNNNL /// 2s/it at ANNYN
                 # 'square' : {  # takes prohivitively long !!! for RTX 4070
@@ -5238,79 +5242,78 @@ projects["F16_F26"] = {    #----------------------------------------------------
                 # ------------ Reshape_MHA takes prohivitively longer here, breaks everything ...----------
                 'down_mersplit': Reshape.HX_2X, 'down_nWin': [30, 60], 'down_pWin': 2,
             },
-            
-            # block and side
-            {   #---------------------------------- block 3, (180, 90, 40)
+
+            {   #---------------------------------- block 3, (180, 360, 40)
+                # managed: 'top_res', 'top_dim'
+                'top_mersplit': Reshape.Nothing,
+                'down_mersplit': Reshape.HX_2X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
-                    'num_heads' : 8,
-                    'prime_size': [1, 1],         # (2, 2)
-                    'nLayers' : 3,
+                    'num_heads' : 8, 'nLayers': 3, 'act_layer': 'sigmoid',
                     'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
                 },
-                'down_mersplit': Reshape.HX_2X, 'down_nWin': [1, 1], 'down_pWin': 1,
             },
-            {   #---------------------------------- block 4, (90, 45, 80)
+            {   #---------------------------------- block 4, (90, 180, 80)
+                # managed: 'top_res', 'top_dim'
+                'top_mersplit': Reshape.Nothing,
+                'down_mersplit': Reshape.HX_2X, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
-                    'num_heads' : 8,
-                    'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
-                    'nLayers' : 3,
+                    'num_heads' : 8, 'nLayers': 3, 'act_layer': 'sigmoid',
                     'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
                 },
-                'down_mersplit': Reshape.HX_2X, 'down_nWin': [1, 1], 'down_pWin': 1,
             },
             {   #---------------------------------- block 5, (45, 90, 160)
+                # managed: 'top_res', 'top_dim'
+                'top_mersplit': Reshape.Nothing,
+                'down_mersplit': Reshape.HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
-                    'num_heads' : 8,
-                    'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
-                    'nLayers' : 3,
+                    'num_heads' : 8, 'nLayers': 3, 'act_layer': 'sigmoid',
                     'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),     # Flash.No: 2.72 s, Flash.No 1.99 s
                 },
-                'down_mersplit': Reshape.HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
             },
             {   #---------------------------------- block 6, (23, 45, 160)
+                # managed: 'top_res', 'top_dim'
+                'top_mersplit': Reshape.Nothing,
+                'down_mersplit': Reshape.HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
-                    'num_heads' : 8,
-                    'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
-                    'nLayers' : 3,
+                    'num_heads' : 8, 'nLayers': 3, 'act_layer': 'sigmoid',
                     'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Nothing),     # Flash.No: 2.72 s, Flash.No 1.99 s
                 },
-                'down_mersplit': Reshape.HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
             },
             {   #---------------------------------- block 7, (12, 24, 160)
+                # managed: 'top_res', 'top_dim'
+                'top_mersplit': Reshape.Nothing,
+                'down_mersplit': Reshape.HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
                 'square' : {
                     # managed: 'res', 'dim'
-                    'num_heads' : 8,
-                    'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
-                    'nLayers' : 3,
+                    'num_heads' : 8, 'nLayers': 3, 'act_layer': 'sigmoid',
                     'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Nothing),     # Flash.No: 2.72 s, Flash.No 1.99 s
                 },
-                'down_mersplit': Reshape.HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
             },
             {   #---------------------------------- block 8, (6, 12, 160)
+                # managed: 'top_res', 'top_dim'
+                'top_mersplit': Reshape.Nothing,
+                'down_mersplit': Reshape.Nothing,
                 'square' : {
                     # managed: 'res', 'dim'
-                    'num_heads' : 8,
-                    'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
-                    'nLayers' : 3,
+                    'num_heads' : 8, 'nLayers': 3, 'act_layer': 'sigmoid',
                     'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Nothing),     # Flash.No: 2.72 s, Flash.No 1.99 s
                 },
-                'down_mersplit': Reshape.Nothing,
             },
-            # {   #---------------------------------- block 7
-            #     # managed: 'top_res', 'top_dim'
-            #     'top_mersplit': Reshape.Nothing,
-            #     'down_mersplit': Reshape.Nothing,
+
+            # {   #---------------------------------- block 9
+            #     # Shape: arount 3/6
+            #     # Flash.No doens't degradate speed.
             #     'square' : {
             #         # managed: 'res', 'dim'
             #         'num_heads' : 8,
-            #         'prime_size': [1, 1],         # (1, 1) means no windows, unless 'connection' == shift
             #         'nLayers' : 3,
-            #         'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.Yes),     # Flash.No: 2.72 s, Flash.No 1.99 s
+            #         'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Learnable),     # Flash.No: 2.72 s, Flash.No 1.99 s
             #     },
+            #     'down_mersplit': Reshape.Nothing,
             # },
         ]
 
