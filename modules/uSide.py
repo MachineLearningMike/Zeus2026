@@ -20,6 +20,9 @@ from modules.Reshape_HX_2X import Reshape_HX_2X, Reshape_2X_HX
 from modules.Reshape_HX_1X import Reshape_HX_1X, Reshape_2X_1X
 from modules.Reshape_HFX_1X_MHA import Reshape_HFX_1X_MHA, Reshape_2FX_1X_MHA
 from modules.Reshape_HFX_2X_MHA import Reshape_HFX_2X_MHA, Reshape_2FX_HX_MHA
+from modules.Reshape_HFX_1X_CNN import Reshape_HFX_1X_CNN, Reshape_2FX_1X_CNN
+from modules.Reshape_HFX_2X_CNN import Reshape_HFX_2X_CNN, Reshape_2FX_HX_CNN
+from modules.Reshape_HFX_2X_Interpolate import Reshape_HFX_2X_Interpolate, Reshape_2FX_HX_Interpolate
 from modules.Reshape_IX_Add import Reshape_IX_Add, Reshape_IX_Remove
 
 class Reshape(Enum):
@@ -29,7 +32,11 @@ class Reshape(Enum):
     HX_1X = 4
     HFX_1X_MHA = 5
     HFX_2X_MHA = 6
-    IX_ADD = 7
+    HFX_1X_CNN = 7
+    HFX_2X_CNN = 8
+    HFX_1X_INT = 9
+    HFX_2X_INT = 10
+    IX_ADD = 11
 
 class uSide(nn.Module):
     """
@@ -50,8 +57,9 @@ class uSide(nn.Module):
             Reshape.HX_2X: Reshape_HX_2X,
             Reshape.HX_4X: Reshape_HX_4X,
             Reshape.HX_1X: Reshape_HX_1X,
-            Reshape.HFX_1X_MHA: Reshape_HFX_1X_MHA,
-            Reshape.HFX_2X_MHA: Reshape_HFX_2X_MHA,
+            Reshape.HFX_1X_CNN: Reshape_HFX_1X_CNN,
+            Reshape.HFX_2X_CNN: Reshape_HFX_2X_CNN,
+            Reshape.HFX_2X_INT: Reshape_HFX_2X_Interpolate,
             Reshape.IX_ADD: Reshape_IX_Add,
         }
         
@@ -59,8 +67,9 @@ class uSide(nn.Module):
             Reshape.HX_2X: Reshape_2X_HX,
             Reshape.HX_4X: Reshape_2X_QX,
             Reshape.HX_1X: Reshape_2X_1X,
-            Reshape.HFX_1X_MHA: Reshape_2FX_1X_MHA,
-            Reshape.HFX_2X_MHA: Reshape_2FX_HX_MHA,
+            Reshape.HFX_1X_CNN: Reshape_2FX_1X_CNN,
+            Reshape.HFX_2X_CNN: Reshape_2FX_HX_CNN,
+            Reshape.HFX_2X_INT: Reshape_2FX_HX_Interpolate,
             Reshape.IX_ADD: Reshape_IX_Remove,
         }
         

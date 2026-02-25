@@ -252,6 +252,8 @@ class ShiftEncoderLayer(nn.Module):
         # mask_padding = [p + ip for (p, ip) in zip(padding if padding is not None else (0,0), inherited_padding if inherited_padding is not None else (0,0))]
         # mask_padding = None if sum(mask_padding) == 0 else mask_padding     
         self.attn_mask = AttentionMask2D((H, W), self.sWin, self.sShift, padding=None)
+        
+        print(f"...Creating ShiftEncoderLayer H {H} W {W} nWin{nWin} sWin {self.sWin} shift {shift}...")
             
     def forward(self, x, pos_bias_er=None, ss=None):        
         B, H, W, C = x.shape

@@ -63,7 +63,8 @@ class FlashEncoderLayer(nn.Module):
         self.norm_after_feed_forward = nn.LayerNorm(d_model, eps=eps)
         
         self.dropout = nn.Dropout(dropout)
-
+        
+        print(f"...Creating FlashEncoderLayer d_model {d_model}...")
         
     def forward(self, x, mask=None, pos_bias_er=None, ss=None):
         # x: (B, seq_len, d_model)        
