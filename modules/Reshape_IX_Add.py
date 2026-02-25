@@ -105,7 +105,7 @@ class Reshape_IX_Add(nn.Module):
         (self.out_H, self.out_W), self.out_dim = output_shape
         
         # Mid dimension for pad processing
-        mid_dims = pad_dims // 2
+        mid_dims = pad_dims # // 2
         
         # Deeper pad processing: downsampling + refinement (no GELU)
         # Using custom horizontal-only cyclic convolution
