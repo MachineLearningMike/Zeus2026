@@ -4,10 +4,10 @@ import torch.nn as nn
 import torch
 import torch.nn as nn
 
-class PatchMerging_4X_Dim(nn.Module):
+class Reshape_HX_4X(nn.Module):     # Half, 4X
     
     @staticmethod
-    def get_output_shape(input_shape, nWin, pWin):
+    def get_output_shape(input_shape, nWin, pWin, target_dim=0):
         # Do not attempt to add padding !!!
         in_res, in_dim = input_shape
         assert in_res[0] % 2 == 0 and in_res[1] % 2 == 0, "Input must have even resolution."
@@ -17,10 +17,8 @@ class PatchMerging_4X_Dim(nn.Module):
         out_dim = in_dim * 4
         return (out_res, out_dim)
 
-    def __init__(self, dim, output_shape=None):
-        super().__init__()        
-        # Temporarily remove norm for exact inversion test
-        # self.norm = norm_layer(4 * dim)
+    def __init__(self, dim, output_shape=None, pad_dims=0):
+        super().__init__()
 
     def forward(self, x, ss=None):
         B, H, W, C = x.shape
@@ -30,10 +28,10 @@ class PatchMerging_4X_Dim(nn.Module):
         x = x.view(B, H//2, W//2, 4 * C)
         return x
 
-class PatchSplitting_4X_Dim(nn.Module):
+class Reshape_2X_QX(nn.Module):
 
     @staticmethod
-    def get_output_shape(input_shape, nWin, pWin):
+    def get_output_shape(input_shape, nWin, pWin, target_dim=0):
         # Do not attempt to add padding !!!
         in_res, in_dim = input_shape
         assert in_dim % 2 == 0 , "Input must have even dimensions."
@@ -43,7 +41,7 @@ class PatchSplitting_4X_Dim(nn.Module):
         out_dim = in_dim // 4
         return (out_res, out_dim)
 
-    def __init__(self, dim, output_shape=None):
+    def __init__(self, dim, output_shape=None, pad_dims=0):
         super().__init__()
     
     def forward(self, x, ss=None):
@@ -67,13 +65,13 @@ if __name__ == "__main__":
         print(x[0,:,:,0])
         
         # Merge
-        merge = PatchMerging_4X_Dim()
+        merge = Reshape_HX_4X()
         x_merged = merge(x)
         print(f"\nMerged shape: {x_merged.shape}")
         print("Merged values at position (0,0):", x_merged[0,0,0])
         
         # Split
-        split = PatchSplitting_4X_Dim()
+        split = Reshape_2X_QX()
         x_restored = split(x_merged)
         print(f"\nRestored shape: {x_restored.shape}")
         print("Restored tensor:")
