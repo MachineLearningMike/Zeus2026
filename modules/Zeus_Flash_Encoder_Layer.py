@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+from modules.util_snapshots_auto import save, ctx
+
 class StableLayerNorm(nn.Module):
     """LayerNorm with numerical stability improvements for mixed precision"""
     def __init__(self, normalized_shape, eps=1e-6):
@@ -34,8 +36,9 @@ class PositionwiseFeedForward(nn.Module):
         self.fc2 = nn.Linear(hidden_features, out_features)
         self.drop = nn.Dropout(drop)
 
-    def forward(self, x):
+    def forward(self, x, ss=None):
         x = self.fc1(x)
+        save(ss, x, 'pre_act')
         x = self.act(x)
         x = self.drop(x)
         x = self.fc2(x)
@@ -45,7 +48,7 @@ class PositionwiseFeedForward(nn.Module):
 from modules.Zeus_Flash_MHA_Standard import FlashMultiHeadAttention
 
 class FlashEncoderLayer(nn.Module):
-    def __init__(self, d_model, num_heads, dropout=0, use_flash=False, eps=1e-9):
+    def __init__(self, d_model, num_heads, dropout=0, use_flash=False, act_layer=nn.Sigmoid, eps=1e-9):
         super().__init__()
         self.d_model = d_model
         self.num_heads = num_heads
@@ -54,7 +57,7 @@ class FlashEncoderLayer(nn.Module):
         self.use_flash = use_flash
         
         self.attention = FlashMultiHeadAttention(d_model=self.d_model, num_heads=self.num_heads, use_flash=self.use_flash)
-        self.feed_forward = PositionwiseFeedForward(in_features=self.d_model, hidden_features=4*self.d_model, out_features=self.d_model, act_layer=nn.GELU, drop=dropout)
+        self.feed_forward = PositionwiseFeedForward(in_features=self.d_model, hidden_features=4*self.d_model, out_features=self.d_model, act_layer=act_layer, drop=dropout)
 
         self.norm_after_attn = nn.LayerNorm(d_model, eps=eps)
         self.norm_after_feed_forward = nn.LayerNorm(d_model, eps=eps)
@@ -62,17 +65,20 @@ class FlashEncoderLayer(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
         
-    def forward(self, x, mask=None):
+    def forward(self, x, mask=None, pos_bias_er=None, ss=None):
         # x: (B, seq_len, d_model)        
 
         x_skip = x
-        x = self.attention(x, x, x, mask=mask)
+        with ctx('mha', self.attention):
+            x = self.attention(x, x, x, mask=mask, pos_bias_er=pos_bias_er, ss=ss)
+        save(ss, x, 'attn_out')
         x = x + x_skip
         dtype = x.dtype
         x = self.norm_after_attn(x).to(dtype=dtype)
         
         x_skip = x
-        x = self.feed_forward(x)
+        x = self.feed_forward(x, ss=ss)
+        save(ss, x, 'ffn_out')
         x = x + x_skip
         dtype = x.dtype
         x = self.norm_after_feed_forward(x).to(dtype=dtype)

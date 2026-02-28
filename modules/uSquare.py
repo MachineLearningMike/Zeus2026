@@ -12,37 +12,47 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+from modules.util_snapshots_auto import save, ctx
+
 from modules.Transformer_Modes import AttnConn, PEConn, PEType, PBias, TransForm
-from modules.Zeus_Falsh_Axial_Encoder_Layer import Flash_Axial_Encoder_Layer
+from modules.Zeus_Versatile_Encoder_Layer import Flash_Versatile_Encoder_Layer
 
 class uSquare(nn.Module):
-    def __init__(self, dict: dict) -> None:
+    def __init__(self, is_enc: bool, dict: dict) -> None:
         super().__init__()
         
-        # top_res should be a multiple of win_size.        
-        win_size = dict.get('prime_size', [1, 1])     #
-        self.padding_dim = [(win_size[i] - dict['res'][i] % win_size[i]) % win_size[i] for i in range(2)]
-        self.internal_res = [dict['res'][i] + self.padding_dim[i] for i in range(2)]
-        
+        self.is_enc = is_enc
+                
         (H, W) = dict['res']
-        padding = dict['padding']   # informing of having padded, not having to pad.
         d_model = dict['dim']
         num_heads = dict['num_heads']
-        prime_size = dict['prime_size']
+        nWin = dict.get('nWin', (1, 1))
         n_layers = dict['nLayers']
         transForm = dict['transForm']
+        act_layer = dict['act_layer']
+        self.n_layers = n_layers
+        
         # attnconn, peconn, petype, flash, pbias = transForm.attnconn, transForm.peconn, transForm.petype, transForm.flash, transForm.pbias
+     
+        if act_layer == 'gelu':
+            act_layer = nn.GELU
+        elif act_layer == 'sigmoid':
+            act_layer = nn.Sigmoid
+        else: assert False
      
         self.layers = nn.ModuleList()
         
         for idx in range(n_layers):
-            layer = Flash_Axial_Encoder_Layer(H=H, W=W, d_model=d_model, num_heads=num_heads, transFrom=transForm)
+            layer = Flash_Versatile_Encoder_Layer(H=H, W=W, d_model=d_model, num_heads=num_heads, nWin=nWin, transFrom=transForm, act_layer=act_layer)
             self.layers.append(layer)
 
     def forward(self, x, ss=None):
 
-        for layer in self.layers:
-            x = layer(x, ss=ss)
-            pass
-        
+        for idx, layer in enumerate(self.layers):
+            # layer_id = id if self.is_enc else self.n_layers - idx - 1     # comeback Next version
+            layer_id = idx
+
+            with ctx(f'L{layer_id}', layer):
+                x = layer(x, ss = ss)
+                save(ss, x, 'vers_out')  
         return x

@@ -10,6 +10,7 @@ import sys
 import shutil
 from importlib import import_module
 import itertools
+import math
 
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
@@ -32,7 +33,6 @@ from modules_zeus.constants_old import ERA5_DATA_VARS
 #     # REWARD_IMPROVEMENT_MIN_DELTA,
 # )
 
-from Model_Dom_Mike1_Auto_LR import AdaptiveLossStatLR
 
 def print_data_attrs(obj):
     for name, value in vars(obj).items():
@@ -88,12 +88,13 @@ class Model_Dom():
             self.learning_rate = None
 
         # work variables            
+        self.recent_losses = []
         self.total_losses = []
         self.epoch_losses, self.epoch_metrics = [], []
         self.pbar_description = None
         self.step_loss = None
         self.best_loss = 1e9
-        self.accum_iterations = 0
+        self.accum_substeps = 0
     
     def _select_optimizer(self):
         optimizer_name = getattr(self.pm, 'optimizer', 'adam').lower()
@@ -110,8 +111,8 @@ class Model_Dom():
         # Safely get trainable parameters as a list
         trainable_params = [p for p in self.model.parameters() if p.requires_grad]
 
-        if not trainable_params:
-            raise ValueError("No trainable parameters found in the model.")
+        # if not trainable_params:
+        #     raise ValueError("No trainable parameters found in the model.")
 
         # Define defaults clearly
         default_config = {
@@ -149,16 +150,25 @@ class Model_Dom():
         # div_factor = getattr(self.pm, 'div_factor', 25.0)
         # final_div_factor = getattr(self.pm, 'final_div_factor', 1e4)
 
-        initial_lr = self.pm.lr
-        scheduler = AdaptiveLossStatLR(
+        # initial_lr = self.pm.lr
+        # scheduler = AdaptiveLossStatLR(
+        #     optimizer=optimizer,
+        #     initial_lr=initial_lr,      # Optional, defaults to optimizer's lr
+        #     min_lr=1e-10,           # Minimum LR
+        #     max_lr=0.1,           # Maximum LR
+        #     window_size=30,        # Losses to track
+        #     warmup_steps=50       # Steps before adaptive adjustments
+        # )
+        # logging.info(f"Scheduler created: AdaptiveLossStatLR with initial_lr={initial_lr}")
+        
+        initial_steps = self.pm.initial_steps
+        half_life = self.pm.half_life
+        scheduler = torch.optim.lr_scheduler.LambdaLR(
             optimizer=optimizer,
-            initial_lr=initial_lr,      # Optional, defaults to optimizer's lr
-            min_lr=1e-10,           # Minimum LR
-            max_lr=0.1,           # Maximum LR
-            window_size=30,        # Losses to track
-            warmup_steps=50       # Steps before adaptive adjustments
+            # lr_lambda = lambda step: 0.5 * math.pow(2, step/initial_steps) if step < initial_steps else math.pow(2, - (step-initial_steps) / half_life)
+            lr_lambda = lambda step: step/initial_steps if step < initial_steps else math.pow(2, - (step-initial_steps) / half_life)
         )
-        logging.info(f"Scheduler created: AdaptiveLossStatLR with initial_lr={initial_lr}")
+        logging.info(f"Scheduler LambdaLR created with lr_lambda = lambda step: self.pm.lr * math.pow(2, - step / steps_for_half)")
 
         # scheduler = torch.optim.lr_scheduler.OneCycleLR(    # Mike!!! This is a per-batch scheduler.
         #     # A per-batch scheduler's time axis is on mini-batch, not on epochs.
@@ -223,10 +233,10 @@ class Model_Dom():
     def get_best_loss_file_name(self):
         return "best_loss_model_" + str(self.md_id)
     
-    def save_best_loss_model(self, loss):
-        if loss < 0.4 and loss < (1 - 0.0005) * self.best_loss:    # 0.4: hard-coded.
+    def save_best_loss_model(self, loss, elapse):
+        if loss < 0.4 and loss < (1 - 0.000001) * self.best_loss:    # 0.4: hard-coded.
             self.best_loss = loss
-            logging.info("!!!!!!!!!!!!!!! Saving best-loss model... md {}, loss {:.5f}, iter {} !!!!!!!!!!!!".format(self.md_id, loss, self.accum_iterations))
+            logging.info("!!!!!!!!!!!!!!! Saving best-loss model... md {}, loss {:.5f}, iter {} elapse {} !!!!!!!!!!!!".format(self.md_id, loss, self.accum_substeps, elapse))
             self.save_state(best_loss=True)
        
     def save_state(self, name=None, train_finished=False, best_loss=False, epoch_finished=False):
@@ -270,7 +280,7 @@ class Model_Dom():
             'train_finished' : train_finished,
             'packed_losses_metrics': self.packed_losses_metrics,
             'best_loss' : self.best_loss,
-            'accum_iterations' : self.accum_iterations,
+            'accum_substeps' : self.accum_substeps,
             }
         utils.check_dir(self.project_path)
         temp_path = self.project_path / (name + '.pth.tmp')
@@ -477,8 +487,8 @@ class Model_Dom():
                     self.best_loss = checkpoint['best_loss']
                     logging.info(f"best_loss loaded {self.best_loss}")
 
-                    self.accum_iterations = checkpoint['accum_iterations']
-                    logging.info(f"accum_iterations loaded {self.accum_iterations}")
+                    self.accum_substeps = checkpoint['accum_substeps']
+                    logging.info(f"accum_substeps loaded {self.accum_substeps}")
                     
                 #------------------------ Determine epoch ---------------------
                 logging.info(f"Checkpoint '{file_name}' loaded to {self.device}, including model, optimizer, scheduler, scaler, weighted_metric_old, and datase state")
@@ -1144,9 +1154,14 @@ class Model_Dom():
             self.pbar_description = "md: {} loss: {:.4f} {}: ({})".format(self.md_id, _epoch_loss, self.pm.metrics, strC)
 
     def get_pbar_description_step(self, step_loss, step_metrics):   # (,), (C,)
+        self.recent_losses.append(step_loss)
+        norm = 50
+        if len(self.recent_losses) > norm: self.recent_losses = self.recent_losses[-norm:]
+        ma_loss = sum(self.recent_losses) / len(self.recent_losses)
+        
         strC = " ".join(f"{x:.3g}" for x in step_metrics[-len(self.pm.targetVariables):])
         # self.pbar_description = "md {} loss {:.3f}, {} ({})".format(self.md_id, step_loss, self.pm.metrics, strC)
-        self.pbar_description = "loss {:.3g} {} ({}) acc_substeps {}".format(step_loss, self.pm.metrics, strC, self.accum_iterations)
+        self.pbar_description = "loss {:.3f} ma_loss {:.3f} {} ({}) substeps {}".format(step_loss, ma_loss, self.pm.metrics, strC, self.accum_substeps)
         
     def stepOptimizer(self, loss_item):
         performed_step, lr, grad_norm = self.lr_controller.stepOptimizer(loss_item)
@@ -1158,7 +1173,7 @@ class Model_Dom():
         ):        
         return self.model.forward_backward_no_optimizer_step(
             X0, X1, Y, batch_diff, cascade_depth, trainable, scaler, predicted_snapshot_required,
-            zeus_weights, train_dict,
+            zeus_weights, train_dict, self.accum_substeps, 
         )
         
     def store_step_loss_and_metrics(self, step_loss, step_metrics): # [substep_loss...], [substep_metrics...]

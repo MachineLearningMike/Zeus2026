@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import math
 from flash_attn.flash_attn_interface import flash_attn_func
 
-class EmbeddedQueryMultiHeadAttention(nn.Module):
+class Seq_Len_Changing_MHA(nn.Module):
     """
     Multi-Head Attention with learned query embeddings (independent of input).
     Optimized version with query caching that preserves gradient flow.
@@ -12,14 +12,14 @@ class EmbeddedQueryMultiHeadAttention(nn.Module):
     Args:
         d_model: Model dimension
         num_heads: Number of attention heads
-        num_queries: Number of learned query vectors (m)
+        target_seq_len: Number of learned query vectors (m)
         use_flash: Whether to use FlashAttention (requires CUDA and bf16/fp16)
         dropout: Dropout probability
     """
-    def __init__(self, d_model, num_heads, num_queries, use_flash=False, dropout=0.0):
+    def __init__(self, d_model, num_heads, target_seq_len, use_flash=False, dropout=0.0):
         super().__init__()
         self.num_heads = num_heads
-        self.num_queries = num_queries
+        self.target_seq_len = target_seq_len
         assert d_model % num_heads == 0, "d_model must be divisible by num_heads"
         self.d_k = d_model // num_heads
         self.d_model = d_model
@@ -27,7 +27,7 @@ class EmbeddedQueryMultiHeadAttention(nn.Module):
         self.dropout = dropout
         
         # Learned query embeddings (master weights in fp32)
-        self.W_q_embed = nn.Parameter(torch.randn(num_queries, d_model))
+        self.W_q_embed = nn.Parameter(torch.randn(target_seq_len, d_model))
         
         # Key and Value projections
         self.W_k = nn.Linear(d_model, d_model)
@@ -101,8 +101,8 @@ class EmbeddedQueryMultiHeadAttention(nn.Module):
             return_attention: Whether to return attention weights
             
         Returns:
-            output: (batch_size, num_queries, d_model)
-            attention_weights: (optional) (batch_size, num_heads, num_queries, seq_len)
+            output: (batch_size, target_seq_len, d_model)
+            attention_weights: (optional) (batch_size, num_heads, target_seq_len, seq_len)
         """
         batch_size, seq_len, _ = x.shape
         
@@ -114,7 +114,7 @@ class EmbeddedQueryMultiHeadAttention(nn.Module):
         V = self.W_v(x)
         
         # Reshape for multi-head attention and ensure contiguity
-        Q = Q.view(batch_size, self.num_queries, self.num_heads, self.d_k).contiguous()
+        Q = Q.view(batch_size, self.target_seq_len, self.num_heads, self.d_k).contiguous()
         K = K.view(batch_size, seq_len, self.num_heads, self.d_k).contiguous()
         V = V.view(batch_size, seq_len, self.num_heads, self.d_k).contiguous()
         
@@ -157,13 +157,13 @@ class EmbeddedQueryMultiHeadAttention(nn.Module):
         # Fall back to standard attention if needed
         if not self.flash_used or attn_output is None:
             # Transpose for standard attention
-            Q_t = Q.transpose(1, 2)  # (batch, num_heads, num_queries, d_k)
+            Q_t = Q.transpose(1, 2)  # (batch, num_heads, target_seq_len, d_k)
             K_t = K.transpose(1, 2)  # (batch, num_heads, seq_len, d_k)
             V_t = V.transpose(1, 2)  # (batch, num_heads, seq_len, d_k)
             
             # Compute attention scores
             scores = torch.matmul(Q_t, K_t.transpose(-2, -1)) * softmax_scale
-            # scores shape: (batch, num_heads, num_queries, seq_len)
+            # scores shape: (batch, num_heads, target_seq_len, seq_len)
             
             # Apply mask if provided
             if mask is not None:
@@ -188,13 +188,13 @@ class EmbeddedQueryMultiHeadAttention(nn.Module):
                 attention_weights = self.dropout_layer(attention_weights)
             
             # Apply attention to values
-            attn_output = torch.matmul(attention_weights, V_t)  # (batch, num_heads, num_queries, d_k)
+            attn_output = torch.matmul(attention_weights, V_t)  # (batch, num_heads, target_seq_len, d_k)
             
             # Transpose back
-            attn_output = attn_output.transpose(1, 2).contiguous()  # (batch, num_queries, num_heads, d_k)
+            attn_output = attn_output.transpose(1, 2).contiguous()  # (batch, target_seq_len, num_heads, d_k)
         
         # Concatenate heads
-        attn_output = attn_output.reshape(batch_size, self.num_queries, self.d_model)
+        attn_output = attn_output.reshape(batch_size, self.target_seq_len, self.d_model)
         
         # Output projection
         output = self.W_o(attn_output)
@@ -223,10 +223,10 @@ def test_gradient_flow():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Device: {device}")
     
-    model = EmbeddedQueryMultiHeadAttention(
+    model = Seq_Len_Changing_MHA(
         d_model=512,
         num_heads=8,
-        num_queries=128,
+        target_seq_len=128,
         use_flash=True,
         dropout=0.1
     ).to(device)
@@ -264,10 +264,10 @@ def test_cache_efficiency():
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
-    model = EmbeddedQueryMultiHeadAttention(
+    model = Seq_Len_Changing_MHA(
         d_model=512,
         num_heads=8,
-        num_queries=128,
+        target_seq_len=128,
         use_flash=True
     ).to(device)
     
@@ -306,10 +306,10 @@ def test_flash_attention_usage():
         print("Skipping FlashAttention tests (CUDA required)")
         return
     
-    model = EmbeddedQueryMultiHeadAttention(
+    model = Seq_Len_Changing_MHA(
         d_model=512,
         num_heads=8,
-        num_queries=128,
+        target_seq_len=128,
         use_flash=True
     ).to(device)
     
@@ -358,10 +358,10 @@ def test_mask_handling():
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
-    model = EmbeddedQueryMultiHeadAttention(
+    model = Seq_Len_Changing_MHA(
         d_model=512,
         num_heads=8,
-        num_queries=128,
+        target_seq_len=128,
         use_flash=True
     ).to(device)
     
@@ -396,10 +396,10 @@ def test_training_step():
         print("Skipping training test (CUDA required)")
         return
     
-    model = EmbeddedQueryMultiHeadAttention(
+    model = Seq_Len_Changing_MHA(
         d_model=512,
         num_heads=8,
-        num_queries=128,
+        target_seq_len=128,
         use_flash=True,
         dropout=0.1
     ).to(device)
@@ -463,14 +463,14 @@ def benchmark_performance():
     # Model configuration
     d_model = 512
     num_heads = 8
-    num_queries = 128
+    target_seq_len = 128
     seq_len = 1024
     batch_size = 4
     
-    model = EmbeddedQueryMultiHeadAttention(
+    model = Seq_Len_Changing_MHA(
         d_model=d_model,
         num_heads=num_heads,
-        num_queries=num_queries,
+        target_seq_len=target_seq_len,
         use_flash=True,
         dropout=0.0
     ).to(device)

@@ -21,7 +21,7 @@ class AdaptiveLRLearner:
                  stagnation_thresh=0.002):
         self.optimizer = optimizer
         self.accum_steps = accum_steps
-        self.accum_iterations = 0
+        self.accum_substeps = 0
         self.ema_grad_norm = 0.0
         self.ema_loss = None
         self.ema_decay = ema_decay
@@ -44,7 +44,7 @@ class AdaptiveLRLearner:
         Updates LR based on accumulated gradients.
         Returns: (performed_step:bool, current_lr, grad_norm)
         """
-        self.accum_iterations += 1
+        self.accum_substeps += 1
 
         # Compute gradient norm of accumulated gradients
         grad_norm = torch.nn.utils.clip_grad_norm_(
@@ -59,7 +59,7 @@ class AdaptiveLRLearner:
             self.ema_loss = self.ema_decay * self.ema_loss + (1 - self.ema_decay) * loss_value
 
         performed_step = False
-        if self.accum_iterations >= self.accum_steps:
+        if self.accum_substeps >= self.accum_steps:
             # --- Adjust LR based on accumulated gradient ---
             lr = self.optimizer.param_groups[0]['lr']
             if self.ema_grad_norm > self.grad_target * self.grad_tolerance:
@@ -77,7 +77,7 @@ class AdaptiveLRLearner:
             # Perform optimizer step and zero gradients
             self.optimizer.step()
             self.optimizer.zero_grad()
-            self.accum_iterations = 0
+            self.accum_substeps = 0
             performed_step = True
 
         return performed_step, self.optimizer.param_groups[0]['lr'], grad_norm

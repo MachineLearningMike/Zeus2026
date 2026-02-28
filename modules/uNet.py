@@ -12,15 +12,19 @@ import sys
 from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
+from modules.util_snapshots_auto import save, ctx
+
 from modules.uBlock import uBlock
 
 class uNet(nn.Module):
-    def __init__(self, H, W, C, block_dicts) -> None:
+    def __init__(self, H, W, C, block_dicts, inherited) -> None:
         super().__init__()
 
         self.depth = len(block_dicts)
         
         self.uBlocks = nn.ModuleList()
+
+        inherited = {'nWin': inherited['nWin'], 'pWin': inherited['pWin']}
 
         res, dim = (H, W), C    
         for i in range(self.depth):
@@ -30,19 +34,37 @@ class uNet(nn.Module):
             block_dict['top_res'] = res     # top_res might be modified internally.
 
             print(f"Creating block with resolution {res} and dim {dim}...")
-            block = uBlock(block_dict)
+            block = uBlock(block_dict, inherited=inherited, id=i)
+            inherited = block.inherit()
+            
             self.uBlocks.append(block)
 
             res = block.down_res    # it might not simply a half of the previous block's res.
             dim = block.down_dim
             
-    def forward(self, x, ss=None):
+    def forward(self, x, ss=None, padding=None):        
         for ub in self.uBlocks:
-            ub.skip = x
-            x = ub(x, is_enc=True, ss=ss)
+
+            with ctx(f'B{ub.id}', ub):
+
+                ub.skip = x
+
+                if ub.is_padding(): x = (x, padding)    #------------- padding block
+                
+                x = ub(x, is_enc=True, ss=ss)
+
+            save(ss, x, f'Be{ub.id}_out')
+
         for ub in reversed(self.uBlocks):
-            x = ub(x, is_enc=False, ss=ss)
-            x = x + ub.skip
+
+            with ctx(f'B{ub.id}', ub):
+
+                x = ub(x, is_enc=False, ss=ss)
+
+                x = x + (ub.skip if ub.skip_learner is None else ub.skip_learner(ub.skip))
+
+            save(ss, x, f'Bd{ub.id}_out')
+
         return x
 
 
@@ -61,7 +83,7 @@ if __name__ == "__main__":
         {
             # managed: 'top_res', 'top_dim'
             'top_mersplit': Reshape.Nothing,
-            'down_mersplit': Reshape.R_2X_D_2X, 'down_nWin': [1, 2], 'down_pWin': 1,
+            'down_mersplit': Reshape.HX_2X, 'down_nWin': [1, 2], 'down_pWin': 1,
             'square' : {
                 # managed: 'res', 'dim'
                 'num_heads' : 8,
@@ -73,7 +95,7 @@ if __name__ == "__main__":
         {
             # managed: 'top_res', 'top_dim'
             'top_mersplit': Reshape.Nothing,
-            'down_mersplit': Reshape.R_2X_D_2X, 'down_nWin': [1, 2], 'down_pWin': 1,
+            'down_mersplit': Reshape.HX_2X, 'down_nWin': [1, 2], 'down_pWin': 1,
             'square' : {
                 # managed: 'res', 'dim'
                 'num_heads' : 8,
