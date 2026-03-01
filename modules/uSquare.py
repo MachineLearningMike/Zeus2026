@@ -49,8 +49,7 @@ class uSquare(nn.Module):
     def forward(self, x, ss=None):
 
         for idx, layer in enumerate(self.layers):
-            # layer_id = id if self.is_enc else self.n_layers - idx - 1     # comeback Next version
-            layer_id = idx
+            layer_id = idx if self.is_enc else self.n_layers - idx - 1     # comeback Next version
 
             with ctx(f'L{layer_id}', layer):
                 x = layer(x, ss = ss)

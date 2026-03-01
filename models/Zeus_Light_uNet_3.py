@@ -123,11 +123,15 @@ class Zeus(nn.Module):
         return x
     
     def schedule_ss(self, step):
+        div = 10
 
         if step < self.initial_steps:
-            ss = step
+            if step % div == 0:
+                ss = step // div
+            else:
+                ss = None
         else:        
-            step_offset = step - self.initial_steps
+            step_offset = step - self.initial_steps // div
             if step_offset % self.snapshot_cycle == 0:
                 ss = self.initial_steps + step_offset // self.snapshot_cycle
             else:

@@ -127,7 +127,7 @@ class SnapshotAnalyzer:
     
     # ========== PLOT FUNCTIONS WITH KEY FILTERS ==========
     
-    def plot_all_lines(self, key_filters=None, match_all=True, value_type='both', figsize=(12, 6)):
+    def plot_all_lines(self, key_filters=None, match_all=True, value_type='both', figsize=(12, 6), title=None, linewidth=0.5):
         """Plot variables as lines, optionally filtered by keys anywhere in name
         
         Args:
@@ -135,6 +135,8 @@ class SnapshotAnalyzer:
             match_all: If True, variable must contain ALL key_filters (AND)
             value_type: 'mean', 'std', or 'both' (default)
             figsize: Figure size
+            title: Optional custom title (if None, auto-generated)
+            linewidth: Width of the plot lines (default: 0.5)
         """
         if key_filters:
             history = self.filter_by_keys(key_filters, match_all=match_all)
@@ -159,40 +161,40 @@ class SnapshotAnalyzer:
             
             if value_type in ['mean', 'both']:
                 plt.plot(data['snapshots'], data['means'], 
-                        '-', linewidth=2, markersize=4, marker='o',
-                        color=color, label=f'{label} (mean)' if value_type == 'both' else label)
+                        '-', linewidth=linewidth, color=color, 
+                        label=f'{label} (mean)' if value_type == 'both' else label)
             
             if value_type in ['std', 'both']:
-                linestyle = '--' if value_type == 'both' else '-'
-                linewidth = 1.5 if value_type == 'both' else 2
-                markersize = 3 if value_type == 'both' else 4
-                marker = 's' if value_type == 'both' else 'o'
-                alpha = 0.7 if value_type == 'both' else 1.0
-                
                 plt.plot(data['snapshots'], data['stds'], 
-                        linestyle, linewidth=linewidth, markersize=markersize, marker=marker,
-                        color=color, alpha=alpha, label=f'{label} (std)' if value_type == 'both' else None)
+                        ':', linewidth=linewidth, color=color, 
+                        label=f'{label} (std)' if value_type == 'both' else None)
         
         plt.xlabel('Snapshot ID', fontsize=12)
         plt.ylabel('Value', fontsize=12)
         
-        if value_type == 'both':
-            plt.title(f'Variables{title_suffix} - Mean (solid) vs Std (dashed) ({len(history)} variables)', fontsize=14)
+        # Use custom title if provided, otherwise auto-generate
+        if title:
+            plt.title(title, fontsize=14)
         else:
-            plt.title(f'Variables{title_suffix} - {value_type.capitalize()} ({len(history)} variables)', fontsize=14)
+            if value_type == 'both':
+                plt.title(f'Variables{title_suffix} - Mean (solid) vs Std (dotted) ({len(history)} variables)', fontsize=14)
+            else:
+                plt.title(f'Variables{title_suffix} - {value_type.capitalize()} ({len(history)} variables)', fontsize=14)
         
         plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
         plt.show()
         
-    def plot_variable_list(self, var_list, value_type='both', figsize=(12, 6)):
+    def plot_variable_list(self, var_list, value_type='both', figsize=(12, 6), title=None, linewidth=0.5):
         """Plot a specific list of variables
         
         Args:
             var_list: List of exact variable names to plot
             value_type: 'mean', 'std', or 'both' (default)
             figsize: Figure size
+            title: Optional custom title (if None, auto-generated)
+            linewidth: Width of the plot lines (default: 0.5)
         """
         if not self.snapshots:
             self.load_all_snapshots()
@@ -223,28 +225,26 @@ class SnapshotAnalyzer:
             
             if value_type in ['mean', 'both']:
                 plt.plot(data['snapshots'], data['means'], 
-                        '-', linewidth=2, markersize=4, marker='o',
-                        color=color, label=f'{label} (mean)' if value_type == 'both' else label)
+                        '-', linewidth=linewidth, color=color,
+                        label=f'{label} (mean)' if value_type == 'both' else label)
             
             if value_type in ['std', 'both']:
-                linestyle = '--' if value_type == 'both' else '-'
-                linewidth = 1.5 if value_type == 'both' else 2
-                markersize = 3 if value_type == 'both' else 4
-                marker = 's' if value_type == 'both' else 'o'
-                alpha = 0.7 if value_type == 'both' else 1.0
-                
                 plt.plot(data['snapshots'], data['stds'], 
-                        linestyle, linewidth=linewidth, markersize=markersize, marker=marker,
-                        color=color, alpha=alpha, label=f'{label} (std)' if value_type == 'both' else None)
+                        ':', linewidth=linewidth, color=color,
+                        label=f'{label} (std)' if value_type == 'both' else None)
         
         plt.xlabel('Snapshot ID', fontsize=12)
         plt.ylabel('Value', fontsize=12)
         
         var_count = len(history)
-        if value_type == 'both':
-            plt.title(f'Selected Variables - Mean (solid) vs Std (dashed) ({var_count} variables)', fontsize=14)
+        # Use custom title if provided, otherwise auto-generate
+        if title:
+            plt.title(title, fontsize=14)
         else:
-            plt.title(f'Selected Variables - {value_type.capitalize()} ({var_count} variables)', fontsize=14)
+            if value_type == 'both':
+                plt.title(f'Selected Variables - Mean (solid) vs Std (dotted) ({var_count} variables)', fontsize=14)
+            else:
+                plt.title(f'Selected Variables - {value_type.capitalize()} ({var_count} variables)', fontsize=14)
         
         plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
         plt.grid(True, alpha=0.3)
@@ -254,7 +254,7 @@ class SnapshotAnalyzer:
         # Return the list of variables that were actually plotted
         return list(history.keys())
     
-    def plot_all_heatmap(self, key_filters=None, match_all=True, figsize=(16, 10)):
+    def plot_all_heatmap(self, key_filters=None, match_all=True, figsize=(16, 10), title=None, linewidth=0.5):
         """Plot heatmap of variables, optionally filtered by keys anywhere in name"""
         if key_filters:
             history = self.filter_by_keys(key_filters, match_all=match_all)
@@ -290,8 +290,12 @@ class SnapshotAnalyzer:
         # Labels
         ax.set_xlabel('Snapshot ID', fontsize=12)
         ax.set_ylabel('Variable', fontsize=12)
-        ax.set_title(f'Variables Heatmap{title_suffix}\n({len(var_names)} variables, {len(all_ss)} snapshots)', 
-                    fontsize=14)
+        
+        # Use custom title if provided, otherwise auto-generate
+        if title:
+            ax.set_title(title, fontsize=14)
+        else:
+            ax.set_title(f'Variables Heatmap{title_suffix}\n({len(var_names)} variables, {len(all_ss)} snapshots)', fontsize=14)
         
         # Set ticks
         ax.set_xticks(range(len(all_ss)))
@@ -309,7 +313,7 @@ class SnapshotAnalyzer:
         
         return matrix, var_names, all_ss
     
-    def plot_all_boxplot(self, key_filters=None, match_all=True, figsize=(15, 8)):
+    def plot_all_boxplot(self, key_filters=None, match_all=True, figsize=(15, 8), title=None, linewidth=0.5):
         """Box plot of variables, optionally filtered by keys anywhere in name"""
         if key_filters:
             history = self.filter_by_keys(key_filters, match_all=match_all)
@@ -336,15 +340,22 @@ class SnapshotAnalyzer:
         # Color boxes
         for box in bp['boxes']:
             box.set_alpha(0.7)
+            box.set_linewidth(linewidth)
         
         plt.xticks(rotation=90, fontsize=8)
         plt.ylabel('Mean Value', fontsize=12)
-        plt.title(f'Distribution of Variables{title_suffix} ({len(var_names)} total)', fontsize=14)
+        
+        # Use custom title if provided, otherwise auto-generate
+        if title:
+            plt.title(title, fontsize=14)
+        else:
+            plt.title(f'Distribution of Variables{title_suffix} ({len(var_names)} total)', fontsize=14)
+        
         plt.grid(True, alpha=0.3, axis='y')
         plt.tight_layout()
         plt.show()
     
-    def plot_all_trajectories(self, key_filters=None, match_all=True, figsize=(15, 10)):
+    def plot_all_trajectories(self, key_filters=None, match_all=True, figsize=(15, 10), title=None, linewidth=0.5):
         """Plot trajectories colored by final value"""
         if key_filters:
             history = self.filter_by_keys(key_filters, match_all=match_all)
@@ -373,8 +384,8 @@ class SnapshotAnalyzer:
             for var, data in history.items():
                 color = cmap(norm(final_means[var]))
                 plt.plot(data['snapshots'], data['means'], 
-                        'o-', linewidth=1, markersize=2,
-                        color=color, alpha=0.7, label=var[-30:] if len(var) > 30 else var)
+                        '-', linewidth=linewidth, color=color, alpha=0.7, 
+                        label=var[-30:] if len(var) > 30 else var)
             
             sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
             sm.set_array([])
@@ -382,7 +393,12 @@ class SnapshotAnalyzer:
         
         plt.xlabel('Snapshot ID', fontsize=12)
         plt.ylabel('Mean Value', fontsize=12)
-        plt.title(f'Variable Trajectories{title_suffix}', fontsize=14)
+        
+        # Use custom title if provided, otherwise auto-generate
+        if title:
+            plt.title(title, fontsize=14)
+        else:
+            plt.title(f'Variable Trajectories{title_suffix}', fontsize=14)
         
         plt.grid(True, alpha=0.3)
         if len(history) < 20:
@@ -390,8 +406,12 @@ class SnapshotAnalyzer:
         plt.tight_layout()
         plt.show()
     
-    def plot_all_stacked(self, key_filters=None, match_all=True, figsize=(12, 12)):
-        """Stacked area plot, filtered by keys anywhere in name"""
+    def plot_all_stacked(self, key_filters=None, match_all=True, figsize=(12, 12), title=None, linewidth=0):
+        """Stacked area plot, filtered by keys anywhere in name
+        
+        Args:
+            linewidth: Width of the edges between areas (default: 0 for no edges)
+        """
         if key_filters:
             history = self.filter_by_keys(key_filters, match_all=match_all)
             title_suffix = self.get_filter_description(key_filters, match_all)
@@ -421,17 +441,23 @@ class SnapshotAnalyzer:
         plt.figure(figsize=figsize)
         
         plt.stackplot(all_ss, matrix, labels=[var[-20:] if len(var) > 20 else var for var in var_names], 
-                     alpha=0.7, edgecolor='none')
+                     alpha=0.7, edgecolor='none', linewidth=linewidth)
         
         plt.xlabel('Snapshot ID', fontsize=12)
         plt.ylabel('Cumulative Mean Value', fontsize=12)
-        plt.title(f'Stacked Contribution of Variables{title_suffix}', fontsize=14)
+        
+        # Use custom title if provided, otherwise auto-generate
+        if title:
+            plt.title(title, fontsize=14)
+        else:
+            plt.title(f'Stacked Contribution of Variables{title_suffix}', fontsize=14)
+        
         plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=8)
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
         plt.show()
     
-    def plot_all_parallel(self, key_filters=None, match_all=True, figsize=(14, 8)):
+    def plot_all_parallel(self, key_filters=None, match_all=True, figsize=(14, 8), title=None, linewidth=0.5):
         """Parallel coordinates plot, filtered by keys anywhere in name"""
         if key_filters:
             history = self.filter_by_keys(key_filters, match_all=match_all)
@@ -469,14 +495,20 @@ class SnapshotAnalyzer:
         
         for i in range(len(var_names)):
             var_name = var_names[i]
-            plt.plot(range(len(all_ss)), data_norm[i], 'o-', 
-                    linewidth=1, alpha=0.7,
+            plt.plot(range(len(all_ss)), data_norm[i], '-', 
+                    linewidth=linewidth, alpha=0.7,
                     label=var_name[-30:] if len(var_name) > 30 else var_name)
         
         plt.xticks(range(len(all_ss)), all_ss)
         plt.xlabel('Snapshot ID', fontsize=12)
         plt.ylabel('Normalized Value', fontsize=12)
-        plt.title(f'Parallel Coordinates Plot{title_suffix}', fontsize=14)
+        
+        # Use custom title if provided, otherwise auto-generate
+        if title:
+            plt.title(title, fontsize=14)
+        else:
+            plt.title(f'Parallel Coordinates Plot{title_suffix}', fontsize=14)
+        
         plt.grid(True, alpha=0.3)
         
         if len(history) < 20:
@@ -484,7 +516,7 @@ class SnapshotAnalyzer:
         plt.tight_layout()
         plt.show()
     
-    def plot_all_stats(self, key_filters=None, match_all=True, figsize=(15, 10)):
+    def plot_all_stats(self, key_filters=None, match_all=True, figsize=(15, 10), title=None, linewidth=0.5):
         """Statistical overview, filtered by keys anywhere in name"""
         if key_filters:
             history = self.filter_by_keys(key_filters, match_all=match_all)
@@ -516,14 +548,14 @@ class SnapshotAnalyzer:
         fig, axes = plt.subplots(2, 3, figsize=figsize)
         
         # 1. Distribution of means
-        axes[0, 0].hist([s['mean'] for s in stats.values()], bins=30, alpha=0.7)
+        axes[0, 0].hist([s['mean'] for s in stats.values()], bins=30, alpha=0.7, edgecolor='black', linewidth=linewidth)
         axes[0, 0].set_xlabel('Mean Value')
         axes[0, 0].set_ylabel('Count')
         axes[0, 0].set_title(f'Distribution of Means{title_suffix}')
         axes[0, 0].grid(True, alpha=0.3)
         
         # 2. Distribution of stds
-        axes[0, 1].hist([s['std'] for s in stats.values()], bins=30, alpha=0.7, color='green')
+        axes[0, 1].hist([s['std'] for s in stats.values()], bins=30, alpha=0.7, color='green', edgecolor='black', linewidth=linewidth)
         axes[0, 1].set_xlabel('Std Value')
         axes[0, 1].set_ylabel('Count')
         axes[0, 1].set_title(f'Distribution of Standard Deviations{title_suffix}')
@@ -532,21 +564,21 @@ class SnapshotAnalyzer:
         # 3. Mean vs Std scatter
         axes[0, 2].scatter([s['mean'] for s in stats.values()], 
                           [s['std'] for s in stats.values()], 
-                          alpha=0.6)
+                          alpha=0.6, s=10, edgecolor='black', linewidth=linewidth)
         axes[0, 2].set_xlabel('Mean')
         axes[0, 2].set_ylabel('Std')
         axes[0, 2].set_title(f'Mean vs Std{title_suffix}')
         axes[0, 2].grid(True, alpha=0.3)
         
         # 4. Range distribution
-        axes[1, 0].hist([s['range'] for s in stats.values()], bins=30, alpha=0.7, color='red')
+        axes[1, 0].hist([s['range'] for s in stats.values()], bins=30, alpha=0.7, color='red', edgecolor='black', linewidth=linewidth)
         axes[1, 0].set_xlabel('Range (Max - Min)')
         axes[1, 0].set_ylabel('Count')
         axes[1, 0].set_title(f'Distribution of Ranges{title_suffix}')
         axes[1, 0].grid(True, alpha=0.3)
         
         # 5. Trend distribution
-        axes[1, 1].hist([s['trend'] for s in stats.values()], bins=30, alpha=0.7, color='purple')
+        axes[1, 1].hist([s['trend'] for s in stats.values()], bins=30, alpha=0.7, color='purple', edgecolor='black', linewidth=linewidth)
         axes[1, 1].set_xlabel('Trend (Final - Initial)')
         axes[1, 1].set_ylabel('Count')
         axes[1, 1].set_title(f'Distribution of Trends{title_suffix}')
@@ -557,14 +589,19 @@ class SnapshotAnalyzer:
         var_names = [v[1]['short_name'] for v in top_vars]
         var_means = [v[1]['mean'] for v in top_vars]
         
-        axes[1, 2].barh(range(len(var_names)), var_means, alpha=0.7, color='orange')
+        axes[1, 2].barh(range(len(var_names)), var_means, alpha=0.7, color='orange', edgecolor='black', linewidth=linewidth)
         axes[1, 2].set_yticks(range(len(var_names)))
         axes[1, 2].set_yticklabels(var_names)
         axes[1, 2].set_xlabel('Mean Value')
         axes[1, 2].set_title('Top 10 Variables by |Mean|')
         axes[1, 2].grid(True, alpha=0.3)
         
-        plt.suptitle(f'Statistical Overview of {len(history)} Variables{title_suffix}', fontsize=14)
+        # Use custom title if provided, otherwise auto-generate
+        if title:
+            plt.suptitle(title, fontsize=14)
+        else:
+            plt.suptitle(f'Statistical Overview of {len(history)} Variables{title_suffix}', fontsize=14)
+        
         plt.tight_layout()
         plt.show()
     
@@ -608,7 +645,7 @@ class SnapshotAnalyzer:
         
         print("="*70)
 
-    def interactive_variable_selector(self, key_filters=None, match_all=True, value_type='both', figsize=(14, 8)):
+    def interactive_variable_selector(self, key_filters=None, match_all=True, value_type='both', figsize=(14, 8), title=None, linewidth=0.5):
         """Create an interactive plot with checkboxes to select which variables to display
         
         Args:
@@ -616,6 +653,8 @@ class SnapshotAnalyzer:
             match_all: If True, variable must contain ALL key_filters (AND)
             value_type: 'mean', 'std', or 'both'
             figsize: Figure size
+            title: Optional custom title (if None, auto-generated)
+            linewidth: Width of the plot lines (default: 0.5)
         """
         if key_filters:
             history = self.filter_by_keys(key_filters, match_all=match_all)
@@ -663,23 +702,15 @@ class SnapshotAnalyzer:
             
             if value_type in ['mean', 'both']:
                 mean_line, = ax.plot(data['snapshots'], data['means'], 
-                                    '-', linewidth=2, markersize=4, marker='o',
-                                    color=color, visible=True, picker=True)
+                                    '-', linewidth=linewidth, color=color, visible=True, picker=True)
                 lines.append(mean_line)
                 line_labels.append(f'{label} (mean)')
                 line_to_checkbox_idx[mean_line] = line_idx
                 line_idx += 1
             
             if value_type in ['std', 'both']:
-                linestyle = '--' if value_type == 'both' else '-'
-                linewidth = 1.5 if value_type == 'both' else 2
-                markersize = 3 if value_type == 'both' else 4
-                marker = 's' if value_type == 'both' else 'o'
-                alpha = 0.7 if value_type == 'both' else 1.0
-                
                 std_line, = ax.plot(data['snapshots'], data['stds'], 
-                                linestyle, linewidth=linewidth, markersize=markersize, marker=marker,
-                                color=color, alpha=alpha, visible=True, picker=True)
+                                ':', linewidth=linewidth, color=color, visible=True, picker=True)
                 lines.append(std_line)
                 line_labels.append(f'{label} (std)')
                 line_to_checkbox_idx[std_line] = line_idx
@@ -689,10 +720,14 @@ class SnapshotAnalyzer:
         ax.set_xlabel('Snapshot ID', fontsize=12)
         ax.set_ylabel('Value', fontsize=12)
         
-        if value_type == 'both':
-            ax.set_title(f'Interactive Variable Selection{title_suffix} - Click checkboxes to toggle', fontsize=14)
+        # Use custom title if provided, otherwise auto-generate
+        if title:
+            ax.set_title(title, fontsize=14)
         else:
-            ax.set_title(f'Interactive Variable Selection{title_suffix} - {value_type.capitalize()}', fontsize=14)
+            if value_type == 'both':
+                ax.set_title(f'Interactive Variable Selection{title_suffix} - Click checkboxes to toggle', fontsize=14)
+            else:
+                ax.set_title(f'Interactive Variable Selection{title_suffix} - {value_type.capitalize()}', fontsize=14)
         
         ax.grid(True, alpha=0.3)
         
@@ -731,7 +766,7 @@ class SnapshotAnalyzer:
         return fig, check, lines, line_labels
 
 
-    def plot_with_legend_selector(self, key_filters=None, match_all=True, value_type='mean', figsize=(16, 8)):
+    def plot_with_legend_selector(self, key_filters=None, match_all=True, value_type='mean', figsize=(16, 8), title=None, linewidth=0.5):
         """Plot with clickable legend to toggle variables - OPTIMIZED LAYOUT
         
         Args:
@@ -739,6 +774,8 @@ class SnapshotAnalyzer:
             match_all: If True, variable must contain ALL key_filters (AND)
             value_type: 'mean', 'std', or 'both' (default 'mean' for cleaner plot)
             figsize: Figure size (wider default to accommodate legend)
+            title: Optional custom title (if None, auto-generated)
+            linewidth: Width of the plot lines (default: 0.5)
         """
         if key_filters:
             history = self.filter_by_keys(key_filters, match_all=match_all)
@@ -794,19 +831,17 @@ class SnapshotAnalyzer:
             # Plot the line
             if value_type == 'mean':
                 line, = ax.plot(data['snapshots'], data['means'], 
-                            '-o', linewidth=2, markersize=4,
-                            color=color, label=short_label, picker=True, pickradius=5)
+                            '-', linewidth=linewidth, color=color, label=short_label, picker=True, pickradius=5)
             elif value_type == 'std':
                 line, = ax.plot(data['snapshots'], data['stds'], 
-                            '-s', linewidth=2, markersize=4,
-                            color=color, label=short_label, picker=True, pickradius=5)
+                            ':', linewidth=linewidth, color=color, label=short_label, picker=True, pickradius=5)
             else:  # 'both'
                 mean_line, = ax.plot(data['snapshots'], data['means'], 
-                                    '-o', linewidth=2, markersize=4,
-                                    color=color, label=f'{short_label} (mean)', picker=True, pickradius=5)
+                                    '-', linewidth=linewidth, color=color, 
+                                    label=f'{short_label} (mean)', picker=True, pickradius=5)
                 std_line, = ax.plot(data['snapshots'], data['stds'], 
-                                '--s', linewidth=1.5, markersize=3,
-                                color=color, alpha=0.7, label=f'{short_label} (std)', picker=True, pickradius=5)
+                                ':', linewidth=linewidth, color=color, 
+                                label=f'{short_label} (std)', picker=True, pickradius=5)
                 plot_lines.extend([mean_line, std_line])
                 continue
             
@@ -820,9 +855,9 @@ class SnapshotAnalyzer:
             for i, var in enumerate(history.keys()):
                 color = colors[i % len(colors)]
                 short_label = var.split('.')[-1] if len(var) > 40 else var
-                legend_elements.append(Line2D([0], [0], color=color, lw=2, 
+                legend_elements.append(Line2D([0], [0], color=color, lw=linewidth, 
                                             label=f'{short_label} (mean)'))
-                legend_elements.append(Line2D([0], [0], color=color, lw=1.5, ls='--', 
+                legend_elements.append(Line2D([0], [0], color=color, lw=linewidth, ls=':', 
                                             label=f'{short_label} (std)'))
             legend = legend_ax.legend(handles=legend_elements, loc='upper left', 
                                     fontsize=9, frameon=True, fancybox=True, shadow=True)
@@ -863,12 +898,16 @@ class SnapshotAnalyzer:
         ax.set_ylabel('Mean Value' if value_type == 'mean' else 
                     'Std Value' if value_type == 'std' else 'Value', fontsize=12)
         
-        if value_type == 'mean':
-            ax.set_title(f'Variables{title_suffix} - Mean Values (click legend to toggle)', fontsize=14)
-        elif value_type == 'std':
-            ax.set_title(f'Variables{title_suffix} - Std Values (click legend to toggle)', fontsize=14)
+        # Use custom title if provided, otherwise auto-generate
+        if title:
+            ax.set_title(title, fontsize=14)
         else:
-            ax.set_title(f'Variables{title_suffix} - Mean & Std (click legend to toggle)', fontsize=14)
+            if value_type == 'mean':
+                ax.set_title(f'Variables{title_suffix} - Mean Values (click legend to toggle)', fontsize=14)
+            elif value_type == 'std':
+                ax.set_title(f'Variables{title_suffix} - Std Values (click legend to toggle)', fontsize=14)
+            else:
+                ax.set_title(f'Variables{title_suffix} - Mean & Std (click legend to toggle)', fontsize=14)
         
         ax.grid(True, alpha=0.3)
         
@@ -966,7 +1005,7 @@ class SnapshotAnalyzer:
                 print("Invalid input. Please enter numbers separated by commas (e.g., '1,3,5' or '2-7')")
 
 
-    def plot_selected_interactive(self, key_filters=None, match_all=True, value_type='both', figsize=(14, 8)):
+    def plot_selected_interactive(self, key_filters=None, match_all=True, value_type='both', figsize=(14, 8), title=None, linewidth=0.5):
         """Interactive workflow: list variables, let user select by index, then plot
         
         Args:
@@ -974,6 +1013,8 @@ class SnapshotAnalyzer:
             match_all: If True, variable must contain ALL key_filters (AND)
             value_type: 'mean', 'std', or 'both'
             figsize: Figure size
+            title: Optional custom title for the plot
+            linewidth: Width of the plot lines (default: 0.5)
         """
         # First, list variables and get user selection
         selected_vars = self.list_variables_interactive(key_filters, match_all)
@@ -983,123 +1024,64 @@ class SnapshotAnalyzer:
             return
         
         # Then plot the selected variables
-        self.plot_variable_list(selected_vars, value_type=value_type, figsize=figsize)
+        self.plot_variable_list(selected_vars, value_type=value_type, figsize=figsize, title=title, linewidth=linewidth)
         
         return selected_vars
 
 
 # ========== USAGE WITH AND LOGIC ==========
 if __name__ == "__main__":
-    analyzer = SnapshotAnalyzer(snapshot_dir = './snapshots')
+    analyzer = SnapshotAnalyzer(snapshot_dir = 'd:/projects/zeus2/snapshots')
     analyzer.load_all_snapshots()
     
     # Print summary for all variables
     analyzer.print_summary()
 
-    for i in range(8):
-        for j in range(12):
-            search_keys = [f"B{i}.e.L{j}.sh.mha.rate"]  # Variable must contain BOTH 'sc_b' AND 'B3'
-            value_type = 'both' # 'both', 'mean', 'std' 
-            analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)
-            
-            search_keys = [f"B{i}.d.L{j}.sh.mha.rate"]  # Variable must contain BOTH 'sc_b' AND 'B3'
-            value_type = 'both' # 'both', 'mean', 'std' 
-            analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)
+    linewidth = 1.2
 
-    for i in range(8):
-        for j in range(12):
-            search_keys = [f'B{i}.d.L{j}.h.mha.wv.weight']  # Variable must contain BOTH 'sc_b' AND 'B3'
-            value_type = 'both' # 'both', 'mean', 'std' 
-            analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)
-            
-            search_keys = [f'B{i}.d.L{j}.h.mha.wv.weight']  # Variable must contain BOTH 'sc_b' AND 'B3'
-            value_type = 'both' # 'both', 'mean', 'std' 
-            analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)
+    vlist = [f"B{i}.skip_learner.weight" for i in range(10)]
+    analyzer.plot_variable_list(vlist, title="Skip_learners weight", linewidth=linewidth)
 
+    vlist = [f"B{i}.skip_learner.bias" for i in range(10)]
+    analyzer.plot_variable_list(vlist, title="Skip_learners bias", linewidth=linewidth)
 
-    for i in range(8):
-        for j in range(12):
-            search_keys = [f'B{i}.d.L{j}.h.mha.wk.weight']  # Variable must contain BOTH 'sc_b' AND 'B3'
-            value_type = 'both' # 'both', 'mean', 'std' 
-            analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)
-            
-            search_keys = [f'B{i}.d.L{j}.h.mha.wk.weight']  # Variable must contain BOTH 'sc_b' AND 'B3'
-            value_type = 'both' # 'both', 'mean', 'std' 
-            analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)
+    for i in range(10):
+        vlist = [f"Be{i}_in", f"Bd{i}_in", f"Be{i}_out", f"Bd{i}_out"]
+        analyzer.plot_variable_list(vlist, title=f"Block outputs {i}", linewidth=linewidth)
 
+    for i in range(3, 10):
+        for j in range(6):
+            vlist = [f'B{i}.e.L{j}.h.mha.wq.weight', f'B{i}.e.L{j}.h.mha.wk.weight', f'B{i}.e.L{j}.h.mha.wv.weight',]
+            analyzer.plot_variable_list(vlist, title=f"Q K V weights at B{i} Enc L{j}, h_axis", linewidth=linewidth)
 
-    for i in range(8):
-        for j in range(12):
-            search_keys = [f'B{i}.d.L{j}.h.mha.wq.weight']  # Variable must contain BOTH 'sc_b' AND 'B3'
-            value_type = 'both' # 'both', 'mean', 'std' 
-            analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)
-            
-            search_keys = [f'B{i}.d.L{j}.h.mha.wq.weight']  # Variable must contain BOTH 'sc_b' AND 'B3'
-            value_type = 'both' # 'both', 'mean', 'std' 
-            analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)
+    for i in range(3, 10):
+        vlist = [f'B{i}.e.L{j}.h.pre_act' for j in range(8)]
+        analyzer.plot_variable_list(vlist, title=f"Pre_Act at B{i} L<j> Enc", linewidth=linewidth)
 
-    for i in range(8):
-        for j in range(12):
-            search_keys = [f'B{i}.e.L{j}.h.pre_act']  # Variable must contain BOTH 'sc_b' AND 'B3'
-            value_type = 'both' # 'both', 'mean', 'std' 
-            analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)
-            
-            search_keys = [f'B{i}.d.L{j}.h.pre_act']  # Variable must contain BOTH 'sc_b' AND 'B3'
-            value_type = 'both' # 'both', 'mean', 'std' 
-            analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)
-        
-    
-    for i in range(8):
-        search_keys = [f'Be{i}_out']  # Variable must contain BOTH 'sc_b' AND 'B3'
-        value_type = 'both' # 'both', 'mean', 'std'    
-        analyzer.print_summary(key_filters=search_keys, match_all=True)
-        analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)    
+    for i in range(3, 10):
+        vlist = [f'B{i}.d.L{j}.h.pre_act' for j in range(8)]
+        analyzer.plot_variable_list(vlist, title=f"Pre_Act at B{i} L<j> Dec", linewidth=linewidth)
 
-        search_keys = [f'Bd{i}_out']  # Variable must contain BOTH 'sc_b' AND 'B3'
-        value_type = 'both' # 'both', 'mean', 'std'    
-        analyzer.print_summary(key_filters=search_keys, match_all=True)
-        analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)    
+    for i in range(3, 10):
+        for j in range(6):
+            vlist = [f'B{i}.e.L{j}.h.pre_act', f'B{i}.d.L{j}.h.pre_act', f'B{i}.e.L{j}.w.pre_act', f'B{i}.d.L{j}.w.pre_act']
+            analyzer.plot_variable_list(vlist, title=f"Pre_Act at B{i} L{j} Enc h Dec h Enc w Dec w", linewidth=linewidth)
 
-    for i in range(8):
-        search_keys = [f"B{i}.e.L0.ns.attn_out"]  # Variable must contain BOTH 'sc_b' AND 'B3'
-        value_type = 'both' # 'both', 'mean', 'std'    
-        analyzer.print_summary(key_filters=search_keys, match_all=True)
-        analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)    
-
-        search_keys = [f"B{i}.d.L0.ns.attn_out"]  # Variable must contain BOTH 'sc_b' AND 'B3'
-        value_type = 'both' # 'both', 'mean', 'std'    
-        analyzer.print_summary(key_filters=search_keys, match_all=True)
-        analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)    
-
-    for i in range(8):
-        search_keys = [f"B{i}.e.L0.ns.ffn_out"]  # Variable must contain BOTH 'sc_b' AND 'B3'
-        value_type = 'both' # 'both', 'mean', 'std'    
-        analyzer.print_summary(key_filters=search_keys, match_all=True)
-        analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)    
-
-        search_keys = [f"B{i}.d.L0.ns.ffn_out"]  # Variable must contain BOTH 'sc_b' AND 'B3'
-        value_type = 'both' # 'both', 'mean', 'std'    
-        analyzer.print_summary(key_filters=search_keys, match_all=True)
-        analyzer.plot_all_lines(key_filters=search_keys, match_all=True, value_type=value_type)    
-
-
-    analyzer.plot_variable_list([f'Be{i}_out' for i in range(8)], value_type='both')
-    analyzer.plot_variable_list([f'Bd{i}_out' for i in range(8)], value_type='both')
     
     # # Method 1: Interactive checkbox selector
-    # analyzer.interactive_variable_selector(key_filters=['B1', 'mha'], value_type='both')
+    # analyzer.interactive_variable_selector(key_filters=['B1', 'mha'], value_type='both', linewidth=0.5)
 
     # # Method 2: Clickable legend (click on legend items to toggle)
-    # analyzer.plot_with_legend_selector(key_filters=['weight'], value_type='mean')
+    # analyzer.plot_with_legend_selector(key_filters=['weight'], value_type='mean', linewidth=0.5)
 
     # # Method 3: List variables with indices, then select by number
-    # selected = analyzer.plot_selected_interactive(key_filters=['B1'])
+    # selected = analyzer.plot_selected_interactive(key_filters=['B1'], linewidth=0.5)
     # # Then enter indices like: 1,3,5 or 2-7
 
     # # Method 4: First list, then plot manually
     # vars_list = analyzer.list_variables_interactive(key_filters=['B1', 'L0'])
     # # After seeing the list, plot specific ones:
-    # analyzer.plot_variable_list([vars_list[0], vars_list[2], vars_list[5]])
+    # analyzer.plot_variable_list([vars_list[0], vars_list[2], vars_list[5]], linewidth=0.5)
     
     # # 2. Heatmap of key variables
     # analyzer.plot_all_heatmap(key_filters=search_keys, match_all=True)

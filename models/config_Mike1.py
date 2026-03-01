@@ -4850,7 +4850,7 @@ projects["Zeus_uNet_Feb25"] = {    #--------------------------------------------
                     # 'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
                     'transForm': TransForm(AttnConn.Shift, PEConn.Global, PEType.Learnable, Flash.No, PBias.Learnable),
                 },
-                'down_mersplit': Reshape.HFX_2X_INT, 'down_nWin': [6, 6], 'down_pWin': 2,
+                'down_mersplit': Reshape.HFX_1X_MHA, 'down_nWin': [6, 6], 'down_pWin': 2,
             },
 
             {   #---------------------------------- block 5, (45, 90, 160)
@@ -5009,7 +5009,7 @@ projects["Zeus_uNet_Feb25_2"] = {    #------------------------------------------
                     # 'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
                     'transForm': TransForm(AttnConn.Shift, PEConn.Nothing, PEType.Learnable, Flash.No, PBias.Learnable),
                 },
-                'down_mersplit': Reshape.HFX_2X_INT, 'down_nWin': [6, 12], 'down_pWin': 2,
+                'down_mersplit': Reshape.HFX_2X_MHA, 'down_nWin': [6, 12], 'down_pWin': 2,
             },
 
             {   #---------------------------------- block 5, (45, 90, 160)
@@ -6028,7 +6028,7 @@ projects["F16_F28"] = {    #----------------------------------------------------
 
         'block_dicts' : [
 
-            {   #---------------------------------- block 1, (720, 1440, 6)                
+            {   #---------------------------------- B 0, (720, 1440, 6)                
                 ### 5x slower @ SNNNL /// 2s/it at ANNYN
                 # 'square' : {  # takes prohivitively long !!! for RTX 4070
                 #     # managed: 'res', 'dim'
@@ -6041,14 +6041,14 @@ projects["F16_F28"] = {    #----------------------------------------------------
                 'down_mersplit': Reshape.HX_4X, 'down_nWin': [180, 360], 'down_pWin': 2,
             },
 
-            {   #-------------------------------- block P, (360, 720, 24)  padding dimensions
+            {   #-------------------------------- B 1, (360, 720, 24)  padding dimensions
                 #!!! This is treating meteo and extra info equally, although meteo has denser info and more important.
                 'pad_dims': 15,     # Snapshot.tempo_dims + Snapshot.dense_dims + self.category_emb_dim + self.cascade_depth_emb_dim
                 'target_dims': 24,  # As you like in this phase
                 'down_mersplit': Reshape.IX_ADD, 'down_nWin': [90, 180], 'down_pWin': 2,
             },
 
-            {   #---------------------------------- block 2, (360, 720, 20)
+            {   #---------------------------------- B 2, (360, 720, 20)
                 #!!! This square is very costly in FLOPS. 100% GPU
                 # 'square' : {
                 #     # managed: 'res', 'dim'
@@ -6070,7 +6070,7 @@ projects["F16_F28"] = {    #----------------------------------------------------
                 'down_mersplit': Reshape.HX_2X, 'down_nWin': [90, 180], 'down_pWin': 2,
             },
 
-            {   #---------------------------------- block 3, (180, 360, 40)
+            {   #---------------------------------- B 3, (180, 360, 40)
                 'skip_learn': True,
                 'square' : {
                     # managed: 'res', 'dim'
@@ -6082,7 +6082,7 @@ projects["F16_F28"] = {    #----------------------------------------------------
                 'down_mersplit': Reshape.HX_2X, 'down_nWin': [45, 90], 'down_pWin': 2,
             },
             
-            {   #---------------------------------- block 4, (90, 180, 80)
+            {   #---------------------------------- B 4, (90, 180, 80)  
                 'skip_learn': True,
                 'square' : {
                     # managed: 'res', 'dim'
@@ -6093,19 +6093,19 @@ projects["F16_F28"] = {    #----------------------------------------------------
                 'down_mersplit': Reshape.HX_2X, 'down_nWin': [1, 1], 'down_pWin': 1,
             },
 
-            {   #---------------------------------- block 5, (45, 90, 160)
+            {   #---------------------------------- B 5, (45, 90, 160)  -------------------------------------------
                 'skip_learn': True,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 4,    'nLayers' : 6, 'act_layer': 'sigmoid',
-                    # Flash.Yes is required for AttnConn.Global, as Flash.No slows down 10x.
+                    # Global Attn at Flash.No slows down 10x.
                     # AttnConn.Shift is impossible, as it requiers attn_mask, which is not compatible with Flash.Yes.
                     'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
                 },
                 'down_mersplit': Reshape.HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
             },
 
-            {   #---------------------------------- block 6, (23, 45, 160)
+            {   #---------------------------------- B 6, (23, 45, 160)
                 'skip_learn': True,
                 'square' : {
                     # managed: 'res', 'dim'
@@ -6115,7 +6115,7 @@ projects["F16_F28"] = {    #----------------------------------------------------
                 'down_mersplit': Reshape.HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 2,
             },
 
-            {   #---------------------------------- block 7, (12, 23, 160)
+            {   #---------------------------------- B 7, (12, 23, 160)
                 'skip_learn': True,
                 'square' : {
                     # managed: 'res', 'dim'
@@ -6125,7 +6125,7 @@ projects["F16_F28"] = {    #----------------------------------------------------
                 'down_mersplit': Reshape.HX_1X, # HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 2,
             },
 
-            {   #---------------------------------- block 8, (6, 12, 160)
+            {   #---------------------------------- B 8, (6, 12, 160)
                 'skip_learn': True,
                 'square' : {
                     # managed: 'res', 'dim'
@@ -6135,7 +6135,7 @@ projects["F16_F28"] = {    #----------------------------------------------------
                 'down_mersplit': Reshape.HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
             },
             
-            {   #---------------------------------- block 9, (3, 6, 160)
+            {   #---------------------------------- B 9, (3, 6, 160)
                 'skip_learn': True,
                 'square' : {
                     # managed: 'res', 'dim'

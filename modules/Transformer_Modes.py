@@ -33,7 +33,7 @@ class TransForm:
                 flash=Flash.No,
                 pbias=PBias.Nothing,
                 ) -> None:
-        assert self.is_valid(attnconn, peconn, petype, flash, pbias), "Invalid Transformer mode"
+        # assert self.is_valid(attnconn, peconn, petype, flash, pbias), "Invalid Transformer mode"
         
         self.attnconn = attnconn
         self.peconn = peconn
