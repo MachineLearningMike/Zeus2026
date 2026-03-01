@@ -79,10 +79,10 @@ class Zeus(nn.Module):
         
         self.uNet = uNet(self.H, self.W, unet_top_dim, pm.block_dicts, pm.inherited) #.to(device=device, dtype=dtype)
         
-        # self.cascade_depth_embeder = Embed_Cascade(self.H, self.W, max_cascade_depth=10, dims_cascade_emb=2)
-        # self.catetory_embedder = Embed_Category()
-        # self.cascade_depth_emb_dim = self.cascade_depth_embeder.dims_cascade_emb
-        # self.category_emb_dim = self.catetory_embedder.dims_category_emb
+        self.cascade_depth_embeder = Embed_Cascade(self.H, self.W, max_cascade_depth=10, dims_cascade_emb=2)
+        self.catetory_embedder = Embed_Category()
+        self.cascade_depth_emb_dim = self.cascade_depth_embeder.dims_cascade_emb
+        self.category_emb_dim = self.catetory_embedder.dims_category_emb
                 
         self.predict_fun_dict = None
         self.meteo_dims = len(self.pm.targetVariables)
@@ -100,20 +100,18 @@ class Zeus(nn.Module):
 
     def forward(self, x_mtdc, cascase_depth, accum_substeps):   # (H, W, ...) => (H, W, meteo_dim)
 
-        # category_emb = self.catetory_embedder()
-        # cascade_emb = self.cascade_depth_embeder(cascase_depth)
+        category_emb = self.catetory_embedder()
+        cascade_emb = self.cascade_depth_embeder(cascase_depth)
 
         #----------- patch_merging ------------
         meteo_mormal, _, tempo, dense, _ = x_mtdc     # all normalized, except cat
         
-        # tdcc = torch.concat([tempo, dense, category_emb, cascade_emb], dim=-1).unsqueeze(0)
-        tdcc = torch.concat([tempo, dense], dim=-1).unsqueeze(0)
-        # assert tdcc.shape[3] == self.tempo_dense_cat_cas_dim()
+        tdcc = torch.concat([tempo, dense, category_emb, cascade_emb], dim=-1)
         
-        # ss = accum_substeps // self.snapshot_cycle if accum_substeps % self.snapshot_cycle == 0 else None
-        ss = self.schedule_ss(accum_substeps)
-
+        tdcc = tdcc.unsqueeze(0)
         x = meteo_mormal.unsqueeze(0)
+
+        ss = self.schedule_ss(accum_substeps)
 
         x = self.uNet(x, ss=ss, padding=tdcc)
         

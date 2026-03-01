@@ -64,9 +64,10 @@ class Reshape_IX_Add(nn.Module):     # Half, 4X
         # self.seq_len_changing_mha = Seq_Len_Changing_MHA(d_model=pad_dims, num_heads=num_heads, target_seq_len = self.out_H * self.out_W, use_flash=True)        
 
         # Instead of the above block...
-        self.latent_of_pad = nn.Linear(pad_dims, pad_dims//2, bias=True)
+        self.latent_of_pad = nn.Linear(pad_dims, pad_dims, bias=True)
 
-        self.expansion = nn.Linear(dim + pad_dims//2, self.out_dim, bias=True)
+        self.expansion = nn.Linear(dim + pad_dims, self.out_dim, bias=True)
+        # self.expansion = MLP(dim + pad_dims, hidden_features=4*(dim + pad_dims), out_features=self.out_dim, act_layer=nn.Sigmoid, drop=0.)
 
     def forward(self, x, ss=None):
         x_main, x_pad = x

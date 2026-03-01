@@ -2546,8 +2546,8 @@ projects["F16_F28"] = {    #----------------------------------------------------
 
             {   #-------------------------------- block P, (360, 720, 24)  padding dimensions
                 #!!! This is treating meteo and extra info equally, although meteo has denser info and more important.
-                'pad_dims': 9,     # Snapshot.tempo_dims + Snapshot.dense_dims + self.category_emb_dim + self.cascade_depth_emb_dim
-                'target_dims': 20,  # As you like in this phase
+                'pad_dims': 15,     # Snapshot.tempo_dims + Snapshot.dense_dims + self.category_emb_dim + self.cascade_depth_emb_dim
+                'target_dims': 24,  # As you like in this phase
                 'down_mersplit': Reshape.IX_ADD, 'down_nWin': [90, 180], 'down_pWin': 2,
             },
 
@@ -2560,10 +2560,21 @@ projects["F16_F28"] = {    #----------------------------------------------------
                 #     'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
                 # },
                 # ------------ Reshape_MHA takes prohivitively longer here, breaks everything ...----------
+
+                #!!! A single layer takes over 6 seconds.
+                # 'square' : {
+                #     # managed: 'res', 'dim'
+                #     'num_heads' : 4,    'nLayers' : 1, 'act_layer': 'sigmoid',
+                #     # Flash.No slows down.
+                #     'transForm': TransForm(AttnConn.Shift, PEConn.Global, PEType.Learnable, Flash.No, PBias.Learnable),
+                # },
+
+                'skip_learn': True,
                 'down_mersplit': Reshape.HX_2X, 'down_nWin': [90, 180], 'down_pWin': 2,
             },
 
             {   #---------------------------------- block 3, (180, 360, 40)
+                'skip_learn': True,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 4,    'nLayers' : 6, 'act_layer': 'sigmoid',
@@ -2575,6 +2586,7 @@ projects["F16_F28"] = {    #----------------------------------------------------
             },
             
             {   #---------------------------------- block 4, (90, 180, 80)
+                'skip_learn': True,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 4,    'nLayers' : 6, 'act_layer': 'sigmoid',
@@ -2585,6 +2597,7 @@ projects["F16_F28"] = {    #----------------------------------------------------
             },
 
             {   #---------------------------------- block 5, (45, 90, 160)
+                'skip_learn': True,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 4,    'nLayers' : 6, 'act_layer': 'sigmoid',
@@ -2596,6 +2609,7 @@ projects["F16_F28"] = {    #----------------------------------------------------
             },
 
             {   #---------------------------------- block 6, (23, 45, 160)
+                'skip_learn': True,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 4,    'nLayers' : 6, 'act_layer': 'sigmoid',
@@ -2605,6 +2619,7 @@ projects["F16_F28"] = {    #----------------------------------------------------
             },
 
             {   #---------------------------------- block 7, (12, 23, 160)
+                'skip_learn': True,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 4,    'nLayers' : 6, 'act_layer': 'sigmoid',
@@ -2614,6 +2629,7 @@ projects["F16_F28"] = {    #----------------------------------------------------
             },
 
             {   #---------------------------------- block 8, (6, 12, 160)
+                'skip_learn': True,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 4,    'nLayers' : 6, 'act_layer': 'sigmoid',
@@ -2623,6 +2639,7 @@ projects["F16_F28"] = {    #----------------------------------------------------
             },
             
             {   #---------------------------------- block 9, (3, 6, 160)
+                'skip_learn': True,
                 'square' : {
                     # managed: 'res', 'dim'
                     'num_heads' : 4,    'nLayers' : 6, 'act_layer': 'sigmoid',
@@ -2630,9 +2647,7 @@ projects["F16_F28"] = {    #----------------------------------------------------
                 },
                 'down_mersplit': Reshape.Nothing,  # .HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
             },
-
         ]
-
     }, 
 }
 
