@@ -6323,9 +6323,1410 @@ projects["F16_M01"] = {    #----------------------------------------------------
     }, 
 }
 
+projects["F16_M02"] = {    #---------------------------------------------------------- Micro-model for a single 8GB GPU -------
+    # ------------------------------- This overrides the above rules ----------------------
+    "management": {
+    "Zeus_Model_module" : "Zeus_Light_uNet_3",
+    "GPUWaitsData" : True,
+    "models_to_play": [0,],
+    "metrics" : "rmse", # "mae", "rmse"
+    # Let it be chosen by GPU rule 'nSubstepsPerStep' : 2,       # Can be changed upto the type of GPU.
+    "nSubstepsPerStep": 2,
+    'max_cascade_depth' : 1,     # max = nSubstepsPerStep. 1 = no actual cascades, raw prediction only
+    'half_life' : int(10228 * 8),    # covers  epochs
+    },
+    
+    "data": {
+    "factor10": 10,
+    "org_height": 721,
+    "batch_size": 1,
+    'lossXtargets' : 5.0,
+    },
+    
+    "model_0": {
+        "lr": 5e-4,
+        "max_lr": 5e-4,
+        'snapshot_cycle': 500,
+        'initial_steps' : 100,
+        "overwrite_saved_lr": False,
+        "accum_steps" : 10,   
+        "skip_validation" : True,
+        
+        'patch_kernel' : 4,
+        'patch_stride' : 4,
+
+        "batch_size": 1,
+        
+        "attn_dim" : 40,
+        "nHeads" : 5,       #
+        "nLayers" : 30,     #
+        "axial_loops" : 1,
+        "axial_not_total_pe" : True,
+        
+        'choose_best_loss_model' : False,
+        'useLRLearner' : False,
+        'use_checkpoint' : False,
+        
+        # The current model goes OOM on A100, with layers_to_enhance_in_enc_dec = [0] and nEnhancementPairs = [1]
+        'layers_to_enhance_in_enc_dec' : [],
+        'nEnhancementPairs': [],  # pairs
+
+        'inherited': {'nWin': [360, 720], 'pWin': 2,},
+        # 'inherited': {'nWin': [180, 180], 'pWin': 2,},    # 10x slower
+
+        'block_dicts' : [
+
+            {   #---------------------------------- B 0, (720, 1440, 6)
+                'skip_learn': True,                
+                ### 5x slower @ SNNNL /// 2s/it at ANNYN
+                # 'square' : {  # takes prohivitively long !!! for RTX 4070
+                #     # managed: 'res', 'dim'
+                #     'num_heads' : 4,    'nLayers' : 1, 'act_layer': 'sigmoid',
+                #     # Slows down prohibitively
+                #     # 'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                #     # Slows down prohibitively
+                #     'transForm': TransForm(AttnConn.Axial, PEConn.Nothing, PEType.Nothing, Flash.Yes, PBias.Nothing),
+                # },                
+                'down_mersplit': Reshape.HX_4X, 'down_nWin': [180, 360], 'down_pWin': 2,
+            },
+
+            {   #-------------------------------- B 1, (360, 720, 24)  padding dimensions
+                'skip_learn': True,
+                #!!! This is treating meteo and extra info equally, although meteo has denser info and more important.
+                'pad_dims': 15,     # Snapshot.tempo_dims + Snapshot.dense_dims + self.category_emb_dim + self.cascade_depth_emb_dim
+                'target_dims': 24,  # As you like in this phase. 24 + 15 -> 25 ... maximum 24.
+                'down_mersplit': Reshape.IX_ADD, 'down_nWin': [90, 180], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 2, (360, 720, 20)
+                #!!! This square is very costly in FLOPS. 100% GPU
+                # 'square' : {
+                #     # managed: 'res', 'dim'
+                #     'num_heads' : 4,    'nLayers' : 1, 'act_layer': 'sigmoid',
+                #     # Flash.No slows down.
+                #     'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                # },
+                # ------------ Reshape_MHA takes prohivitively longer here, breaks everything ...----------
+
+                #!!! A single layer takes over 6 seconds.
+                # 'square' : {
+                #     # managed: 'res', 'dim'
+                #     'num_heads' : 4,    'nLayers' : 1, 'act_layer': 'sigmoid',
+                #     # Flash.No slows down.
+                #     'transForm': TransForm(AttnConn.Shift, PEConn.Global, PEType.Learnable, Flash.No, PBias.Learnable),
+                # },
+
+                'skip_learn': True,
+                'down_mersplit': Reshape.HX_2X, 'down_nWin': [90, 180], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 3, (180, 360, 40)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+                    # 'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                    'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                },
+                # 'down_mersplit': Reshape.Nothing, # HFX_2X_MHA, 'down_nWin': [4, 4], 'down_pWin': 2,
+                'down_mersplit': Reshape.HX_2X, 'down_nWin': [45, 90], 'down_pWin': 2,
+            },
+            
+            {   #---------------------------------- B 4, (90, 180, 80)  
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+                    # 'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                    'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HX_2X, 'down_nWin': [1, 1], 'down_pWin': 1,
+            },
+
+            {   #---------------------------------- B 5, (45, 90, 160)  -------------------------------------------
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+                    # Global Attn at Flash.No slows down 10x.
+                    # AttnConn.Shift is impossible, as it requiers attn_mask, which is not compatible with Flash.Yes.
+                    'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+            },
+
+            {   #---------------------------------- B 6, (23, 45, 160)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 3, 'act_layer': 'sigmoid',
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 7, (12, 24, 160)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 3, 'act_layer': 'sigmoid',
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HX_1X, # HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 8, (6, 12, 160)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 3, 'act_layer': 'sigmoid',
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.Nothing, 'down_nWin': [1, 1], 'down_pWin': 1,
+            },
+            
+            # {   #---------------------------------- B 9, (3, 6, 160)
+            #     'skip_learn': True,
+            #     'square' : {
+            #         # managed: 'res', 'dim'
+            #         'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+            #         'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+            #     },
+            #     'down_mersplit': Reshape.Nothing,  # .HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+            # },
+        ]
+    }, 
+}
+
+projects["F16_M02_02"] = {    #---------------------------------------------------------- Micro-model for a single 8GB GPU -------
+    # ------------------------------- This overrides the above rules ----------------------
+    "management": {
+    "Zeus_Model_module" : "Zeus_Light_uNet_3",
+    "GPUWaitsData" : True,
+    "models_to_play": [0,],
+    "metrics" : "rmse", # "mae", "rmse"
+    # Let it be chosen by GPU rule 'nSubstepsPerStep' : 2,       # Can be changed upto the type of GPU.
+    "nSubstepsPerStep": 2,
+    'max_cascade_depth' : 1,     # max = nSubstepsPerStep. 1 = no actual cascades, raw prediction only
+    'half_life' : int(10228 * 8),    # covers  epochs
+    },
+    
+    "data": {
+    "factor10": 10,
+    "org_height": 721,
+    "batch_size": 1,
+    'lossXtargets' : 5.0,
+    },
+    
+    "model_0": {
+        "lr": 5e-4,
+        "max_lr": 5e-4,
+        'snapshot_cycle': 500,
+        'initial_steps' : 100,
+        "overwrite_saved_lr": False,
+        "accum_steps" : 10,   
+        "skip_validation" : True,
+        
+        'patch_kernel' : 4,
+        'patch_stride' : 4,
+
+        "batch_size": 1,
+        
+        "attn_dim" : 40,
+        "nHeads" : 5,       #
+        "nLayers" : 30,     #
+        "axial_loops" : 1,
+        "axial_not_total_pe" : True,
+        
+        'choose_best_loss_model' : False,
+        'useLRLearner' : False,
+        'use_checkpoint' : False,
+        
+        # The current model goes OOM on A100, with layers_to_enhance_in_enc_dec = [0] and nEnhancementPairs = [1]
+        'layers_to_enhance_in_enc_dec' : [],
+        'nEnhancementPairs': [],  # pairs
+
+        'inherited': {'nWin': [360, 720], 'pWin': 2,},
+        # 'inherited': {'nWin': [180, 180], 'pWin': 2,},    # 10x slower
+
+        'block_dicts' : [
+
+            {   #---------------------------------- B 0, (720, 1440, 6)
+                'skip_learn': True,                
+                ### 5x slower @ SNNNL /// 2s/it at ANNYN
+                # 'square' : {  # takes prohivitively long !!! for RTX 4070
+                #     # managed: 'res', 'dim'
+                #     'num_heads' : 4,    'nLayers' : 1, 'act_layer': 'sigmoid',
+                #     # Slows down prohibitively
+                #     # 'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                #     # Slows down prohibitively
+                #     'transForm': TransForm(AttnConn.Axial, PEConn.Nothing, PEType.Nothing, Flash.Yes, PBias.Nothing),
+                # },                
+                'down_mersplit': Reshape.HX_4X, 'down_nWin': [180, 360], 'down_pWin': 2,
+            },
+
+            {   #-------------------------------- B 1, (360, 720, 24)  padding dimensions
+                'skip_learn': True,
+                #!!! This is treating meteo and extra info equally, although meteo has denser info and more important.
+                'pad_dims': 15,     # Snapshot.tempo_dims + Snapshot.dense_dims + self.category_emb_dim + self.cascade_depth_emb_dim
+                'target_dims': 24,  # As you like in this phase. 24 + 15 -> 25 ... maximum 24.
+                'down_mersplit': Reshape.IX_ADD, 'down_nWin': [90, 180], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 2, (360, 720, 20)
+                #!!! This square is very costly in FLOPS. 100% GPU
+                # 'square' : {
+                #     # managed: 'res', 'dim'
+                #     'num_heads' : 4,    'nLayers' : 1, 'act_layer': 'sigmoid',
+                #     # Flash.No slows down.
+                #     'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                # },
+                # ------------ Reshape_MHA takes prohivitively longer here, breaks everything ...----------
+
+                #!!! A single layer takes over 6 seconds.
+                # 'square' : {
+                #     # managed: 'res', 'dim'
+                #     'num_heads' : 4,    'nLayers' : 1, 'act_layer': 'sigmoid',
+                #     # Flash.No slows down.
+                #     'transForm': TransForm(AttnConn.Shift, PEConn.Global, PEType.Learnable, Flash.No, PBias.Learnable),
+                # },
+
+                'skip_learn': True,
+                'down_mersplit': Reshape.HX_2X, 'down_nWin': [90, 180], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 3, (180, 360, 40)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+                    # 'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                    'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                },
+                # 'down_mersplit': Reshape.Nothing, # HFX_2X_MHA, 'down_nWin': [4, 4], 'down_pWin': 2,
+                'down_mersplit': Reshape.HX_2X, 'down_nWin': [45, 90], 'down_pWin': 2,
+            },
+            
+            {   #---------------------------------- B 4, (90, 180, 80)  
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+                    # 'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                    'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HX_2X, 'down_nWin': [1, 1], 'down_pWin': 1,
+            },
+
+            {   #---------------------------------- B 5, (45, 90, 160)  -------------------------------------------
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+                    # Global Attn at Flash.No slows down 10x.
+                    # AttnConn.Shift is impossible, as it requiers attn_mask, which is not compatible with Flash.Yes.
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+            },
+
+            {   #---------------------------------- B 6, (23, 45, 160)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 3, 'act_layer': 'sigmoid',
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 7, (12, 24, 160)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 3, 'act_layer': 'sigmoid',
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HX_1X, # HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 8, (6, 12, 160)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 3, 'act_layer': 'sigmoid',
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.Nothing, 'down_nWin': [1, 1], 'down_pWin': 1,
+            },
+            
+            # {   #---------------------------------- B 9, (3, 6, 160)
+            #     'skip_learn': True,
+            #     'square' : {
+            #         # managed: 'res', 'dim'
+            #         'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+            #         'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+            #     },
+            #     'down_mersplit': Reshape.Nothing,  # .HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+            # },
+        ]
+    }, 
+}
+
+projects["F16_M02_3"] = {    #---------------------------------------------------------- Micro-model for a single 8GB GPU -------
+    # ------------------------------- This overrides the above rules ----------------------
+    "management": {
+    "Zeus_Model_module" : "Zeus_Light_uNet_3",
+    "GPUWaitsData" : True,
+    "models_to_play": [0,],
+    "metrics" : "rmse", # "mae", "rmse"
+    # Let it be chosen by GPU rule 'nSubstepsPerStep' : 2,       # Can be changed upto the type of GPU.
+    "nSubstepsPerStep": 2,
+    'max_cascade_depth' : 1,     # max = nSubstepsPerStep. 1 = no actual cascades, raw prediction only
+    'half_life' : int(10228 * 8),    # covers  epochs
+    },
+    
+    "data": {
+    "factor10": 10,
+    "org_height": 721,
+    "batch_size": 1,
+    'lossXtargets' : 5.0,
+    },
+    
+    "model_0": {
+        "lr": 5e-4,
+        "max_lr": 5e-4,
+        'snapshot_cycle': 500,
+        'initial_steps' : 100,
+        "overwrite_saved_lr": False,
+        "accum_steps" : 10,   
+        "skip_validation" : True,
+        
+        'patch_kernel' : 4,
+        'patch_stride' : 4,
+
+        "batch_size": 1,
+        
+        "attn_dim" : 40,
+        "nHeads" : 5,       #
+        "nLayers" : 30,     #
+        "axial_loops" : 1,
+        "axial_not_total_pe" : True,
+        
+        'choose_best_loss_model' : False,
+        'useLRLearner' : False,
+        'use_checkpoint' : False,
+        
+        # The current model goes OOM on A100, with layers_to_enhance_in_enc_dec = [0] and nEnhancementPairs = [1]
+        'layers_to_enhance_in_enc_dec' : [],
+        'nEnhancementPairs': [],  # pairs
+
+        'inherited': {'nWin': [360, 720], 'pWin': 2,},
+        # 'inherited': {'nWin': [180, 180], 'pWin': 2,},    # 10x slower
+
+        'block_dicts' : [
+
+            {   #---------------------------------- B 0, (720, 1440, 6)
+                'skip_learn': True,                
+                ### 5x slower @ SNNNL /// 2s/it at ANNYN
+                # 'square' : {  # takes prohivitively long !!! for RTX 4070
+                #     # managed: 'res', 'dim'
+                #     'num_heads' : 4,    'nLayers' : 1, 'act_layer': 'sigmoid',
+                #     # Slows down prohibitively
+                #     # 'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                #     # Slows down prohibitively
+                #     'transForm': TransForm(AttnConn.Axial, PEConn.Nothing, PEType.Nothing, Flash.Yes, PBias.Nothing),
+                # },                
+                'down_mersplit': Reshape.HX_4X, 'down_nWin': [180, 360], 'down_pWin': 2,
+            },
+
+            {   #-------------------------------- B 1, (360, 720, 24)  padding dimensions
+                'skip_learn': True,
+                #!!! This is treating meteo and extra info equally, although meteo has denser info and more important.
+                'pad_dims': 15,     # Snapshot.tempo_dims + Snapshot.dense_dims + self.category_emb_dim + self.cascade_depth_emb_dim
+                'target_dims': 24,  # As you like in this phase. 24 + 15 -> 25 ... maximum 24.
+                'down_mersplit': Reshape.IX_ADD, 'down_nWin': [90, 180], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 2, (360, 720, 20)
+                #!!! This square is very costly in FLOPS. 100% GPU
+                # 'square' : {
+                #     # managed: 'res', 'dim'
+                #     'num_heads' : 4,    'nLayers' : 1, 'act_layer': 'sigmoid',
+                #     # Flash.No slows down.
+                #     'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                # },
+                # ------------ Reshape_MHA takes prohivitively longer here, breaks everything ...----------
+
+                #!!! A single layer takes over 6 seconds.
+                # 'square' : {
+                #     # managed: 'res', 'dim'
+                #     'num_heads' : 4,    'nLayers' : 1, 'act_layer': 'sigmoid',
+                #     # Flash.No slows down.
+                #     'transForm': TransForm(AttnConn.Shift, PEConn.Global, PEType.Learnable, Flash.No, PBias.Learnable),
+                # },
+
+                'skip_learn': True,
+                'down_mersplit': Reshape.HX_2X, 'down_nWin': [90, 180], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 3, (180, 360, 40)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+                    # 'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                    'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                },
+                # 'down_mersplit': Reshape.Nothing, # HFX_2X_MHA, 'down_nWin': [4, 4], 'down_pWin': 2,
+                'down_mersplit': Reshape.HX_2X, 'down_nWin': [45, 90], 'down_pWin': 2,
+            },
+            
+            {   #---------------------------------- B 4, (90, 180, 80)  
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+                    # 'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                    'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HX_2X, 'down_nWin': [1, 1], 'down_pWin': 1,
+            },
+
+            {   #---------------------------------- B 5, (45, 90, 160)  -------------------------------------------
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+                    # Global Attn at Flash.No slows down 10x.
+                    # AttnConn.Shift is impossible, as it requiers attn_mask, which is not compatible with Flash.Yes.
+                    'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+            },
+
+            {   #---------------------------------- B 6, (23, 45, 160)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 3, 'act_layer': 'sigmoid',
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 7, (12, 24, 160)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 3, 'act_layer': 'sigmoid',
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HX_1X, # HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 8, (6, 12, 160)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 3, 'act_layer': 'sigmoid',
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.Nothing, 'down_nWin': [1, 1], 'down_pWin': 1,
+            },
+            
+            # {   #---------------------------------- B 9, (3, 6, 160)
+            #     'skip_learn': True,
+            #     'square' : {
+            #         # managed: 'res', 'dim'
+            #         'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+            #         'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+            #     },
+            #     'down_mersplit': Reshape.Nothing,  # .HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+            # },
+        ]
+    }, 
+}
+
+
+projects["F16_M02_4"] = {    #---------------------------------------------------------- Micro-model for a single 8GB GPU -------
+    # ------------------------------- This overrides the above rules ----------------------
+    "management": {
+    "Zeus_Model_module" : "Zeus_Light_uNet_3",
+    "GPUWaitsData" : True,
+    "models_to_play": [0,],
+    "metrics" : "rmse", # "mae", "rmse"
+    # Let it be chosen by GPU rule 'nSubstepsPerStep' : 2,       # Can be changed upto the type of GPU.
+    "nSubstepsPerStep": 2,
+    'max_cascade_depth' : 1,     # max = nSubstepsPerStep. 1 = no actual cascades, raw prediction only
+    'half_life' : int(10228 * 8),    # covers  epochs
+    },
+    
+    "data": {
+    "factor10": 10,
+    "org_height": 721,
+    "batch_size": 1,
+    'lossXtargets' : 5.0,
+    },
+    
+    "model_0": {
+        "lr": 5e-4,
+        "max_lr": 5e-4,
+        'snapshot_cycle': 500,
+        'initial_steps' : 100,
+        "overwrite_saved_lr": False,
+        "accum_steps" : 10,   
+        "skip_validation" : True,
+        
+        'patch_kernel' : 4,
+        'patch_stride' : 4,
+
+        "batch_size": 1,
+        
+        "attn_dim" : 40,
+        "nHeads" : 5,       #
+        "nLayers" : 30,     #
+        "axial_loops" : 1,
+        "axial_not_total_pe" : True,
+        
+        'choose_best_loss_model' : False,
+        'useLRLearner' : False,
+        'use_checkpoint' : False,
+        
+        # The current model goes OOM on A100, with layers_to_enhance_in_enc_dec = [0] and nEnhancementPairs = [1]
+        'layers_to_enhance_in_enc_dec' : [],
+        'nEnhancementPairs': [],  # pairs
+
+        'inherited': {'nWin': [360, 720], 'pWin': 2,},
+        # 'inherited': {'nWin': [180, 180], 'pWin': 2,},    # 10x slower
+
+        'block_dicts' : [
+
+            {   #---------------------------------- B 0, (720, 1440, 6)
+                'skip_learn': True,                
+                ### 5x slower @ SNNNL /// 2s/it at ANNYN
+                # 'square' : {  # takes prohivitively long !!! for RTX 4070
+                #     # managed: 'res', 'dim'
+                #     'num_heads' : 4,    'nLayers' : 1, 'act_layer': 'sigmoid',
+                #     # Slows down prohibitively
+                #     # 'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                #     # Slows down prohibitively
+                #     'transForm': TransForm(AttnConn.Axial, PEConn.Nothing, PEType.Nothing, Flash.Yes, PBias.Nothing),
+                # },                
+                'down_mersplit': Reshape.HX_4X, 'down_nWin': [180, 360], 'down_pWin': 2,
+            },
+
+            {   #-------------------------------- B 1, (360, 720, 24)  padding dimensions
+                'skip_learn': True,
+                #!!! This is treating meteo and extra info equally, although meteo has denser info and more important.
+                'pad_dims': 15,     # Snapshot.tempo_dims + Snapshot.dense_dims + self.category_emb_dim + self.cascade_depth_emb_dim
+                'target_dims': 24,  # As you like in this phase. 24 + 15 -> 25 ... maximum 24.
+                'down_mersplit': Reshape.IX_ADD, 'down_nWin': [90, 180], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 2, (360, 720, 20)
+                #!!! This square is very costly in FLOPS. 100% GPU
+                # 'square' : {
+                #     # managed: 'res', 'dim'
+                #     'num_heads' : 4,    'nLayers' : 1, 'act_layer': 'sigmoid',
+                #     # Flash.No slows down.
+                #     'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                # },
+                # ------------ Reshape_MHA takes prohivitively longer here, breaks everything ...----------
+
+                #!!! A single layer takes over 6 seconds.
+                # 'square' : {
+                #     # managed: 'res', 'dim'
+                #     'num_heads' : 4,    'nLayers' : 1, 'act_layer': 'sigmoid',
+                #     # Flash.No slows down.
+                #     'transForm': TransForm(AttnConn.Shift, PEConn.Global, PEType.Learnable, Flash.No, PBias.Learnable),
+                # },
+
+                'skip_learn': True,
+                'down_mersplit': Reshape.HX_2X, 'down_nWin': [90, 180], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 3, (180, 360, 40)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+                    # 'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                    'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                },
+                # 'down_mersplit': Reshape.Nothing, # HFX_2X_MHA, 'down_nWin': [4, 4], 'down_pWin': 2,
+                'down_mersplit': Reshape.HX_2X, 'down_nWin': [45, 90], 'down_pWin': 2,
+            },
+            
+            {   #---------------------------------- B 4, (90, 180, 80)  
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+                    # 'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                    'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HX_2X, 'down_nWin': [1, 1], 'down_pWin': 1,
+            },
+
+            {   #---------------------------------- B 5, (45, 90, 160)  -------------------------------------------
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+                    # Global Attn at Flash.No slows down 10x.
+                    # AttnConn.Shift is impossible, as it requiers attn_mask, which is not compatible with Flash.Yes.
+                    'transForm': TransForm(AttnConn.Global, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+            },
+
+            {   #---------------------------------- B 6, (23, 45, 160)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 3, 'act_layer': 'sigmoid',
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 7, (12, 24, 160)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 3, 'act_layer': 'sigmoid',
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HX_1X, # HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 8, (6, 12, 160)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 3, 'act_layer': 'sigmoid',
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.Nothing, 'down_nWin': [1, 1], 'down_pWin': 1,
+            },
+            
+            # {   #---------------------------------- B 9, (3, 6, 160)
+            #     'skip_learn': True,
+            #     'square' : {
+            #         # managed: 'res', 'dim'
+            #         'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+            #         'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+            #     },
+            #     'down_mersplit': Reshape.Nothing,  # .HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+            # },
+        ]
+    }, 
+}
+
+projects["F16_M02_4"] = {    #---------------------------------------------------------- Micro-model for a single 8GB GPU -------
+    # ------------------------------- This overrides the above rules ----------------------
+    "management": {
+    "Zeus_Model_module" : "Zeus_Light_uNet_3",
+    "GPUWaitsData" : True,
+    "models_to_play": [0,],
+    "metrics" : "rmse", # "mae", "rmse"
+    # Let it be chosen by GPU rule 'nSubstepsPerStep' : 2,       # Can be changed upto the type of GPU.
+    "nSubstepsPerStep": 2,
+    'max_cascade_depth' : 1,     # max = nSubstepsPerStep. 1 = no actual cascades, raw prediction only
+    'half_life' : int(10228 * 8),    # covers  epochs
+    },
+    
+    "data": {
+    "factor10": 10,
+    "org_height": 721,
+    "batch_size": 1,
+    'lossXtargets' : 5.0,
+    },
+    
+    "model_0": {
+        "lr": 5e-4,
+        "max_lr": 5e-4,
+        'snapshot_cycle': 500,
+        'initial_steps' : 100,
+        "overwrite_saved_lr": False,
+        "accum_steps" : 10,   
+        "skip_validation" : True,
+        
+        'patch_kernel' : 4,
+        'patch_stride' : 4,
+
+        "batch_size": 1,
+        
+        "attn_dim" : 40,
+        "nHeads" : 5,       #
+        "nLayers" : 30,     #
+        "axial_loops" : 1,
+        "axial_not_total_pe" : True,
+        
+        'choose_best_loss_model' : False,
+        'useLRLearner' : False,
+        'use_checkpoint' : False,
+        
+        # The current model goes OOM on A100, with layers_to_enhance_in_enc_dec = [0] and nEnhancementPairs = [1]
+        'layers_to_enhance_in_enc_dec' : [],
+        'nEnhancementPairs': [],  # pairs
+
+        'inherited': {'nWin': [360, 720], 'pWin': 2,},
+        # 'inherited': {'nWin': [180, 180], 'pWin': 2,},    # 10x slower
+
+        'block_dicts' : [
+
+            {   #---------------------------------- B 0, (720, 1440, 6)
+                'skip_learn': True,                
+                ### 5x slower @ SNNNL /// 2s/it at ANNYN
+                # 'square' : {  # takes prohivitively long !!! for RTX 4070
+                #     # managed: 'res', 'dim'
+                #     'num_heads' : 4,    'nLayers' : 1, 'act_layer': 'sigmoid',
+                #     # Slows down prohibitively
+                #     # 'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                #     # Slows down prohibitively
+                #     'transForm': TransForm(AttnConn.Axial, PEConn.Nothing, PEType.Nothing, Flash.Yes, PBias.Nothing),
+                # },                
+                'down_mersplit': Reshape.HX_4X, 'down_nWin': [180, 360], 'down_pWin': 2,
+            },
+
+            {   #-------------------------------- B 1, (360, 720, 24)  padding dimensions
+                'skip_learn': True,
+                #!!! This is treating meteo and extra info equally, although meteo has denser info and more important.
+                'pad_dims': 15,     # Snapshot.tempo_dims + Snapshot.dense_dims + self.category_emb_dim + self.cascade_depth_emb_dim
+                'target_dims': 24,  # As you like in this phase. 24 + 15 -> 25 ... maximum 24.
+                'down_mersplit': Reshape.IX_ADD, 'down_nWin': [90, 180], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 2, (360, 720, 20)
+                #!!! This square is very costly in FLOPS. 100% GPU
+                # 'square' : {
+                #     # managed: 'res', 'dim'
+                #     'num_heads' : 4,    'nLayers' : 1, 'act_layer': 'sigmoid',
+                #     # Flash.No slows down.
+                #     'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                # },
+                # ------------ Reshape_MHA takes prohivitively longer here, breaks everything ...----------
+
+                #!!! A single layer takes over 6 seconds.
+                # 'square' : {
+                #     # managed: 'res', 'dim'
+                #     'num_heads' : 4,    'nLayers' : 1, 'act_layer': 'sigmoid',
+                #     # Flash.No slows down.
+                #     'transForm': TransForm(AttnConn.Shift, PEConn.Global, PEType.Learnable, Flash.No, PBias.Learnable),
+                # },
+
+                'skip_learn': True,
+                'down_mersplit': Reshape.HX_2X, 'down_nWin': [90, 180], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 3, (180, 360, 40)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+                    # 'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                    'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                },
+                # 'down_mersplit': Reshape.Nothing, # HFX_2X_MHA, 'down_nWin': [4, 4], 'down_pWin': 2,
+                'down_mersplit': Reshape.HX_2X, 'down_nWin': [45, 90], 'down_pWin': 2,
+            },
+            
+            {   #---------------------------------- B 4, (90, 180, 80)  
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+                    # 'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                    'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HX_2X, 'down_nWin': [1, 1], 'down_pWin': 1,
+            },
+
+            {   #---------------------------------- B 5, (45, 90, 160)  -------------------------------------------
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+                    # Global Attn at Flash.No slows down 10x.
+                    # AttnConn.Shift is impossible, as it requiers attn_mask, which is not compatible with Flash.Yes.
+                    'transForm': TransForm(AttnConn.Global, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+            },
+
+            {   #---------------------------------- B 6, (23, 45, 160)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 3, 'act_layer': 'sigmoid',
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 7, (12, 24, 160)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 3, 'act_layer': 'sigmoid',
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HX_1X, # HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 8, (6, 12, 160)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 3, 'act_layer': 'sigmoid',
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.Nothing, 'down_nWin': [1, 1], 'down_pWin': 1,
+            },
+            
+            # {   #---------------------------------- B 9, (3, 6, 160)
+            #     'skip_learn': True,
+            #     'square' : {
+            #         # managed: 'res', 'dim'
+            #         'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+            #         'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+            #     },
+            #     'down_mersplit': Reshape.Nothing,  # .HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+            # },
+        ]
+    }, 
+}
+
+projects["F16_M02_5"] = {    #---------------------------------------------------------- Micro-model for a single 8GB GPU -------
+    # ------------------------------- This overrides the above rules ----------------------
+    "management": {
+    "Zeus_Model_module" : "Zeus_Light_uNet_3",
+    "GPUWaitsData" : True,
+    "models_to_play": [0,],
+    "metrics" : "rmse", # "mae", "rmse"
+    # Let it be chosen by GPU rule 'nSubstepsPerStep' : 2,       # Can be changed upto the type of GPU.
+    "nSubstepsPerStep": 2,
+    'max_cascade_depth' : 1,     # max = nSubstepsPerStep. 1 = no actual cascades, raw prediction only
+    'half_life' : int(10228 * 8),    # covers  epochs
+    },
+    
+    "data": {
+    "factor10": 10,
+    "org_height": 721,
+    "batch_size": 1,
+    'lossXtargets' : 5.0,
+    },
+    
+    "model_0": {
+        "lr": 5e-4,
+        "max_lr": 5e-4,
+        'snapshot_cycle': 500,
+        'initial_steps' : 100,
+        "overwrite_saved_lr": False,
+        "accum_steps" : 10,   
+        "skip_validation" : True,
+        
+        'patch_kernel' : 4,
+        'patch_stride' : 4,
+
+        "batch_size": 1,
+        
+        "attn_dim" : 40,
+        "nHeads" : 5,       #
+        "nLayers" : 30,     #
+        "axial_loops" : 1,
+        "axial_not_total_pe" : True,
+        
+        'choose_best_loss_model' : False,
+        'useLRLearner' : False,
+        'use_checkpoint' : False,
+        
+        # The current model goes OOM on A100, with layers_to_enhance_in_enc_dec = [0] and nEnhancementPairs = [1]
+        'layers_to_enhance_in_enc_dec' : [],
+        'nEnhancementPairs': [],  # pairs
+
+        'inherited': {'nWin': [360, 720], 'pWin': 2,},
+        # 'inherited': {'nWin': [180, 180], 'pWin': 2,},    # 10x slower
+
+        'block_dicts' : [
+
+            {   #---------------------------------- B 0, (720, 1440, 6)
+                'skip_learn': True,                
+                ### 5x slower @ SNNNL /// 2s/it at ANNYN
+                # 'square' : {  # takes prohivitively long !!! for RTX 4070
+                #     # managed: 'res', 'dim'
+                #     'num_heads' : 4,    'nLayers' : 1, 'act_layer': 'sigmoid',
+                #     # Slows down prohibitively
+                #     # 'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                #     # Slows down prohibitively
+                #     'transForm': TransForm(AttnConn.Axial, PEConn.Nothing, PEType.Nothing, Flash.Yes, PBias.Nothing),
+                # },                
+                'down_mersplit': Reshape.HX_4X, 'down_nWin': [180, 360], 'down_pWin': 2,
+            },
+
+            {   #-------------------------------- B 1, (360, 720, 24)  padding dimensions
+                'skip_learn': True,
+                #!!! This is treating meteo and extra info equally, although meteo has denser info and more important.
+                'pad_dims': 15,     # Snapshot.tempo_dims + Snapshot.dense_dims + self.category_emb_dim + self.cascade_depth_emb_dim
+                'target_dims': 24,  # As you like in this phase. 24 + 15 -> 25 ... maximum 24.
+                'down_mersplit': Reshape.IX_ADD, 'down_nWin': [90, 180], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 2, (360, 720, 20)
+                #!!! This square is very costly in FLOPS. 100% GPU
+                # 'square' : {
+                #     # managed: 'res', 'dim'
+                #     'num_heads' : 4,    'nLayers' : 1, 'act_layer': 'sigmoid',
+                #     # Flash.No slows down.
+                #     'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                # },
+                # ------------ Reshape_MHA takes prohivitively longer here, breaks everything ...----------
+
+                #!!! A single layer takes over 6 seconds.
+                # 'square' : {
+                #     # managed: 'res', 'dim'
+                #     'num_heads' : 4,    'nLayers' : 1, 'act_layer': 'sigmoid',
+                #     # Flash.No slows down.
+                #     'transForm': TransForm(AttnConn.Shift, PEConn.Global, PEType.Learnable, Flash.No, PBias.Learnable),
+                # },
+
+                'skip_learn': True,
+                'down_mersplit': Reshape.HX_2X, 'down_nWin': [90, 180], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 3, (180, 360, 40)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+                    # 'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                    'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                },
+                # 'down_mersplit': Reshape.Nothing, # HFX_2X_MHA, 'down_nWin': [4, 4], 'down_pWin': 2,
+                'down_mersplit': Reshape.HX_2X, 'down_nWin': [45, 90], 'down_pWin': 2,
+            },
+            
+            {   #---------------------------------- B 4, (90, 180, 80)  
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+                    # 'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                    'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HX_2X, 'down_nWin': [1, 1], 'down_pWin': 1,
+            },
+
+            {   #---------------------------------- B 5, (45, 90, 160)  -------------------------------------------
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+                    # Global Attn at Flash.No slows down 10x.
+                    # AttnConn.Shift is impossible, as it requiers attn_mask, which is not compatible with Flash.Yes.
+                    'transForm': TransForm(AttnConn.Global, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+            },
+
+            {   #---------------------------------- B 6, (23, 45, 160)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 7, (12, 24, 160)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HX_1X, # HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 8, (6, 12, 160)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.No, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.Nothing, 'down_nWin': [1, 1], 'down_pWin': 1,
+            },
+            
+            # {   #---------------------------------- B 9, (3, 6, 160)
+            #     'skip_learn': True,
+            #     'square' : {
+            #         # managed: 'res', 'dim'
+            #         'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+            #         'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+            #     },
+            #     'down_mersplit': Reshape.Nothing,  # .HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+            # },
+        ]
+    }, 
+}
+
+projects["F16_M02_6"] = {    #---------------------------------------------------------- Micro-model for a single 8GB GPU -------
+    # ------------------------------- This overrides the above rules ----------------------
+    "management": {
+    "Zeus_Model_module" : "Zeus_Light_uNet_3",
+    "GPUWaitsData" : True,
+    "models_to_play": [0,],
+    "metrics" : "rmse", # "mae", "rmse"
+    # Let it be chosen by GPU rule 'nSubstepsPerStep' : 2,       # Can be changed upto the type of GPU.
+    "nSubstepsPerStep": 2,
+    'max_cascade_depth' : 1,     # max = nSubstepsPerStep. 1 = no actual cascades, raw prediction only
+    'half_life' : int(10228 * 8),    # covers  epochs
+    },
+    
+    "data": {
+    "factor10": 10,
+    "org_height": 721,
+    "batch_size": 1,
+    'lossXtargets' : 5.0,
+    },
+    
+    "model_0": {
+        "lr": 5e-4,
+        "max_lr": 5e-4,
+        'snapshot_cycle': 500,
+        'initial_steps' : 100,
+        "overwrite_saved_lr": False,
+        "accum_steps" : 10,   
+        "skip_validation" : True,
+        
+        'patch_kernel' : 4,
+        'patch_stride' : 4,
+
+        "batch_size": 1,
+        
+        "attn_dim" : 40,
+        "nHeads" : 5,       #
+        "nLayers" : 30,     #
+        "axial_loops" : 1,
+        "axial_not_total_pe" : True,
+        
+        'choose_best_loss_model' : False,
+        'useLRLearner' : False,
+        'use_checkpoint' : False,
+        
+        # The current model goes OOM on A100, with layers_to_enhance_in_enc_dec = [0] and nEnhancementPairs = [1]
+        'layers_to_enhance_in_enc_dec' : [],
+        'nEnhancementPairs': [],  # pairs
+
+        'inherited': {'nWin': [360, 720], 'pWin': 2,},
+        # 'inherited': {'nWin': [180, 180], 'pWin': 2,},    # 10x slower
+
+        'block_dicts' : [
+
+            {   #---------------------------------- B 0, (720, 1440, 6)
+                'skip_learn': True,                
+                ### 5x slower @ SNNNL /// 2s/it at ANNYN
+                # 'square' : {  # takes prohivitively long !!! for RTX 4070
+                #     # managed: 'res', 'dim'
+                #     'num_heads' : 4,    'nLayers' : 1, 'act_layer': 'sigmoid',
+                #     # Slows down prohibitively
+                #     # 'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                #     # Slows down prohibitively
+                #     'transForm': TransForm(AttnConn.Axial, PEConn.Nothing, PEType.Nothing, Flash.Yes, PBias.Nothing),
+                # },                
+                'down_mersplit': Reshape.HX_4X, 'down_nWin': [180, 360], 'down_pWin': 2,
+            },
+
+            {   #-------------------------------- B 1, (360, 720, 24)  padding dimensions
+                'skip_learn': True,
+                #!!! This is treating meteo and extra info equally, although meteo has denser info and more important.
+                'pad_dims': 15,     # Snapshot.tempo_dims + Snapshot.dense_dims + self.category_emb_dim + self.cascade_depth_emb_dim
+                'target_dims': 24,  # As you like in this phase. 24 + 15 -> 25 ... maximum 24.
+                'down_mersplit': Reshape.IX_ADD, 'down_nWin': [90, 180], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 2, (360, 720, 20)
+                #!!! This square is very costly in FLOPS. 100% GPU
+                # 'square' : {
+                #     # managed: 'res', 'dim'
+                #     'num_heads' : 4,    'nLayers' : 1, 'act_layer': 'sigmoid',
+                #     # Flash.No slows down.
+                #     'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                # },
+                # ------------ Reshape_MHA takes prohivitively longer here, breaks everything ...----------
+
+                #!!! A single layer takes over 6 seconds.
+                # 'square' : {
+                #     # managed: 'res', 'dim'
+                #     'num_heads' : 4,    'nLayers' : 1, 'act_layer': 'sigmoid',
+                #     # Flash.No slows down.
+                #     'transForm': TransForm(AttnConn.Shift, PEConn.Global, PEType.Learnable, Flash.No, PBias.Learnable),
+                # },
+
+                'skip_learn': True,
+                'down_mersplit': Reshape.HX_2X, 'down_nWin': [90, 180], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 3, (180, 360, 40)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+                    # 'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                    'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                },
+                # 'down_mersplit': Reshape.Nothing, # HFX_2X_MHA, 'down_nWin': [4, 4], 'down_pWin': 2,
+                'down_mersplit': Reshape.HX_2X, 'down_nWin': [45, 90], 'down_pWin': 2,
+            },
+            
+            {   #---------------------------------- B 4, (90, 180, 80)  
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 8, 'act_layer': 'sigmoid',
+                    # 'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                    'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HX_2X, 'down_nWin': [1, 1], 'down_pWin': 1,
+            },
+
+            {   #---------------------------------- B 5, (45, 90, 160)  -------------------------------------------
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 10, 'act_layer': 'sigmoid',
+                    # Global Attn at Flash.No slows down 10x.
+                    # AttnConn.Shift is impossible, as it requiers attn_mask, which is not compatible with Flash.Yes.
+                    'transForm': TransForm(AttnConn.Global, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+            },
+
+            {   #---------------------------------- B 6, (23, 45, 160)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 7, (12, 24, 160)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 3, 'act_layer': 'sigmoid',
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HX_1X, # HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 8, (6, 12, 160)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 3, 'act_layer': 'sigmoid',
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.Nothing, 'down_nWin': [1, 1], 'down_pWin': 1,
+            },
+            
+            # {   #---------------------------------- B 9, (3, 6, 160)
+            #     'skip_learn': True,
+            #     'square' : {
+            #         # managed: 'res', 'dim'
+            #         'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+            #         'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+            #     },
+            #     'down_mersplit': Reshape.Nothing,  # .HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+            # },
+        ]
+    }, 
+}
+
+projects["F16_M03"] = {    #---------------------------------------------------------- Micro-model for a single 8GB GPU -------
+    # ------------------------------- This overrides the above rules ----------------------
+    "management": {
+    "Zeus_Model_module" : "Zeus_Light_uNet_3",
+    "GPUWaitsData" : True,
+    "models_to_play": [0,],
+    "metrics" : "rmse", # "mae", "rmse"
+    # Let it be chosen by GPU rule 'nSubstepsPerStep' : 2,       # Can be changed upto the type of GPU.
+    "nSubstepsPerStep": 2,
+    'max_cascade_depth' : 1,     # max = nSubstepsPerStep. 1 = no actual cascades, raw prediction only
+    'half_life' : int(10228 * 8),    # covers  epochs
+    },
+    
+    "data": {
+    "factor10": 10,
+    "org_height": 721,
+    "batch_size": 1,
+    'lossXtargets' : 5.0,
+    },
+    
+    "model_0": {
+        "lr": 5e-4,
+        "max_lr": 5e-4,
+        'snapshot_cycle': 500,
+        'initial_steps' : 100,
+        "overwrite_saved_lr": False,
+        "accum_steps" : 10,   
+        "skip_validation" : True,
+        
+        'patch_kernel' : 4,
+        'patch_stride' : 4,
+
+        "batch_size": 1,
+        
+        "attn_dim" : 40,
+        "nHeads" : 5,       #
+        "nLayers" : 30,     #
+        "axial_loops" : 1,
+        "axial_not_total_pe" : True,
+        
+        'choose_best_loss_model' : False,
+        'useLRLearner' : False,
+        'use_checkpoint' : False,
+        
+        # The current model goes OOM on A100, with layers_to_enhance_in_enc_dec = [0] and nEnhancementPairs = [1]
+        'layers_to_enhance_in_enc_dec' : [],
+        'nEnhancementPairs': [],  # pairs
+
+        'inherited': {'nWin': [360, 720], 'pWin': 2,},
+        # 'inherited': {'nWin': [180, 180], 'pWin': 2,},    # 10x slower
+
+        'block_dicts' : [
+
+            {   #---------------------------------- B 0, (720, 1440, 6)
+                'skip_learn': True,                
+                ### 5x slower @ SNNNL /// 2s/it at ANNYN
+                # 'square' : {  # takes prohivitively long !!! for RTX 4070
+                #     # managed: 'res', 'dim'
+                #     'num_heads' : 4,    'nLayers' : 1, 'act_layer': 'sigmoid',
+                #     # Slows down prohibitively
+                #     # 'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                #     # Slows down prohibitively
+                #     'transForm': TransForm(AttnConn.Axial, PEConn.Nothing, PEType.Nothing, Flash.Yes, PBias.Nothing),
+                # },                
+                'down_mersplit': Reshape.HX_4X, 'down_nWin': [180, 360], 'down_pWin': 2,
+            },
+
+            {   #-------------------------------- B 1, (360, 720, 24)  padding dimensions
+                'skip_learn': True,
+                #!!! This is treating meteo and extra info equally, although meteo has denser info and more important.
+                'pad_dims': 15,     # Snapshot.tempo_dims + Snapshot.dense_dims + self.category_emb_dim + self.cascade_depth_emb_dim
+                'target_dims': 24,  # As you like in this phase. 24 + 15 -> 25 ... maximum 24.
+                'down_mersplit': Reshape.IX_ADD, 'down_nWin': [90, 180], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 2, (360, 720, 20)
+                #!!! This square is very costly in FLOPS. 100% GPU
+                # 'square' : {
+                #     # managed: 'res', 'dim'
+                #     'num_heads' : 4,    'nLayers' : 1, 'act_layer': 'sigmoid',
+                #     # Flash.No slows down.
+                #     'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                # },
+                # ------------ Reshape_MHA takes prohivitively longer here, breaks everything ...----------
+
+                #!!! A single layer takes over 6 seconds.
+                # 'square' : {
+                #     # managed: 'res', 'dim'
+                #     'num_heads' : 4,    'nLayers' : 1, 'act_layer': 'sigmoid',
+                #     # Flash.No slows down.
+                #     'transForm': TransForm(AttnConn.Shift, PEConn.Global, PEType.Learnable, Flash.No, PBias.Learnable),
+                # },
+
+                'skip_learn': True,
+                'down_mersplit': Reshape.HX_2X, 'down_nWin': [90, 180], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 3, (180, 360, 40)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+                    # 'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                    'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                },
+                # 'down_mersplit': Reshape.Nothing, # HFX_2X_MHA, 'down_nWin': [4, 4], 'down_pWin': 2,
+                'down_mersplit': Reshape.HX_2X, 'down_nWin': [45, 90], 'down_pWin': 2,
+            },
+            
+            {   #---------------------------------- B 4, (90, 180, 80)  
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 10, 'act_layer': 'sigmoid',
+                    # 'transForm': TransForm(AttnConn.Axial, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                    'transForm': TransForm(AttnConn.Axial, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HX_2X, 'down_nWin': [1, 1], 'down_pWin': 1,
+            },
+
+            {   #---------------------------------- B 5, (45, 90, 160)  -------------------------------------------
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+                    # Global Attn at Flash.No slows down 10x.
+                    # AttnConn.Shift is impossible, as it requiers attn_mask, which is not compatible with Flash.Yes.
+                    'transForm': TransForm(AttnConn.Global, PEConn.Axial, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+            },
+
+            {   #---------------------------------- B 6, (23, 45, 160)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 7, (12, 24, 160)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 3, 'act_layer': 'sigmoid',
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.HX_1X, # HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 2,
+            },
+
+            {   #---------------------------------- B 8, (6, 12, 160)
+                'skip_learn': True,
+                'square' : {
+                    # managed: 'res', 'dim'
+                    'num_heads' : 8,    'nLayers' : 3, 'act_layer': 'sigmoid',
+                    'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+                },
+                'down_mersplit': Reshape.Nothing, 'down_nWin': [1, 1], 'down_pWin': 1,
+            },
+            
+            # {   #---------------------------------- B 9, (3, 6, 160)
+            #     'skip_learn': True,
+            #     'square' : {
+            #         # managed: 'res', 'dim'
+            #         'num_heads' : 8,    'nLayers' : 6, 'act_layer': 'sigmoid',
+            #         'transForm': TransForm(AttnConn.Global, PEConn.Global, PEType.Learnable, Flash.Yes, PBias.Nothing),
+            #     },
+            #     'down_mersplit': Reshape.Nothing,  # .HFX_1X_MHA, 'down_nWin': [1, 1], 'down_pWin': 1,
+            # },
+        ]
+    }, 
+}
+
 #-------------------------------- select proejct -----------------------
 
-project = "F16_M01" # "Zeus_26Feb09" # "Zeus_uNet_Feb12"   # "Zeus_Swin_25Dec25_2"
+project = "F16_M03" # "Zeus_26Feb09" # "Zeus_uNet_Feb12"   # "Zeus_Swin_25Dec25_2"
 config["bayesProject"] = project
 # updata 'management'
 config.update(projects[project]["management"])

@@ -69,7 +69,7 @@ class FlashEncoderLayer(nn.Module):
         # x: (B, seq_len, d_model)        
 
         x_skip = x
-        with ctx('mha', self.attention):
+        with ctx('mha', self.attention):            # comeback, remove this line.
             x = self.attention(x, x, x, mask=mask, pos_bias_er=pos_bias_er, ss=ss)
         save(ss, x, 'attn_out')
         x = x + x_skip

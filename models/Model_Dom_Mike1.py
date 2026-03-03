@@ -166,8 +166,9 @@ class Model_Dom():
         scheduler = torch.optim.lr_scheduler.LambdaLR(
             optimizer=optimizer,
             # We don't want big, brave initial learning rates to take adventure. Let the initial LR be small to find the "true" path of learning.
-            lr_lambda = lambda step: math.pow(step/initial_steps, 2) if step < initial_steps else math.pow(2, - (step-initial_steps) / half_life)
+            # lr_lambda = lambda step: math.pow(step/initial_steps, 2) if step < initial_steps else math.pow(2, - (step-initial_steps) / half_life)
             # lr_lambda = lambda step: step/initial_steps if step < initial_steps else math.pow(2, - (step-initial_steps) / half_life)
+            lr_lambda = lambda step: math.pow(2, - (step-initial_steps) / half_life)
         )
         logging.info(f"Scheduler LambdaLR created with lr_lambda = lambda step: self.pm.lr * math.pow(2, - step / steps_for_half)")
 
