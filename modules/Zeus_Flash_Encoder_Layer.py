@@ -48,7 +48,7 @@ class PositionwiseFeedForward(nn.Module):
 from modules.Zeus_Flash_MHA_Standard import FlashMultiHeadAttention
 
 class FlashEncoderLayer(nn.Module):
-    def __init__(self, d_model, num_heads, dropout=0, use_flash=False, act_layer=nn.Sigmoid, eps=1e-9):
+    def __init__(self, d_model, num_heads, dropout=0, use_flash=False, act_layer=nn.Sigmoid, eps=1e-9, skip_learn=False):
         super().__init__()
         self.d_model = d_model
         self.num_heads = num_heads
@@ -63,23 +63,33 @@ class FlashEncoderLayer(nn.Module):
         self.norm_after_feed_forward = nn.LayerNorm(d_model, eps=eps)
         
         self.dropout = nn.Dropout(dropout)
+        
+        self.skip_learner_attn, self.skip_learner_ffn = None, None
+        if skip_learn is True:
+            self.skip_learner_attn = nn.Linear(d_model, d_model, bias=True)
+            torch.nn.init.eye_(self.skip_learner_attn.weight)
+            torch.nn.init.zeros_(self.skip_learner_attn.bias)
+            self.skip_learner_ffn = nn.Linear(d_model, d_model, bias=True)
+            torch.nn.init.eye_(self.skip_learner_ffn.weight)
+            torch.nn.init.zeros_(self.skip_learner_ffn.bias)
 
         
     def forward(self, x, mask=None, pos_bias_er=None, ss=None):
         # x: (B, seq_len, d_model)        
 
         x_skip = x
-        with ctx('mha', self.attention):            # comeback, remove this line.
-            x = self.attention(x, x, x, mask=mask, pos_bias_er=pos_bias_er, ss=ss)
+        x = self.attention(x, x, x, mask=mask, pos_bias_er=pos_bias_er, ss=ss)
         save(ss, x, 'attn_out')
-        x = x + x_skip
+        x = x + (x_skip if self.skip_learner_attn is None else self.skip_learner_attn(x_skip))
+        if self.skip_learner_attn is not None: save(ss, self.skip_learner_attn, 'sl_attn')
         dtype = x.dtype
         x = self.norm_after_attn(x).to(dtype=dtype)
         
         x_skip = x
         x = self.feed_forward(x, ss=ss)
         save(ss, x, 'ffn_out')
-        x = x + x_skip
+        x = x + (x_skip if self.skip_learner_ffn is None else self.skip_learner_ffn(x_skip))
+        if self.skip_learner_ffn is not None: save(ss, self.skip_learner_ffn, 'sl_ffn')
         dtype = x.dtype
         x = self.norm_after_feed_forward(x).to(dtype=dtype)
         

@@ -442,7 +442,7 @@ from modules.Zeus_Shift_Encoder_Layer import ShiftEncoderLayer
 
 class Flash_Versatile_Encoder_Layer(nn.Module):         # The lowest ranking module that knows H and W.
     def __init__(self, H, W, d_model, num_heads, nWin, dropout=0, act_layer=nn.Sigmoid, eps=1e-9,
-            transFrom=TransForm(),
+            transFrom=TransForm(), skip_learn=False
     ):
         super().__init__()
         self.H, self.W = H, W
@@ -457,7 +457,7 @@ class Flash_Versatile_Encoder_Layer(nn.Module):         # The lowest ranking mod
         self.pos_bias_er, self.pos_bias_er_h, self.pos_bias_er_w, self.pos_bias_er_normal, self.pos_bias_er_shifted = None, None, None, None, None
 
         if transFrom.attnconn == AttnConn.Global:
-            self.encoder = FlashEncoderLayer(d_model=d_model, num_heads=num_heads, dropout=dropout, use_flash=transFrom.flash.value, act_layer=act_layer, eps=eps)
+            self.encoder = FlashEncoderLayer(d_model=d_model, num_heads=num_heads, dropout=dropout, use_flash=transFrom.flash.value, act_layer=act_layer, eps=eps, skip_learn=skip_learn)
             
             if transFrom.peconn == PEConn.Global:   # output: global, intermal: global
                 self.pos_encoding = PositionalEncoding_Global_Global(max_height=H, max_width=W, dim=d_model, pe_type=transFrom.petype.value)
@@ -472,8 +472,8 @@ class Flash_Versatile_Encoder_Layer(nn.Module):         # The lowest ranking mod
             # consume: self.encoder, self.pos_encoding, self.pos_bias_er
             
         elif transFrom.attnconn == AttnConn.Axial:
-            self.encoder_h = FlashEncoderLayer(d_model=d_model, num_heads=num_heads, dropout=dropout, use_flash=transFrom.flash.value, act_layer=act_layer, eps=eps)
-            self.encoder_w = FlashEncoderLayer(d_model=d_model, num_heads=num_heads, dropout=dropout, use_flash=transFrom.flash.value, act_layer=act_layer, eps=eps)
+            self.encoder_h = FlashEncoderLayer(d_model=d_model, num_heads=num_heads, dropout=dropout, use_flash=transFrom.flash.value, act_layer=act_layer, eps=eps, skip_learn=skip_learn)
+            self.encoder_w = FlashEncoderLayer(d_model=d_model, num_heads=num_heads, dropout=dropout, use_flash=transFrom.flash.value, act_layer=act_layer, eps=eps, skip_learn=skip_learn)
 
             self.pos_encoding, self.pos_encoding_h, self.pos_encoding_w = None, None, None
             if transFrom.peconn == PEConn.Global:
@@ -491,8 +491,8 @@ class Flash_Versatile_Encoder_Layer(nn.Module):         # The lowest ranking mod
             
         elif transFrom.attnconn == AttnConn.Shift:
 
-            self.encoder_normal = ShiftEncoderLayer(H, W, d_model=d_model, num_heads=num_heads, nWin=nWin, shift=False, act_layer=act_layer)
-            self.encoder_shifted = ShiftEncoderLayer(H, W, d_model=d_model, num_heads=num_heads, nWin=nWin, shift=True, act_layer=act_layer)
+            self.encoder_normal = ShiftEncoderLayer(H, W, d_model=d_model, num_heads=num_heads, nWin=nWin, shift=False, act_layer=act_layer, skip_learn=skip_learn)
+            self.encoder_shifted = ShiftEncoderLayer(H, W, d_model=d_model, num_heads=num_heads, nWin=nWin, shift=True, act_layer=act_layer, skip_learn=skip_learn)
  
             self.pos_encoding, self.pos_encoding_normal, self.pos_encoding_shifted = None, None, None
             if transFrom.peconn == PEConn.Global:

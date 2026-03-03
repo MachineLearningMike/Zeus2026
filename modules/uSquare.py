@@ -30,6 +30,7 @@ class uSquare(nn.Module):
         n_layers = dict['nLayers']
         transForm = dict['transForm']
         act_layer = dict['act_layer']
+        skip_learn = dict.get('skip_learn', False)
         self.n_layers = n_layers
         
         # attnconn, peconn, petype, flash, pbias = transForm.attnconn, transForm.peconn, transForm.petype, transForm.flash, transForm.pbias
@@ -43,7 +44,7 @@ class uSquare(nn.Module):
         self.layers = nn.ModuleList()
         
         for idx in range(n_layers):
-            layer = Flash_Versatile_Encoder_Layer(H=H, W=W, d_model=d_model, num_heads=num_heads, nWin=nWin, transFrom=transForm, act_layer=act_layer)
+            layer = Flash_Versatile_Encoder_Layer(H=H, W=W, d_model=d_model, num_heads=num_heads, nWin=nWin, transFrom=transForm, act_layer=act_layer, skip_learn=skip_learn)
             self.layers.append(layer)
 
     def forward(self, x, ss=None):

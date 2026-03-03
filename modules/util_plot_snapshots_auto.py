@@ -1039,6 +1039,17 @@ if __name__ == "__main__":
 
     linewidth = 1.2
 
+    for i in range(3, 9):
+        for j in range(8):
+            vlist = [f"B{i}.e.L{j}.sl_attn.weight", f"B{i}.d.L{j}.sl_attn.weight", f"B{i}.e.L{j}.sl_attn.bias", f"B{i}.d.L{j}.sl_attn.bias"]
+            analyzer.plot_variable_list(vlist, title=f"attn skip_learer, B{i} L{j}", linewidth=linewidth)
+
+    for i in range(3, 9):
+        for j in range(8):
+            vlist = [f"B{i}.e.L{j}.sl_ffn.weight", f"B{i}.d.L{j}.sl_ffn.weight", f"B{i}.e.L{j}.sl_ffn.bias", f"B{i}.d.L{j}.sl_ffn.bias"]
+            analyzer.plot_variable_list(vlist, title=f"ffn skip_learer, B{i} L{j}", linewidth=linewidth)
+
+
     vlist = [f"B{i}.skip_learner.weight" for i in range(10)]
     analyzer.plot_variable_list(vlist, title="Skip_learners weight", linewidth=linewidth)
 
@@ -1052,10 +1063,20 @@ if __name__ == "__main__":
     for i in range(3, 10):
         for j in range(6):
             vlist = [f'B{i}.e.L{j}.h.mha.wq.weight', f'B{i}.e.L{j}.h.mha.wk.weight', f'B{i}.e.L{j}.h.mha.wv.weight',]
-            analyzer.plot_variable_list(vlist, title=f"Q K V weights at B{i} Enc L{j}, h_axis", linewidth=linewidth)
+            analyzer.plot_variable_list(vlist, title=f"Q K V weights, B{i} Enc L{j}, h_axis", linewidth=linewidth)
+
+    for i in range(3, 10):
+        for j in range(6):
+            vlist = [f'B{i}.e.L{j}.h.mha.wq.bias', f'B{i}.e.L{j}.h.mha.wk.bias', f'B{i}.e.L{j}.h.mha.wv.bias',]
+            analyzer.plot_variable_list(vlist, title=f"Q K V bias B{i}, Enc L{j}, h_axis", linewidth=linewidth)
+
 
     for i in range(3, 10):
         vlist = [f'B{i}.e.L{j}.h.pre_act' for j in range(8)]
+        analyzer.plot_variable_list(vlist, title=f"Pre_Act at B{i} L<j> Enc", linewidth=linewidth)
+
+    for i in range(3, 10):
+        vlist = [f'B{i}.e.L{j}.pre_act' for j in range(8)]
         analyzer.plot_variable_list(vlist, title=f"Pre_Act at B{i} L<j> Enc", linewidth=linewidth)
 
     for i in range(3, 10):
@@ -1067,6 +1088,20 @@ if __name__ == "__main__":
             vlist = [f'B{i}.e.L{j}.h.pre_act', f'B{i}.d.L{j}.h.pre_act', f'B{i}.e.L{j}.w.pre_act', f'B{i}.d.L{j}.w.pre_act']
             analyzer.plot_variable_list(vlist, title=f"Pre_Act at B{i} L{j} Enc h Dec h Enc w Dec w", linewidth=linewidth)
 
+    for i in range(3, 10):
+        for j in range(6):
+            vlist = [f'B{i}.e.L{j}.pre_act', f'B{i}.d.L{j}.pre_act']
+            analyzer.plot_variable_list(vlist, title=f"Pre_Act at B{i} L{j} Enc Dec", linewidth=linewidth)
+
+    for i in range(3, 10):
+        for j in range(6):
+            vlist = [f'B{i}.e.L{j}.pre_act', f'B{i}.d.L{j}.pre_act']
+            analyzer.plot_variable_list(vlist, title=f"Pre_Act at B{i} L{j} Enc Dec", linewidth=linewidth)
+    
+    for i in range(3, 10):
+        for j in range(6):
+            vlist = [f'B{i}.e.L{j}.mha.wq.weight', f'B{i}.d.L{j}.mha.wq.bias', f'B{i}.e.L{j}.mha.wk.weight', f'B{i}.d.L{j}.mha.wk.bias', f'B{i}.e.L{j}.mha.w.weight', f'B{i}.d.L{j}.mha.wv.bias']
+            analyzer.plot_variable_list(vlist, title=f"WQ, WK, WV at B{i} L{j} Enc Dec", linewidth=linewidth)
     
     # # Method 1: Interactive checkbox selector
     # analyzer.interactive_variable_selector(key_filters=['B1', 'mha'], value_type='both', linewidth=0.5)
