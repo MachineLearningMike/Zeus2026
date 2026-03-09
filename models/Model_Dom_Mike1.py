@@ -95,6 +95,7 @@ class Model_Dom():
         self.step_loss = None
         self.best_loss = 1e9
         self.accum_substeps = 0
+        self.ma_loss = 1e9
     
     def _select_optimizer(self):
         optimizer_name = getattr(self.pm, 'optimizer', 'adam').lower()
@@ -238,7 +239,7 @@ class Model_Dom():
     def save_best_loss_model(self, loss, elapse):
         if loss < 0.4 and loss < (1 - 0.000001) * self.best_loss:    # 0.4: hard-coded.
             self.best_loss = loss
-            logging.info("!!!!!!!!!!!!!!! Saving best-loss model... md {}, loss {:.5f}, iter {} elapse {} !!!!!!!!!!!!".format(self.md_id, loss, self.accum_substeps, elapse))
+            logging.info("!!!!!!!!!!!!!!! Saving best-loss model... md {}, loss {:.5f}, ma_loss {:.5f} iter {} elapse {} !!!!!!!!!!!!".format(self.md_id, loss, self.ma_loss, self.accum_substeps, elapse))
             self.save_state(best_loss=True)
        
     def save_state(self, name=None, train_finished=False, best_loss=False, epoch_finished=False):
@@ -453,7 +454,7 @@ class Model_Dom():
 
                     #------------------- scheduler -------------------------
                         
-                    self.scheduler.load_state_dict(checkpoint['scheduler'])
+                    # self.scheduler.load_state_dict(checkpoint['scheduler'])/
                     logging.info("Scheduler loaded with saved state.")
                     
                     logging.info(f"Scheduler type: {type(self.scheduler).__name__}")
@@ -1159,11 +1160,11 @@ class Model_Dom():
         self.recent_losses.append(step_loss)
         norm = 50
         if len(self.recent_losses) > norm: self.recent_losses = self.recent_losses[-norm:]
-        ma_loss = sum(self.recent_losses) / len(self.recent_losses)
+        self.ma_loss = sum(self.recent_losses) / len(self.recent_losses)
         
         strC = " ".join(f"{x:.3g}" for x in step_metrics[-len(self.pm.targetVariables):])
         # self.pbar_description = "md {} loss {:.3f}, {} ({})".format(self.md_id, step_loss, self.pm.metrics, strC)
-        self.pbar_description = "loss {:.3f} ma_loss {:.3f} {} ({}) substeps {}".format(step_loss, ma_loss, self.pm.metrics, strC, self.accum_substeps)
+        self.pbar_description = "loss {:.3f} ma_loss {:.3f} {} ({}) substeps {}".format(step_loss, self.ma_loss, self.pm.metrics, strC, self.accum_substeps)
         
     def stepOptimizer(self, loss_item):
         performed_step, lr, grad_norm = self.lr_controller.stepOptimizer(loss_item)

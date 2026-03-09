@@ -2736,7 +2736,7 @@ if __name__ == "__main__":
     inclusive_left = datetime(2018, 1, 1, 0, tzinfo=timezone.utc)
     inclusive_right = datetime(2025, 12, 31, 23, tzinfo=timezone.utc)
 
-    # dataset.play_weather_snapshots(inclusive_left, inclusive_right, modulo=6)
+    dataset.play_weather_snapshots(inclusive_left, inclusive_right, modulo=6)
 
     # dataset.play_physical_prediction(inclusive_left, inclusive_right, modulo=6)
 #
@@ -2763,9 +2763,9 @@ if __name__ == "__main__":
     # dict = dataset.analyze_hourly_paths(inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=1)
     # print(f"count: {dict['count']}, n_unexpected_hours: {dict['n_unexpected_hours']}, first_hour: {dict['first_hour']}, last_hour: {dict['last_hour']}, n_missing_hours: {len(dict['missing_hours'])}")
 
-    modulo = 6; is_downsample_and_predict=False; factor10 = 5
-    dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=modulo, 
-            file_name="2008_2025", factor10=factor10, is_downsample_and_predict=is_downsample_and_predict)
+    # modulo = 6; is_downsample_and_predict=False; factor10 = 5
+    # dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=modulo, 
+    #         file_name="2008_2025", factor10=factor10, is_downsample_and_predict=is_downsample_and_predict)
 
     # modulo = 6; is_downsample_and_predict=True; factor10 = 5
     # dataset.analyze_hourly_dataset(save=True, inclusive_left=inclusive_left, inclusive_right=inclusive_right, modulo=modulo, 
